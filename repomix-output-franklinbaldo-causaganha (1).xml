@@ -1,0 +1,3795 @@
+<repomix><file_summary>This file is a merged representation of a subset of the codebase, containing files not matching ignore patterns, combined into a single document by Repomix.
+The content has been processed where comments have been removed, empty lines have been removed, content has been formatted for parsing in xml style, content has been compressed (code blocks are separated by ⋮---- delimiter), security check has been disabled.<purpose>This file contains a packed representation of the entire repository&apos;s contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.</purpose><file_format>The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Repository files, each consisting of:
+  - File path as an attribute
+  - Full contents of the file</file_format><usage_guidelines>- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.</usage_guidelines><notes>- Some files may have been excluded based on .gitignore rules and Repomix&apos;s configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching these patterns are excluded: tests/**, **.md
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Code comments have been removed from supported file types
+- Empty lines have been removed from all files
+- Content has been formatted for parsing in xml style
+- Content has been compressed - code blocks are separated by ⋮---- delimiter
+- Security check has been disabled - content may contain sensitive information
+- Files are sorted by Git change count (files with more changes are at the bottom)</notes></file_summary><directory_structure>.claude/
+  settings.local.json
+.github/
+  actions/
+    setup/
+      action.yml
+  workflows/
+    02_archive_to_ia.yml
+    bulk-processing.yml
+    database-archive.yml
+    pipeline.yml
+    test.yml
+migrations/
+  001_init.sql
+  002_archived_databases.sql
+  003_queue_system.sql
+scripts/
+  bulk_discovery.py
+  manual_discovery.py
+  update_prompt_hashes.py
+src/
+  models/
+    __init__.py
+    diario.py
+    interfaces.py
+  tribunais/
+    tjro/
+      adapter.py
+      analyze_adapter.py
+      collect_and_archive.py
+      diario_processor.py
+      discovery.py
+      download_adapter.py
+      downloader.py
+    __init__.py
+  __init__.py
+  archive_db.py
+  async_diario_pipeline.py
+  cli_new.py
+  cli.py
+  config.py
+  database.py
+  extractor.py
+  ia_database_sync.py
+  ia_discovery.py
+  ia_helpers.py
+  migration_runner.py
+  migration.py
+  pipeline.py
+  utils.py
+.env.example
+.gitignore
+.pre-commit-config.yaml
+.python-version
+config.toml
+LICENSE
+mkdocs.yml
+openskill_rating.py
+pyproject.toml</directory_structure><files>This section contains the contents of the repository&apos;s files.<file path=".claude/settings.local.json">{
+  &quot;permissions&quot;: {
+    &quot;allow&quot;: [
+      &quot;Bash(ls:*)&quot;,
+      &quot;Bash(uv pip install:*)&quot;,
+      &quot;Bash(python:*)&quot;,
+      &quot;Bash(source:*)&quot;,
+      &quot;Bash(pip install:*)&quot;,
+      &quot;Bash(uv venv:*)&quot;,
+      &quot;Bash(pytest:*)&quot;,
+      &quot;Bash(wget:*)&quot;,
+      &quot;Bash(uv add:*)&quot;,
+      &quot;Bash(rm:*)&quot;,
+      &quot;Bash(uv lock:*)&quot;,
+      &quot;Bash(uv run pytest:*)&quot;,
+      &quot;Bash(uv run:*)&quot;,
+      &quot;Bash(grep:*)&quot;,
+      &quot;Bash(git add:*)&quot;,
+      &quot;Bash(git commit:*)&quot;,
+      &quot;Bash(git config:*)&quot;,
+      &quot;Bash(rg:*)&quot;,
+      &quot;Bash(mv:*)&quot;,
+      &quot;Bash(find:*)&quot;,
+      &quot;Bash(cp:*)&quot;,
+      &quot;Bash(mkdir:*)&quot;,
+      &quot;Bash(uv sync:*)&quot;,
+      &quot;Bash(git checkout:*)&quot;,
+      &quot;Bash(git push:*)&quot;,
+      &quot;Bash(git restore:*)&quot;,
+      &quot;Bash(git rm:*)&quot;,
+      &quot;Bash(git branch:*)&quot;,
+      &quot;Bash(git remote:*)&quot;,
+      &quot;WebFetch(domain:docs.anthropic.com)&quot;,
+      &quot;Bash(uv remove:*)&quot;,
+      &quot;Bash(git merge:*)&quot;,
+      &quot;Bash(sed:*)&quot;,
+      &quot;Bash(PYTHONPATH=/mnt/c/Users/frank/causa_ganha uv run python causaganha/core/pipeline.py --help)&quot;,
+      &quot;Bash(touch:*)&quot;,
+&lt;&lt;&lt;&lt;&lt;&lt;&lt; Updated upstream
+      &quot;WebFetch(domain:www.tjro.jus.br)&quot;,
+      &quot;Bash(jq:*)&quot;,
+      &quot;Bash(ia upload:*)&quot;,
+      &quot;Bash(PYTHONPATH=src uv run causaganha queue --help)&quot;,
+      &quot;Bash(PYTHONPATH=src uv run causaganha db --help)&quot;,
+      &quot;Bash(PYTHONPATH=src uv run causaganha queue --url \&quot;https://example.com/test.pdf\&quot;)&quot;,
+      &quot;Bash(PYTHONPATH=src uv run causaganha db status)&quot;,
+      &quot;Bash(PYTHONPATH=src uv run causaganha pipeline --help)&quot;,
+      &quot;Bash(true)&quot;,
+      &quot;Bash(PYTHONPATH=src uv run causaganha db migrate)&quot;,
+      &quot;Bash(PYTHONPATH=src uv run causaganha --help)&quot;,
+      &quot;Bash(PYTHONPATH=src uv run causaganha queue --url \&quot;https://www.tjro.jus.br/test.pdf\&quot;)&quot;,
+      &quot;Bash(PYTHONPATH=src uv run causaganha stats)&quot;,
+      &quot;Bash(uv pip:*)&quot;
+=======
+      &quot;Bash(git rev-list:*)&quot;
+&gt;&gt;&gt;&gt;&gt;&gt;&gt; Stashed changes
+    ],
+    &quot;deny&quot;: []
+  }
+}</file><file path=".github/actions/setup/action.yml">name: Setup
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: &apos;3.12&apos;
+    - uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/pip
+          .uv
+        key: ${{ runner.os }}-uv-${{ hashFiles(&apos;pyproject.toml&apos;) }}
+    - uses: astral-sh/setup-uv@v3
+      with:
+        version: latest
+    - run: uv sync --dev
+      shell: bash</file><file path=".github/workflows/02_archive_to_ia.yml">name: Legacy IA Archive (Standalone)
+on:
+  workflow_dispatch:
+    inputs:
+      max_items:
+        description: &apos;Maximum items to process&apos;
+        required: false
+        type: string
+        default: &apos;10&apos;
+      start_date:
+        description: &apos;Start date (YYYY-MM-DD)&apos;
+        required: false
+        type: string
+      end_date:
+        description: &apos;End date (YYYY-MM-DD)&apos;
+        required: false
+        type: string
+env:
+  IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+  IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+  MAX_CONCURRENT_DOWNLOADS: 2
+  MAX_CONCURRENT_IA_UPLOADS: 1
+jobs:
+  legacy-archive:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Python and dependencies
+        uses: ./.github/actions/setup
+      - name: Legacy Archive Process
+        run: |
+          echo &quot;🚀 Running legacy archive process...&quot;
+          CMD=&quot;uv run python src/async_diario_pipeline.py --verbose&quot;
+          if [ -n &quot;${{ inputs.max_items }}&quot; ]; then
+            CMD=&quot;$CMD --max-items ${{ inputs.max_items }}&quot;
+          fi
+          if [ -n &quot;${{ inputs.start_date }}&quot; ]; then
+            CMD=&quot;$CMD --start-date ${{ inputs.start_date }}&quot;
+          fi
+          if [ -n &quot;${{ inputs.end_date }}&quot; ]; then
+            CMD=&quot;$CMD --end-date ${{ inputs.end_date }}&quot;
+          fi
+          echo &quot;Executing: $CMD&quot;
+          eval $CMD
+      - name: Archive Summary
+        if: always()
+        run: |
+          echo &quot;📊 Archive Statistics:&quot;
+          uv run python src/async_diario_pipeline.py --stats-only || echo &quot;No progress data found&quot;
+      - name: Upload Progress
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: legacy-archive-${{ github.run_id }}
+          path: |
+            data/diario_pipeline_progress.json
+          retention-days: 3
+          if-no-files-found: ignore</file><file path=".github/workflows/bulk-processing.yml">name: Bulk Diario Processing
+on:
+  workflow_dispatch:
+    inputs:
+      processing_mode:
+        description: &apos;Processing mode&apos;
+        required: true
+        type: choice
+        options:
+          - &apos;year_2025&apos;
+          - &apos;year_2024&apos;
+          - &apos;year_2023&apos;
+          - &apos;last_100&apos;
+          - &apos;last_500&apos;
+          - &apos;all_diarios&apos;
+          - &apos;custom_range&apos;
+        default: &apos;year_2025&apos;
+      start_date:
+        description: &apos;Start date for custom range (YYYY-MM-DD)&apos;
+        required: false
+        type: string
+      end_date:
+        description: &apos;End date for custom range (YYYY-MM-DD)&apos;
+        required: false
+        type: string
+      max_items:
+        description: &apos;Maximum items to process (overrides mode)&apos;
+        required: false
+        type: string
+      force_reprocess:
+        description: &apos;Force reprocess existing items&apos;
+        required: false
+        type: boolean
+        default: false
+      concurrent_downloads:
+        description: &apos;Concurrent downloads (1-5)&apos;
+        required: false
+        type: string
+        default: &apos;3&apos;
+      concurrent_uploads:
+        description: &apos;Concurrent IA uploads (1-3)&apos;
+        required: false
+        type: string
+        default: &apos;2&apos;
+env:
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+  IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+jobs:
+  bulk-processing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Python and dependencies
+        uses: ./.github/actions/setup
+      - name: Determine processing parameters
+        id: params
+        run: |
+          echo &quot;MAX_CONCURRENT_DOWNLOADS=${{ inputs.concurrent_downloads }}&quot; &gt;&gt; &quot;$GITHUB_ENV&quot;
+          echo &quot;MAX_CONCURRENT_IA_UPLOADS=${{ inputs.concurrent_uploads }}&quot; &gt;&gt; &quot;$GITHUB_ENV&quot;
+          case &quot;${{ inputs.processing_mode }}&quot; in
+            &quot;year_2025&quot;)
+              echo &quot;start_date=2025-01-01&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              echo &quot;end_date=2025-12-31&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              echo &quot;description=Process all 2025 diarios&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              ;;
+            &quot;year_2024&quot;)
+              echo &quot;start_date=2024-01-01&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              echo &quot;end_date=2024-12-31&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              echo &quot;description=Process all 2024 diarios&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              ;;
+            &quot;year_2023&quot;)
+              echo &quot;start_date=2023-01-01&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              echo &quot;end_date=2023-12-31&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              echo &quot;description=Process all 2023 diarios&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              ;;
+            &quot;last_100&quot;)
+              echo &quot;max_items=100&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              echo &quot;description=Process latest 100 diarios&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              ;;
+            &quot;last_500&quot;)
+              echo &quot;max_items=500&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              echo &quot;description=Process latest 500 diarios&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              ;;
+            &quot;all_diarios&quot;)
+              echo &quot;description=Process ALL 5,058 diarios (full archive)&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              ;;
+            &quot;custom_range&quot;)
+              echo &quot;start_date=${{ inputs.start_date }}&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              echo &quot;end_date=${{ inputs.end_date }}&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              echo &quot;description=Process custom date range&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+              ;;
+          esac
+          if [ -n &quot;${{ inputs.max_items }}&quot; ]; then
+            echo &quot;max_items=${{ inputs.max_items }}&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+          fi
+      - name: Pre-processing Summary
+        run: |
+          echo &quot;🚀 **Bulk Processing Configuration**&quot;
+          echo &quot;- **Mode**: ${{ inputs.processing_mode }}&quot;
+          echo &quot;- **Description**: ${{ steps.params.outputs.description }}&quot;
+          echo &quot;- **Start Date**: ${{ steps.params.outputs.start_date || &apos;Not set&apos; }}&quot;
+          echo &quot;- **End Date**: ${{ steps.params.outputs.end_date || &apos;Not set&apos; }}&quot;
+          echo &quot;- **Max Items**: ${{ steps.params.outputs.max_items || &apos;No limit&apos; }}&quot;
+          echo &quot;- **Force Reprocess**: ${{ inputs.force_reprocess }}&quot;
+          echo &quot;- **Concurrent Downloads**: ${{ inputs.concurrent_downloads }}&quot;
+          echo &quot;- **Concurrent Uploads**: ${{ inputs.concurrent_uploads }}&quot;
+          echo &quot;&quot;
+          echo &quot;⚠️ **Large processing jobs may take several hours**&quot;
+      - name: Run Bulk Processing
+        id: processing
+        run: |
+          echo &quot;🚀 Starting bulk processing...&quot;
+          # Build command
+          CMD=&quot;uv run python src/async_diario_pipeline.py --verbose --sync-database --upload-database&quot;
+          if [ -n &quot;${{ steps.params.outputs.start_date }}&quot; ]; then
+            CMD=&quot;$CMD --start-date ${{ steps.params.outputs.start_date }}&quot;
+          fi
+          if [ -n &quot;${{ steps.params.outputs.end_date }}&quot; ]; then
+            CMD=&quot;$CMD --end-date ${{ steps.params.outputs.end_date }}&quot;
+          fi
+          if [ -n &quot;${{ steps.params.outputs.max_items }}&quot; ]; then
+            CMD=&quot;$CMD --max-items ${{ steps.params.outputs.max_items }}&quot;
+          fi
+          if [ &quot;${{ inputs.force_reprocess }}&quot; = &quot;true&quot; ]; then
+            CMD=&quot;$CMD --force-reprocess&quot;
+          fi
+          echo &quot;🔧 Executing: $CMD&quot;
+          echo &quot;&quot;
+          eval $CMD
+      - name: Processing Statistics
+        if: always()
+        run: |
+          echo &quot;📊 **Final Processing Statistics:**&quot;
+          uv run python src/async_diario_pipeline.py --stats-only || echo &quot;No progress data available&quot;
+          echo &quot;&quot;
+          echo &quot;🔍 **Internet Archive Status:**&quot;
+          # Show recent uploads
+          uv run python src/ia_discovery.py --year $(date +%Y) | head -20 || echo &quot;Discovery unavailable&quot;
+      - name: Upload Progress and Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bulk-processing-${{ inputs.processing_mode }}-${{ github.run_id }}
+          path: |
+            data/diario_pipeline_progress.json
+            data/causaganha.duckdb
+          retention-days: 30
+          if-no-files-found: ignore
+  summary:
+    needs: bulk-processing
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Processing Summary
+        run: |
+          echo &quot;## 📊 Bulk Processing Summary&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;**Mode**: ${{ inputs.processing_mode }}&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;**Status**: ${{ needs.bulk-processing.result }}&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;**Duration**: ~${{ github.run_duration || &apos;Unknown&apos; }}&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          if [ &quot;${{ needs.bulk-processing.result }}&quot; = &quot;success&quot; ]; then
+            echo &quot;✅ **Bulk processing completed successfully!**&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+            echo &quot;&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+            echo &quot;🔗 **View Results:**&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+            echo &quot;- [Internet Archive TJRO Collection](https://archive.org/search.php?query=creator%3A%22Tribunal%20de%20Justi%C3%A7a%20de%20Rond%C3%B4nia%22)&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+            echo &quot;- [Workflow Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          else
+            echo &quot;❌ **Processing failed or was cancelled**&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+            echo &quot;&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+            echo &quot;Check the workflow logs for detailed error information.&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          fi
+          echo &quot;&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;---&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;*Generated by CausaGanha Async Pipeline*&quot; &gt;&gt; $GITHUB_STEP_SUMMARY</file><file path=".github/workflows/database-archive.yml">name: Archive Database to Internet Archive
+on:
+  schedule:
+    - cron: &apos;0 4 * * 0&apos;
+  workflow_dispatch:
+    inputs:
+      archive_type:
+        description: &apos;Type of archive to create&apos;
+        required: true
+        default: &apos;weekly&apos;
+        type: choice
+        options:
+          - weekly
+          - monthly
+          - quarterly
+      snapshot_date:
+        description: &apos;Snapshot date (YYYY-MM-DD, defaults to today)&apos;
+        required: false
+        type: string
+      force_upload:
+        description: &apos;Force upload even if archive exists&apos;
+        required: false
+        default: false
+        type: boolean
+env:
+  PYTHON_VERSION: &quot;3.11&quot;
+jobs:
+  archive_database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: dev
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: |
+          uv sync --dev
+      - name: Install Internet Archive CLI
+        run: |
+          uv pip install internetarchive
+      - name: Verify database exists
+        run: |
+          if [ ! -f &quot;data/causaganha.duckdb&quot; ]; then
+            echo &quot;❌ Database file not found: data/causaganha.duckdb&quot;
+            echo &quot;Cannot create archive without database&quot;
+            exit 1
+          fi
+          echo &quot;📊 Database info:&quot;
+          ls -lh data/causaganha.duckdb
+      - name: Determine archive parameters
+        id: archive_params
+        run: |
+          if [ &quot;${{ github.event_name }}&quot; = &quot;schedule&quot; ]; then
+            if [ &quot;$(date +%d)&quot; -le 7 ]; then
+              echo &quot;archive_type=monthly&quot; &gt;&gt; $GITHUB_OUTPUT
+            else
+              echo &quot;archive_type=weekly&quot; &gt;&gt; $GITHUB_OUTPUT
+            fi
+          else
+            echo &quot;archive_type=${{ github.event.inputs.archive_type }}&quot; &gt;&gt; $GITHUB_OUTPUT
+          fi
+          if [ -n &quot;${{ github.event.inputs.snapshot_date }}&quot; ]; then
+            echo &quot;snapshot_date=${{ github.event.inputs.snapshot_date }}&quot; &gt;&gt; $GITHUB_OUTPUT
+          else
+            echo &quot;snapshot_date=$(date +%Y-%m-%d)&quot; &gt;&gt; $GITHUB_OUTPUT
+          fi
+          echo &quot;force_upload=${{ github.event.inputs.force_upload || &apos;false&apos; }}&quot; &gt;&gt; $GITHUB_OUTPUT
+      - name: Check for existing archive
+        id: check_existing
+        if: ${{ steps.archive_params.outputs.force_upload != &apos;true&apos; }}
+        run: |
+          ITEM_ID=&quot;causaganha-database-${{ steps.archive_params.outputs.snapshot_date }}-${{ steps.archive_params.outputs.archive_type }}&quot;
+          echo &quot;Checking for existing archive: $ITEM_ID&quot;
+          if ia metadata &quot;$ITEM_ID&quot; &gt;/dev/null 2&gt;&amp;1; then
+            echo &quot;⚠️ Archive already exists: $ITEM_ID&quot;
+            echo &quot;archive_exists=true&quot; &gt;&gt; $GITHUB_OUTPUT
+            echo &quot;item_id=$ITEM_ID&quot; &gt;&gt; $GITHUB_OUTPUT
+          else
+            echo &quot;✅ No existing archive found, proceeding with upload&quot;
+            echo &quot;archive_exists=false&quot; &gt;&gt; $GITHUB_OUTPUT
+            echo &quot;item_id=$ITEM_ID&quot; &gt;&gt; $GITHUB_OUTPUT
+          fi
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+      - name: Skip if archive exists
+        if: ${{ steps.check_existing.outputs.archive_exists == &apos;true&apos; &amp;&amp; steps.archive_params.outputs.force_upload != &apos;true&apos; }}
+        run: |
+          echo &quot;🔄 Archive already exists and force_upload is not enabled&quot;
+          echo &quot;Skipping archive creation for ${{ steps.check_existing.outputs.item_id }}&quot;
+          echo &quot;To force upload, re-run with force_upload=true&quot;
+      - name: Create database archive
+        if: ${{ steps.check_existing.outputs.archive_exists != &apos;true&apos; || steps.archive_params.outputs.force_upload == &apos;true&apos; }}
+        id: create_archive
+        run: |
+          echo &quot;🚀 Creating database archive...&quot;
+          echo &quot;Archive type: ${{ steps.archive_params.outputs.archive_type }}&quot;
+          echo &quot;Snapshot date: ${{ steps.archive_params.outputs.snapshot_date }}&quot;
+          uv run python src/archive_db.py \
+            --db-path data/causaganha.duckdb \
+            --date &quot;${{ steps.archive_params.outputs.snapshot_date }}&quot; \
+            --archive-type &quot;${{ steps.archive_params.outputs.archive_type }}&quot; \
+            --verbose
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+      - name: Verify archive upload
+        if: ${{ steps.check_existing.outputs.archive_exists != &apos;true&apos; || steps.archive_params.outputs.force_upload == &apos;true&apos; }}
+        run: |
+          ITEM_ID=&quot;${{ steps.check_existing.outputs.item_id }}&quot;
+          echo &quot;🔍 Verifying archive upload: $ITEM_ID&quot;
+          sleep 30
+          if ia metadata &quot;$ITEM_ID&quot; &gt;/dev/null 2&gt;&amp;1; then
+            echo &quot;✅ Archive successfully uploaded and accessible&quot;
+            echo &quot;🔗 Archive URL: https://archive.org/details/$ITEM_ID&quot;
+            echo &quot;📊 Archive information:&quot;
+            ia metadata &quot;$ITEM_ID&quot; | jq -r &apos;.metadata | {title, description, date, creator}&apos;
+          else
+            echo &quot;❌ Archive verification failed&quot;
+            echo &quot;Item may still be processing or upload failed&quot;
+            exit 1
+          fi
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+      - name: Update database with archive record
+        if: ${{ steps.check_existing.outputs.archive_exists != &apos;true&apos; || steps.archive_params.outputs.force_upload == &apos;true&apos; }}
+        run: |
+          echo &quot;📝 Archive process completed successfully&quot;
+          echo &quot;Archive uploaded to Internet Archive for public access&quot;
+      - name: Archive summary
+        if: always()
+        run: |
+          echo &quot;## Database Archive Summary&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;- **Date**: ${{ steps.archive_params.outputs.snapshot_date }}&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;- **Type**: ${{ steps.archive_params.outputs.archive_type }}&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;- **Item ID**: ${{ steps.check_existing.outputs.item_id }}&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          if [ &quot;${{ steps.check_existing.outputs.archive_exists }}&quot; = &quot;true&quot; ] &amp;&amp; [ &quot;${{ steps.archive_params.outputs.force_upload }}&quot; != &quot;true&quot; ]; then
+            echo &quot;- **Status**: ⚠️ Skipped (archive already exists)&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+            echo &quot;- **Archive URL**: https://archive.org/details/${{ steps.check_existing.outputs.item_id }}&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          elif [ &quot;${{ job.status }}&quot; = &quot;success&quot; ]; then
+            echo &quot;- **Status**: ✅ Successfully archived&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+            echo &quot;- **Archive URL**: https://archive.org/details/${{ steps.check_existing.outputs.item_id }}&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          else
+            echo &quot;- **Status**: ❌ Archive failed&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          fi
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo &quot;❌ Database archive workflow failed&quot;
+          echo &quot;Check the logs above for error details&quot;
+          echo &quot;This may require manual intervention&quot;</file><file path=".github/workflows/pipeline.yml">name: Daily CausaGanha Async Pipeline
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: &apos;Process specific date (YYYY-MM-DD)&apos;
+        required: false
+        type: string
+      max_items:
+        description: &apos;Maximum items to process (for testing)&apos;
+        required: false
+        type: string
+        default: &apos;&apos;
+      start_date:
+        description: &apos;Start date for range processing (YYYY-MM-DD)&apos;
+        required: false
+        type: string
+      end_date:
+        description: &apos;End date for range processing (YYYY-MM-DD)&apos;
+        required: false
+        type: string
+      force_reprocess:
+        description: &apos;Force reprocess items even if they exist in IA&apos;
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: &apos;15 3 * * *&apos;
+env:
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+  IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+  MAX_CONCURRENT_DOWNLOADS: 3
+  MAX_CONCURRENT_IA_UPLOADS: 2
+jobs:
+  async-pipeline:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Python and dependencies
+        uses: ./.github/actions/setup
+      - name: Determine processing parameters
+        id: params
+        run: |
+          if [ &quot;${{ github.event_name }}&quot; = &quot;schedule&quot; ]; then
+            echo &quot;max_items=5&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+            echo &quot;mode=scheduled&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+          else
+            echo &quot;max_items=${{ inputs.max_items }}&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+            echo &quot;date=${{ inputs.date }}&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+            echo &quot;start_date=${{ inputs.start_date }}&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+            echo &quot;end_date=${{ inputs.end_date }}&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+            echo &quot;force_reprocess=${{ inputs.force_reprocess }}&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+            echo &quot;mode=manual&quot; &gt;&gt; &quot;$GITHUB_OUTPUT&quot;
+          fi
+      - name: Run Async Pipeline
+        id: pipeline
+        run: |
+          echo &quot;🚀 Starting CausaGanha Async Pipeline...&quot;
+          CMD=&quot;uv run python src/async_diario_pipeline.py --verbose --sync-database --upload-database&quot;
+          if [ -n &quot;${{ steps.params.outputs.max_items }}&quot; ]; then
+            CMD=&quot;$CMD --max-items ${{ steps.params.outputs.max_items }}&quot;
+          fi
+          if [ -n &quot;${{ steps.params.outputs.date }}&quot; ]; then
+            CMD=&quot;$CMD --start-date ${{ steps.params.outputs.date }} --end-date ${{ steps.params.outputs.date }}&quot;
+          fi
+          if [ -n &quot;${{ steps.params.outputs.start_date }}&quot; ]; then
+            CMD=&quot;$CMD --start-date ${{ steps.params.outputs.start_date }}&quot;
+          fi
+          if [ -n &quot;${{ steps.params.outputs.end_date }}&quot; ]; then
+            CMD=&quot;$CMD --end-date ${{ steps.params.outputs.end_date }}&quot;
+          fi
+          if [ &quot;${{ steps.params.outputs.force_reprocess }}&quot; = &quot;true&quot; ]; then
+            CMD=&quot;$CMD --force-reprocess&quot;
+          fi
+          echo &quot;Executing: $CMD&quot;
+          eval $CMD
+      - name: Generate Pipeline Report
+        if: always()
+        run: |
+          echo &quot;📊 Pipeline Statistics:&quot;
+          uv run python src/async_diario_pipeline.py --stats-only || echo &quot;No progress data found&quot;
+          echo &quot;&quot;
+          echo &quot;🔍 Internet Archive Discovery:&quot;
+          uv run python src/ia_discovery.py --year $(date +%Y) | head -10 || echo &quot;Discovery failed&quot;
+      - name: Upload Progress Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-progress-${{ github.run_id }}
+          path: |
+            data/diario_pipeline_progress.json
+            data/causaganha.duckdb
+          retention-days: 7
+          if-no-files-found: ignore
+  summarize:
+    needs: async-pipeline
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Pipeline Summary
+        run: |
+          echo &quot;## 📊 CausaGanha Pipeline Summary&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;**Mode**: ${{ steps.params.outputs.mode || &apos;scheduled&apos; }}&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;**Status**: ${{ needs.async-pipeline.result }}&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;**Run ID**: ${{ github.run_id }}&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          echo &quot;&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          if [ &quot;${{ needs.async-pipeline.result }}&quot; = &quot;success&quot; ]; then
+            echo &quot;✅ Pipeline completed successfully!&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+            echo &quot;&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+            echo &quot;🔗 **Useful Links:**&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+            echo &quot;- [Internet Archive Collection](https://archive.org/search.php?query=creator%3A%22Tribunal%20de%20Justi%C3%A7a%20de%20Rond%C3%B4nia%22)&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+            echo &quot;- [Project Repository](https://github.com/${{ github.repository }})&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          else
+            echo &quot;❌ Pipeline failed. Check logs for details.&quot; &gt;&gt; $GITHUB_STEP_SUMMARY
+          fi</file><file path=".github/workflows/test.yml">name: CI
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: &apos;3.12&apos;
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: &quot;latest&quot;
+      - name: Install dependencies
+        run: |
+          uv sync --dev
+          uv pip install -e .
+      - name: Format and lint code
+        run: |
+          uv run ruff format
+          uv run ruff check --fix
+      - name: Commit changes
+        run: |
+          if [ -n &quot;$(git status --porcelain)&quot; ]; then
+            git config user.email &quot;actions@github.com&quot;
+            git config user.name &quot;GitHub Actions&quot;
+            git commit -am &quot;chore(ci): auto-fix linting&quot;
+            git push
+          fi
+      - name: Run tests
+        run: uv run pytest tests/ --cov=src --cov-report=xml</file><file path="migrations/001_init.sql">CREATE TABLE IF NOT EXISTS ratings (
+    advogado_id VARCHAR PRIMARY KEY,
+    mu DOUBLE NOT NULL DEFAULT 25.0,
+    sigma DOUBLE NOT NULL DEFAULT 8.333,
+    total_partidas INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS partidas (
+    id INTEGER,
+    data_partida DATE NOT NULL,
+    numero_processo VARCHAR NOT NULL,
+    equipe_a_ids JSON NOT NULL,
+    equipe_b_ids JSON NOT NULL,
+    ratings_equipe_a_antes JSON NOT NULL,
+    ratings_equipe_b_antes JSON NOT NULL,
+    resultado_partida VARCHAR CHECK (resultado_partida IN (&apos;win_a&apos;, &apos;win_b&apos;, &apos;draw&apos;)),
+    ratings_equipe_a_depois JSON NOT NULL,
+    ratings_equipe_b_depois JSON NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS pdf_metadata (
+    id INTEGER,
+    filename VARCHAR NOT NULL,
+    download_date DATE NOT NULL,
+    original_url TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    sha256_hash CHAR(64) UNIQUE NOT NULL,
+    archive_identifier VARCHAR,
+    archive_url TEXT,
+    upload_status VARCHAR DEFAULT &apos;pending&apos; CHECK (upload_status IN (&apos;pending&apos;, &apos;uploaded&apos;, &apos;failed&apos;)),
+    upload_date TIMESTAMP,
+    extraction_status VARCHAR DEFAULT &apos;pending&apos; CHECK (extraction_status IN (&apos;pending&apos;, &apos;processing&apos;, &apos;completed&apos;, &apos;failed&apos;)),
+    decisions_extracted INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS decisoes (
+    id INTEGER,
+    numero_processo VARCHAR NOT NULL,
+    pdf_source_id INTEGER,
+    json_source_file VARCHAR,
+    extraction_timestamp TIMESTAMP,
+    polo_ativo JSON NOT NULL,
+    polo_passivo JSON NOT NULL,
+    advogados_polo_ativo JSON NOT NULL,
+    advogados_polo_passivo JSON NOT NULL,
+    tipo_decisao VARCHAR,
+    resultado VARCHAR,
+    data_decisao DATE,
+    resumo TEXT,
+    texto_completo TEXT,
+    raw_json_data JSON,
+    processed_for_trueskill BOOLEAN DEFAULT FALSE,
+    partida_id INTEGER,
+    validation_status VARCHAR DEFAULT &apos;pending&apos; CHECK (validation_status IN (&apos;pending&apos;, &apos;valid&apos;, &apos;invalid&apos;)),
+    validation_errors TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS json_files (
+    id INTEGER,
+    filename VARCHAR NOT NULL UNIQUE,
+    file_path VARCHAR NOT NULL,
+    file_size_bytes BIGINT,
+    sha256_hash CHAR(64),
+    extraction_date DATE,
+    source_pdf_filename VARCHAR,
+    total_decisions INTEGER DEFAULT 0,
+    valid_decisions INTEGER DEFAULT 0,
+    processing_status VARCHAR DEFAULT &apos;pending&apos; CHECK (processing_status IN (&apos;pending&apos;, &apos;processing&apos;, &apos;completed&apos;, &apos;failed&apos;, &apos;archived&apos;)),
+    processed_at TIMESTAMP,
+    error_message TEXT,
+    archived_to_duckdb BOOLEAN DEFAULT FALSE,
+    original_file_deleted BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS pdfs (
+    id INTEGER PRIMARY KEY,
+    filename VARCHAR NOT NULL,
+    date_published DATE NOT NULL,
+    sha256_hash CHAR(64) UNIQUE NOT NULL,
+    ia_identifier VARCHAR UNIQUE,
+    ia_url TEXT,
+    upload_status VARCHAR DEFAULT &apos;pending&apos; CHECK (upload_status IN (&apos;pending&apos;, &apos;uploaded&apos;, &apos;failed&apos;)),
+    upload_date TIMESTAMP,
+    file_size_bytes BIGINT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_partidas_data ON partidas(data_partida);
+CREATE INDEX IF NOT EXISTS idx_partidas_processo ON partidas(numero_processo);
+CREATE INDEX IF NOT EXISTS idx_pdf_metadata_hash ON pdf_metadata(sha256_hash);
+CREATE INDEX IF NOT EXISTS idx_pdf_metadata_date ON pdf_metadata(download_date);
+CREATE INDEX IF NOT EXISTS idx_decisoes_processo ON decisoes(numero_processo);
+CREATE INDEX IF NOT EXISTS idx_decisoes_pdf ON decisoes(pdf_source_id);
+CREATE INDEX IF NOT EXISTS idx_decisoes_trueskill ON decisoes(processed_for_trueskill);
+CREATE INDEX IF NOT EXISTS idx_json_files_status ON json_files(processing_status);
+CREATE INDEX IF NOT EXISTS idx_pdfs_hash ON pdfs(sha256_hash);
+CREATE INDEX IF NOT EXISTS idx_pdfs_date ON pdfs(date_published);
+CREATE OR REPLACE VIEW ranking_atual AS
+SELECT
+    advogado_id,
+    mu,
+    sigma,
+    mu - 3 * sigma as conservative_skill,
+    total_partidas,
+    ROW_NUMBER() OVER (ORDER BY mu DESC) as ranking_mu,
+    ROW_NUMBER() OVER (ORDER BY mu - 3 * sigma DESC) as ranking_conservative
+FROM ratings
+WHERE total_partidas &gt; 0
+ORDER BY mu DESC;
+CREATE OR REPLACE VIEW estatisticas_gerais AS
+SELECT
+    (SELECT COUNT(*) FROM ratings) as total_advogados,
+    (SELECT COUNT(*) FROM ratings WHERE total_partidas &gt; 0) as advogados_ativos,
+    (SELECT AVG(mu) FROM ratings WHERE total_partidas &gt; 0) as mu_medio,
+    (SELECT AVG(sigma) FROM ratings WHERE total_partidas &gt; 0) as sigma_medio,
+    (SELECT MAX(total_partidas) FROM ratings) as max_partidas,
+    (SELECT COUNT(*) FROM partidas) as total_partidas,
+    (SELECT COUNT(*) FROM pdf_metadata) as total_pdfs,
+    (SELECT COUNT(*) FROM pdf_metadata WHERE upload_status = &apos;uploaded&apos;) as pdfs_arquivados,
+    (SELECT COUNT(*) FROM decisoes) as total_decisoes,
+    (SELECT COUNT(*) FROM decisoes WHERE validation_status = &apos;valid&apos;) as decisoes_validas,
+    (SELECT COUNT(*) FROM json_files) as total_json_files,
+    (SELECT COUNT(*) FROM json_files WHERE processing_status = &apos;completed&apos;) as json_files_processados,
+    (SELECT COUNT(*) FROM pdfs) as total_pdfs_ia,
+    (SELECT COUNT(*) FROM pdfs WHERE upload_status = &apos;uploaded&apos;) as pdfs_ia_uploaded;</file><file path="migrations/002_archived_databases.sql">CREATE TABLE IF NOT EXISTS archived_databases (
+    id INTEGER PRIMARY KEY,
+    snapshot_date DATE NOT NULL,
+    archive_type VARCHAR(20) NOT NULL CHECK (archive_type IN (&apos;weekly&apos;, &apos;monthly&apos;, &apos;quarterly&apos;)),
+    ia_identifier VARCHAR(100) NOT NULL UNIQUE,
+    ia_url TEXT NOT NULL,
+    file_size_bytes BIGINT NOT NULL,
+    sha256_hash CHAR(64) NOT NULL,
+    total_lawyers INTEGER,
+    total_matches INTEGER,
+    total_decisions INTEGER,
+    upload_status VARCHAR(20) DEFAULT &apos;pending&apos; CHECK (upload_status IN (&apos;pending&apos;, &apos;uploading&apos;, &apos;completed&apos;, &apos;failed&apos;)),
+    upload_started_at TIMESTAMP,
+    upload_completed_at TIMESTAMP,
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_archived_databases_date ON archived_databases(snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_archived_databases_type ON archived_databases(archive_type);
+CREATE INDEX IF NOT EXISTS idx_archived_databases_status ON archived_databases(upload_status);
+CREATE INDEX IF NOT EXISTS idx_archived_databases_ia_id ON archived_databases(ia_identifier);
+CREATE OR REPLACE VIEW estatisticas_gerais AS
+SELECT
+    (SELECT COUNT(*) FROM ratings) as total_advogados,
+    (SELECT COUNT(*) FROM ratings WHERE total_partidas &gt; 0) as advogados_ativos,
+    (SELECT AVG(mu) FROM ratings WHERE total_partidas &gt; 0) as mu_medio,
+    (SELECT AVG(sigma) FROM ratings WHERE total_partidas &gt; 0) as sigma_medio,
+    (SELECT MAX(total_partidas) FROM ratings) as max_partidas,
+    (SELECT COUNT(*) FROM partidas) as total_partidas,
+    (SELECT COUNT(*) FROM pdf_metadata) as total_pdfs,
+    (SELECT COUNT(*) FROM pdf_metadata WHERE upload_status = &apos;uploaded&apos;) as pdfs_arquivados,
+    (SELECT COUNT(*) FROM decisoes) as total_decisoes,
+    (SELECT COUNT(*) FROM decisoes WHERE validation_status = &apos;valid&apos;) as decisoes_validas,
+    (SELECT COUNT(*) FROM json_files) as total_json_files,
+    (SELECT COUNT(*) FROM json_files WHERE processing_status = &apos;completed&apos;) as json_files_processados,
+    (SELECT COUNT(*) FROM pdfs) as total_pdfs_ia,
+    (SELECT COUNT(*) FROM pdfs WHERE upload_status = &apos;uploaded&apos;) as pdfs_ia_uploaded,
+    (SELECT COUNT(*) FROM archived_databases) as total_database_archives,
+    (SELECT COUNT(*) FROM archived_databases WHERE upload_status = &apos;completed&apos;) as database_archives_completed,
+    (SELECT MAX(snapshot_date) FROM archived_databases WHERE upload_status = &apos;completed&apos;) as latest_archive_date;
+CREATE OR REPLACE VIEW archive_status AS
+SELECT
+    snapshot_date,
+    archive_type,
+    ia_identifier,
+    ia_url,
+    ROUND(file_size_bytes / 1024.0 / 1024.0, 2) as file_size_mb,
+    total_lawyers,
+    total_matches,
+    total_decisions,
+    upload_status,
+    upload_completed_at,
+    CASE
+        WHEN upload_completed_at IS NOT NULL THEN
+            ROUND(EXTRACT(&apos;epoch&apos; FROM upload_completed_at - upload_started_at) / 60.0, 1)
+        ELSE NULL
+    END as upload_duration_minutes,
+    created_at
+FROM archived_databases
+ORDER BY snapshot_date DESC;</file><file path="migrations/003_queue_system.sql">CREATE TABLE IF NOT EXISTS pdf_discovery_queue (
+    id INTEGER PRIMARY KEY,
+    url TEXT NOT NULL UNIQUE,
+    date TEXT NOT NULL,
+    number TEXT,
+    year INTEGER NOT NULL,
+    status TEXT CHECK(status IN (&apos;pending&apos;, &apos;processing&apos;, &apos;completed&apos;, &apos;failed&apos;)) DEFAULT &apos;pending&apos;,
+    priority INTEGER DEFAULT 0,
+    attempts INTEGER DEFAULT 0,
+    last_attempt TIMESTAMP,
+    error_message TEXT,
+    metadata JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS pdf_archive_queue (
+    id INTEGER PRIMARY KEY,
+    pdf_id INTEGER NOT NULL,
+    local_path TEXT NOT NULL,
+    status TEXT CHECK(status IN (&apos;pending&apos;, &apos;processing&apos;, &apos;completed&apos;, &apos;failed&apos;)) DEFAULT &apos;pending&apos;,
+    attempts INTEGER DEFAULT 0,
+    last_attempt TIMESTAMP,
+    error_message TEXT,
+    ia_url TEXT,
+    ia_item_id TEXT,
+    upload_size_bytes INTEGER,
+    upload_duration_ms INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+);
+CREATE TABLE IF NOT EXISTS pdf_extraction_queue (
+    id INTEGER PRIMARY KEY,
+    pdf_id INTEGER NOT NULL,
+    local_path TEXT NOT NULL,
+    status TEXT CHECK(status IN (&apos;pending&apos;, &apos;processing&apos;, &apos;completed&apos;, &apos;failed&apos;)) DEFAULT &apos;pending&apos;,
+    attempts INTEGER DEFAULT 0,
+    last_attempt TIMESTAMP,
+    error_message TEXT,
+    extraction_result JSON,
+    decisions_found INTEGER DEFAULT 0,
+    processing_duration_ms INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+);
+CREATE TABLE IF NOT EXISTS rating_processing_queue (
+    id INTEGER PRIMARY KEY,
+    pdf_id INTEGER NOT NULL,
+    status TEXT CHECK(status IN (&apos;pending&apos;, &apos;processing&apos;, &apos;completed&apos;, &apos;failed&apos;)) DEFAULT &apos;pending&apos;,
+    attempts INTEGER DEFAULT 0,
+    last_attempt TIMESTAMP,
+    error_message TEXT,
+    decisions_processed INTEGER DEFAULT 0,
+    ratings_updated INTEGER DEFAULT 0,
+    matches_created INTEGER DEFAULT 0,
+    processing_duration_ms INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+);
+CREATE TABLE IF NOT EXISTS queue_processing_log (
+    id INTEGER PRIMARY KEY,
+    queue_type TEXT NOT NULL,
+    queue_item_id INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    message TEXT,
+    processing_duration_ms INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+ALTER TABLE pdfs ADD COLUMN IF NOT EXISTS discovery_queue_id INTEGER;
+ALTER TABLE pdfs ADD COLUMN IF NOT EXISTS file_size_bytes INTEGER;
+ALTER TABLE pdfs ADD COLUMN IF NOT EXISTS download_duration_ms INTEGER;
+ALTER TABLE pdfs ADD COLUMN IF NOT EXISTS processing_status TEXT DEFAULT &apos;pending&apos;;
+CREATE INDEX IF NOT EXISTS idx_discovery_queue_status_priority ON pdf_discovery_queue(status, priority DESC);
+CREATE INDEX IF NOT EXISTS idx_discovery_queue_date ON pdf_discovery_queue(date);
+CREATE INDEX IF NOT EXISTS idx_discovery_queue_year ON pdf_discovery_queue(year);
+CREATE INDEX IF NOT EXISTS idx_discovery_queue_url ON pdf_discovery_queue(url);
+CREATE INDEX IF NOT EXISTS idx_archive_queue_status ON pdf_archive_queue(status);
+CREATE INDEX IF NOT EXISTS idx_archive_queue_pdf_id ON pdf_archive_queue(pdf_id);
+CREATE INDEX IF NOT EXISTS idx_extraction_queue_status ON pdf_extraction_queue(status);
+CREATE INDEX IF NOT EXISTS idx_extraction_queue_pdf_id ON pdf_extraction_queue(pdf_id);
+CREATE INDEX IF NOT EXISTS idx_rating_queue_status ON rating_processing_queue(status);
+CREATE INDEX IF NOT EXISTS idx_rating_queue_pdf_id ON rating_processing_queue(pdf_id);
+CREATE INDEX IF NOT EXISTS idx_processing_log_queue_type ON queue_processing_log(queue_type);
+CREATE INDEX IF NOT EXISTS idx_processing_log_created_at ON queue_processing_log(created_at);
+CREATE VIEW IF NOT EXISTS queue_summary AS
+SELECT
+    &apos;discovery&apos; as queue_type,
+    COUNT(*) as total_items,
+    SUM(CASE WHEN status = &apos;pending&apos; THEN 1 ELSE 0 END) as pending,
+    SUM(CASE WHEN status = &apos;processing&apos; THEN 1 ELSE 0 END) as processing,
+    SUM(CASE WHEN status = &apos;completed&apos; THEN 1 ELSE 0 END) as completed,
+    SUM(CASE WHEN status = &apos;failed&apos; THEN 1 ELSE 0 END) as failed,
+    MIN(created_at) as oldest_item,
+    MAX(created_at) as newest_item
+FROM pdf_discovery_queue
+UNION ALL
+SELECT
+    &apos;archive&apos; as queue_type,
+    COUNT(*) as total_items,
+    SUM(CASE WHEN status = &apos;pending&apos; THEN 1 ELSE 0 END) as pending,
+    SUM(CASE WHEN status = &apos;processing&apos; THEN 1 ELSE 0 END) as processing,
+    SUM(CASE WHEN status = &apos;completed&apos; THEN 1 ELSE 0 END) as completed,
+    SUM(CASE WHEN status = &apos;failed&apos; THEN 1 ELSE 0 END) as failed,
+    MIN(created_at) as oldest_item,
+    MAX(created_at) as newest_item
+FROM pdf_archive_queue
+UNION ALL
+SELECT
+    &apos;extraction&apos; as queue_type,
+    COUNT(*) as total_items,
+    SUM(CASE WHEN status = &apos;pending&apos; THEN 1 ELSE 0 END) as pending,
+    SUM(CASE WHEN status = &apos;processing&apos; THEN 1 ELSE 0 END) as processing,
+    SUM(CASE WHEN status = &apos;completed&apos; THEN 1 ELSE 0 END) as completed,
+    SUM(CASE WHEN status = &apos;failed&apos; THEN 1 ELSE 0 END) as failed,
+    MIN(created_at) as oldest_item,
+    MAX(created_at) as newest_item
+FROM pdf_extraction_queue
+UNION ALL
+SELECT
+    &apos;ratings&apos; as queue_type,
+    COUNT(*) as total_items,
+    SUM(CASE WHEN status = &apos;pending&apos; THEN 1 ELSE 0 END) as pending,
+    SUM(CASE WHEN status = &apos;processing&apos; THEN 1 ELSE 0 END) as processing,
+    SUM(CASE WHEN status = &apos;completed&apos; THEN 1 ELSE 0 END) as completed,
+    SUM(CASE WHEN status = &apos;failed&apos; THEN 1 ELSE 0 END) as failed,
+    MIN(created_at) as oldest_item,
+    MAX(created_at) as newest_item
+FROM rating_processing_queue;
+CREATE VIEW IF NOT EXISTS failed_queue_items AS
+SELECT
+    &apos;discovery&apos; as queue_type,
+    id,
+    date as item_date,
+    url as item_identifier,
+    attempts,
+    error_message,
+    last_attempt,
+    created_at
+FROM pdf_discovery_queue
+WHERE status = &apos;failed&apos;
+UNION ALL
+SELECT
+    &apos;archive&apos; as queue_type,
+    aq.id,
+    p.date_published as item_date,
+    aq.local_path as item_identifier,
+    aq.attempts,
+    aq.error_message,
+    aq.last_attempt,
+    aq.created_at
+FROM pdf_archive_queue aq
+JOIN pdfs p ON aq.pdf_id = p.id
+WHERE aq.status = &apos;failed&apos;
+UNION ALL
+SELECT
+    &apos;extraction&apos; as queue_type,
+    eq.id,
+    p.date_published as item_date,
+    eq.local_path as item_identifier,
+    eq.attempts,
+    eq.error_message,
+    eq.last_attempt,
+    eq.created_at
+FROM pdf_extraction_queue eq
+JOIN pdfs p ON eq.pdf_id = p.id
+WHERE eq.status = &apos;failed&apos;
+UNION ALL
+SELECT
+    &apos;ratings&apos; as queue_type,
+    rq.id,
+    p.date_published as item_date,
+    CAST(rq.pdf_id AS TEXT) as item_identifier,
+    rq.attempts,
+    rq.error_message,
+    rq.last_attempt,
+    rq.created_at
+FROM rating_processing_queue rq
+JOIN pdfs p ON rq.pdf_id = p.id
+WHERE rq.status = &apos;failed&apos;
+ORDER BY last_attempt DESC;</file><file path="scripts/bulk_discovery.py">logger = logging.getLogger(__name__)
+class TJROPDFDiscovery
+⋮----
+def __init__(self, db: CausaGanhaDB)
+def _setup_session(self) -&gt; requests.Session
+⋮----
+session = requests.Session()
+retry_strategy = Retry(
+adapter = HTTPAdapter(max_retries=retry_strategy)
+⋮----
+def discover_year(self, year: int) -&gt; Dict[str, int]
+⋮----
+url = f&quot;{self.base_url}/list.php?ano={year}&quot;
+response = self._make_request(url)
+⋮----
+pdfs_data = response.json()
+⋮----
+total_count = len(pdfs_data)
+new_count = 0
+existing_count = 0
+⋮----
+def discover_latest(self) -&gt; Dict[str, int]
+⋮----
+url = f&quot;{self.base_url}/data-ultimo-diario.php&quot;
+⋮----
+latest_pdfs = response.json()
+⋮----
+total_count = len(latest_pdfs)
+⋮----
+def discover_range(self, start_year: int, end_year: int) -&gt; Dict[str, Dict]
+⋮----
+results = {}
+total_stats = {&quot;total&quot;: 0, &quot;new&quot;: 0, &quot;existing&quot;: 0}
+⋮----
+year_stats = self.discover_year(year)
+⋮----
+def _make_request(self, url: str, timeout: int = 30) -&gt; requests.Response
+⋮----
+response = self.session.get(url, timeout=timeout)
+⋮----
+# Extract and validate required fields
+pdf_url = pdf_info.get(&quot;url&quot;, &quot;&quot;).strip()
+⋮----
+# Skip if already discovered in this session
+⋮----
+# Parse date
+year_val = year or int(pdf_info.get(&quot;year&quot;, 0))
+month_val = int(pdf_info.get(&quot;month&quot;, 0))
+day_val = int(pdf_info.get(&quot;day&quot;, 0))
+⋮----
+date_str = f&quot;{year_val}-{month_val:02d}-{day_val:02d}&quot;
+number_str = pdf_info.get(&quot;number&quot;, &quot;&quot;).strip()
+# Check if already in database
+existing = self.db.execute(
+⋮----
+# Add to queue
+⋮----
+# Track in session
+⋮----
+def get_statistics(self) -&gt; Dict[str, int]
+⋮----
+stats = {}
+# Total items in discovery queue
+result = self.db.execute(
+⋮----
+# By status
+⋮----
+# By year (top 10)
+year_stats = self.db.execute(&quot;&quot;&quot;
+⋮----
+def main()
+⋮----
+parser = argparse.ArgumentParser(
+group = parser.add_mutually_exclusive_group(required=True)
+⋮----
+args = parser.parse_args()
+# Validate arguments
+⋮----
+# Initialize database connection
+⋮----
+db = CausaGanhaDB()
+discovery = TJROPDFDiscovery(db)
+⋮----
+# Show statistics
+stats = discovery.get_statistics()
+⋮----
+# Perform discovery
+start_time = datetime.now()
+⋮----
+results = discovery.discover_latest()
+⋮----
+results = discovery.discover_year(args.year)
+⋮----
+results = discovery.discover_range(args.start_year, args.end_year)
+end_time = datetime.now()
+duration = end_time - start_time
+# Show results
+⋮----
+totals = results[&quot;_totals&quot;]
+⋮----
+# Final statistics
+final_stats = discovery.get_statistics()</file><file path="scripts/manual_discovery.py">logger = logging.getLogger(__name__)
+def create_sample_data() -&gt; List[Dict]
+⋮----
+sample_pdfs = []
+base_dates = [
+⋮----
+number = str(200 + i)
+pdf_data = {
+⋮----
+pdf_data_supp = {
+⋮----
+def add_sample_to_database(sample_data: List[Dict], db: CausaGanhaDB) -&gt; int
+⋮----
+added_count = 0
+⋮----
+url = pdf_info[&quot;url&quot;]
+existing = db.execute(
+⋮----
+date_str = (
+⋮----
+def export_to_csv(db: CausaGanhaDB, output_file: Path)
+⋮----
+items = db.execute(&quot;&quot;&quot;
+⋮----
+writer = csv.writer(csvfile)
+⋮----
+def show_statistics(db: CausaGanhaDB)
+⋮----
+total = db.execute(&quot;SELECT COUNT(*) FROM pdf_discovery_queue&quot;).fetchone()[0]
+⋮----
+status_counts = db.execute(&quot;&quot;&quot;
+⋮----
+year_counts = db.execute(&quot;&quot;&quot;
+⋮----
+date_range = db.execute(&quot;&quot;&quot;
+⋮----
+def main()
+⋮----
+db = CausaGanhaDB()
+⋮----
+sample_data = create_sample_data()
+added_count = add_sample_to_database(sample_data, db)
+⋮----
+output_file = Path(&quot;data/tjro_pdf_discovery_queue.csv&quot;)</file><file path="scripts/update_prompt_hashes.py">def calculate_file_hash(filepath: Path) -&gt; str
+⋮----
+hasher = hashlib.sha1()
+⋮----
+def update_prompt_hashes(prompts_dir: Path)
+⋮----
+renamed_files = []
+⋮----
+match = re.match(r&quot;^(.*?)-([0-9a-fA-F]{8,40})\.txt$&quot;, filepath.name)
+⋮----
+base_name_without_hash = match.group(1)
+existing_hash = match.group(2)
+current_content_hash = calculate_file_hash(filepath)
+⋮----
+base_name = filepath.stem
+content_hash = calculate_file_hash(filepath)
+short_hash = content_hash[:8]
+new_name = f&quot;{base_name}-{short_hash}{filepath.suffix}&quot;
+new_filepath = filepath.with_name(new_name)
+⋮----
+prompts_dir_path = Path(&quot;prompts&quot;)</file><file path="src/models/__init__.py">__all__ = [&apos;Diario&apos;, &apos;DiarioDiscovery&apos;, &apos;DiarioDownloader&apos;, &apos;DiarioAnalyzer&apos;]</file><file path="src/models/diario.py">@dataclass
+class Diario
+⋮----
+tribunal: str
+data: date
+url: str
+filename: Optional[str] = None
+hash: Optional[str] = None
+pdf_path: Optional[Path] = None
+ia_identifier: Optional[str] = None
+status: str = &apos;pending&apos;
+metadata: Dict[str, Any] = field(default_factory=dict)
+⋮----
+@property
+    def display_name(self) -&gt; str
+⋮----
+@property
+    def queue_item(self) -&gt; Dict[str, Any]
+⋮----
+@classmethod
+    def from_queue_item(cls, queue_row: Dict[str, Any]) -&gt; &apos;Diario&apos;
+⋮----
+metadata = queue_row.get(&apos;metadata&apos;, {})
+⋮----
+metadata = json.loads(metadata)
+⋮----
+metadata = {}
+⋮----
+def update_status(self, new_status: str, **kwargs) -&gt; None
+def to_dict(self) -&gt; Dict[str, Any]
+⋮----
+@classmethod
+    def from_dict(cls, data: Dict[str, Any]) -&gt; &apos;Diario&apos;
+⋮----
+data_copy = data.copy()</file><file path="src/models/interfaces.py">class DiarioDiscovery(ABC)
+⋮----
+@abstractmethod
+    def get_diario_url(self, target_date: date) -&gt; Optional[str]
+⋮----
+@abstractmethod
+    def get_latest_diario_url(self) -&gt; Optional[str]
+def list_diarios_in_range(self, start_date: date, end_date: date) -&gt; List[str]
+⋮----
+urls = []
+current = start_date
+⋮----
+url = self.get_diario_url(current)
+⋮----
+current = current + timedelta(days=1)
+⋮----
+@property
+@abstractmethod
+    def tribunal_code(self) -&gt; str
+class DiarioDownloader(ABC)
+⋮----
+@abstractmethod
+    def download_diario(self, diario: Diario) -&gt; Diario
+⋮----
+@abstractmethod
+    def archive_to_ia(self, diario: Diario) -&gt; Diario
+def download_and_archive(self, diario: Diario) -&gt; Diario
+⋮----
+diario = self.download_diario(diario)
+⋮----
+diario = self.archive_to_ia(diario)
+⋮----
+class DiarioAnalyzer(ABC)
+⋮----
+@abstractmethod
+    def extract_decisions(self, diario: Diario) -&gt; List[Dict[str, Any]]
+def analyze_diario(self, diario: Diario) -&gt; Diario
+⋮----
+decisions = self.extract_decisions(diario)
+⋮----
+class TribunalAdapter(ABC)
+⋮----
+@property
+@abstractmethod
+    def discovery(self) -&gt; DiarioDiscovery
+⋮----
+@property
+@abstractmethod
+    def downloader(self) -&gt; DiarioDownloader
+⋮----
+@property
+@abstractmethod
+    def analyzer(self) -&gt; DiarioAnalyzer
+⋮----
+def create_diario(self, target_date: date) -&gt; Optional[Diario]
+⋮----
+url = self.discovery.get_diario_url(target_date)
+⋮----
+filename = Path(url).name
+⋮----
+diario = self.downloader.download_diario(diario)
+⋮----
+diario = self.downloader.archive_to_ia(diario)
+⋮----
+diario = self.analyzer.analyze_diario(diario)</file><file path="src/tribunais/tjro/adapter.py">class TJROAdapter(TribunalAdapter)
+⋮----
+def __init__(self)
+⋮----
+@property
+    def tribunal_code(self) -&gt; str
+⋮----
+@property
+    def discovery(self) -&gt; DiarioDiscovery
+⋮----
+@property
+    def downloader(self) -&gt; DiarioDownloader
+⋮----
+@property
+    def analyzer(self) -&gt; DiarioAnalyzer</file><file path="src/tribunais/tjro/analyze_adapter.py">class TJROAnalyzer(DiarioAnalyzer)
+⋮----
+def __init__(self)
+def extract_decisions(self, diario: Diario) -&gt; List[Dict[str, Any]]
+⋮----
+raw_decisions = self.extractor.extract_decisions_from_pdf(str(diario.pdf_path))
+standardized_decisions = []
+⋮----
+standardized_decision = self._standardize_decision(decision, diario)
+⋮----
+def _standardize_decision(self, raw_decision: Dict[str, Any], diario: Diario) -&gt; Dict[str, Any]
+⋮----
+standardized = {
+field_mappings = {
+⋮----
+def analyze_diario(self, diario: Diario) -&gt; Diario
+⋮----
+diario = super().analyze_diario(diario)
+decisions = diario.metadata.get(&apos;decisions&apos;, [])
+tjro_stats = {
+⋮----
+resultado = decision.get(&apos;resultado&apos;, &apos;unknown&apos;)
+⋮----
+polo_ativo = decision.get(&apos;polo_ativo&apos;, [])
+polo_passivo = decision.get(&apos;polo_passivo&apos;, [])</file><file path="src/tribunais/tjro/collect_and_archive.py">pdf_filepath: Optional[Path] = None
+origem_url: Optional[str] = None
+data_publicacao: Optional[datetime.date] = None
+⋮----
+parsed_date_match = re.search(
+⋮----
+data_publicacao = datetime.date(year, month, day)
+⋮----
+data_publicacao = datetime.date.today()
+⋮----
+data_publicacao = datetime.datetime.strptime(date, &quot;%Y-%m-%d&quot;).date()
+⋮----
+data_publicacao = datetime.date.today() - datetime.timedelta(days=1)
+⋮----
+archive_ia_url = archive_pdf(</file><file path="src/tribunais/tjro/diario_processor.py">TJRO_BASE_URL = &quot;https://www.tjro.jus.br&quot;
+logger = logging.getLogger(__name__)
+def load_diarios_list(json_file_path: Path) -&gt; List[Dict]
+⋮----
+data = json.load(f)
+⋮----
+def convert_to_full_urls(diarios: List[Dict]) -&gt; List[Dict]
+⋮----
+full_urls = []
+⋮----
+year = diario.get(&apos;year&apos;)
+month = diario.get(&apos;month&apos;)
+day = diario.get(&apos;day&apos;)
+number = diario.get(&apos;number&apos;)
+relative_path = diario.get(&apos;relativePath&apos;)
+relative_url = diario.get(&apos;url&apos;)
+sufix = diario.get(&apos;sufix&apos;, &apos;&apos;)
+full_url = f&quot;{TJRO_BASE_URL}{relative_url}&quot;
+⋮----
+diario_date = date(int(year), int(month), int(day))
+⋮----
+standard_filename = f&quot;dj_{year}{month.zfill(2)}{day.zfill(2)}.pdf&quot;
+⋮----
+standard_filename = f&quot;dj_{year}{month.zfill(2)}{day.zfill(2)}_{sufix}.pdf&quot;
+entry = {
+⋮----
+def filter_by_date_range(diarios: List[Dict], start_date: Optional[str] = None, end_date: Optional[str] = None) -&gt; List[Dict]
+⋮----
+filtered = []
+⋮----
+diario_date = date.fromisoformat(diario[&apos;date&apos;])
+include = True
+⋮----
+include = False
+⋮----
+def filter_by_year(diarios: List[Dict], years: List[int]) -&gt; List[Dict]
+⋮----
+filtered = [d for d in diarios if d[&apos;year&apos;] in years]
+⋮----
+def save_pipeline_ready_list(diarios: List[Dict], output_file: Path, format_type: str = &apos;json&apos;) -&gt; None
+⋮----
+writer = csv.DictWriter(f, fieldnames=diarios[0].keys())
+⋮----
+row = {k: v for k, v in diario.items() if k != &apos;metadata&apos;}
+⋮----
+def get_statistics(diarios: List[Dict]) -&gt; Dict
+⋮----
+years = [d[&apos;year&apos;] for d in diarios]
+year_counts = {}
+⋮----
+dates = [date.fromisoformat(d[&apos;date&apos;]) for d in diarios]
+stats = {
+⋮----
+def main()
+⋮----
+parser = argparse.ArgumentParser(
+⋮----
+args = parser.parse_args()
+⋮----
+diarios_raw = load_diarios_list(args.input)
+⋮----
+diarios = convert_to_full_urls(diarios_raw)
+⋮----
+diarios = filter_by_year(diarios, args.years)
+⋮----
+diarios = filter_by_date_range(diarios, args.start_date, args.end_date)
+stats = get_statistics(diarios)</file><file path="src/tribunais/tjro/discovery.py">class TJRODiscovery(DiarioDiscovery)
+⋮----
+TJRO_BASE_URL = &quot;https://www.tjro.jus.br/diario_oficial/&quot;
+TJRO_LATEST_URL = &quot;https://www.tjro.jus.br/diario_oficial/ultimo-diario.php&quot;
+def __init__(self)
+⋮----
+@property
+    def tribunal_code(self) -&gt; str
+def get_diario_url(self, target_date: date) -&gt; Optional[str]
+⋮----
+date_str = target_date.strftime(&quot;%Y%m%d&quot;)
+⋮----
+response = requests.get(self.TJRO_BASE_URL, headers=self.headers, timeout=30)
+⋮----
+pdf_match = re.search(
+⋮----
+url = pdf_match.group(0)
+⋮----
+def get_latest_diario_url(self) -&gt; Optional[str]
+⋮----
+response = requests.get(self.TJRO_LATEST_URL, headers=self.headers, timeout=30)
+⋮----
+# Look for PDF links in the latest page
+⋮----
+def list_diarios_in_range(self, start_date: date, end_date: date) -&gt; List[str]
+⋮----
+# Use the parent implementation for now
+urls = super().list_diarios_in_range(start_date, end_date)
+⋮----
+def get_diario_metadata(self, url: str) -&gt; dict
+⋮----
+metadata = {}
+# Extract year from URL pattern
+year_match = re.search(r&quot;/novodiario/(\d{4})/&quot;, url)
+⋮----
+# Extract date from filename if possible
+date_match = re.search(r&quot;(\d{8})&quot;, url)
+⋮----
+# Extract any edition number if present
+edition_match = re.search(r&quot;[-_]?(\d+)[-_]?[^/]*\.pdf$&quot;, url)</file><file path="src/tribunais/tjro/download_adapter.py">class TJRODownloader(DiarioDownloader)
+⋮----
+def download_diario(self, diario: Diario) -&gt; Diario
+⋮----
+pdf_path = fetch_tjro_pdf(diario.data)
+⋮----
+def archive_to_ia(self, diario: Diario) -&gt; Diario
+⋮----
+db_path = Path(&quot;data/causaganha.duckdb&quot;)
+ia_url = archive_pdf(
+⋮----
+def download_by_url(self, url: str, target_date: date) -&gt; Optional[Path]</file><file path="src/tribunais/tjro/downloader.py">TJRO_DIARIO_OFICIAL_URL = &quot;https://www.tjro.jus.br/diario_oficial/&quot;
+TJRO_LATEST_PAGE_URL = &quot;https://www.tjro.jus.br/diario_oficial/ultimo-diario.php&quot;
+def get_tjro_pdf_url(date_obj: datetime.date) -&gt; str | None
+⋮----
+date_str = date_obj.strftime(&quot;%Y%m%d&quot;)
+headers = {
+⋮----
+page_resp = requests.get(TJRO_DIARIO_OFICIAL_URL, headers=headers, timeout=30)
+⋮----
+pdf_match = re.search(
+⋮----
+download_url = pdf_match.group(0)
+⋮----
+) -&gt; pathlib.Path | None:  # Adjusted return type hint
+file_name = f&quot;dj_{date_obj.strftime(&apos;%Y%m%d&apos;)}.pdf&quot;
+output_dir = pathlib.Path(__file__).resolve().parent.parent / &quot;data&quot; / &quot;diarios&quot;
+⋮----
+output_path = output_dir / file_name
+⋮----
+# Get the PDF URL first
+download_url = get_tjro_pdf_url(date_obj)
+⋮----
+# Download the PDF
+pdf_resp = requests.get(download_url, headers=headers, timeout=30)
+⋮----
+def fetch_latest_tjro_pdf() -&gt; pathlib.Path | None
+⋮----
+# The ultimo-diario.php URL directly redirects to the PDF file
+⋮----
+# First request to get the redirect URL
+response = requests.get(
+⋮----
+pdf_url = response.headers[&quot;Location&quot;]
+⋮----
+pdf_url = f&quot;https://www.tjro.jus.br{pdf_url}&quot;
+⋮----
+# Extract date from filename for output file
+filename_match = re.search(r&quot;/([^/]+\.pdf)$&quot;, pdf_url)
+⋮----
+filename = filename_match.group(1)
+# Try to extract date from filename (format: YYYYMMDDXXXX-NRXXX.pdf)
+date_match = re.search(r&quot;(\d{8})&quot;, filename)
+⋮----
+date_str = date_match.group(1)
+file_name = f&quot;dj_{date_str}.pdf&quot;
+⋮----
+file_name = filename
+⋮----
+file_name = f&quot;dj_{datetime.date.today().strftime(&apos;%Y%m%d&apos;)}.pdf&quot;
+⋮----
+# Download the PDF
+pdf_response = requests.get(pdf_url, headers=headers, timeout=30)
+⋮----
+sha = hashlib.sha256(pdf_path.read_bytes()).hexdigest()
+item_id = f&quot;cg-{sha[:12]}&quot;
+filename = pdf_path.name
+exists = (
+⋮----
+archive_url = f&quot;https://archive.org/download/{item_id}/{filename}&quot;
+con = duckdb.connect(str(db_path))
+⋮----
+def main():  # Added main function for CLI
+⋮----
+parser = argparse.ArgumentParser(
+group = parser.add_mutually_exclusive_group(required=True)
+⋮----
+args = parser.parse_args()
+⋮----
+file_path = fetch_latest_tjro_pdf()
+⋮----
+selected_date = datetime.datetime.strptime(args.date, &quot;%Y-%m-%d&quot;).date()
+⋮----
+file_path = fetch_tjro_pdf(selected_date)</file><file path="src/tribunais/__init__.py">_DISCOVERIES: Dict[str, Type[DiarioDiscovery]] = {
+_DOWNLOADERS: Dict[str, Type[DiarioDownloader]] = {
+_ANALYZERS: Dict[str, Type[DiarioAnalyzer]] = {
+_ADAPTERS: Dict[str, Type[TribunalAdapter]] = {
+def get_discovery(tribunal: str) -&gt; DiarioDiscovery
+⋮----
+supported = list_supported_tribunals()
+⋮----
+def get_downloader(tribunal: str) -&gt; DiarioDownloader
+def get_analyzer(tribunal: str) -&gt; DiarioAnalyzer
+def get_adapter(tribunal: str) -&gt; TribunalAdapter
+def list_supported_tribunals() -&gt; List[str]
+def is_tribunal_supported(tribunal: str) -&gt; bool
+⋮----
+def get_tjro_discovery() -&gt; TJRODiscovery
+def get_tjro_downloader() -&gt; TJRODownloader
+def get_tjro_analyzer() -&gt; TJROAnalyzer
+def get_tjro_adapter() -&gt; TJROAdapter</file><file path="src/__init__.py"></file><file path="src/archive_db.py">logger = logging.getLogger(__name__)
+⋮----
+@dataclass
+class IAConfig
+⋮----
+access_key: str
+secret_key: str
+⋮----
+@classmethod
+    def from_env(cls) -&gt; &quot;IAConfig&quot;
+⋮----
+access_key = os.getenv(&quot;IA_ACCESS_KEY&quot;)
+secret_key = os.getenv(&quot;IA_SECRET_KEY&quot;)
+⋮----
+class DatabaseArchiver
+⋮----
+def __init__(self, ia_config: IAConfig)
+def _configure_ia_auth(self)
+⋮----
+date_str = snapshot_date.strftime(&quot;%Y-%m-%d&quot;)
+⋮----
+metadata = {
+⋮----
+date_str = snapshot_date.strftime(&quot;%Y%m%d&quot;)
+exports = {}
+⋮----
+db_export_path = export_dir / f&quot;causaganha_database_{date_str}.duckdb&quot;
+⋮----
+csv_dir = export_dir / &quot;csv_exports&quot;
+⋮----
+tables = [&quot;ratings&quot;, &quot;partidas&quot;, &quot;pdf_metadata&quot;, &quot;decisoes&quot;, &quot;json_files&quot;]
+⋮----
+df = db.conn.execute(f&quot;SELECT * FROM {table}&quot;).df()
+csv_path = csv_dir / f&quot;{table}_{date_str}.csv&quot;
+⋮----
+stats = db.get_statistics()
+metadata_path = export_dir / f&quot;export_metadata_{date_str}.json&quot;
+export_metadata = {
+⋮----
+def compress_exports(self, exports: Dict[str, Path], output_dir: Path) -&gt; Path
+⋮----
+date_str = datetime.now().strftime(&quot;%Y%m%d&quot;)
+archive_path = output_dir / f&quot;causaganha_database_{date_str}.tar.gz&quot;
+⋮----
+arcname = file_path.name
+⋮----
+arcname = str(sub_file.relative_to(file_path.parent))
+⋮----
+cmd = [&quot;ia&quot;, &quot;upload&quot;, item_id, str(archive_path)]
+⋮----
+result = subprocess.run(
+⋮----
+sha256_hash = hashlib.sha256()
+⋮----
+file_hash = sha256_hash.hexdigest()
+⋮----
+snapshot_date = date.today()
+⋮----
+export_dir = Path(temp_dir) / &quot;exports&quot;
+⋮----
+db_stats = db.get_statistics()
+exports = self.export_database_snapshot(
+archive_path = self.compress_exports(exports, Path(temp_dir))
+item_id = self.create_database_item_id(snapshot_date, archive_type)
+metadata = self.create_archive_metadata(
+upload_success = self.upload_to_internet_archive(
+⋮----
+def main()
+⋮----
+parser = argparse.ArgumentParser(
+⋮----
+args = parser.parse_args()
+⋮----
+snapshot_date = None
+⋮----
+snapshot_date = datetime.strptime(args.date, &quot;%Y-%m-%d&quot;).date()
+ia_config = IAConfig.from_env()
+archiver = DatabaseArchiver(ia_config)
+success = archiver.archive_database(</file><file path="src/async_diario_pipeline.py">def configure_ia()
+⋮----
+access_key = os.getenv(&apos;IA_ACCESS_KEY&apos;)
+secret_key = os.getenv(&apos;IA_SECRET_KEY&apos;)
+⋮----
+config_dir = Path.home() / &apos;.config&apos; / &apos;internetarchive&apos;
+⋮----
+config_file = config_dir / &apos;ia.ini&apos;
+config = configparser.ConfigParser()
+⋮----
+MAX_CONCURRENT_DOWNLOADS = int(os.getenv(&apos;MAX_CONCURRENT_DOWNLOADS&apos;, &apos;3&apos;))
+MAX_CONCURRENT_IA_UPLOADS = int(os.getenv(&apos;MAX_CONCURRENT_IA_UPLOADS&apos;, &apos;2&apos;))
+DOWNLOAD_TIMEOUT = 300
+RETRY_ATTEMPTS = 3
+DELAY_BETWEEN_DOWNLOADS = 2.0
+TRY_DIRECT_UPLOAD_DEFAULT = os.getenv(&apos;TRY_DIRECT_UPLOAD&apos;, &apos;true&apos;).lower() == &apos;true&apos;
+⋮----
+@dataclass
+class ProcessingStatus
+⋮----
+ia_identifier: str
+original_filename: str
+full_url: str
+date: str
+status: str = &quot;pending&quot;
+local_path: Optional[str] = None
+ia_url: Optional[str] = None
+error_message: Optional[str] = None
+attempts: int = 0
+sha256_hash: Optional[str] = None
+file_size: Optional[int] = None
+processing_time: Optional[float] = None
+class AsyncDiarioPipeline
+⋮----
+async def __aenter__(self)
+⋮----
+timeout = aiohttp.ClientTimeout(total=DOWNLOAD_TIMEOUT)
+⋮----
+async def __aexit__(self, exc_type, exc_val, exc_tb)
+def load_progress(self) -&gt; None
+⋮----
+progress_data = json.load(f)
+⋮----
+completed = len([s for s in self.status_tracker.values() if s.status == &quot;completed&quot;])
+total = len(self.status_tracker)
+⋮----
+def save_progress(self) -&gt; None
+⋮----
+progress_data = {
+⋮----
+def get_statistics(self) -&gt; Dict
+⋮----
+statuses = [s.status for s in self.status_tracker.values()]
+⋮----
+async def download_pdf(self, diario_data: Dict, status: ProcessingStatus) -&gt; bool
+⋮----
+start_time = time.time()
+⋮----
+local_path = self.data_dir / &quot;diarios&quot; / diario_data[&apos;original_filename&apos;]
+⋮----
+content = await response.read()
+⋮----
+# Write to file
+⋮----
+# Update status
+⋮----
+# Respectful delay
+⋮----
+status.status = &quot;pending&quot;  # Will retry
+await asyncio.sleep(min(status.attempts * 2, 10))  # Exponential backoff
+⋮----
+async def _calculate_sha256(self, file_path: Path) -&gt; str
+⋮----
+def _hash_file()
+⋮----
+sha256_hash = hashlib.sha256()
+⋮----
+loop = asyncio.get_event_loop()
+⋮----
+async def check_ia_exists(self, ia_identifier: str) -&gt; bool
+⋮----
+metadata_url = f&quot;https://archive.org/metadata/{ia_identifier}&quot;
+⋮----
+def upload_to_ia_local(self, diario_data: Dict, status: ProcessingStatus) -&gt; bool
+⋮----
+# Prepare IA metadata
+metadata = diario_data[&apos;metadata&apos;].copy()
+⋮----
+# Build ia command
+ia_cmd = [
+# Add metadata as command line arguments
+⋮----
+if value:  # Skip empty values
+⋮----
+# Execute upload
+⋮----
+result = subprocess.run(
+⋮----
+timeout=600  # 10 minutes timeout
+⋮----
+# Remove local file to save space after successful upload
+⋮----
+error_details = f&quot;stdout: {result.stdout}, stderr: {result.stderr}&quot;
+⋮----
+async def upload_to_ia_async(self, diario_data: Dict, status: ProcessingStatus) -&gt; bool
+async def process_diario(self, diario_data: Dict, skip_existing: bool = True) -&gt; bool
+⋮----
+ia_identifier = diario_data[&apos;ia_identifier&apos;]
+# Get or create status tracker
+⋮----
+status = self.status_tracker[ia_identifier]
+# Skip if already completed
+⋮----
+# Check if item already exists in IA
+⋮----
+exists = await self.check_ia_exists(ia_identifier)
+⋮----
+# Download phase
+⋮----
+download_success = await self.download_pdf(diario_data, status)
+⋮----
+# Save progress after download
+⋮----
+# Upload phase
+⋮----
+upload_success = await self.upload_to_ia_async(diario_data, status)
+# Save progress after upload attempt
+⋮----
+# Filter by date range if specified
+⋮----
+filtered_diarios = []
+⋮----
+diario_date = date.fromisoformat(diario[&apos;date&apos;])
+include = True
+⋮----
+include = False
+⋮----
+diarios_data = filtered_diarios
+⋮----
+# Limit number of items if specified
+⋮----
+diarios_data = diarios_data[:max_items]
+⋮----
+# Process diarios with controlled concurrency
+semaphore = asyncio.Semaphore(self.max_concurrent_downloads)
+async def process_with_semaphore(diario_data)
+# Create tasks
+tasks = [process_with_semaphore(diario) for diario in diarios_data]
+# Process with progress reporting
+completed = 0
+total = len(tasks)
+⋮----
+success = await task
+⋮----
+stats = self.get_statistics()
+⋮----
+# Final statistics
+final_stats = self.get_statistics()
+⋮----
+async def main()
+⋮----
+parser = argparse.ArgumentParser(
+⋮----
+args = parser.parse_args()
+# Setup logging
+⋮----
+# Configure Internet Archive
+⋮----
+# Database sync before processing
+⋮----
+db_sync = IADatabaseSync()
+⋮----
+sync_result = db_sync.smart_sync(prefer_local=True)
+⋮----
+# Load diarios data
+⋮----
+diarios_data = json.load(f)
+⋮----
+# Initialize pipeline
+progress_file = args.data_dir / &quot;diario_pipeline_progress.json&quot;
+⋮----
+# Load existing progress if resuming
+⋮----
+# Show stats if requested
+⋮----
+stats = pipeline.get_statistics()
+⋮----
+# Run the pipeline
+⋮----
+# Database upload after processing
+⋮----
+success = db_sync.upload_database_to_ia()</file><file path="src/cli_new.py">app = typer.Typer(
+config_data = load_config()
+db = CausaGanhaDB(Path(config_data[&quot;database&quot;][&quot;path&quot;]))
+_LOG_ = logging.getLogger(__name__)
+def _setup_logging()
+⋮----
+log_level_str = config_data.get(&quot;logging&quot;, {}).get(&quot;level&quot;, &quot;INFO&quot;).upper()
+log_level = getattr(logging, log_level_str, logging.INFO)
+⋮----
+def extract_tribunal_from_url(url: str) -&gt; str: return urlparse(url).netloc.lower()
+def validate_tribunal_url(url: str) -&gt; bool: return urlparse(url).netloc.lower().endswith(&apos;.jus.br&apos;)
+def extract_date_from_url(url: str) -&gt; Optional[str]
+⋮----
+date_patterns=[r&apos;diario(\d{8})&apos;,r&apos;(\d{8})&apos;,r&apos;(\d{4}-\d{2}-\d{2})&apos;,r&apos;(\d{2}-\d{2}-\d{4})&apos;]
+⋮----
+m=re.search(p,url)
+⋮----
+ds=m.group(1)
+⋮----
+pts=ds.split(&apos;-&apos;);
+⋮----
+@app.command()
+def queue(url:Optional[str]=typer.Option(None,&quot;--url&quot;), from_csv:Optional[Path]=typer.Option(None,&quot;--from-csv&quot;))
+⋮----
+ul:List[Dict[str,Any]]=[]
+⋮----
+r=csv.DictReader(f);
+⋮----
+curl=row[&apos;url&apos;].strip();
+⋮----
+imeta={&apos;source&apos;:&apos;cli_queue&apos;,&apos;orig_fname&apos;:item[&apos;original_filename&apos;]}
+⋮----
+@app.command(&quot;get-urls&quot;)
+def get_urls(date:Optional[str]=typer.Option(None,help=&quot;Date YYYY-MM-DD.&quot;),latest:bool=typer.Option(False,help=&quot;Fetch latest.&quot;),tribunal:str=typer.Option(&quot;tjro&quot;,help=&quot;Tribunal code.&quot;),to_queue:bool=typer.Option(True,&quot;--to-queue/--no-to-queue&quot;,help=&quot;Queue or process now.&quot;))
+⋮----
+docs:List[Dict[str,Any]]=[]
+⋮----
+url_v:Optional[str]=None;date_v:Optional[DateObject]=None
+⋮----
+try:date_v=datetime.strptime(date,&quot;%Y-%m-%d&quot;).date();_LOG_.info(f&quot;For {tribunal.upper()} {date_v}...&quot;)
+⋮----
+url_v=get_tjro_pdf_url(date_v)
+⋮----
+dstr=dobj.strftime(&apos;%Y-%m-%d&apos;);dispname=f&quot;{tcode.upper()} {dstr} ({ofname})&quot;
+⋮----
+tmp_d=Path(tmp_dn);lp:Optional[Path]=None
+⋮----
+async def _dl()
+⋮----
+rsp.raise_for_status();cnt=await rsp.read();
+⋮----
+sfn=&quot;&quot;.join(c if c.isalnum()or c in(&apos;_&apos;,&apos;-&apos;)else&apos;_&apos;for c in Path(ofname).stem);sf=f&quot;{sfn}.pdf&quot;
+dlp=tmp_d/sf;dlp.write_bytes(cnt);_LOG_.info(f&quot;DL OK:{dlp.name}&quot;);return dlp
+lp=asyncio.run(_dl())
+⋮----
+ia_rf=f&quot;{tcode}_{dstr}_{Path(ofname).stem.replace(&apos;.&apos;,&apos;_&apos;)}.pdf&quot;
+⋮----
+imeta={&apos;original_url&apos;:durl,&apos;publication_date&apos;:dstr,&apos;tribunal&apos;:tcode}
+⋮----
+async def archive_stage_logic(limit:Optional[int]=None,max_concurrent_downloads:int=3)
+⋮----
+q=&quot;SELECT id,url,tribunal,filename,date FROM job_queue WHERE status=&apos;queued&apos;OR status=&apos;failed_download&apos;ORDER BY CASE status WHEN&apos;failed_download&apos;THEN 0 ELSE 1 END,retry_count ASC,created_at ASC&quot;
+⋮----
+items=db.conn.execute(q).fetchall()
+⋮----
+ok,nok=0,0;sem=asyncio.Semaphore(max_concurrent_downloads)
+async def _proc(jid,url,trib,fname,date_s)
+⋮----
+sfn_stem=&quot;&quot;.join(c if c.isalnum()or c in(&apos;_&apos;,&apos;-&apos;)else&apos;_&apos;for c in Path(fname).stem)if fname else&quot;diario&quot;
+⋮----
+dl_d=Path(tmp_d_str);lp:Optional[Path]=None
+⋮----
+r.raise_for_status();cont=await r.read()
+⋮----
+dl_f=f&quot;{sfn_stem}.pdf&quot;;lp=dl_d/dl_f;lp.write_bytes(cont)
+⋮----
+eff_d=date_s if date_s else datetime.now().strftime(&apos;%Y-%m-%d&apos;)
+ia_rn=f&quot;{trib}_{eff_d}_{sfn_stem}.pdf&quot;
+⋮----
+def _populate_decisoes_from_analysis_result(job_id: int, analysis_result: Dict[str, Any], original_filename_for_json_source: str)
+⋮----
+decisions_to_store = []
+⋮----
+decisions_to_store = analysis_result
+⋮----
+decisions_to_store = analysis_result.get(&apos;decisions&apos;, [])
+⋮----
+decisions_to_store = [analysis_result]
+source_json_file_name = f&quot;job_{job_id}_{original_filename_for_json_source}.json&quot;
+⋮----
+decision_data.get(&apos;resumo&apos;), json.dumps(decision_data) # Store full decision as raw_json_data
+⋮----
+async def analyze_stage_logic(limit:Optional[int]=None,force_analysis:bool=False,max_concurrent_analyses:int=2)
+⋮----
+s_cond=[&quot;status=&apos;archived&apos;&quot;]
+⋮----
+q=f&quot;SELECT id,url,ia_identifier,ia_remote_filename,analyze_result,tribunal,filename,date FROM job_queue WHERE ({&apos; OR &apos;.join(s_cond)})AND(ia_metadata_synced=FALSE OR ?=TRUE)AND ia_identifier=? AND ia_remote_filename IS NOT NULL ORDER BY CASE status WHEN&apos;archived&apos;THEN 0 ELSE 1 END,ia_metadata_synced ASC,updated_at ASC&quot;
+⋮----
+items=db.conn.execute(q,[force_analysis,MASTER_IA_ITEM_ID]).fetchall()
+if not items:_LOG_.info(&quot;Analyze:No items.&quot;);typer.echo(&quot;🔍 No items for analysis/meta update.&quot;);return 0,0,0,0 # Added one more 0 for decisions_stored
+⋮----
+xtr=GeminiExtractor();llm_ok,meta_ok,nok,dec_stored_count=0,0,0,0 # decisions_stored_count
+sem=asyncio.Semaphore(max_concurrent_analyses)
+async def _proc(jid,iurl,mid,rf,an_s,tc,ofn,idt_s): # job_id, item_url, master_id, remote_file, analysis_str, trib_code, orig_fname, item_date_str
+⋮----
+nonlocal llm_ok,meta_ok,nok,dec_stored_count;ana_data:Optional[Dict]=None
+⋮----
+try:ana_data=json.loads(an_s)
+⋮----
+need_llm=force_analysis or not ana_data
+⋮----
+tmp_d=Path(tmp_d_s);lp:Optional[Path]=None
+⋮----
+async with sem:lp=await download_ia_file_async(mid,rf,tmp_d,log_output=False)
+⋮----
+ana_data=xtr.extract_structured_data(lp)
+⋮----
+# Populate decisoes table after successful LLM analysis
+⋮----
+dec_stored_count +=1 # crude count, could be sum of decisions
+⋮----
+if lp and lp.exists(): চেষ্টা_করা(lp.unlink) # Try to delete
+⋮----
+meta_e={&apos;original_url&apos;:iurl,&apos;publication_date&apos;:idt_s,&apos;tribunal&apos;:tc,&apos;original_filename&apos;:ofn,&apos;analysis_results&apos;:ana_data}
+sync_ok=await update_ia_file_level_metadata_summary(mid,rf,meta_e)
+⋮----
+tasks=[_proc(j,iu,mid,rf,ans,trc,ofn,idts)for j,iu,mid,rf,ans,trc,ofn,idts in items]
+⋮----
+# --- Pipeline, Score, and other commands ---
+# (Pipeline now calls new analyze_stage_logic, Score and others as before)
+⋮----
+# (Implementation as before, but analyze_stage_logic is now more complete)
+sel_stages=[s.strip().lower()for s in stages.split(&apos;,&apos;)];valid_stages=[&apos;queue&apos;,&apos;archive&apos;,&apos;analyze&apos;,&apos;score&apos;]
+⋮----
+ok_all=True
+⋮----
+typer.echo(f&quot;\n--- Stage:{stage.upper()} ---&quot;);ok_stage=False
+⋮----
+if stage==&apos;queue&apos;:queue(from_csv=from_csv);ok_stage=True
+⋮----
+ok_stage=(fails==0)
+⋮----
+elif stage==&apos;score&apos;:score(force=force_score);ok_stage=True # score needs success metric
+⋮----
+if not ok_stage:ok_all=False
+except typer.Exit:ok_all=False;_LOG_.warning(f&quot;Stage {stage} exited.&quot;);typer.echo(f&quot;❌ Stage {stage.upper()} exited.&quot;,err=True);if stop_on_error:break
+except Exception as e:ok_all=False;_LOG_.exception(f&quot;Pipeline stage {stage} error:{e}&quot;);typer.echo(f&quot;❌ Stage {stage.upper()} Error:{e}&quot;,err=True);if stop_on_error:break
+⋮----
+# (Other commands: score, stats, config, diario, db and their helpers as before)
+⋮----
+@app.command()
+def score(force:bool=typer.Option(False))
+⋮----
+decs=db.conn.execute(&quot;SELECT id,numero_processo,advogados_polo_ativo,advogados_polo_passivo,resultado FROM decisoes WHERE processed_for_openskill=FALSE AND validation_status=&apos;valid&apos;AND resultado IS NOT NULL AND resultado!=&apos;&apos;&quot;).fetchall()
+⋮----
+osm=get_openskill_model(config_data.get(&apos;openskill&apos;,{}))
+⋮----
+def _process_decision_for_rating(osm,did,np,aa_json,ap_json,r_str)-&gt;bool
+⋮----
+aa=json.loads(aa_json)if aa_json else[];ap=json.loads(ap_json)if ap_json else[]
+def eln(ls):return re.sub(r&apos;\s*\(OAB[^)]*\)\s*&apos;,&apos;&apos;,ls).strip().upper()
+ta=[n for n in map(eln,aa)if n];tp=[n for n in map(eln,ap)if n]
+⋮----
+rl=r_str.lower()
+if rl in[&apos;procedente&apos;,&apos;procedente em parte&apos;]:mr=&apos;win_a&apos;
+elif rl==&apos;improcedente&apos;:mr=&apos;win_b&apos;
+elif rl in[&apos;acordo&apos;,&apos;homologação de acordo&apos;]:mr=&apos;draw&apos;
+⋮----
+def gocr(n)
+⋮----
+row=db.conn.execute(&quot;SELECT mu,sigma FROM ratings WHERE advogado_id=?&quot;,[n]).fetchone()
+⋮----
+tar=[gocr(n)for n in ta]if ta else[create_rating(osm,name=&quot;DUMMY_A&quot;)]
+tpr=[gocr(n)for n in tp]if tp else[create_rating(osm,name=&quot;DUMMY_B&quot;)]
+⋮----
+def _update_lawyer_rating(ln,mu,sigma)
+⋮----
+ex=db.conn.execute(&quot;SELECT total_partidas FROM ratings WHERE advogado_id=?&quot;,[ln]).fetchone()
+⋮----
+def _store_match_record(did,np,ta,tp,r)
+def _show_rating_stats()
+⋮----
+mg=config_data.get(&apos;openskill&apos;,{}).get(&apos;min_games_for_ranking&apos;,3)
+tl=db.conn.execute(f&quot;SELECT advogado_id,mu,sigma,total_partidas,mu-3*sigma as cs FROM ratings WHERE total_partidas&gt;=? ORDER BY cs DESC LIMIT 10&quot;,[mg]).fetchall()
+⋮----
+tot_l=db.conn.execute(&quot;SELECT COUNT(*)FROM ratings&quot;).fetchone()[0];tot_m=db.conn.execute(&quot;SELECT COUNT(*)FROM partidas&quot;).fetchone()[0]
+⋮----
+@app.command()
+def stats()
+⋮----
+sc=db.conn.execute(&quot;SELECT status,COUNT(*)as count FROM job_queue GROUP BY status ORDER BY status&quot;).fetchall()
+⋮----
+typer.echo(&quot;📊 Job Q Status:&quot;);tj=0
+⋮----
+ic={&apos;queued&apos;:&apos;⏳&apos;,&apos;archived&apos;:&apos;📦&apos;,&apos;analyzed&apos;:&apos;🔍&apos;,&apos;ia_metadata_updated&apos;:&apos;🔄&apos;,&apos;scored&apos;:&apos;⭐&apos;,&apos;failed&apos;:&apos;❌&apos;,&apos;failed_analysis&apos;:&apos;🚫&apos;,&apos;failed_download&apos;:&apos;📥❌&apos;,&apos;failed_metadata_sync&apos;:&apos;📉&apos;}.get(sv,&apos;❓&apos;)
+⋮----
+@app.command(name=&quot;config&quot;)
+def show_config_command():typer.echo(f&quot;⚙️ Config:\nDB Path:{config_data[&apos;database&apos;][&apos;path&apos;]}\nIA Master ID:{MASTER_IA_ITEM_ID}\nOpenSkill μ:{config_data.get(&apos;openskill&apos;,{}).get(&apos;mu&apos;)}&quot;)
+⋮----
+@app.command(&quot;diario&quot;)
+def diario_cmd(action:str=typer.Argument(...,help=&quot;list,stats&quot;),tribunal:Optional[str]=typer.Option(None),status:Optional[str]=typer.Option(None),limit:int=typer.Option(20))
+⋮----
+q=&quot;SELECT id,url,date,tribunal,status,ia_identifier,ia_remote_filename FROM job_queue&quot;;cd,pr=[],[]
+⋮----
+rs=db.conn.execute(q,pr).fetchall()
+⋮----
+@app.command(&quot;db&quot;)
+def database_cmd(action:str=typer.Argument(...,help=&quot;migrate,status,backup,reset&quot;),force:bool=typer.Option(False))
+def _db_migrate()
+def _db_status():typer.echo(f&quot;ℹ️ DB Path:{config_data[&apos;database&apos;][&apos;path&apos;]}&quot;);stats()
+def _db_backup()
+⋮----
+dbf=Path(config_data[&apos;database&apos;][&apos;path&apos;]);
+⋮----
+bkd=dbf.parent/&quot;backups&quot;;bkd.mkdir(exist_ok=True);ts=datetime.now().strftime(&quot;%Y%m%d_%H%M%S&quot;)
+bkf=bkd/f&quot;{dbf.stem}_backup_{ts}{dbf.suffix}&quot;
+⋮----
+def _db_reset(force:bool)
+⋮----
+dbf=Path(config_data[&apos;database&apos;][&apos;path&apos;])</file><file path="src/cli.py">app = typer.Typer(
+config = load_config()
+db = CausaGanhaDB(Path(config[&quot;database&quot;][&quot;path&quot;]))
+def extract_tribunal_from_url(url: str) -&gt; str
+def validate_tribunal_url(url: str) -&gt; bool
+⋮----
+domain = urlparse(url).netloc.lower()
+⋮----
+def extract_date_from_url(url: str) -&gt; Optional[str]
+⋮----
+date_patterns = [
+⋮----
+match = re.search(pattern, url)
+⋮----
+date_str = match.group(1)
+⋮----
+date_obj = datetime.strptime(date_str, &apos;%Y%m%d&apos;)
+⋮----
+parts = date_str.split(&apos;-&apos;)
+⋮----
+date_obj = datetime.strptime(date_str, &apos;%Y-%m-%d&apos;)
+⋮----
+date_obj = datetime.strptime(date_str, &apos;%d-%m-%Y&apos;)
+⋮----
+urls_to_queue = []
+⋮----
+# Single URL
+⋮----
+tribunal = extract_tribunal_from_url(url)
+date = extract_date_from_url(url)
+filename = Path(urlparse(url).path).name
+⋮----
+# CSV file
+⋮----
+reader = csv.DictReader(f)
+⋮----
+url = row[&apos;url&apos;].strip()
+⋮----
+# Validate .jus.br domain
+⋮----
+# Use CSV date if provided, otherwise extract from URL
+date = row.get(&apos;date&apos;, &apos;&apos;).strip() or extract_date_from_url(url)
+tribunal = row.get(&apos;tribunal&apos;, &apos;&apos;).strip() or extract_tribunal_from_url(url)
+filename = row.get(&apos;filename&apos;, &apos;&apos;).strip() or Path(urlparse(url).path).name
+⋮----
+# Insert into queue
+queued_count = 0
+skipped_count = 0
+⋮----
+# Get queued items
+⋮----
+query = &quot;SELECT * FROM job_queue WHERE status IN (&apos;queued&apos;, &apos;failed&apos;) OR status = &apos;archived&apos;&quot;
+⋮----
+query = &quot;SELECT * FROM job_queue WHERE status IN (&apos;queued&apos;, &apos;failed&apos;)&quot;
+⋮----
+result = db.conn.execute(query).fetchall()
+⋮----
+# Create data directory
+data_dir = Path(&quot;data&quot;)
+diarios_dir = data_dir / &quot;diarios&quot;
+⋮----
+async def _archive_items_async(items, data_dir: Path)
+⋮----
+# Create aiohttp session with timeout
+timeout = aiohttp.ClientTimeout(total=300)  # 5 minutes
+⋮----
+# Process items concurrently with limited concurrency
+semaphore = asyncio.Semaphore(3)  # Max 3 concurrent downloads
+tasks = []
+⋮----
+task = _archive_single_item(session, semaphore, item, data_dir)
+⋮----
+# Wait for all tasks to complete
+⋮----
+async def _archive_single_item(session: aiohttp.ClientSession, semaphore: asyncio.Semaphore, item, data_dir: Path)
+⋮----
+url = item[1]  # url column
+date_str = item[2]  # date column
+tribunal = item[3]  # tribunal column
+filename = item[4]  # filename column
+# Generate IA identifier
+⋮----
+# Use date in identifier
+date_obj = datetime.fromisoformat(date_str)
+ia_identifier = f&quot;tjro-diario-{date_obj.strftime(&apos;%Y-%m-%d&apos;)}&quot;
+⋮----
+# Use hash of URL
+url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
+ia_identifier = f&quot;diario-{tribunal.replace(&apos;.&apos;, &apos;-&apos;)}-{url_hash}&quot;
+# Download PDF
+⋮----
+local_path = data_dir / &quot;diarios&quot; / (filename or f&quot;{ia_identifier}.pdf&quot;)
+# Skip if already exists and valid
+⋮----
+content = await response.read()
+# Validate PDF
+⋮----
+# Save file
+⋮----
+# Upload to IA
+success = await _upload_to_ia_async(local_path, ia_identifier, url, tribunal, date_str)
+⋮----
+# Update database status
+⋮----
+# Cleanup local file
+⋮----
+pass  # Ignore cleanup errors
+⋮----
+# Mark as failed
+⋮----
+# Mark as failed
+⋮----
+async def _upload_to_ia_async(local_path: Path, ia_identifier: str, original_url: str, tribunal: str, date_str: Optional[str]) -&gt; bool
+⋮----
+loop = asyncio.get_event_loop()
+⋮----
+def _upload_to_ia_sync(local_path: Path, ia_identifier: str, original_url: str, tribunal: str, date_str: Optional[str]) -&gt; bool
+⋮----
+# Prepare metadata
+metadata = {
+⋮----
+# Build IA command
+ia_cmd = [&apos;ia&apos;, &apos;upload&apos;, ia_identifier, str(local_path)]
+# Add metadata
+⋮----
+# Execute upload
+result = subprocess.run(
+⋮----
+timeout=600  # 10 minutes
+⋮----
+# Get archived items ready for analysis
+⋮----
+query = &quot;SELECT * FROM job_queue WHERE status IN (&apos;archived&apos;, &apos;failed&apos;) OR status = &apos;analyzed&apos;&quot;
+⋮----
+query = &quot;SELECT * FROM job_queue WHERE status = &apos;archived&apos;&quot;
+⋮----
+# Initialize Gemini extractor
+extractor = GeminiExtractor()
+⋮----
+# Create output directories
+⋮----
+temp_dir = data_dir / &quot;temp&quot;
+json_output_dir = data_dir / &quot;json_extractions&quot;
+⋮----
+processed = 0
+failed = 0
+⋮----
+ia_identifier = item[10]  # ia_identifier column
+⋮----
+# Download from IA and analyze
+success = _analyze_single_item(extractor, ia_identifier, url, json_output_dir, temp_dir)
+⋮----
+def _analyze_single_item(extractor: GeminiExtractor, ia_identifier: str, url: str, json_output_dir: Path, temp_dir: Path) -&gt; bool
+⋮----
+# Download PDF from IA
+ia_url = f&quot;https://archive.org/download/{ia_identifier}/{ia_identifier}.pdf&quot;
+# Try to find the actual filename from IA
+⋮----
+# Get IA metadata to find actual filename
+metadata_url = f&quot;https://archive.org/metadata/{ia_identifier}&quot;
+response = requests.get(metadata_url, timeout=30)
+⋮----
+metadata = response.json()
+files = metadata.get(&apos;files&apos;, [])
+pdf_files = [f for f in files if f.get(&apos;name&apos;, &apos;&apos;).endswith(&apos;.pdf&apos;)]
+⋮----
+actual_filename = pdf_files[0][&apos;name&apos;]
+ia_url = f&quot;https://archive.org/download/{ia_identifier}/{actual_filename}&quot;
+⋮----
+pass  # Use default URL if metadata lookup fails
+# Download PDF to temp location
+temp_pdf = temp_dir / f&quot;{ia_identifier}.pdf&quot;
+⋮----
+response = requests.get(ia_url, timeout=300)
+⋮----
+# Validate PDF content
+⋮----
+# Save to temp file
+⋮----
+# Extract with Gemini
+json_path = extractor.extract_and_save_json(temp_pdf, json_output_dir)
+⋮----
+# Validate that we got real data, not dummy data
+⋮----
+# Store JSON results in database
+⋮----
+# Cleanup temp file
+⋮----
+def _validate_extraction_results(json_path: Path) -&gt; bool
+⋮----
+data = json.load(f)
+# Check for dummy data indicators
+⋮----
+# Single decision format
+⋮----
+# Multiple decisions format
+if not data:  # Empty list
+⋮----
+def _store_extraction_results(json_path: Path, ia_identifier: str)
+⋮----
+extraction_data = json.load(f)
+# Store in json_files table
+⋮----
+# If extraction contains decisions, store them in decisoes table
+⋮----
+decisions = extraction_data
+⋮----
+decisions = extraction_data[&apos;decisions&apos;]
+⋮----
+decisions = []
+⋮----
+# Import OpenSkill functionality
+⋮----
+# Get analyzed items that need scoring
+⋮----
+# Reset all processed flags
+⋮----
+# Get unprocessed decisions (excluding dummy data)
+result = db.conn.execute(&quot;&quot;&quot;
+⋮----
+# Initialize OpenSkill model
+os_model = get_openskill_model(config.get(&apos;openskill&apos;, {}))
+⋮----
+decision_id = decision[0]
+numero_processo = decision[1]
+advogados_ativo_json = decision[2]
+advogados_passivo_json = decision[3]
+resultado = decision[4]
+⋮----
+success = _process_decision_for_rating(
+⋮----
+# Mark as processed
+⋮----
+# Update job queue status for analyzed items
+⋮----
+# Show rating statistics
+⋮----
+# Parse lawyer lists
+⋮----
+advogados_ativo = json.loads(advogados_ativo_json) if advogados_ativo_json else []
+advogados_passivo = json.loads(advogados_passivo_json) if advogados_passivo_json else []
+# Extract lawyer names (remove OAB info)
+def extract_lawyer_name(lawyer_str)
+⋮----
+# Remove OAB information like &quot;(OAB/RO 1234)&quot;
+⋮----
+name = re.sub(r&apos;\s*\(OAB[^)]*\)\s*&apos;, &apos;&apos;, lawyer_str).strip()
+return name.upper()  # Normalize to uppercase
+team_ativo = [extract_lawyer_name(adv) for adv in advogados_ativo if adv.strip()]
+team_passivo = [extract_lawyer_name(adv) for adv in advogados_passivo if adv.strip()]
+# Skip if no lawyers found
+⋮----
+# Determine match result for OpenSkill
+⋮----
+match_result = &apos;win_a&apos;  # Polo ativo wins
+⋮----
+match_result = &apos;win_b&apos;  # Polo passivo wins
+⋮----
+match_result = &apos;draw&apos;
+⋮----
+# Skip unknown results
+⋮----
+# Get or create ratings for lawyers
+def get_or_create_lawyer_rating(lawyer_name)
+⋮----
+# Check if lawyer exists in database
+existing = db.conn.execute(&quot;&quot;&quot;
+⋮----
+# Create new rating with default values
+⋮----
+# Build team ratings
+team_ativo_ratings = []
+⋮----
+if lawyer:  # Skip empty names
+rating = get_or_create_lawyer_rating(lawyer)
+⋮----
+team_passivo_ratings = []
+⋮----
+# Skip if no valid teams
+⋮----
+# Handle single-team cases (add dummy opponent)
+⋮----
+team_ativo_ratings = [create_rating(os_model, name=&quot;DUMMY_ATIVO&quot;)]
+⋮----
+team_passivo_ratings = [create_rating(os_model, name=&quot;DUMMY_PASSIVO&quot;)]
+# Calculate new ratings
+⋮----
+# Update ratings in database
+⋮----
+# Store match record
+⋮----
+def _update_lawyer_rating(lawyer_name: str, mu: float, sigma: float)
+⋮----
+# Check if lawyer exists
+⋮----
+# Update existing
+total_partidas = existing[0] + 1
+⋮----
+# Insert new
+⋮----
+def _store_match_record(decision_id: int, numero_processo: str, team_ativo: List[str], team_passivo: List[str], resultado: str)
+def _show_rating_stats()
+⋮----
+# Top rated lawyers
+top_lawyers = db.conn.execute(&quot;&quot;&quot;
+⋮----
+name = lawyer[0]
+mu = lawyer[1]
+sigma = lawyer[2]
+partidas = lawyer[3]
+conservative = lawyer[4]
+⋮----
+# Overall stats
+total_lawyers = db.conn.execute(&quot;SELECT COUNT(*) FROM ratings&quot;).fetchone()[0]
+total_matches = db.conn.execute(&quot;SELECT COUNT(*) FROM partidas&quot;).fetchone()[0]
+⋮----
+# Setup logging
+⋮----
+# Validate tribunal
+⋮----
+# New Diario-based workflow
+⋮----
+# Just get URLs and add to queue
+⋮----
+# Import appropriate tribunal-specific functions
+⋮----
+# Get the URL(s) to queue
+⋮----
+# For latest, we need to discover the most recent URL
+⋮----
+# This would need implementation in downloader to get URL without downloading
+⋮----
+target_date = datetime.datetime.strptime(date, &quot;%Y-%m-%d&quot;).date()
+url = get_tjro_pdf_url(target_date)
+⋮----
+# Default to yesterday
+yesterday = datetime.date.today() - datetime.timedelta(days=1)
+url = get_tjro_pdf_url(yesterday)
+⋮----
+# Add URLs to queue
+⋮----
+# Initialize job queue table if it doesn&apos;t exist (reuse from queue command)
+⋮----
+# Download and archive immediately
+⋮----
+archive_url = collect_and_archive_diario(
+⋮----
+# Determine which stages to run
+all_stages = [&apos;queue&apos;, &apos;archive&apos;, &apos;analyze&apos;, &apos;score&apos;]
+⋮----
+selected_stages = [s.strip() for s in stages.split(&apos;,&apos;)]
+# Validate stages
+invalid_stages = [s for s in selected_stages if s not in all_stages]
+⋮----
+pipeline_stages = selected_stages
+⋮----
+pipeline_stages = all_stages
+# If not resuming and no CSV provided, check if we need to queue first
+⋮----
+# Validate configuration for stages that need it
+⋮----
+# Stage 1: Queue (only if CSV provided)
+⋮----
+result = _run_stage(lambda: queue(from_csv=from_csv), stop_on_error)
+⋮----
+# Stage 2: Archive
+⋮----
+result = _run_stage(lambda: archive(limit=limit), stop_on_error)
+⋮----
+# Stage 3: Analyze
+⋮----
+result = _run_stage(lambda: analyze(limit=limit), stop_on_error)
+⋮----
+# Stage 4: Score
+⋮----
+result = _run_stage(lambda: score(), stop_on_error)
+⋮----
+# Show final statistics
+⋮----
+def _run_stage(stage_func, stop_on_error: bool) -&gt; bool
+⋮----
+@app.command()
+def stats()
+⋮----
+# Check if job_queue table exists
+⋮----
+status_counts = dict(result)
+⋮----
+count = status_counts.get(status, 0)
+status_icon = {
+⋮----
+# Total
+total = sum(status_counts.values())
+⋮----
+@app.command()
+def config()
+⋮----
+# Validate tribunal support in new system
+⋮----
+# Get tribunal adapter
+adapter = get_adapter(tribunal)
+# Create diario object
+diario = None
+⋮----
+url = adapter.discovery.get_latest_diario_url()
+⋮----
+# Extract date from URL or use today
+today = datetime.date.today()
+diario = Diario(
+⋮----
+diario = adapter.create_diario(target_date)
+⋮----
+# Default to yesterday
+⋮----
+diario = adapter.create_diario(yesterday)
+⋮----
+# Add discovered metadata
+⋮----
+# Add to queue using new Diario system
+⋮----
+success = db.queue_diario(diario)
+⋮----
+# Process immediately using new Diario system
+⋮----
+# Download
+⋮----
+diario = adapter.downloader.download_diario(diario)
+⋮----
+# Archive
+⋮----
+diario = adapter.downloader.archive_to_ia(diario)
+⋮----
+# Analyze
+⋮----
+diario = adapter.analyzer.analyze_diario(diario)
+⋮----
+# Update database with final status
+⋮----
+# Show results
+decision_count = diario.metadata.get(&apos;decision_count&apos;, 0)
+ia_url = diario.metadata.get(&apos;ia_url&apos;, &apos;Unknown&apos;)
+⋮----
+stats = diario.metadata[&apos;tjro_analysis&apos;]
+⋮----
+stats = db.get_diario_statistics()
+⋮----
+diarios = db.get_diarios_by_status(status)
+⋮----
+diarios = db.get_diarios_by_tribunal(tribunal)
+⋮----
+# Get all by getting each status
+diarios = []
+⋮----
+diarios = diarios[:limit]
+⋮----
+metadata_info = &quot;&quot;
+⋮----
+metadata_info = f&quot; ({diario.metadata[&apos;decision_count&apos;]} decisions)&quot;
+⋮----
+pending_diarios = db.get_diarios_by_status(&apos;pending&apos;)
+tribunal_diarios = [d for d in pending_diarios if d.tribunal == tribunal]
+⋮----
+# Process the diario
+processed_diario = adapter.process_diario(diario)
+# Update database
+⋮----
+def _db_migrate()
+def _db_status()
+⋮----
+db_path = Path(config[&quot;database&quot;][&quot;path&quot;])
+⋮----
+size_mb = db_path.stat().st_size / (1024 * 1024)
+⋮----
+# Table counts
+tables_info = [
+⋮----
+count = db.conn.execute(f&quot;SELECT COUNT(*) FROM {table}&quot;).fetchone()[0]
+⋮----
+# Queue status
+⋮----
+queue_stats = db.conn.execute(&quot;&quot;&quot;
+⋮----
+def _db_sync(force: bool)
+⋮----
+old_argv = sys.argv
+⋮----
+def _db_backup()
+⋮----
+timestamp = datetime.now().strftime(&quot;%Y%m%d_%H%M%S&quot;)
+backup_path = db_path.parent / f&quot;{db_path.stem}_backup_{timestamp}.duckdb&quot;
+⋮----
+size_mb = backup_path.stat().st_size / (1024 * 1024)
+⋮----
+def _db_reset(force: bool)
+⋮----
+confirm = typer.confirm(</file><file path="src/config.py">DEFAULT_CONFIG = {
+def load_config(config_path: Path = None) -&gt; Dict[str, Any]
+⋮----
+config_path = Path(&quot;config.toml&quot;)
+⋮----
+config = toml.load(config_path)
+result = DEFAULT_CONFIG.copy()</file><file path="src/database.py">logger = logging.getLogger(__name__)
+class CausaGanhaDB
+⋮----
+def __init__(self, db_path: Path = Path(&quot;data/causaganha.duckdb&quot;))
+def __enter__(self)
+def __exit__(self, exc_type, exc_val, exc_tb)
+def connect(self)
+def close(self)
+def _run_migrations(self)
+⋮----
+migrations_dir = Path(__file__).parent.parent.parent / &quot;migrations&quot;
+⋮----
+success = runner.migrate()
+⋮----
+def get_ratings(self) -&gt; pd.DataFrame
+⋮----
+existing = self.get_rating(advogado_id)
+⋮----
+sql = &quot;&quot;&quot;
+⋮----
+total_partidas = 1 if increment_partidas else 0
+⋮----
+def get_rating(self, advogado_id: str) -&gt; Optional[Dict]
+⋮----
+result = self.conn.execute(
+⋮----
+max_id_result = self.conn.execute(
+next_id = max_id_result[0]
+⋮----
+def get_partidas(self, limit: int = None) -&gt; pd.DataFrame
+⋮----
+sql = &quot;SELECT * FROM partidas ORDER BY data_partida DESC&quot;
+⋮----
+def get_ranking(self, limit: int = 20) -&gt; pd.DataFrame
+def get_statistics(self) -&gt; Dict
+⋮----
+result = self.conn.execute(&quot;SELECT * FROM estatisticas_gerais&quot;).fetchone()
+columns = [
+⋮----
+def export_to_csv(self, output_dir: Path)
+⋮----
+tables = [&quot;ratings&quot;, &quot;partidas&quot;, &quot;pdf_metadata&quot;, &quot;decisoes&quot;, &quot;json_files&quot;]
+⋮----
+df = self.conn.execute(f&quot;SELECT * FROM {table}&quot;).df()
+⋮----
+def export_database_snapshot(self, output_path: Path) -&gt; bool
+⋮----
+size_mb = output_path.stat().st_size / (1024 * 1024)
+⋮----
+def get_archive_statistics(self) -&gt; Dict[str, Any]
+⋮----
+stats = self.get_statistics()
+⋮----
+date_range = self.conn.execute(&quot;&quot;&quot;
+⋮----
+top_performers = self.conn.execute(&quot;&quot;&quot;
+⋮----
+def vacuum(self)
+def get_db_info(self) -&gt; Dict
+⋮----
+size_bytes = self.db_path.stat().st_size if self.db_path.exists() else 0
+size_mb = size_bytes / (1024 * 1024)
+⋮----
+def _get_table_info(self) -&gt; Dict
+⋮----
+tables = {}
+table_names = [&quot;ratings&quot;, &quot;partidas&quot;, &quot;pdf_metadata&quot;, &quot;decisoes&quot;, &quot;json_files&quot;]
+⋮----
+count = self.conn.execute(f&quot;SELECT COUNT(*) FROM {table}&quot;).fetchone()[0]
+⋮----
+def queue_diario(self, diario) -&gt; bool
+⋮----
+queue_item = diario.queue_item
+⋮----
+def get_diarios_by_status(self, status: str) -&gt; List
+⋮----
+rows = self.conn.execute(&quot;&quot;&quot;
+diarios = []
+⋮----
+queue_data = {
+⋮----
+def update_diario_status(self, diario, new_status: str, **kwargs) -&gt; bool
+⋮----
+url = diario.url if hasattr(diario, &apos;url&apos;) else str(diario)
+update_fields = [&quot;status = ?&quot;, &quot;updated_at = CURRENT_TIMESTAMP&quot;]
+values = [new_status]
+field_mappings = {
+⋮----
+db_field = field_mappings[key]
+⋮----
+query = f&quot;&quot;&quot;
+⋮----
+result = self.conn.execute(query, values)
+⋮----
+def get_diarios_by_tribunal(self, tribunal: str) -&gt; List
+def get_diario_statistics(self) -&gt; Dict[str, Any]
+⋮----
+stats = {}
+total_result = self.conn.execute(&quot;SELECT COUNT(*) FROM job_queue&quot;).fetchone()
+⋮----
+status_results = self.conn.execute(&quot;&quot;&quot;
+⋮----
+tribunal_results = self.conn.execute(&quot;&quot;&quot;
+⋮----
+recent_results = self.conn.execute(&quot;&quot;&quot;</file><file path="src/extractor.py">genai = None
+⋮----
+fitz = None
+⋮----
+class GeminiExtractor
+⋮----
+def __init__(self, api_key: str | None = None)
+def _sanitize_filename(self, filename: str) -&gt; str
+⋮----
+sanitized = re.sub(r&quot;[^\w\.\-_]&quot;, &quot;&quot;, filename)
+⋮----
+def _extract_text_from_pdf(self, pdf_path: pathlib.Path) -&gt; list[str]
+⋮----
+doc = fitz.open(str(pdf_path))
+page_count = len(doc)
+chunks = []
+chunk_size = 25
+overlap_size = 1
+⋮----
+chunk_end = min(chunk_start + chunk_size, page_count)
+chunk_text = &quot;&quot;
+⋮----
+overlap_start = max(0, chunk_start - overlap_size)
+⋮----
+page = doc.load_page(page_num)
+text = page.get_text()
+⋮----
+pdf_path = pathlib.Path(pdf_path)
+⋮----
+output_json_dir = pathlib.Path(output_json_dir)
+⋮----
+temp_dir = pathlib.Path(tempfile.mkdtemp(prefix=&quot;pdf_extraction_&quot;))
+⋮----
+final_extracted_data = None
+⋮----
+final_extracted_data = {
+⋮----
+pdf_text_chunks = self._extract_text_from_pdf(pdf_path)
+⋮----
+full_text = &quot;\n&quot;.join(pdf_text_chunks)
+text_file_path = temp_dir / f&quot;{pdf_path.stem}_extracted_text.txt&quot;
+⋮----
+all_decisions = []
+all_raw_responses = []
+prompt = &quot;&quot;&quot;Este é o texto extraído do Diário da Justiça. Analise o conteúdo e extraia APENAS decisões de acórdãos e sentenças que tenham RESULTADO definido (procedente, improcedente, etc). IGNORE despachos administrativos.
+model = genai.GenerativeModel(&quot;gemini-2.5-flash-lite-preview-06-17&quot;)
+⋮----
+delay = 4 + random.uniform(0.5, 1.5)
+⋮----
+retry_count = 0
+max_retries = 5
+base_delay = 30
+response_successful = False
+response = None
+⋮----
+full_prompt = f&quot;{prompt}\n\nTexto extraído do PDF (Chunk {chunk_index + 1}):\n{chunk_text}&quot;
+response = model.generate_content(full_prompt)
+response_successful = True
+⋮----
+backoff_delay = base_delay * (
+⋮----
+raw_response_file = (
+⋮----
+clean_response = response.text.strip()
+⋮----
+clean_response = (
+⋮----
+clean_response = clean_response.replace(&quot;```&quot;, &quot;&quot;).strip()
+chunk_decisions = json.loads(clean_response)
+⋮----
+process_number_to_use = f&quot;{pdf_path.stem}_extraction&quot;
+sanitized_filename_base = self._sanitize_filename(process_number_to_use)
+json_filename = f&quot;{sanitized_filename_base}.json&quot;
+output_json_path = output_json_dir / json_filename
+⋮----
+def main()
+⋮----
+parser = argparse.ArgumentParser(
+⋮----
+args = parser.parse_args()
+⋮----
+extractor = GeminiExtractor()
+saved_path = extractor.extract_and_save_json(args.pdf_file, args.output_dir)
+⋮----
+dummy_pdf_dir = pathlib.Path(__file__).resolve().parent.parent.parent / &quot;data&quot;
+⋮----
+cli_test_pdf = (
+⋮----
+writer = PdfWriter()</file><file path="src/ia_database_sync.py">class IADatabaseSync
+⋮----
+def __init__(self, local_db_path: Path = Path(&quot;data/causaganha.duckdb&quot;))
+def _configure_ia(self) -&gt; bool
+⋮----
+access_key = os.getenv(&apos;IA_ACCESS_KEY&apos;)
+secret_key = os.getenv(&apos;IA_SECRET_KEY&apos;)
+⋮----
+config_dir = Path.home() / &apos;.config&apos; / &apos;internetarchive&apos;
+⋮----
+config_file = config_dir / &apos;ia.ini&apos;
+config = configparser.ConfigParser()
+⋮----
+def _calculate_file_hash(self, file_path: Path) -&gt; str
+⋮----
+sha256_hash = hashlib.sha256()
+⋮----
+def _get_local_metadata(self) -&gt; Dict[str, Any]
+def _get_sync_metadata(self) -&gt; Dict[str, Any]
+def _save_sync_metadata(self, metadata: Dict[str, Any]) -&gt; None
+def _get_ia_metadata(self) -&gt; Optional[Dict[str, Any]]
+⋮----
+result = subprocess.run(
+⋮----
+metadata = json.loads(result.stdout)
+⋮----
+def database_exists_in_ia(self) -&gt; bool
+⋮----
+ia_metadata = self._get_ia_metadata()
+⋮----
+files = ia_metadata.get(&apos;files&apos;, [])
+⋮----
+def _check_lock_exists(self) -&gt; Optional[Dict[str, Any]]
+def _create_lock(self, operation: str, timeout_minutes: int = 30) -&gt; bool
+⋮----
+lock_info = {
+⋮----
+temp_lock_path = f.name
+⋮----
+result = subprocess.run([
+⋮----
+def _remove_lock(self) -&gt; bool
+def _wait_for_lock_release(self, max_wait_minutes: int = 60) -&gt; bool
+⋮----
+start_time = time.time()
+max_wait_seconds = max_wait_minutes * 60
+⋮----
+lock_metadata = self._check_lock_exists()
+⋮----
+lock_info = lock_metadata.get(&apos;metadata&apos;, {})
+created_at = lock_info.get(&apos;created_at&apos;)
+timeout_minutes = int(lock_info.get(&apos;timeout_minutes&apos;, 30))
+⋮----
+created_time = datetime.fromisoformat(created_at.replace(&apos;Z&apos;, &apos;+00:00&apos;))
+expired_time = created_time.timestamp() + (timeout_minutes * 60)
+⋮----
+elapsed_minutes = (time.time() - start_time) / 60
+⋮----
+def download_database_from_ia(self, force: bool = False) -&gt; bool
+⋮----
+backup_path = self.local_db_path.with_suffix(&apos;.backup&apos;)
+⋮----
+downloaded_file = self.local_db_path.parent / self.ia_database_identifier / self.ia_database_filename
+⋮----
+download_dir = self.local_db_path.parent / self.ia_database_identifier
+⋮----
+local_metadata = self._get_local_metadata()
+⋮----
+def upload_database_to_ia(self, force: bool = False, wait_for_lock: bool = True) -&gt; bool
+⋮----
+sync_metadata = self._get_sync_metadata()
+⋮----
+# Create lock for upload operation
+⋮----
+# Prepare metadata
+⋮----
+upload_metadata = {
+# Build IA upload command
+cmd = [
+# Add metadata
+⋮----
+# Execute upload
+result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+⋮----
+# Update sync metadata
+⋮----
+# Remove lock after successful upload
+⋮----
+self._remove_lock()  # Remove lock on failure too
+⋮----
+self._remove_lock()  # Remove lock on exception
+⋮----
+def sync_status(self) -&gt; Dict[str, Any]
+⋮----
+local_exists = self.local_db_path.exists()
+ia_exists = self.database_exists_in_ia()
+# Check for lock
+⋮----
+status = {
+⋮----
+# Find database file info
+⋮----
+def smart_sync(self, prefer_local: bool = True, wait_for_lock: bool = True) -&gt; str
+⋮----
+# Check for lock first
+⋮----
+success = self.upload_database_to_ia()
+⋮----
+success = self.download_database_from_ia()
+⋮----
+# Both exist - need to decide which is newer
+⋮----
+# If we have sync metadata, use it to make smart decisions
+⋮----
+# Local has changes - upload to IA (assuming local is authoritative for development)
+⋮----
+success = self.download_database_from_ia(force=True)
+⋮----
+def main()
+⋮----
+parser = argparse.ArgumentParser(description=&quot;Sync CausaGanha database with Internet Archive&quot;)
+⋮----
+args = parser.parse_args()
+# Setup logging
+⋮----
+sync = IADatabaseSync()
+⋮----
+status = sync.sync_status()
+⋮----
+success = sync.download_database_from_ia(force=args.force)
+⋮----
+success = sync.upload_database_to_ia(force=args.force)
+⋮----
+result = sync.smart_sync(prefer_local=not args.prefer_ia, wait_for_lock=not args.force)</file><file path="src/ia_discovery.py">class IADiscovery
+⋮----
+def __init__(self)
+⋮----
+query_parts = [
+⋮----
+query = &apos; AND &apos;.join(query_parts)
+params = {
+⋮----
+response = requests.get(self.base_search_url, params=params, timeout=30)
+⋮----
+data = response.json()
+items = data.get(&apos;response&apos;, {}).get(&apos;docs&apos;, [])
+⋮----
+def get_detailed_item_info(self, identifier: str) -&gt; Optional[Dict]
+⋮----
+metadata_url = f&quot;https://archive.org/metadata/{identifier}&quot;
+response = requests.get(metadata_url, timeout=30)
+⋮----
+def list_by_identifier_pattern(self, year: Optional[int] = None) -&gt; List[str]
+⋮----
+identifiers = []
+⋮----
+start_date = date(year, 1, 1)
+end_date = date(year, 12, 31)
+current_date = start_date
+⋮----
+identifier = f&quot;tjro-diario-{current_date.strftime(&apos;%Y-%m-%d&apos;)}&quot;
+⋮----
+current_date = date.fromordinal(current_date.toordinal() + 1)
+⋮----
+def check_identifier_exists(self, identifier: str) -&gt; bool
+⋮----
+response = requests.head(metadata_url, timeout=10)
+⋮----
+def get_collection_items(self, collection: str = &quot;opensource&quot;) -&gt; List[Dict]
+⋮----
+query = f&apos;collection:{collection} AND creator:&quot;Tribunal de Justiça de Rondônia&quot;&apos;
+⋮----
+response = requests.get(self.base_search_url, params=params, timeout=60)
+⋮----
+def generate_coverage_report(self, year: Optional[int] = None) -&gt; Dict
+⋮----
+ia_items = self.search_tjro_diarios(year=year)
+ia_dates = set()
+⋮----
+item_date = item.get(&apos;date&apos;)
+⋮----
+# Handle different date formats
+⋮----
+item_date = item_date.split(&apos;T&apos;)[0]
+⋮----
+# Load our pipeline data to see what should exist
+expected_dates = set()
+⋮----
+pipeline_file = &quot;data/diarios_pipeline_ready.json&quot;
+⋮----
+pipeline_data = json.load(f)
+⋮----
+item_year = item.get(&apos;year&apos;)
+⋮----
+# Calculate coverage
+⋮----
+coverage_percentage = len(ia_dates &amp; expected_dates) / len(expected_dates) * 100
+missing_dates = expected_dates - ia_dates
+extra_dates = ia_dates - expected_dates
+⋮----
+coverage_percentage = 0
+missing_dates = set()
+extra_dates = ia_dates
+⋮----
+def export_ia_inventory(self, output_file: str, year: Optional[int] = None) -&gt; None
+⋮----
+items = self.search_tjro_diarios(year=year)
+# Enhance with detailed info if needed
+enhanced_items = []
+for item in items[:10]:  # Limit detailed queries for demo
+detailed = self.get_detailed_item_info(item[&apos;identifier&apos;])
+⋮----
+# Save to file
+⋮----
+def main()
+⋮----
+parser = argparse.ArgumentParser(
+⋮----
+args = parser.parse_args()
+# Setup logging
+⋮----
+discovery = IADiscovery()
+# Check single identifier
+⋮----
+exists = discovery.check_identifier_exists(args.check_identifier)
+⋮----
+details = discovery.get_detailed_item_info(args.check_identifier)
+⋮----
+metadata = details.get(&apos;metadata&apos;, {})
+⋮----
+# Generate coverage report
+⋮----
+report = discovery.generate_coverage_report(year=args.year)
+⋮----
+# Search and list items
+items = discovery.search_tjro_diarios(
+⋮----
+# Display results
+⋮----
+for i, item in enumerate(items[:20], 1):  # Show first 20
+identifier = item.get(&apos;identifier&apos;, &apos;Unknown&apos;)
+title = item.get(&apos;title&apos;, &apos;No title&apos;)
+date_str = item.get(&apos;date&apos;, &apos;No date&apos;)
+downloads = item.get(&apos;downloads&apos;, 0)
+size = item.get(&apos;item_size&apos;, 0)
+⋮----
+# Export if requested</file><file path="src/ia_helpers.py"># This might need adjustment if ia_helpers.py cannot directly access cli.py&apos;s config_data
+# If this causes issues (e.g. circular dependency if config needs DB path that DB init needs config),
+# then config values might need to be passed into these functions from cli.py.
+⋮----
+config_data = load_config()
+⋮----
+# Fallback or default config if running standalone or config.py is not found
+config_data = {
+⋮----
+&quot;database&quot;: {&quot;path&quot;: &quot;data/causaganha_fallback.duckdb&quot;} # Example
+⋮----
+MASTER_IA_ITEM_ID = config_data.get(&quot;internet_archive&quot;, {}).get(&quot;master_item_id&quot;, &quot;causaganha_diarios_collection&quot;)
+IA_METADATA_FILENAME = config_data.get(&quot;internet_archive&quot;, {}).get(&quot;metadata_filename&quot;, &quot;file_level_metadata.json&quot;)
+IA_DEFAULT_ITEM_METADATA = {
+ia_executor = ThreadPoolExecutor(max_workers=config_data.get(&quot;internet_archive&quot;, {}).get(&quot;max_concurrent_uploads&quot;, 2))
+log_main_ops = True # Global toggle for high-level logging, can be made configurable
+async def execute_ia_command_async(ia_command_args: List[str], log_output: bool = True) -&gt; bool
+⋮----
+loop = asyncio.get_event_loop()
+full_command = [&quot;ia&quot;] + ia_command_args
+command_str_for_logging = &quot; &quot;.join(full_command)
+⋮----
+result = await loop.run_in_executor(
+⋮----
+if result.stdout and log_output: # Only show if verbose logging for this command is on
+⋮----
+if log_output and log_main_ops: # Always log errors if main logging is on
+⋮----
+ia_args = [&quot;upload&quot;, target_ia_id, str(local_filepath), f&quot;--remote-name={remote_filename}&quot;]
+final_item_metadata = {}
+⋮----
+master_id = MASTER_IA_ITEM_ID
+remote_ia_full_path = f&quot;{tribunal_code}/{pdf_filename_on_ia}&quot;
+⋮----
+upload_successful = await execute_ia_upload_async(
+⋮----
+local_filename = Path(remote_filename_on_ia).name
+local_filepath = destination_dir / local_filename
+ia_args = [&quot;download&quot;, item_id, remote_filename_on_ia, &quot;--destdir&quot;, str(destination_dir)]
+⋮----
+success = await execute_ia_command_async(ia_args, log_output=log_output)
+⋮----
+summary_json_filename = IA_METADATA_FILENAME
+current_summary_data: Dict[str, Any] = {}
+⋮----
+tmp_dir = Path(tmp_dir_name)
+downloaded_summary_filepath = await download_ia_file_async(
+⋮----
+current_summary_data = json.load(f)
+⋮----
+except Exception as e: # Catch JSONDecodeError and other read errors
+⋮----
+temp_upload_filepath = Path(tmp_upload_file.name)</file><file path="src/migration_runner.py">logger = logging.getLogger(__name__)
+⋮----
+@dataclass
+class Migration
+⋮----
+version: int
+name: str
+filepath: Path
+description: Optional[str] = None
+class MigrationRunner
+⋮----
+def __init__(self, db_path: Path, migrations_dir: Path = None)
+def connect(self)
+def close(self)
+def __enter__(self)
+def __exit__(self, exc_type, exc_val, exc_tb)
+def _ensure_schema_version_table(self)
+def get_current_version(self) -&gt; int
+⋮----
+result = self.conn.execute(
+⋮----
+def get_applied_migrations(self) -&gt; List[int]
+def discover_migrations(self) -&gt; List[Migration]
+⋮----
+migrations = []
+pattern = re.compile(r&quot;^(\d{3})_(.+)\.sql$&quot;)
+⋮----
+match = pattern.match(sql_file.name)
+⋮----
+version = int(match.group(1))
+name = match.group(2)
+# Extract description from SQL file comments
+description = self._extract_description(sql_file)
+⋮----
+def _extract_description(self, sql_file: Path) -&gt; Optional[str]
+⋮----
+lines = f.readlines()
+description_lines = []
+for line in lines[:10]:  # Check first 10 lines
+line = line.strip()
+⋮----
+# Remove comment prefix
+desc_line = line[3:].strip()
+⋮----
+# Stop at first non-comment line
+⋮----
+def get_pending_migrations(self) -&gt; List[Migration]
+⋮----
+all_migrations = self.discover_migrations()
+applied_versions = set(self.get_applied_migrations())
+⋮----
+def apply_migration(self, migration: Migration) -&gt; bool
+⋮----
+# Read migration file
+⋮----
+sql_content = f.read()
+# Execute migration within transaction
+start_time = datetime.now()
+# Split SQL content into individual statements
+statements = self._split_sql_statements(sql_content)
+⋮----
+execution_time_ms = int(
+# Record migration as applied
+⋮----
+def _split_sql_statements(self, sql_content: str) -&gt; List[str]
+⋮----
+# Simple statement splitter - assumes statements end with semicolon
+statements = []
+current_statement = []
+⋮----
+# Skip empty lines and comments
+⋮----
+# Check if statement ends
+⋮----
+# Add final statement if it doesn&apos;t end with semicolon
+⋮----
+def _calculate_checksum(self, content: str) -&gt; str
+def migrate(self, target_version: Optional[int] = None) -&gt; bool
+⋮----
+current_version = self.get_current_version()
+pending_migrations = self.get_pending_migrations()
+⋮----
+pending_migrations = [
+⋮----
+final_version = self.get_current_version()
+⋮----
+def status(self) -&gt; dict
+⋮----
+applied_migrations = self.get_applied_migrations()
+⋮----
+def run_migrations(db_path: Path = None, migrations_dir: Path = None) -&gt; bool
+⋮----
+db_path = db_path or Path(&quot;data/causaganha.duckdb&quot;)
+⋮----
+command = sys.argv[1]
+⋮----
+status = runner.status()
+⋮----
+success = run_migrations()</file><file path="src/migration.py">logger = logging.getLogger(__name__)
+class CausaGanhaMigration
+⋮----
+def calculate_file_hash(self, file_path: Path) -&gt; str
+⋮----
+sha256_hash = hashlib.sha256()
+⋮----
+def migrate_ratings_csv(self, db: CausaGanhaDB) -&gt; bool
+⋮----
+ratings_file = self.data_dir / &quot;ratings.csv&quot;
+⋮----
+ratings_df = pd.read_csv(ratings_file)
+⋮----
+existing = db.get_rating(row[&quot;advogado_id&quot;])
+⋮----
+error_msg = f&quot;Erro migrando ratings: {e}&quot;
+⋮----
+def migrate_partidas_csv(self, db: CausaGanhaDB) -&gt; bool
+⋮----
+partidas_file = self.data_dir / &quot;partidas.csv&quot;
+⋮----
+partidas_df = pd.read_csv(partidas_file)
+max_id_result = db.conn.execute(
+max_id = max_id_result[0] if max_id_result else 0
+next_id = max_id + 1
+⋮----
+equipe_a_ids = (
+⋮----
+equipe_a_ids = [row[&quot;equipe_a_ids&quot;]]
+⋮----
+equipe_b_ids = (
+⋮----
+equipe_b_ids = [row[&quot;equipe_b_ids&quot;]]
+ratings_a_antes = json.loads(row[&quot;ratings_equipe_a_antes&quot;])
+ratings_b_antes = json.loads(row[&quot;ratings_equipe_b_antes&quot;])
+ratings_a_depois = json.loads(row[&quot;ratings_equipe_a_depois&quot;])
+ratings_b_depois = json.loads(row[&quot;ratings_equipe_b_depois&quot;])
+existing = db.conn.execute(
+⋮----
+error_msg = f&quot;Erro migrando partidas: {e}&quot;
+⋮----
+def migrate_json_files(self, db: CausaGanhaDB) -&gt; bool
+⋮----
+json_patterns = [
+json_files = []
+⋮----
+max_decisao_result = db.conn.execute(
+max_json_result = db.conn.execute(
+max_decisao_id = max_decisao_result[0] if max_decisao_result else 0
+max_json_id = max_json_result[0] if max_json_result else 0
+next_decisao_id = max_decisao_id + 1
+next_json_id = max_json_id + 1
+⋮----
+existing_json = db.conn.execute(
+⋮----
+data = json.load(f)
+file_hash = self.calculate_file_hash(json_file)
+file_stats = json_file.stat()
+extraction_date = None
+⋮----
+date_str = json_file.name.split(&quot;_&quot;)[1]
+extraction_date = datetime.strptime(
+⋮----
+valid_decisions = 0
+⋮----
+numero_processo = decision_data.get(&quot;numero_processo&quot;, &quot;&quot;)
+⋮----
+existing_decisao = db.conn.execute(
+⋮----
+error_msg = f&quot;Erro migrando arquivos JSON: {e}&quot;
+⋮----
+def create_backup(self) -&gt; bool
+⋮----
+backup_dir = self.root_data_dir / &quot;backup_pre_migration&quot;
+⋮----
+backup_file = backup_dir / csv_file.name
+⋮----
+def run_migration(self, create_backup: bool = True) -&gt; Dict[str, Any]
+⋮----
+final_stats = db.get_statistics()
+⋮----
+def main()
+⋮----
+parser = argparse.ArgumentParser(description=&quot;Migrar dados CSV/JSON para DuckDB&quot;)
+⋮----
+args = parser.parse_args()
+⋮----
+migration = CausaGanhaMigration(
+result = migration.run_migration(create_backup=not args.no_backup)</file><file path="src/pipeline.py">CONFIG = load_config()
+⋮----
+class MatchResult(Enum)
+⋮----
+WIN_A = &quot;win_a&quot;
+WIN_B = &quot;win_b&quot;
+DRAW = &quot;draw&quot;
+PARTIAL_A = &quot;partial_a&quot;
+PARTIAL_B = &quot;partial_b&quot;
+RATING_ENGINE_NAME = &quot;openskill&quot;
+OS_CONFIG = CONFIG.get(
+⋮----
+)  # Get OpenSkill specific config, or empty dict
+RATING_MODEL_INSTANCE = get_openskill_model(OS_CONFIG)
+DEFAULT_MU = OS_CONFIG.get(&quot;mu&quot;, 25.0)  # Fallback if not in OS_CONFIG
+DEFAULT_SIGMA = OS_CONFIG.get(&quot;sigma&quot;, 25.0 / 3.0)  # Fallback
+# Lambda functions for consistent interface
+def CREATE_RATING_FROM_MU_SIGMA_FUNC(mu, sigma)
+def CREATE_NEW_RATING_FUNC()
+# OpenSkill&apos;s rate_teams expects the string value of the enum (e.g., &quot;win_a&quot;)
+def UPDATE_RATINGS_FUNC(model, t_a, t_b, res_enum)
+⋮----
+def fetch_tjro_pdf(date_str: str, dry_run: bool = False, verbose: bool = False)
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+date_obj = datetime.datetime.strptime(date_str, &quot;%Y-%m-%d&quot;).date()
+⋮----
+date_obj = datetime.date.fromisoformat(date_str)
+⋮----
+pdf_path = _real_fetch_tjro_pdf(date_obj)
+⋮----
+class GeminiExtractor
+⋮----
+def __init__(self, verbose: bool = False)
+⋮----
+output_json_dir = (
+⋮----
+output_json_path = output_json_dir / f&quot;{pdf_path.stem}_extracted.json&quot;
+⋮----
+def setup_logging(verbose: bool)
+⋮----
+log_level = logging.DEBUG if verbose else logging.INFO
+⋮----
+def collect_command(args)
+⋮----
+pdf_path = fetch_tjro_pdf(
+⋮----
+def extract_command(args)
+⋮----
+output_dir = (
+extractor = GeminiExtractor(verbose=args.verbose)
+json_path = extractor.extract_and_save_json(
+⋮----
+def _update_ratings_logic(logger: logging.Logger, dry_run: bool)
+⋮----
+json_input_dir = Path(&quot;data/json/&quot;)
+processed_json_dir = Path(&quot;data/json_processed/&quot;)
+ratings_file = Path(&quot;data/ratings.csv&quot;)
+partidas_file = Path(&quot;data/partidas.csv&quot;)
+⋮----
+ratings_df = pd.read_csv(ratings_file, index_col=&quot;advogado_id&quot;)
+⋮----
+ratings_df = pd.DataFrame(columns=[&quot;mu&quot;, &quot;sigma&quot;, &quot;total_partidas&quot;]).set_index(
+⋮----
+partidas_history = []
+processed_files_paths = []
+⋮----
+json_files_to_process = list(json_input_dir.glob(&quot;*.json&quot;))
+⋮----
+loaded_content = json.load(f)
+⋮----
+decisions_in_file = (
+file_had_valid_decisions = False
+⋮----
+raw_advs_polo_ativo = decision_data.get(&quot;advogados_polo_ativo&quot;, [])
+raw_advs_polo_passivo = decision_data.get(&quot;advogados_polo_passivo&quot;, [])
+team_a_ids = sorted(
+team_b_ids = sorted(
+⋮----
+resultado_str_raw = decision_data.get(&quot;resultado&quot;, &quot;&quot;).lower()
+match_outcome = MatchResult.DRAW
+⋮----
+match_outcome = MatchResult.WIN_A
+⋮----
+match_outcome = MatchResult.WIN_B
+team_a_ratings_before = [
+team_b_ratings_before = [
+partida_team_a_ratings_before_dict = {
+partida_team_b_ratings_before_dict = {
+⋮----
+current_partidas = (
+⋮----
+file_had_valid_decisions = True
+⋮----
+def update_command(args)
+def run_command(args)
+⋮----
+extract_output_dir = (
+⋮----
+json_output_path = extractor.extract_and_save_json(
+⋮----
+update_args = argparse.Namespace(dry_run=args.dry_run, verbose=args.verbose)
+⋮----
+def archive_command(args)
+⋮----
+snap_date = (
+⋮----
+archiver = DatabaseArchiver(IAConfig.from_env())
+⋮----
+def main()
+⋮----
+parser = argparse.ArgumentParser(
+⋮----
+subparsers = parser.add_subparsers(dest=&quot;command&quot;, required=True, help=&quot;Commands&quot;)
+cmd_definitions = [
+⋮----
+p = subparsers.add_parser(name, help=help_text)
+⋮----
+args = parser.parse_args()</file><file path="src/utils.py"># Instead, it should get a logger and use it. Application configures logging.
+logger = logging.getLogger(__name__)
+def normalize_lawyer_name(name: str) -&gt; str
+⋮----
+return &quot;&quot;  # Or raise TypeError
+# 1. Convert the name to uppercase.
+text = name.upper()
+# 2. Remove common titles.
+# Using regex with word boundaries \b to avoid partial matches in names.
+# Titles like &quot;dr.&quot;, &quot;dra.&quot;, &quot;dr &quot;, &quot;dra &quot;, &quot;doutor &quot;, &quot;doutora &quot;
+# 2. Remove common titles. Iteratively.
+# List of titles to remove, from longest to shortest, and handling variations.
+# These will be checked at the beginning of the string.
+# Order is important: &quot;dr. &quot; before &quot;dr.&quot;, &quot;doutora &quot; before &quot;dra. &quot; etc.
+# And &quot;dra. &quot; before &quot;dr. &quot; to correctly parse &quot;dra. dra.&quot; if such a case existed.
+# Titles with trailing space (to be removed with the space)
+titles_with_space = [
+⋮----
+&quot;DR. &quot;,  # With period and space
+⋮----
+&quot;DR &quot;,  # Without period but with space
+⋮----
+# Titles without trailing space (to be removed if they are exactly at the end or followed by non-alpha)
+# For simplicity now, this list will be for titles that might be directly followed by name characters
+# e.g. &quot;Dra.Ana&quot;. We remove these specific prefixes.
+titles_without_space = [
+⋮----
+&quot;DOUTOR&quot;,  # e.g. &quot;DoutoraAna&quot;
+⋮----
+&quot;DR.&quot;,  # e.g. &quot;Dra.Ana&quot;
+⋮----
+&quot;DR&quot;,  # e.g. &quot;DraAna&quot;
+⋮----
+# Iteratively remove titles
+# This loop helps with multiple titles like &quot;Dr. Dr. Name&quot; or &quot;Dra. Dr. Name&quot;
+# and also ensures that variations are caught (e.g. &quot;Dr.Dra. Name&quot;)
+previous_text_state = &quot;&quot;
+⋮----
+previous_text_state = text
+current_text_temp = (
+⋮----
+)  # Work on a stripped version for prefix checking
+# First, try to remove titles that are followed by a space (more common)
+⋮----
+current_text_temp = current_text_temp[len(title) :].strip()
+# Then, try to remove titles that might not be followed by a space (e.g., &quot;Dra.Ana&quot;)
+# This is more aggressive and needs care.
+⋮----
+):  # Only proceed if no change was made by titles_with_space
+⋮----
+# Check if what follows the title is not a letter, or if it&apos;s the end.
+⋮----
+text = current_text_temp.strip()
+decomposed = unicodedata.normalize(&quot;NFD&quot;, text)
+stripped_chars = []
+last_base = &quot;&quot;
+⋮----
+last_base = ch
+text = &quot;&quot;.join(stripped_chars)
+text = re.sub(r&quot;\s+&quot;, &quot; &quot;, text).strip()
+⋮----
+def validate_decision(decision: dict) -&gt; bool
+⋮----
+numero_processo = decision.get(&quot;numero_processo&quot;)
+⋮----
+partes = decision.get(&quot;partes&quot;)
+⋮----
+requerente = partes.get(&quot;requerente&quot;)
+requerido = partes.get(&quot;requerido&quot;)
+⋮----
+requerente = decision.get(&quot;polo_ativo&quot;)
+requerido = decision.get(&quot;polo_passivo&quot;)
+⋮----
+if not requerido:  # Checks for None or empty list/string
+⋮----
+# 3. Check resultado
+resultado = decision.get(&quot;resultado&quot;)
+if not resultado:  # Checks for None or empty string
+⋮----
+examples_normalize = [
+# Expected outputs for normalize_lawyer_name after potential logic adjustments
+# (e.g. iterative title removal, title regex not needing trailing space)
+# These reflect the new title removal logic.
+expected_normalize_outputs = [
+⋮----
+&quot;JOAO ALVES DA SILVA&quot;,  # Dr. João Álves da Silva
+&quot;MARIA AUXILIADORA NUNES&quot;,  # DRA.    MARIA  AUXILIADORA NUNES
+&quot;PEDRO DE ALCANTARA MACHADO&quot;,  # Pedro de Alcântara Machado
+&quot;JOSE DAS COUVES (OAB/RJ 123.456)&quot;,  # José das Couves (OAB/RJ 123.456)
+&quot;CARLOS ALBERTO&quot;,  # DOUTOR Carlos Alberto
+&quot;ANA SEM ESPACO&quot;,  # Dra.Ana Sem Espaço
+&quot;MULTITITLE&quot;,  # Dr.Dr. MultiTitle
+&quot;ESPACADO ANTES E DEPOIS&quot;,  #   Espaçado Antes e Depois
+&quot;FABIO ট্যাবULACAO CUNHA&quot;,  # Fábio \t ট্যাবulação Cunha - Keeping non-mapped chars
+⋮----
+all_normalize_passed = True
+⋮----
+normalized = normalize_lawyer_name(example)
+⋮----
+all_normalize_passed = False
+⋮----
+valid_decision_example = {
+invalid_missing_processo = {
+⋮----
+# &quot;numero_processo&quot;: &quot;0001234-56.2023.8.22.0001&quot;,
+⋮----
+invalid_empty_requerente = {
+⋮----
+&quot;requerente&quot;: [],  # Empty list
+⋮----
+invalid_requerente_list_empty_str = {
+⋮----
+&quot;requerente&quot;: [&quot;&quot;],  # List with empty string
+⋮----
+invalid_processo_pattern = {
+⋮----
+&quot;numero_processo&quot;: &quot;1234-56.2023.8.22.0001-EXTRA&quot;,  # Too long / wrong format
+⋮----
+invalid_partes_type = {
+invalid_resultado_missing = {
+⋮----
+# &quot;resultado&quot;: &quot;existente&quot;
+⋮----
+test_decisions = {
+⋮----
+is_valid = validate_decision(decision_data)
+⋮----
+# Original __main__ content for normalize_lawyer_name (abbreviated for brevity)
+# ... (previous tests for normalize_lawyer_name could be here or refactored)
+# A more robust accent removal using unicodedata:
+name_with_complex_accents = &quot;Jôãö da Silvâ Ñüñes&quot;
+text_normalized_robustly = name_with_complex_accents.upper()
+text_normalized_robustly = &quot;&quot;.join(
+logger_main = logging.getLogger(
+⋮----
+)  # Use a specific logger for main demo if needed</file><file path=".env.example"># CausaGanha Environment Configuration
+
+# =============================================================================
+# GEMINI API CONFIGURATION
+# =============================================================================
+# Required: Google Gemini API key for PDF content extraction
+# Get your API key from: https://ai.google.dev/
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# =============================================================================
+# INTERNET ARCHIVE CONFIGURATION
+# =============================================================================
+# Required: Internet Archive credentials for PDF archival
+# Get your keys from: https://archive.org/account/s3.php
+IA_ACCESS_KEY=your_ia_access_key_here
+IA_SECRET_KEY=your_ia_secret_key_here
+
+# =============================================================================
+# PIPELINE CONFIGURATION
+# =============================================================================
+# Maximum concurrent downloads from TJRO (default: 3)
+# Lower values are more respectful to TJRO servers
+MAX_CONCURRENT_DOWNLOADS=3
+
+# Maximum concurrent uploads to Internet Archive (default: 2)
+# IA has rate limits, so keep this conservative
+MAX_CONCURRENT_IA_UPLOADS=2
+
+# Try direct upload to IA first (true/false, default: true)
+# Set to false if TJRO consistently blocks IA servers
+TRY_DIRECT_UPLOAD=true
+
+# =============================================================================
+# DEVELOPMENT CONFIGURATION
+# =============================================================================
+# Environment: development, production
+ENV=development
+
+# Log level: DEBUG, INFO, WARNING, ERROR
+LOG_LEVEL=INFO
+
+# Data directory for local storage (default: data)
+DATA_DIR=data
+
+# =============================================================================
+# USAGE INSTRUCTIONS
+# =============================================================================
+# 1. Copy this file to .env
+# 2. Fill in your actual API keys and configuration
+# 3. Add .env to your .gitignore (already included)
+# 4. Source the environment: export $(cat .env | xargs)
+# 5. Or use python-dotenv to load automatically
+#
+# Required for basic functionality:
+# - GEMINI_API_KEY (for PDF extraction)
+#
+# Required for Internet Archive upload:
+# - IA_ACCESS_KEY (for archival)
+# - IA_SECRET_KEY (for archival)
+#
+# Optional pipeline tuning:
+# - MAX_CONCURRENT_DOWNLOADS
+# - MAX_CONCURRENT_IA_UPLOADS  
+# - TRY_DIRECT_UPLOAD
+# - LOG_LEVEL
+# - DATA_DIR
+
+# =============================================================================
+# ASYNC PIPELINE USAGE
+# =============================================================================
+# Process all 5,058 diarios (will take several hours):
+# uv run python src/async_diario_pipeline.py
+#
+# Test with limited items:
+# uv run python src/async_diario_pipeline.py --max-items 10
+#
+# Process specific year:
+# uv run python src/async_diario_pipeline.py --start-date 2025-01-01 --end-date 2025-12-31
+#
+# Resume interrupted processing:
+# uv run python src/async_diario_pipeline.py --resume
+#
+# Check processing statistics:
+# uv run python src/async_diario_pipeline.py --stats-only
+#
+# Force local download (skip direct upload):
+# uv run python src/async_diario_pipeline.py --no-direct-upload
+
+# =============================================================================
+# INTERNET ARCHIVE DISCOVERY
+# =============================================================================
+# List uploaded diarios:
+# uv run python src/ia_discovery.py --year 2025
+#
+# Coverage report:
+# uv run python src/ia_discovery.py --coverage-report
+#
+# Export inventory:
+# uv run python src/ia_discovery.py --export inventory.json</file><file path=".gitignore">__pycache__/
+**/__pycache__/
+*.pyc
+.env
+uv.lock
+
+
+# Data files
+data/*
+
+
+
+# Processing artifacts  
+
+*.egg-info/
+
+# Coverage reports
+coverage.xml
+.coverage
+htmlcov/</file><file path=".pre-commit-config.yaml">repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.7
+    hooks:
+      - id: ruff
+        args: [--fix]</file><file path=".python-version">3.12</file><file path="config.toml"># OpenSkill environment configuration
+[openskill]
+mu = 25.0
+sigma = 8.333333333333334  # Default: 25.0 / 3.0
+beta = 4.166666666666667   # Default: 25.0 / 6.0
+tau = 0.08333333333333333  # Default: (25.0 / 3.0) / 100.0
+# partial_play_tau = 0.7 # Optional: Custom tau for partial matches, if different from model&apos;s tau.
+                          # openskill_rating.py&apos;s rate_teams function has its own default for this (0.7)
+                          # This entry is not directly used by get_openskill_model but could be for rate_teams if customized.</file><file path="LICENSE">MIT License
+
+Copyright (c) 2025 CausaGanha Project Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the &quot;Software&quot;), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</file><file path="mkdocs.yml">site_name: CausaGanha
+nav:
+  - Home: index.md
+  - Tutorial: quickstart.md
+  - FAQ: faq.md
+docs_dir: docs
+site_dir: site</file><file path="openskill_rating.py">DEFAULT_OS_MU = 25.0
+DEFAULT_OS_SIGMA = 25.0 / 3.0
+DEFAULT_OS_BETA = 25.0 / 6.0
+DEFAULT_OS_TAU = (25.0 / 3.0) / 100.0
+OS_CONFIG_TYPE = Optional[Dict[str, Any]]
+def get_openskill_model(os_config: OS_CONFIG_TYPE = None) -&gt; PlackettLuce
+⋮----
+mu = float(os_config.get(&quot;mu&quot;, DEFAULT_OS_MU))
+sigma = float(os_config.get(&quot;sigma&quot;, DEFAULT_OS_SIGMA))
+beta = float(os_config.get(&quot;beta&quot;, DEFAULT_OS_BETA))
+tau = float(os_config.get(&quot;tau&quot;, DEFAULT_OS_TAU))
+⋮----
+mu = DEFAULT_OS_MU
+sigma = DEFAULT_OS_SIGMA
+beta = DEFAULT_OS_BETA
+tau = DEFAULT_OS_TAU
+⋮----
+teams = [team_a_ratings, team_b_ratings]
+⋮----
+ranks = [0, 1]
+new_ratings = os_model.rate(teams, ranks=ranks)
+⋮----
+ranks = [1, 0]
+⋮----
+ranks = [0, 0]
+⋮----
+new_ratings = os_model.rate(teams, ranks=ranks, tau=partial_play_tau)
+⋮----
+example_model = get_openskill_model()
+⋮----
+player1_ex1 = create_rating(example_model, name=&quot;Player1_ex1&quot;)
+player2_ex1 = create_rating(
+player3_ex1 = create_rating(example_model, name=&quot;Player3_ex1&quot;)
+⋮----
+team_a_ex1 = [player1_ex1, player2_ex1]
+team_b_ex1 = [player3_ex1]
+⋮----
+p3_updated_ex1 = updated_team_b_ex1[0]
+⋮----
+player1_ex2 = create_rating(example_model, name=&quot;Player1_ex2&quot;)
+player2_ex2 = create_rating(
+player3_ex2 = create_rating(example_model, name=&quot;Player3_ex2&quot;)
+team_a_ex2 = [player1_ex2, player2_ex2]
+team_b_ex2 = [player3_ex2]
+⋮----
+p3_draw = updated_team_b_draw[0]
+⋮----
+player1_ex3 = create_rating(example_model, name=&quot;Player1_ex3&quot;)
+player2_ex3 = create_rating(
+player3_ex3 = create_rating(example_model, name=&quot;Player3_ex3&quot;)
+team_a_ex3 = [player1_ex3, player2_ex3]
+team_b_ex3 = [player3_ex3]
+⋮----
+p3_partial = updated_team_b_partial[0]
+⋮----
+player1_sc2 = create_rating(example_model, name=&quot;Player1_sc2&quot;)
+player3_sc2 = create_rating(example_model, name=&quot;Player3_sc2&quot;)
+team_p1_sc2 = [player1_sc2]
+team_p3_sc2 = [player3_sc2]
+⋮----
+p1_1v1_win = updated_p1_team[0]
+p3_1v1_lose = updated_p3_team[0]
+⋮----
+teams_for_predict = [[player1_sc2], [player3_sc2]]
+draw_probability = example_model.predict_draw(teams_for_predict)
+win_probabilities = example_model.predict_win(teams_for_predict)</file><file path="pyproject.toml">[build-system]
+requires = [&quot;setuptools&gt;=61.0&quot;, &quot;wheel&quot;]
+build-backend = &quot;setuptools.build_meta&quot;
+
+[project]
+name = &quot;causaganha&quot;
+version = &quot;1.0.0&quot;
+description = &quot;Automated judicial decision analysis using OpenSkill rating system&quot;
+authors = [{name = &quot;CausaGanha Team&quot;}]
+license = {text = &quot;MIT&quot;}
+readme = &quot;README.md&quot;
+requires-python = &quot;&gt;=3.10&quot;
+dependencies = [
+    &quot;aiohttp&gt;=3.10.0&quot;,
+    &quot;duckdb&gt;=0.10.0&quot;,
+    &quot;google-generativeai&gt;=0.8.5&quot;,
+    &quot;internetarchive&gt;=5.4.0&quot;,
+    &quot;openskill==5.0.1&quot;,
+    &quot;pandas&gt;=2.3.0&quot;,
+    &quot;pymupdf&gt;=1.26.1&quot;,
+    &quot;python-dotenv&gt;=1.0.0&quot;,
+    &quot;python-json-logger&gt;=3.3.0&quot;,
+    &quot;requests&gt;=2.32.4&quot;,
+    &quot;toml&gt;=0.10.2&quot;,
+    &quot;typer&gt;=0.12.0&quot;,
+]
+
+[project.optional-dependencies]
+dev = [
+    &quot;pre-commit&gt;=4.2.0&quot;,
+    &quot;pytest&gt;=8.4.1&quot;,
+    &quot;pytest-cov&gt;=4.0.0&quot;,
+    &quot;ruff&gt;=0.12.0&quot;,
+]
+
+[project.scripts]
+causaganha = &quot;cli:app&quot;
+
+[tool.setuptools.packages.find]
+where = [&quot;src&quot;]
+include = [&quot;*&quot;]
+
+[tool.setuptools.package-data]
+&quot;*&quot; = [&quot;py.typed&quot;]
+
+[tool.pytest.ini_options]
+testpaths = [&quot;tests&quot;]
+python_files = [&quot;test_*.py&quot;]
+python_classes = [&quot;Test*&quot;]
+python_functions = [&quot;test_*&quot;]
+addopts = &quot;--cov=src --cov-report=term-missing --cov-report=xml&quot;
+
+[dependency-groups]
+dev = [
+    &quot;pytest-cov&gt;=6.2.1&quot;,
+]</file></files></repomix>
