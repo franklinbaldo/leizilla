@@ -3,7 +3,13 @@
     "allow": [
       "Bash(git checkout:*)",
       "Bash(rm:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(mkdir:*)",
+      "Bash(touch:*)",
+      "Bash(mv:*)",
+      "Bash(find:*)",
+      "Bash(PYTHONPATH=src python -c \"import config; print('✅ Config loaded'); import storage; print('✅ Storage loaded')\")",
+      "Bash(uv run:*)"
     ],
     "deny": []
   }

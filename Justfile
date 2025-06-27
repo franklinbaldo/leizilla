@@ -65,6 +65,43 @@ clean:
 ci: clean lint format-check typecheck test
     @echo "✅ All CI checks passed!"
 
+# Leizilla CLI commands
+discover origem="rondonia" year="":
+    @echo "🔍 Discovering laws from {{origem}}..."
+    uv run --env-file .env python src/cli.py discover --origem {{origem}} {{if year != "" { "--year " + year } else { "" }}}
+
+download origem="rondonia" limit="10":
+    @echo "📥 Downloading PDFs..."
+    uv run --env-file .env python src/cli.py download --origem {{origem}} --limit {{limit}}
+
+upload limit="5":
+    @echo "☁️ Uploading to Internet Archive..."
+    uv run --env-file .env python src/cli.py upload --limit {{limit}}
+
+export origem="rondonia" year="":
+    @echo "📦 Exporting dataset..."
+    uv run --env-file .env python src/cli.py export --origem {{origem}} {{if year != "" { "--year " + year } else { "" }}}
+
+search origem="" year="" text="" limit="20":
+    @echo "🔍 Searching laws..."
+    uv run --env-file .env python src/cli.py search \
+        {{if origem != "" { "--origem " + origem } else { "" }}} \
+        {{if year != "" { "--year " + year } else { "" }}} \
+        {{if text != "" { "--text \"" + text + "\"" } else { "" }}} \
+        --limit {{limit}}
+
+stats:
+    @echo "📊 Database statistics..."
+    uv run --env-file .env python src/cli.py stats
+
+# Full pipeline
+pipeline origem="rondonia" year="" limit="5":
+    @echo "🚀 Running full pipeline for {{origem}}..."
+    just discover {{origem}} {{year}}
+    just download {{origem}} {{limit}}
+    just upload {{limit}}
+    just export {{origem}} {{year}}
+
 # List available tasks (alternative to default)
 list:
     @just --list --unsorted

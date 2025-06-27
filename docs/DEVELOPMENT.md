@@ -6,19 +6,25 @@ Guia técnico para desenvolvimento diário no Leizilla.
 
 ```
 leizilla/
-├── src/leizilla/           # Código fonte principal
-│   ├── __init__.py         # Entry point básico
-│   └── (módulos futuros)   # crawler.py, extractor.py, etc.
+├── src/                    # Código fonte (flat structure)
+│   ├── config.py          # Configurações centralizadas
+│   ├── crawler.py         # Playwright crawling
+│   ├── storage.py         # Operações DuckDB
+│   ├── publisher.py       # Upload para Internet Archive
+│   └── cli.py             # Interface linha de comando
 ├── tests/                  # Testes unitários
-├── docs/                   # Documentação técnica
+│   ├── test_storage.py    # Testes do storage
+│   └── test_crawler.py    # Testes do crawler
+├── data/                   # Dados locais (gitignored)
+│   ├── .gitkeep
+│   ├── leizilla.duckdb    # Banco local (criado automaticamente)
+│   └── temp/              # PDFs temporários
+├── docs/                   # Documentação
 │   ├── adr/               # Architecture Decision Records
-│   └── plans/             # Planos de features futuras
-├── data/                   # Dados locais (não commitados)
-│   └── .gitkeep           # Placeholder
-├── .github/workflows/      # CI/CD automático
-├── pyproject.toml         # Configuração Python + deps
-├── Justfile              # Comandos de desenvolvimento
-└── CONTRIBUTING.md       # Guia de contribuição
+│   └── DEVELOPMENT.md     # Este guia
+├── .env.example           # Template de variáveis de ambiente
+├── pyproject.toml         # Configuração Python
+└── Justfile              # Comandos de desenvolvimento
 ```
 
 ## 🗃️ DuckDB Local
@@ -28,23 +34,33 @@ leizilla/
 - **Gitignore**: Incluído, não será commitado
 - **Backup**: Via Internet Archive (futuro)
 
-### **Schema Planejado** (MVP)
+### **Schema Definido** (conforme ADR-0003)
 ```sql
 -- Tabela principal de leis
 CREATE TABLE leis (
-  id VARCHAR PRIMARY KEY,
-  titulo TEXT,
-  data DATE,
-  origem VARCHAR,  -- "rondonia", "federal", etc.
+  id VARCHAR PRIMARY KEY,                    -- "rondonia-lei-2025-001"
+  titulo TEXT NOT NULL,
+  numero VARCHAR,
+  ano INTEGER,
+  data_publicacao DATE,
+  tipo_lei VARCHAR,                          -- "lei", "decreto", "portaria"
+  origem VARCHAR NOT NULL,                   -- "rondonia", "federal", etc.
+  texto_completo TEXT,                       -- OCR do Internet Archive
+  texto_normalizado TEXT,                    -- Texto limpo para busca
+  metadados JSON,                           -- Metadados flexíveis
   url_original VARCHAR,
-  texto_completo TEXT,
-  metadados JSON,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  url_pdf_ia VARCHAR,                       -- URL do PDF no IA
+  hash_conteudo VARCHAR,                    -- SHA-256 para deduplicação
+  status VARCHAR DEFAULT 'ativo',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Índices para busca
-CREATE INDEX idx_leis_data ON leis(data);
+-- Índices principais
 CREATE INDEX idx_leis_origem ON leis(origem);
+CREATE INDEX idx_leis_ano ON leis(ano);
+CREATE INDEX idx_leis_data ON leis(data_publicacao);
+CREATE INDEX idx_leis_tipo ON leis(tipo_lei);
 ```
 
 ### **Comandos DuckDB Úteis**
@@ -59,7 +75,15 @@ duckdb data/leizilla.duckdb
 .schema leis
 
 # Exportar para Parquet
-COPY leis TO 'data/leis.parquet' (FORMAT PARQUET);
+COPY leis TO 'data/leis_rondonia_2025.parquet' (FORMAT PARQUET)
+WHERE origem = 'rondonia' AND ano = 2025;
+
+# Busca por texto
+SELECT id, titulo, ano FROM leis 
+WHERE texto_normalizado LIKE '%meio ambiente%';
+
+# Estatísticas básicas
+SELECT origem, COUNT(*) as total FROM leis GROUP BY origem;
 ```
 
 ## 🌐 Variáveis de Ambiente
@@ -82,35 +106,41 @@ DUCKDB_PATH=data/leizilla.duckdb
 
 **Nunca commite `.env`!** Ele está no `.gitignore`.
 
-## 🐳 Docker (Opcional)
+## 🖥️ Interface de Linha de Comando
 
-### **Desenvolvimento**
+O Leizilla possui uma CLI completa para todas as operações:
+
+### **Comandos Principais**
 ```bash
-# Build imagem
-docker build -t leizilla:dev .
+# Descobrir leis (crawling)
+PYTHONPATH=src python -m cli discover --origem rondonia --year 2024
 
-# Rodar com volume
-docker run -it \
-  -v $(pwd):/app \
-  -v $(pwd)/data:/app/data \
-  leizilla:dev bash
+# Baixar PDFs descobertos
+PYTHONPATH=src python -m cli download --origem rondonia --limit 10
 
-# Dentro do container
-just setup
-just test
+# Upload para Internet Archive
+PYTHONPATH=src python -m cli upload --limit 5
+
+# Exportar dataset
+PYTHONPATH=src python -m cli export --origem rondonia --year 2024
+
+# Buscar leis no banco
+PYTHONPATH=src python -m cli search --origem rondonia --text "meio ambiente"
+
+# Estatísticas
+PYTHONPATH=src python -m cli stats
 ```
 
-### **Docker Compose** (futuro)
-```yaml
-version: '3.8'
-services:
-  leizilla:
-    build: .
-    volumes:
-      - .:/app
-      - ./data:/app/data
-    environment:
-      - DUCKDB_PATH=/app/data/leizilla.duckdb
+### **Com uv (recomendado)**
+```bash
+# Descobrir e salvar leis
+uv run --env-file .env python src/cli.py discover --origem rondonia
+
+# Pipeline completo
+uv run --env-file .env python src/cli.py discover --origem rondonia --year 2024
+uv run --env-file .env python src/cli.py download --origem rondonia --limit 5
+uv run --env-file .env python src/cli.py upload --limit 5
+uv run --env-file .env python src/cli.py export --origem rondonia --year 2024
 ```
 
 ## 🔍 Debug & Logs
@@ -132,10 +162,10 @@ logger.info("Processando PDF: %s", filename)
 ### **Debug Crawler**
 ```bash
 # Verbose mode (futuro)
-python -m leizilla.crawler --verbose --debug
+uv run python -m leizilla.crawler --verbose --debug
 
 # Salvar logs
-python -m leizilla.crawler > logs/crawler.log 2>&1
+uv run python -m leizilla.crawler > logs/crawler.log 2>&1
 ```
 
 ### **Debug DuckDB**
@@ -281,7 +311,9 @@ just test      # pytest
 - [Internet Archive CLI](https://archive.org/developers/internetarchive/)
 
 ### **ADRs Existentes**
-- [ADR-0001: Internet Archive como Pilar Central](adr/0001-projeto-estatico-duckdb-torrent.md)
+- [ADR-0001: Internet Archive como Pilar Central](../adr/0001-projeto-estatico-duckdb-torrent.md)
+- [ADR-0002: Frontend Estático Vanilla](../adr/0002-frontend-estatico-vanilla.md)
+- [ADR-0003: Schema DuckDB para Leis](../adr/0003-schema-duckdb-leis.md)
 
 ### **Padrões do Projeto**
 - **Conventional Commits**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`
@@ -310,13 +342,13 @@ kill <PID>
 
 ### **Playwright não instala browsers**
 ```bash
-playwright install
+uv run playwright install
 ```
 
 ### **Testes falham por timeout**
 ```bash
 # Aumentar timeout
-pytest --timeout=60
+uv run pytest --timeout=60
 ```
 
 Este guia será atualizado conforme o projeto evolui. Sempre consulte a versão mais recente no repositório.

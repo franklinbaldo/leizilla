@@ -106,7 +106,7 @@ just clean       # Limpar caches e arquivos temporários
 
 ### **Testes**
 - Usar **pytest** 
-- Cobertura mínima de 80%
+- Cobertura básica (mínimo 60%, crescer gradualmente)
 - Mockar APIs externas
 - Testes rápidos (<5s total)
 

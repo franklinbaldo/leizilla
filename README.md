@@ -17,7 +17,7 @@ Fase **pré-MVP**: escolhendo ferramentas, validando custos e montando POC. Sem 
 | Domínio | Ferramenta / Serviço | Por que? |
 |---------|----------------------|---------|
 | **Linguagem** | **Python 3.12** | Ecossistema maduro para scraping e ETL. |
-| **Crawling** | **Playwright** + **AnyIO/Trio** | Renderiza JS moderno; IO assíncrono robusto. |
+| **Crawling** | **Playwright** + **AnyIO** | Renderiza JS moderno; IO assíncrono robusto. |
 | **ETL & Storage** | **DuckDB** (SQL + Relational API) | Banco embutido, analítico, exporta Parquet; perfeito para datasets estáticos. |
 | **Backup & OCR** | **Internet Archive** | Upload gratuito; OCR automático + torrent seeding nativo. |
 | **Distribuição de dados** | - **Parquet** (analytics colunar)<br>- **JSON Lines** (pipelines)<br>- **Torrent** (gerado pelo IA) | Formatos agnósticos + canal P2P resiliente. |
@@ -44,7 +44,7 @@ Fase **pré-MVP**: escolhendo ferramentas, validando custos e montando POC. Sem 
 |-----------|-----------|
 | **Q3 / 2025** | MVP Rondônia (todas leis estaduais + constituição) em Parquet/JSONL. |
 | **Q4 / 2025** | Cobertura federal 1988-presente; releases mensais via torrent. |
-| **Q1 / 2026** | Frontend SvelteKit com busca SQL client-side. |
+| **Q1 / 2026** | Frontend estático (HTML/JS) com busca SQL client-side. |
 | **Q2 / 2026** | **Pesquisa semântica**: embeddings (Sentence-Transformers ou Gemini) salvos dentro do DuckDB para similarity search (via `vector()` extension). |
 | **Além** | Plugins para Assembleias de SP, RJ, MG; mirror datasets no HuggingFace. |
 

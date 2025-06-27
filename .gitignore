@@ -193,3 +193,14 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 .claude/settings.local.json
+
+# Leizilla specific
+data/
+!data/.gitkeep
+*.duckdb
+*.duckdb-wal
+*.duckdb-shm
+
+# Temporary files
+temp/
+logs/

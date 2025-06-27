@@ -82,7 +82,7 @@ O Leizilla adotará o **Internet Archive como pilar central** da arquitetura, re
 
 #### **Pipeline de Processamento**
 - **Python 3.12** + **Playwright** para crawling robusto
-- **AnyIO/Trio** para processamento assíncrono
+- **AnyIO** para processamento assíncrono
 - **DuckDB** para ETL local e staging
 - **Internet Archive CLI** para upload e sync
 
@@ -198,7 +198,7 @@ O Leizilla adotará o **Internet Archive como pilar central** da arquitetura, re
 
 ### **Fase 3: Frontend e Busca** (Q1/2026)
 1. DuckDB-WASM integration
-2. SvelteKit frontend estático
+2. Frontend estático (HTML/CSS/JS)
 3. SQL query interface
 4. Parquet loading otimizado
 

@@ -125,7 +125,7 @@ The project will use `.env` file for configuration:
 
 - **Q3/2025**: MVP with Rondônia state laws in Parquet/JSONL
 - **Q4/2025**: Federal legislation coverage (1988-present)
-- **Q1/2026**: SvelteKit frontend with DuckDB-WASM search
+- **Q1/2026**: Static frontend (HTML/JS) with DuckDB-WASM search
 - **Q2/2026**: Semantic search with embeddings stored in DuckDB
 
 The project emphasizes cost-zero operation, radical transparency, and distributed resilience over traditional cloud-based approaches.
