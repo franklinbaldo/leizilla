@@ -24,7 +24,6 @@ dependencies = [
     "playwright",
     "anyio",
     "duckdb",
-    "pyarrow",
 ]
 
 [project.optional-dependencies]
