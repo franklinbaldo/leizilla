@@ -1,0 +1,34 @@
+name: Lint Codebase
+
+on:
+  push:
+    branches: [ main ] # Or your default branch, e.g., master, develop
+  pull_request:
+    branches: [ main ] # Or your default branch
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12' # Should match project.requires-python
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1 # Or specific version
+        with:
+          # version: latest # or a specific version like "0.1.18"
+          # enable-cache: true # Caching for uv itself, if supported by setup-uv action
+
+      - name: Install dependencies
+        run: uv sync --dev # Install main and dev dependencies
+
+      - name: Run Ruff Linter
+        run: ruff check .
+
+      - name: Run Ruff Formatter (Check only)
+        run: ruff format --check .

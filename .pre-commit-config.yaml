@@ -1,0 +1,24 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0 # Use the latest version
+    hooks:
+    -   id: trailing-whitespace
+    -   id: end-of-file-fixer
+    -   id: check-yaml
+    -   id: check-added-large-files
+    -   id: check-toml
+-   repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version specified indirectly by pyproject.toml usually,
+    # but good to align or use a recent one here.
+    # For now, let's use a recent rev.
+    rev: v0.4.4 # Or check for the latest matching your ruff install
+    hooks:
+    -   id: ruff
+        args: [--fix, --exit-non-zero-on-fix] # Apply fixes and exit if fixes were made
+    -   id: ruff-format
+        # args: [] # No specific args needed for format usually
+ci:
+    autofix_commit_msg: "style: auto-fixes from pre-commit hooks"
+    autoupdate_commit_msg: "chore: pre-commit autoupdate"
