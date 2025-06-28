@@ -24,6 +24,7 @@ dependencies = [
     "playwright",
     "anyio", 
     "duckdb",
+    "typer",
 ]
 
 [project.optional-dependencies]
@@ -34,8 +35,8 @@ dev = [
     "pytest-cov",
 ]
 
-# [project.scripts] # Removing for now, can be re-added later
-# leizilla = "leizilla:main"
+[project.scripts]
+leizilla = "cli:main"
 
 [build-system]
 requires = ["setuptools>=61"]

@@ -2,57 +2,53 @@
 
 > **O dinossauro que devora PDFs jurídicos e cospe dados abertos.**
 
-Projeto-irmão do **CausaGanha**, mas com foco exclusivo em **indexar todas as leis brasileiras**, começando por **Rondônia**. Infra mínima, transparência radical e 100 % estático — sem servidores, sem backend para manter.
+Sistema de indexação de documentos legais brasileiros que **já funciona**. Projeto-irmão do **CausaGanha**, com foco exclusivo em **indexar todas as leis brasileiras**, começando por **Rondônia**. Infra mínima, transparência radical e 100% estático — sem servidores, sem backend para manter.
 
 ---
 
-## 🚧 Estado atual
+## ✅ Estado atual
 
-Fase **pré-MVP**: escolhendo ferramentas, validando custos e montando POC. Sem pastas nem código aqui — só a visão de stack.
+**MVP Funcional**: Pipeline completo implementado com crawler, armazenamento DuckDB, upload para Internet Archive e exportação de datasets.
 
----
-
-## 🛠️ Tecnologias escolhidas (v1)
-
-| Domínio | Ferramenta / Serviço | Por que? |
-|---------|----------------------|---------|
-| **Linguagem** | **Python 3.12** | Ecossistema maduro para scraping e ETL. |
-| **Crawling** | **Playwright** + **AnyIO** | Renderiza JS moderno; IO assíncrono robusto. |
-| **ETL & Storage** | **DuckDB** (SQL + Relational API) | Banco embutido, analítico, exporta Parquet; perfeito para datasets estáticos. |
-| **Backup & OCR** | **Internet Archive** | Upload gratuito; OCR automático + torrent seeding nativo. |
-| **Distribuição de dados** | - **Parquet** (analytics colunar)<br>- **JSON Lines** (pipelines)<br>- **Torrent** (gerado pelo IA) | Formatos agnósticos + canal P2P resiliente. |
-| **Client-side busca** | **DuckDB-WASM** | Consulta SQL direta no navegador, sem backend. |
-| **Build & CI** | **GitHub Actions** (matriz) | Orquestra crawl, ETL, upload, release — zero infra própria. |
-| **Dependências** | **uv** | Instalação veloz + lockfile determinístico. |
-| **Qualidade** | **ruff** (lint) + **mypy** (tipos) | Código limpo e tipado desde o dia 1. |
+### 🚀 O que já funciona:
+- ✅ **CLI completa** com comandos discover/download/upload/export/search
+- ✅ **Crawler assíncrono** com Playwright para sites governamentais  
+- ✅ **Schema DuckDB** completo com operações CRUD
+- ✅ **Integração Internet Archive** para OCR gratuito e distribuição
+- ✅ **Exportação Parquet/JSONL** para datasets abertos
+- ✅ **CLI moderna** com Typer e subcomandos
+- ✅ **Ambiente de desenvolvimento** com type checking e linting
 
 ---
 
-## 🌐 Fluxo de dados (alto nível)
+## 🛠️ Stack implementada
 
-1. **Crawler** baixa PDFs diretamente das fontes oficiais (prioridade Rondônia).  
-2. Faz upload imediato ao **Internet Archive**, que gera OCR e arquivos torrent.  
-3. Baixa o texto OCR do IA, normaliza e grava em **DuckDB + Parquet**.  
-4. Publica datasets via release no GitHub e espelho torrent/IA.  
-5. Frontend estático usa **DuckDB-WASM** para busca no navegador.  
+| Domínio | Ferramenta / Serviço | Status |
+|---------|----------------------|--------|
+| **Linguagem** | **Python 3.12** | ✅ Implementado |
+| **Crawling** | **Playwright** + **AnyIO** | ✅ Crawler assíncrono funcional |
+| **ETL & Storage** | **DuckDB** | ✅ Schema completo + CRUD |
+| **Backup & OCR** | **Internet Archive** | ✅ Upload e integração |
+| **Distribuição** | **Parquet** + **JSON Lines** | ✅ Exportação implementada |
+| **Build & CI** | **GitHub Actions** + **uv** | ✅ Scripts automatizados |
+| **Dependências** | **uv** | ✅ Ambiente configurado |
+| **Qualidade** | **ruff** + **mypy** | ✅ Linting e tipos |
 
 ---
 
-## 🗺 Roadmap resumido
+## 🌐 Pipeline implementado
 
-| Trimestre | Entregável |
-|-----------|-----------|
-| **Q3 / 2025** | MVP Rondônia (todas leis estaduais + constituição) em Parquet/JSONL. |
-| **Q4 / 2025** | Cobertura federal 1988-presente; releases mensais via torrent. |
-| **Q1 / 2026** | Frontend estático (HTML/JS) com busca SQL client-side. |
-| **Q2 / 2026** | **Pesquisa semântica**: embeddings (Sentence-Transformers ou Gemini) salvos dentro do DuckDB para similarity search (via `vector()` extension). |
-| **Além** | Plugins para Assembleias de SP, RJ, MG; mirror datasets no HuggingFace. |
+1. **Descoberta**: `uv run leizilla discover --origem rondonia --year 2020` - encontra leis no portal oficial
+2. **Download**: `uv run leizilla download --origem rondonia --limit 5` - baixa PDFs para processamento local  
+3. **Upload IA**: `uv run leizilla upload --limit 3` - envia para Internet Archive (OCR gratuito + torrents)
+4. **Exportação**: `uv run leizilla export --origem rondonia --year 2020` - gera datasets Parquet/JSONL
+5. **Pipeline completo**: `uv run leizilla pipeline --origem rondonia --year 2020 --limit 5` - executa tudo em sequência
 
 ---
 
 ## 🚀 Começar agora
 
-### **Experimentar o código**
+### **Instalação e uso**
 ```bash
 # 1. Instalar uv (gerenciador Python ultra-rápido)
 curl -LsSf https://astral.sh/uv/install.sh | sh  # Linux/macOS
@@ -64,22 +60,107 @@ cd leizilla
 uv venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
 uv sync --dev
 
-# 3. Verificar se tudo funciona
-just check
+# 3. Configurar ambiente (opcional - apenas para upload IA)
+# export IA_ACCESS_KEY="sua_chave"
+# export IA_SECRET_KEY="sua_chave_secreta"
+
+# 4. Verificar instalação
+uv run leizilla dev check
 ```
 
-### **Contribuir com o projeto**
-- **Sugestões de fontes**: links de portais de legislação pouco conhecidos
-- **Feedback de stack**: ideias mais baratas ou simples são bem-vindas
-- **Testes de custo**: comparativos de tempo/custo usando OCR do IA em larga escala
+### **Usar o sistema**
+
+```bash
+# Pipeline básico - descobrir e baixar leis de Rondônia 2020
+uv run leizilla discover --origem rondonia --year 2020
+uv run leizilla download --origem rondonia --limit 5
+
+# Ver estatísticas
+uv run leizilla stats
+
+# Buscar no banco local
+uv run leizilla search --text "lei complementar"
+
+# Pipeline completo automatizado
+uv run leizilla pipeline --origem rondonia --year 2020 --limit 10
+```
+
+### **Comandos disponíveis**
+
+| Finalidade | Comando | Exemplo |
+|-----------|---------|---------|
+| **Descobrir leis** | `uv run leizilla discover` | `uv run leizilla discover --origem rondonia --year 2020` |
+| **Download PDFs** | `uv run leizilla download` | `uv run leizilla download --origem rondonia --limit 5` |
+| **Upload para IA** | `uv run leizilla upload` | `uv run leizilla upload --limit 3` |
+| **Exportar dados** | `uv run leizilla export` | `uv run leizilla export --origem rondonia` |
+| **Pipeline completo** | `uv run leizilla pipeline` | `uv run leizilla pipeline --origem rondonia --year 2020` |
+| **Desenvolvimento** | `uv run leizilla dev check` | `uv run leizilla dev setup`, `uv run leizilla dev test` |
+
+**💡 Vantagem**: Interface CLI moderna com Typer, help integrado (`--help`) e zero dependências extras!
+
+---
+
+## 📊 Estrutura do projeto
+
+```
+src/                   # Código-fonte (estrutura flat)
+├── config.py         # Configuração centralizada
+├── storage.py         # Schema DuckDB + operações
+├── crawler.py         # Web crawling assíncrono
+├── publisher.py       # Internet Archive + exports
+└── cli.py             # Interface linha de comando
+tests/                 # Testes automatizados
+docs/adr/              # Decisões arquiteturais
+data/                  # Dados locais (gitignored)
+  └─ leizilla.duckdb   # Banco DuckDB local
+```
+
+---
+
+## 🗺 Roadmap
+
+| Período | Entregável | Status |
+|---------|-----------|--------|
+| **Q3 / 2025** | MVP Rondônia completo em Parquet/JSONL | ✅ **Implementado** |
+| **Q4 / 2025** | Cobertura federal 1988-presente; releases mensais | 🔄 Em progresso |
+| **Q1 / 2026** | Frontend estático (HTML/JS) com busca SQL client-side | 📋 Planejado |
+| **Q2 / 2026** | Pesquisa semântica com embeddings no DuckDB | 📋 Planejado |
+
+---
+
+## 🔗 Links importantes
+
+- **[CLAUDE.md](CLAUDE.md)**: Guia completo para desenvolvimento
+- **[CONTRIBUTING.md](CONTRIBUTING.md)**: Como contribuir  
+- **[docs/adr/](docs/adr/)**: Decisões arquiteturais
+- **[CausaGanha](https://github.com/franklinbaldo/causaganha)**: Projeto-irmão (validação Internet Archive)
+
+---
+
+## 🤝 Contribuir
+
+### **Formas de ajudar:**
+- **Testes de qualidade**: Executar pipeline em diferentes ambientes
+- **Novas fontes**: Portais de legislação de outros estados  
+- **Otimizações**: Melhorias no crawler e processamento
+- **Documentação**: Exemplos de uso e tutoriais
 
 **Código pronto?** Leia **[CONTRIBUTING.md](CONTRIBUTING.md)** para o fluxo completo.
 
 ---
 
+## 🔧 Tecnologias em destaque
+
+- **Internet Archive**: OCR gratuito + distribuição P2P automática
+- **DuckDB**: Banco analítico embarcado, exporta Parquet nativamente
+- **Playwright**: Render completo de sites governamentais com JavaScript
+- **uv**: Gerenciamento ultrarrápido de dependências Python
+
+---
+
 ## Licença
 
-- **Código**: MIT.  
-- **Dados legais**: domínio público.  
+- **Código**: MIT  
+- **Dados legais**: Domínio público
 
-> *Leizilla ainda é filhote — mas o apetite já é de T-Rex. Junte-se antes que ele devore tudo sozinho.* 🦖⚖️
+> *Leizilla saiu da fase filhote — já é um T-Rex devorando PDFs e cuspindo dados estruturados. Junte-se à revolução dos dados abertos!* 🦖⚖️

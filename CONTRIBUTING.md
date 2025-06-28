@@ -15,7 +15,7 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 uv sync --dev
 
 # 4. Configure pre-commit hooks
-just setup
+uv run leizilla dev setup
 ```
 
 **Pronto!** Ambiente funcionando em 2 minutos.
@@ -24,22 +24,23 @@ just setup
 
 ```bash
 # Setup completo (rode uma vez)
-just setup
+uv run leizilla dev setup
 
 # Verificar tudo que o CI roda
-just check
+uv run leizilla dev check
 
 # Lint e formatação
-just lint        # Verificar problemas
-just format      # Corrigir formatação
-just fix         # Aplicar correções automáticas
+uv run leizilla dev lint        # Verificar problemas
+uv run leizilla dev format      # Corrigir formatação
 
-# Testes e qualidade
-just test        # Rodar testes
-just typecheck   # Verificar tipos (mypy)
+# Testes
+uv run leizilla dev test        # Rodar testes
 
-# Limpeza
-just clean       # Limpar caches e arquivos temporários
+# Comandos individuais com uv
+uv run ruff check .             # Lint direto
+uv run ruff format .            # Formatação direta
+uv run mypy .                   # Type checking direto
+uv run pytest                   # Testes diretos
 ```
 
 ## 🔀 Fluxo de Pull Request
@@ -62,14 +63,14 @@ just clean       # Limpar caches e arquivos temporários
 
 4. **Checklist antes do push**:
    ```bash
-   just check  # Deve passar sem erros
+   uv run leizilla dev check  # Deve passar sem erros
    ```
 
 5. **Abra PR** com descrição clara do que foi feito
 
 ## ✅ Checklist Pré-Push
 
-- [ ] `just check` passa sem erros
+- [ ] `uv run leizilla dev check` passa sem erros
 - [ ] Testes cobrem nova funcionalidade
 - [ ] ADR criado para mudanças arquiteturais
 - [ ] Documentação atualizada se necessário
@@ -78,8 +79,8 @@ just clean       # Limpar caches e arquivos temporários
 ## 📋 Tipos de Contribuição
 
 ### 🚀 **Novas Features**
-- Sempre criar **ADR** primeiro em `/docs/adr/`
-- Seguir padrão do projeto (veja `src/leizilla/`)
+- Sempre criar **ADR** primeiro em `docs/adr/`
+- Seguir padrão do projeto (veja `src/`)
 - Incluir testes unitários
 
 ### 🐛 **Bug Fixes**
@@ -124,7 +125,7 @@ R: `uv add nome-da-lib` e inclua no commit
 R: `uv run pytest tests/test_specific.py -v`
 
 **P: Como criar ADR?**  
-R: Copie template de ADR existente em `/docs/adr/`
+R: Copie template de ADR existente em `docs/adr/`
 
 **P: Onde documentar changes breaking?**  
 R: Sempre em ADR + mencionar no PR description
@@ -133,8 +134,8 @@ R: Sempre em ADR + mencionar no PR description
 
 ## 🆘 Precisa de Ajuda?
 
-1. Leia `/docs/DEVELOPMENT.md` para detalhes técnicos
-2. Consulte ADRs existentes em `/docs/adr/`
+1. Leia `docs/DEVELOPMENT.md` para detalhes técnicos
+2. Consulte ADRs existentes em `docs/adr/`
 3. Abra issue com label `question`
 
 **Obrigado por contribuir com o Leizilla!** 🦖⚖️

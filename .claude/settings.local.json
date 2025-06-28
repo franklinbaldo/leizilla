@@ -9,7 +9,9 @@
       "Bash(mv:*)",
       "Bash(find:*)",
       "Bash(PYTHONPATH=src python -c \"import config; print('✅ Config loaded'); import storage; print('✅ Storage loaded')\")",
-      "Bash(uv run:*)"
+      "Bash(uv run:*)",
+      "Bash(rg:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

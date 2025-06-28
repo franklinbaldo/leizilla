@@ -24,7 +24,7 @@ leizilla/
 │   └── DEVELOPMENT.md     # Este guia
 ├── .env.example           # Template de variáveis de ambiente
 ├── pyproject.toml         # Configuração Python
-└── Justfile              # Comandos de desenvolvimento
+└── cli.py               # Interface linha de comando
 ```
 
 ## 🗃️ DuckDB Local
@@ -108,40 +108,74 @@ DUCKDB_PATH=data/leizilla.duckdb
 
 ## 🖥️ Interface de Linha de Comando
 
-O Leizilla possui uma CLI completa para todas as operações:
+O Leizilla possui uma CLI completa para todas as operações. Existem **duas formas** de executar comandos:
 
-### **Comandos Principais**
+### **Método 1: Comandos uv diretos (recomendado)**
+Sempre funcionam, não precisam de ambiente ativo:
+
 ```bash
 # Descobrir leis (crawling)
-PYTHONPATH=src python -m cli discover --origem rondonia --year 2024
+uv run leizilla discover --origem rondonia --year 2024
 
 # Baixar PDFs descobertos
-PYTHONPATH=src python -m cli download --origem rondonia --limit 10
+uv run leizilla download --origem rondonia --limit 10
 
 # Upload para Internet Archive
-PYTHONPATH=src python -m cli upload --limit 5
+uv run leizilla upload --limit 5
 
 # Exportar dataset
-PYTHONPATH=src python -m cli export --origem rondonia --year 2024
+uv run leizilla export --origem rondonia --year 2024
 
 # Buscar leis no banco
-PYTHONPATH=src python -m cli search --origem rondonia --text "meio ambiente"
+uv run leizilla search --origem rondonia --text "meio ambiente"
 
 # Estatísticas
-PYTHONPATH=src python -m cli stats
+uv run leizilla stats
 ```
 
-### **Com uv (recomendado)**
+### **CLI com Subcomandos**
+Interface moderna com argumentos nomeados:
+
 ```bash
-# Descobrir e salvar leis
-uv run --env-file .env python src/cli.py discover --origem rondonia
-
-# Pipeline completo
-uv run --env-file .env python src/cli.py discover --origem rondonia --year 2024
-uv run --env-file .env python src/cli.py download --origem rondonia --limit 5
-uv run --env-file .env python src/cli.py upload --limit 5
-uv run --env-file .env python src/cli.py export --origem rondonia --year 2024
+# Comandos do pipeline (argumentos explícitos)
+uv run leizilla discover --origem rondonia --year 2024
+uv run leizilla download --origem rondonia --limit 10
+uv run leizilla upload --limit 5
+uv run leizilla export --origem rondonia --year 2024
+uv run leizilla pipeline --origem rondonia --year 2024 --limit 10
 ```
+
+## ⚡ Scripts de Desenvolvimento
+
+O projeto usa CLI moderna com Typer, sem dependências externas de build tools.
+
+### **Comandos de Desenvolvimento**
+```bash
+# Setup inicial (rode uma vez)
+uv run leizilla dev setup         # Instala deps + pre-commit hooks
+
+# Qualidade de código
+uv run leizilla dev check         # Roda tudo: lint + format + typecheck + test
+uv run leizilla dev lint          # Verificar problemas (ruff check)
+uv run leizilla dev format        # Aplicar formatação (ruff format)
+uv run leizilla dev test          # Executar testes (pytest)
+```
+
+### **Comandos Diretos (alternativos)**
+```bash
+# Usar ferramentas diretamente quando necessário
+uv run ruff check .               # Lint direto
+uv run ruff format .              # Formatação direta
+uv run mypy .                     # Type checking direto
+uv run pytest                     # Testes diretos
+```
+
+### **Vantagens da CLI Typer**
+- ✅ **Interface moderna**: Help automático com `--help`
+- ✅ **Tipo-segura**: Validação automática de argumentos
+- ✅ **Zero configuração**: Sem arquivos extras de build
+- ✅ **Subcomandos**: Organização clara (`dev`, `pipeline`)
+- ✅ **Portabilidade**: Funciona em qualquer máquina com uv
 
 ## 🔍 Debug & Logs
 
@@ -161,11 +195,14 @@ logger.info("Processando PDF: %s", filename)
 
 ### **Debug Crawler**
 ```bash
-# Verbose mode (futuro)
-uv run python -m leizilla.crawler --verbose --debug
+# Debug de descoberta com apenas 1 resultado
+uv run leizilla discover --origem rondonia --year 2024
+
+# Debug de download com limite baixo
+uv run leizilla download --origem rondonia --limit 1
 
 # Salvar logs
-uv run python -m leizilla.crawler > logs/crawler.log 2>&1
+uv run leizilla discover --origem rondonia 2>&1 | tee logs/crawler.log
 ```
 
 ### **Debug DuckDB**
@@ -293,13 +330,15 @@ def test_duckdb_query_speed():
 ### **Comandos Locais**
 ```bash
 # Simular CI completo
-just ci
+uv run leizilla dev check
 
 # Individual
-just lint      # ruff check
-just format    # ruff format
-just typecheck # mypy
-just test      # pytest
+uv run leizilla dev lint      # ruff check
+uv run leizilla dev format    # ruff format
+uv run leizilla dev test      # pytest
+
+# Diretos
+uv run mypy .                 # type checking direto
 ```
 
 ## 📚 Referências Úteis

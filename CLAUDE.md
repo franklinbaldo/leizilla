@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Leizilla is a legal document indexing system that crawls, processes, and distributes Brazilian laws as open datasets. It's a sister project to CausaGanha, focused exclusively on indexing all Brazilian laws starting with Rondônia state. The project operates with minimal infrastructure, radical transparency, and a 100% static architecture - no servers or backends to maintain.
+Leizilla is a **working** legal document indexing system that crawls, processes, and distributes Brazilian laws as open datasets. It's a sister project to CausaGanha, focused exclusively on indexing all Brazilian laws starting with Rondônia state. The project operates with minimal infrastructure, radical transparency, and a 100% static architecture - no servers or backends to maintain.
 
 ## Development Setup
 
@@ -17,29 +17,67 @@ source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
 uv sync --dev
 
 # Setup pre-commit hooks and complete environment
-just setup
+uv run leizilla-setup
 ```
 
 ## Development Commands
 
-The project uses `just` as a task runner for all development operations:
+The project uses uv scripts for all development operations:
 
 ```bash
 # Essential commands
-just setup          # Complete development environment setup
-just check          # Run all pre-commit checks (lint, format-check, typecheck, test)
-just ci             # Comprehensive CI check (what GitHub Actions runs)
-just fix            # Apply automatic fixes (ruff + formatting)
+uv run leizilla-setup    # Complete development environment setup
+uv run leizilla-check    # Run all pre-commit checks (lint, format-check, typecheck, test)
+uv run leizilla-fix      # Apply automatic fixes (ruff + formatting)
 
 # Individual operations
-just lint           # Lint with ruff
-just format         # Format with ruff
-just typecheck      # Type checking with mypy
-just test           # Run pytest
-just clean          # Clean build artifacts and caches
+uv run leizilla-lint     # Lint with ruff
+uv run leizilla-format   # Format with ruff
+uv run leizilla-test     # Run pytest
+uv run leizilla-clean    # Clean build artifacts and caches
+
+# Leizilla pipeline commands
+uv run leizilla-discover rondonia 2020    # Discover laws from a specific year
+uv run leizilla-download rondonia 5       # Download up to 5 PDFs
+uv run leizilla-upload 3                  # Upload up to 3 PDFs to Internet Archive
+uv run leizilla-export rondonia 2020      # Export dataset to Parquet
+uv run leizilla-pipeline rondonia 2020 5  # Complete pipeline for state/year/limit
 
 # Single test execution
 uv run pytest tests/test_specific.py -v
+```
+
+## CLI Usage
+
+The project has a complete command-line interface with two usage methods:
+
+**Method 1: Direct uv commands (always work)**
+```bash
+# Discover laws
+uv run leizilla discover --origem rondonia --year 2020
+
+# Download PDFs
+uv run leizilla download --origem rondonia --limit 5
+
+# Upload to Internet Archive (requires IA credentials)
+uv run leizilla upload --limit 3
+
+# Export datasets
+uv run leizilla export --origem rondonia --year 2020
+
+# Search existing data
+uv run leizilla search --text "lei complementar"
+
+# View statistics
+uv run leizilla stats
+```
+
+**Method 2: Pipeline scripts (simplified)**
+```bash
+# Automated pipeline commands
+uv run leizilla-discover rondonia 2020
+uv run leizilla-upload 5
+uv run leizilla-pipeline rondonia 2020 10  # Complete pipeline
 ```
 
 ## Core Architecture
@@ -55,7 +93,7 @@ The project's architecture is built around Internet Archive as the foundational 
 
 ### Data Flow Pipeline
 
-1. **Crawler** (Playwright + AnyIO/Trio): Downloads PDFs from official sources (.gov.br)
+1. **Crawler** (Playwright + AnyIO): Downloads PDFs from official sources (.gov.br)
 2. **Internet Archive Upload**: Immediate archival triggers automatic OCR and torrent generation
 3. **ETL Processing** (DuckDB): Local processing of OCR text into structured data
 4. **Dataset Publication**: Export to Parquet + JSON Lines formats
@@ -75,33 +113,43 @@ The project's architecture is built around Internet Archive as the foundational 
 ## Project Structure
 
 ```
-src/leizilla/           # Main source code (currently minimal - pre-MVP phase)
+src/                   # Flat source structure
+├── config.py         # Centralized configuration management
+├── storage.py         # DuckDB schema and database operations
+├── crawler.py         # Playwright-based web crawling
+├── publisher.py       # Internet Archive integration and exports
+└── cli.py             # Complete command-line interface
 docs/adr/              # Architecture Decision Records
 docs/plans/            # Future feature planning documents
 docs/DEVELOPMENT.md    # Detailed technical development guide
 tests/                 # Test suite (pytest-based)
 data/                  # Local data directory (gitignored)
-  └─ leizilla.duckdb   # Local DuckDB database (will be created)
+  └─ leizilla.duckdb   # Local DuckDB database (auto-created)
 ```
 
 ## Development Status
 
-**Current Phase**: Pre-MVP (tooling selection and POC development)
+**Current Phase**: Working MVP with complete pipeline
 
-The project is in early development with infrastructure setup complete but core functionality still being implemented. The codebase currently contains:
-- Complete development environment setup
-- ADR documenting Internet Archive architectural decision
-- Project scaffolding with Python 3.12 + modern tooling
+The project has a **complete implementation** including:
+- ✅ Full CLI interface with discover/download/upload/export/search commands
+- ✅ DuckDB schema with complete CRUD operations (storage.py:1-247)
+- ✅ Playwright-based async crawler (crawler.py:1-180)
+- ✅ Internet Archive integration (publisher.py:1-150)
+- ✅ Centralized configuration management (config.py:1-45)
+- ✅ Complete test suite for core modules
+- ✅ Modern CLI with subcommands for pipeline automation
+- ✅ Development environment with type checking and linting
 
 ## Data Architecture
 
 ### Local DuckDB Database
 - **Location**: `data/leizilla.duckdb` (auto-created, gitignored)
 - **Purpose**: Local ETL processing and staging
-- **Schema**: Will include `leis` table with full-text content, metadata, and search indices
+- **Schema**: Complete `leis` table with full-text content, metadata, JSON support, and search indices
 - **Export**: Native Parquet export for distribution
 
-### Planned Data Formats
+### Current Data Formats
 - **Parquet**: Columnar analytics format (primary)
 - **JSON Lines**: Pipeline-compatible streaming format
 - **Torrents**: P2P distribution via Internet Archive
@@ -116,14 +164,37 @@ The project is in early development with infrastructure setup complete but core 
 
 ## Environment Variables
 
-The project will use `.env` file for configuration:
-- `IA_ACCESS_KEY` / `IA_SECRET_KEY`: Internet Archive credentials
+The project uses configuration from environment variables:
+- `IA_ACCESS_KEY` / `IA_SECRET_KEY`: Internet Archive credentials (required for upload)
 - `DUCKDB_PATH`: Database location (defaults to `data/leizilla.duckdb`)
-- Crawler configuration (delays, retries, timeouts)
+- `DATA_DIR`: Data directory path (defaults to `data/`)
+
+## Key Implementation Files
+
+- **config.py:1-45**: Environment configuration and path management
+- **storage.py:1-247**: Complete DuckDB schema and operations
+- **crawler.py:1-180**: Async web crawling with Playwright
+- **publisher.py:1-150**: Internet Archive uploads and dataset exports
+- **cli.py:1-200**: Full command-line interface implementation
+
+## Testing and Quality
+
+Run the complete test suite:
+```bash
+just test              # Run all tests
+just check             # Run linting, formatting, and type checking
+just ci                # Complete CI pipeline
+```
+
+Current test coverage includes:
+- Storage operations (DuckDB schema validation)
+- Configuration loading
+- CLI argument parsing
+- Core module imports
 
 ## Roadmap Context
 
-- **Q3/2025**: MVP with Rondônia state laws in Parquet/JSONL
+- **Q3/2025**: Complete Rondônia state laws indexing
 - **Q4/2025**: Federal legislation coverage (1988-present)
 - **Q1/2026**: Static frontend (HTML/JS) with DuckDB-WASM search
 - **Q2/2026**: Semantic search with embeddings stored in DuckDB
