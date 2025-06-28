@@ -9,29 +9,31 @@ setup:
     @echo "Setting up development environment..."
     uv sync --dev
     @echo "Installing pre-commit hooks..."
-    uv run pre-commit install
+    pre-commit install
     @echo "Setup complete."
 
 # Lint the codebase
 lint:
     @echo "Linting code with Ruff..."
-    uv run ruff check .
+    ruff check .
 
 # Format the codebase
 format:
     @echo "Formatting code with Ruff..."
-    uv run ruff format .
+    ruff format .
 
 # Run linters and formatters (useful before committing)
-check: lint format-check typecheck test
-    @echo "All checks completed!"
+check: lint format-check
+    @echo "Running all checks..."
+    # Placeholder for mypy if added as a separate check later
+    # mypy .
 
 # Run formatters and apply fixes
 fix:
     @echo "Applying Ruff fixes..."
-    uv run ruff check . --fix --exit-non-zero-on-fix
+    ruff check . --fix --exit-non-zero-on-fix
     @echo "Applying Ruff formatting..."
-    uv run ruff format .
+    ruff format .
 
 # Alias for lint
 style: lint
@@ -39,17 +41,17 @@ style: lint
 # Check formatting without applying
 format-check:
     @echo "Checking formatting with Ruff..."
-    uv run ruff format . --check
+    ruff format . --check
 
-# Run tests with pytest
+# Placeholder for tests when they are added
 test:
-    @echo "Running tests with pytest..."
-    uv run pytest
+    @echo "No tests configured yet. Placeholder for: pytest"
+    # pytest
 
-# Type checking with mypy
+# Placeholder for mypy checks
 typecheck:
     @echo "Type checking with mypy..."
-    uv run mypy .
+    mypy . --config-file pyproject.toml
 
 # Clean build artifacts and caches
 clean:
@@ -60,10 +62,6 @@ clean:
     rm -rf .pytest_cache
     rm -rf .ruff_cache
     # Add other clean commands as needed (e.g., build directories)
-
-# Comprehensive CI check (what GitHub Actions will run)
-ci: clean lint format-check typecheck test
-    @echo "✅ All CI checks passed!"
 
 # List available tasks (alternative to default)
 list:

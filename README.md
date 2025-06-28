@@ -50,30 +50,13 @@ Fase **pré-MVP**: escolhendo ferramentas, validando custos e montando POC. Sem 
 
 ---
 
-## 🚀 Começar agora
+## 🤝 Como contribuir agora
 
-### **Experimentar o código**
-```bash
-# 1. Instalar uv (gerenciador Python ultra-rápido)
-curl -LsSf https://astral.sh/uv/install.sh | sh  # Linux/macOS
-# ou no Windows: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+- **Sugestões de fontes**: links de portais de legislação pouco conhecidos.
+- **Feedback de stack**: ideias mais baratas ou simples são bem-vindas.
+- **Testes de custo**: comparativos de tempo/custo usando OCR do IA em larga escala.
 
-# 2. Clonar e configurar
-git clone https://github.com/franklinbaldo/leizilla.git
-cd leizilla
-uv venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
-uv sync --dev
-
-# 3. Verificar se tudo funciona
-just check
-```
-
-### **Contribuir com o projeto**
-- **Sugestões de fontes**: links de portais de legislação pouco conhecidos
-- **Feedback de stack**: ideias mais baratas ou simples são bem-vindas
-- **Testes de custo**: comparativos de tempo/custo usando OCR do IA em larga escala
-
-**Código pronto?** Leia **[CONTRIBUTING.md](CONTRIBUTING.md)** para o fluxo completo.
+Quando o código alfa sair, toda contribuição seguirá o fluxo **fork → branch → PR** com lint + tipos passando.
 
 ---
 

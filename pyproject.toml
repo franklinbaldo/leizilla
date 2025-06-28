@@ -24,6 +24,7 @@ dependencies = [
     "playwright",
     "anyio",
     "duckdb",
+    "pyarrow",
 ]
 
 [project.optional-dependencies]
@@ -34,7 +35,7 @@ dev = [
     "pytest-cov",
 ]
 
-# [project.scripts] # Removing for now, can be re-added later
+# [project.scripts] # Removing placeholder for now
 # leizilla = "leizilla:main"
 
 [build-system]
@@ -46,9 +47,8 @@ line-length = 88
 target-version = "py312"
 
 [tool.ruff.lint]
-# select = ["E", "F", "W", "I001", "UP", "S"] # Example selection
-# For now, using ruff's defaults which are generally good.
-# Can be more specific later if needed.
+# Using ruff's defaults, can be configured further if needed.
+# select = ["E", "F", "W", "I001", "UP", "S"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -60,7 +60,7 @@ line-ending = "auto"
 python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
-# strict = true # Can be enabled progressively
+# strict = true # Enable progressively
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 check_untyped_defs = true
