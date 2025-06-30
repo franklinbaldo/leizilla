@@ -65,7 +65,7 @@ uv sync --dev
 # export IA_SECRET_KEY="sua_chave_secreta"
 
 # 4. Verificar instalação
-uv run leizilla dev check
+uv run leizilla dev setup
 ```
 
 ### **Usar o sistema**

@@ -17,7 +17,7 @@ source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
 uv sync --dev
 
 # Setup pre-commit hooks and complete environment
-uv run leizilla-setup
+uv run leizilla dev setup
 ```
 
 ## Development Commands
@@ -26,22 +26,22 @@ The project uses uv scripts for all development operations:
 
 ```bash
 # Essential commands
-uv run leizilla-setup    # Complete development environment setup
-uv run leizilla-check    # Run all pre-commit checks (lint, format-check, typecheck, test)
-uv run leizilla-fix      # Apply automatic fixes (ruff + formatting)
+uv run leizilla dev setup    # Complete development environment setup
+uv run leizilla dev check    # Run all pre-commit checks (lint, format-check, typecheck, test)
+uv run leizilla dev fix      # Apply automatic fixes (ruff + formatting)
 
 # Individual operations
-uv run leizilla-lint     # Lint with ruff
-uv run leizilla-format   # Format with ruff
-uv run leizilla-test     # Run pytest
-uv run leizilla-clean    # Clean build artifacts and caches
+uv run leizilla dev lint     # Lint with ruff
+uv run leizilla dev format   # Format with ruff
+uv run leizilla dev test     # Run pytest
+uv run leizilla dev clean    # Clean build artifacts and caches
 
 # Leizilla pipeline commands
-uv run leizilla-discover rondonia 2020    # Discover laws from a specific year
-uv run leizilla-download rondonia 5       # Download up to 5 PDFs
-uv run leizilla-upload 3                  # Upload up to 3 PDFs to Internet Archive
-uv run leizilla-export rondonia 2020      # Export dataset to Parquet
-uv run leizilla-pipeline rondonia 2020 5  # Complete pipeline for state/year/limit
+uv run leizilla discover --origem rondonia --year 2020    # Discover laws from a specific year
+uv run leizilla download --origem rondonia --limit 5       # Download up to 5 PDFs
+uv run leizilla upload --limit 3                  # Upload up to 3 PDFs to Internet Archive
+uv run leizilla export --origem rondonia --year 2020      # Export dataset to Parquet
+uv run leizilla pipeline --origem rondonia --year 2020 --limit 5  # Complete pipeline for state/year/limit
 
 # Single test execution
 uv run pytest tests/test_specific.py -v
@@ -49,36 +49,7 @@ uv run pytest tests/test_specific.py -v
 
 ## CLI Usage
 
-The project has a complete command-line interface with two usage methods:
-
-**Method 1: Direct uv commands (always work)**
-```bash
-# Discover laws
-uv run leizilla discover --origem rondonia --year 2020
-
-# Download PDFs
-uv run leizilla download --origem rondonia --limit 5
-
-# Upload to Internet Archive (requires IA credentials)
-uv run leizilla upload --limit 3
-
-# Export datasets
-uv run leizilla export --origem rondonia --year 2020
-
-# Search existing data
-uv run leizilla search --text "lei complementar"
-
-# View statistics
-uv run leizilla stats
-```
-
-**Method 2: Pipeline scripts (simplified)**
-```bash
-# Automated pipeline commands
-uv run leizilla-discover rondonia 2020
-uv run leizilla-upload 5
-uv run leizilla-pipeline rondonia 2020 10  # Complete pipeline
-```
+The project has a complete command-line interface. All commands are executed via `uv run leizilla <command>`.
 
 ## Core Architecture
 

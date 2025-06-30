@@ -11,7 +11,9 @@
       "Bash(PYTHONPATH=src python -c \"import config; print('✅ Config loaded'); import storage; print('✅ Storage loaded')\")",
       "Bash(uv run:*)",
       "Bash(rg:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv list:*)"
     ],
     "deny": []
   }
