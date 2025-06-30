@@ -169,6 +169,24 @@ The project uses configuration from environment variables:
 - `DUCKDB_PATH`: Database location (defaults to `data/leizilla.duckdb`)
 - `DATA_DIR`: Data directory path (defaults to `data/`)
 
+## Claude Assistant Permissions
+
+The `.claude/settings.local.json` file defines the permissions for the Claude Code AI assistant when working in this repository. These permissions are specified as allowed Bash commands:
+
+- `Bash(git checkout:*)`: Allows checking out branches or paths.
+- `Bash(rm:*)`: Allows removing files or directories.
+- `Bash(git add:*)`: Allows adding file contents to the index.
+- `Bash(mkdir:*)`: Allows creating new directories.
+- `Bash(touch:*)`: Allows creating empty files or updating timestamps.
+- `Bash(mv:*)`: Allows moving or renaming files and directories.
+- `Bash(find:*)`: Allows searching for files in a directory hierarchy.
+- `Bash(PYTHONPATH=src python -c "import config; print('✅ Config loaded'); import storage; print('✅ Storage loaded')")`: Allows running a specific Python command to check if `config` and `storage` modules can be loaded. This is likely a health check or a way to ensure the core components are importable.
+- `Bash(uv run:*)`: Allows running any `uv run` scripts defined in `pyproject.toml`. This is crucial for development, testing, and pipeline execution tasks.
+- `Bash(rg:*)`: Allows using `ripgrep` for searching text patterns in files.
+- `Bash(grep:*)`: Allows using `grep` for searching text patterns in files.
+
+Currently, there are no explicitly denied commands in the `deny` list.
+
 ## Key Implementation Files
 
 - **config.py:1-45**: Environment configuration and path management
