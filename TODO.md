@@ -38,6 +38,7 @@ These tasks are critical to making the core pipeline fully functional.
 *   [ ] **Add Automatic Rate-Limiting**: Implement exponential back-off and rate-limiting to avoid overwhelming source portals.
 *   [ ] **Save HTML Snapshots**: For each law discovered, save the source HTML page for provenance and easier debugging of the parser.
 *   [ ] **Parallelize ETL**: Use `anyio.TaskGroup` to parallelize network-bound tasks like downloading PDFs or fetching OCR text, significantly speeding up the pipeline.
+*   [ ] **Crawler Tool Flexibility**: Evaluate and implement alternative crawling tools (e.g., `requests` + `BeautifulSoup`) when Playwright is not the most appropriate or efficient for a given source.
 
 ---
 
