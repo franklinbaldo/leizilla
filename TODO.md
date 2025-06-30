@@ -1,23 +1,85 @@
-# Leizilla Project Todo List
+# 📌 Leizilla – Master TODO
 
-## Configuration and Setup
-- [ ] Document how to obtain `IA_ACCESS_KEY` and `IA_SECRET_KEY` for Internet Archive.
-- [ ] Add validation for environment variables in `config.py` to ensure they are set and have correct types.
-- [ ] Consider adding more comments to `.env.example` to explain each variable's purpose.
-- [ ] Ensure Python version consistency across all relevant project files (e.g., `.python-version`, `lint.yml`, `pyproject.toml`).
+> Todas as tarefas são **opt‑in**. Para evitar paralisia, só mova algo para "Em progresso" depois de abrir uma *issue* ou *PR* vinculada.
 
-## Git & Version Control
-- [ ] Review "Leizilla specific" section in `.gitignore` for continued correctness.
-- [ ] Review `temp/` and `logs/` entries in `.gitignore` for appropriateness and specificity.
+---
 
-## CI/CD & Linting/Formatting
-- [ ] Investigate if enabling caching for `astral-sh/setup-uv@v1` in `.github/workflows/lint.yml` would speed up the workflow.
-- [ ] Confirm if `main` is the only default/target branch in `.github/workflows/lint.yml` or if others (e.g., `develop`) should be included.
-- [ ] Clarify `args: []` (commented out) for `ruff-format` hook in `.pre-commit-config.yaml`; remove if no args needed.
-- [ ] Ensure `autofix_commit_msg` and `autoupdate_commit_msg` in `.pre-commit-config.yaml` align with project's commit message conventions (e.g., Conventional Commits).
-- [ ] Ensure Mypy is configured for strict checking as stated in `CLAUDE.md` and integrated into CI/pre-commit hooks.
-- [ ] Enforce Conventional Commits format (mentioned in `CLAUDE.md`), possibly via a linter in pre-commit or CI.
+## 0️⃣ Meta
 
-## Documentation & Commands
-- [ ] Remove or update potentially outdated line number references for key files in `CLAUDE.md`'s "Development Status" section.
-- [ ] Clarify current status of Rondônia indexing (is it "Implementado" as per `README.md` or "Q3/2025" target as per `CLAUDE.md`?). Update documentation for consistency.
+* [ ] **Lifecycle** – quando concluir uma tarefa, mova‑a para `DONE.md` com data e SHA.
+* [ ] **Labels** – padronizar tags `prio:high`, `type:bug`, etc. no GitHub.
+
+---
+
+## 1️⃣ Config & Setup
+
+* [ ] Documentar como obter `IA_ACCESS_KEY` / `IA_SECRET_KEY` fileciteturn1file0
+* [ ] Adicionar validação em runtime para variáveis de ambiente em `config.py` fileciteturn1file0
+* [ ] Expandir `.env.example` com descrição e valores padrão fileciteturn1file0
+* [ ] Criar script `./scripts/doctor.sh` que verifica pré‑requisitos (uv, DuckDB, Playwright).
+* [ ] Fornecer instalador cross‑platform (`install.ps1`, `install.sh`).
+
+---
+
+## 2️⃣ Crawler & ETL
+
+* [ ] Substituir lógica *placeholder* no `LeisCrawler` por crawler real do portal ALE‑RO.
+* [ ] Implementar **crawl resume** usando flags no banco (`status_crawling`).
+* [ ] Adicionar *rate‑limit* e *back‑off* automáticos.
+* [ ] Salvar snapshot HTML para cada lei (proveniência).
+* [ ] Normalizar texto via spaCy (acentos, stop‑words).
+* [ ] Paralelizar ETL com `anyio` TaskGroups.
+
+---
+
+## 3️⃣ Banco & Schema
+
+* [ ] Criar índices FTS assim que DuckDB suportar Português.
+* [ ] Integrar extensão `vector()` para busca semântica.
+* [ ] Introduzir *migrations* estilo Alembic em `storage.py`.
+* [ ] Verificar integridade com checksums SHA‑256 contra arquivos no IA.
+
+---
+
+## 4️⃣ CLI & UX
+
+* [ ] Novo comando `leizilla validate` para sanity‑check de datasets.
+* [ ] Exibir barras de progresso com `tqdm` (ou `rich`).
+* [ ] Saída colorida e legível.
+* [ ] Adicionar `justfile` com atalhos comuns.
+
+---
+
+## 5️⃣ Testes & Qualidade
+
+* [ ] Cobertura mínima 80 % (pytest‑cov).
+* [ ] Testes de integração crawler/publisher usando VCR.py.
+* [ ] Job Windows no GitHub Actions.
+* [ ] Refinar configuração Ruff (regra E501 opt‑out?).
+
+---
+
+## 6️⃣ Pipeline & CI/CD
+
+* [ ] Workflow cron semanal para rodar pipeline completo.
+* [ ] Cache de navegadores Playwright no CI.
+* [ ] Upload noturno do banco `.duckdb` para IA com tag YYYY‑MM‑DD.
+* [ ] Gerar arquivo `SHA256SUMS` nos releases.
+
+---
+
+## 7️⃣ Frontend Estatístico
+
+* [ ] Esqueleto HTML/CSS minimalista + DuckDB‑WASM.
+* [ ] Templates de queries (dropdown).
+* [ ] Botão de exportação CSV/JSON.
+* [ ] Auditoria de acessibilidade (WCAG AA).
+
+---
+
+## 8️⃣ Documentação
+
+* [ ] Consolidar seções duplicadas entre `README.md` e `docs/DEVELOPMENT.md`.
+* [ ] Adicionar diagrama Mermaid de alto nível.
+* [ ] Criar `STYLE_GUIDE.md` com convenções de commit e código.
+* [ ] FAQ sobre limites do Internet Archive.
