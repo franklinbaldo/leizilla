@@ -21,8 +21,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "playwright",
-    "anyio", 
+    "anyio",
     "duckdb",
     "typer",
 ]
