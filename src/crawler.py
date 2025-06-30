@@ -35,23 +35,20 @@ class LeisCrawler:
             await self.browser.close()
     
     async def discover_rondonia_laws(self, 
-                                   start_year: int = 2020,
-                                   end_year: Optional[int] = None) -> List[Dict[str, Any]]:
+                                   start_coddoc: int = 1,
+                                   end_coddoc: int = 10) -> List[Dict[str, Any]]:
         """
-        Descobre leis de Rondônia no portal oficial.
+        Descobre leis de Rondônia no portal oficial iterando por coddoc.
         
         Args:
-            start_year: Ano inicial para busca
-            end_year: Ano final (padrão: ano atual)
+            start_coddoc: ID inicial do documento para busca.
+            end_coddoc: ID final do documento para busca.
         
         Returns:
-            Lista de metadados das leis descobertas
+            Lista de metadados das leis descobertas.
         """
         if not self.browser:
             await self.start()
-        
-        if end_year is None:
-            end_year = datetime.now().year
         
         page = await self.browser.new_page()
         await page.set_extra_http_headers({
@@ -60,18 +57,71 @@ class LeisCrawler:
         
         discovered_laws = []
         
-        # Portal de Rondônia - URL base (precisa ser investigada)
-        # Nota: URL placeholder - precisa ser ajustada para portal real
-        base_url = "https://www.tjro.jus.br"  # Placeholder
+        # Base URL from cotel_scrap-main/main.py
+        base_url_template = "http://ditel.casacivil.ro.gov.br/COTEL/Livros/detalhes.aspx?coddoc={}"
         
         try:
-            for year in range(start_year, end_year + 1):
-                print(f"🔍 Buscando leis de {year}...")
+            for coddoc in range(start_coddoc, end_coddoc + 1):
+                url = base_url_template.format(coddoc)
+                print(f"🔍 Buscando lei com coddoc {coddoc} em {url}...")
                 
-                # Aqui seria implementada a lógica específica do portal
-                # Por enquanto, retorna estrutura de exemplo
-                year_laws = await self._crawl_year_rondonia(page, year)
-                discovered_laws.extend(year_laws)
+                try:
+                    response = await page.goto(url, timeout=self.timeout)
+                    if not response or response.status != 200:
+                        print(f"❌ Falha ao carregar página para coddoc {coddoc}: HTTP {response.status if response else 'Timeout'}")
+                        continue
+                    
+                    # --- Extração de dados da página ---
+                    # Esta parte precisa ser adaptada à estrutura HTML real do site.
+                    # Assumindo que o título, número, ano e link do PDF estão em elementos específicos.
+                    
+                    # Exemplo de extração (placeholder - precisa de inspeção real do HTML)
+                    title_element = await page.locator('#container-main-offer h2').first.text_content()
+                    # Assuming the title element contains the full title like "LEI Nº 123, DE 01 DE JANEIRO DE 2020"
+                    title = title_element.strip() if title_element else f"Lei coddoc {coddoc}"
+                    
+                    # Try to extract number and year from the title or other elements
+                    numero = "N/A"
+                    ano = datetime.now().year
+                    match_num_ano = re.search(r'Nº\s*(\d+)[^\d]*DE\s*(\d{4})', title)
+                    if match_num_ano:
+                        numero = match_num_ano.group(1)
+                        ano = int(match_num_ano.group(2))
+                    else:
+                        # Fallback: try to find year in the URL or current year
+                        match_year_url = re.search(r'(\d{4})', url)
+                        if match_year_url:
+                            ano = int(match_year_url.group(1))
+                    
+                    # Find PDF link
+                    pdf_link_element = await page.locator('a[href$=".pdf"]').first.get_attribute('href')
+                    pdf_url = urljoin(url, pdf_link_element) if pdf_link_element else None
+                    
+                    if pdf_url:
+                        discovered_laws.append({
+                            'id': f"rondonia-coddoc-{coddoc}", # Using coddoc as part of ID
+                            'titulo': title,
+                            'numero': numero,
+                            'ano': ano,
+                            'data_publicacao': f"{ano}-01-01", # Placeholder, try to extract real date
+                            'tipo_lei': "lei", # Can be refined based on content
+                            'origem': "rondonia",
+                            'url_original': url, # URL da página da lei
+                            'url_pdf_ia': None, # Será preenchido após upload para IA
+                            'metadados': {
+                                'coddoc': coddoc,
+                                'fonte': 'Ditel COTEL RO',
+                                'descoberto_em': datetime.now().isoformat(),
+                                'status_crawling': 'descoberto',
+                                'pdf_url_found': pdf_url # Store the found PDF URL
+                            }
+                        })
+                        print(f"✅ Descoberta: {title} (coddoc: {coddoc}, PDF: {pdf_url})")
+                    else:
+                        print(f"⚠️ Nenhuma URL de PDF encontrada para coddoc {coddoc}")
+                
+                except Exception as e:
+                    print(f"❌ Erro ao processar coddoc {coddoc} ({url}): {e}")
                 
                 # Delay entre requests
                 await asyncio.sleep(self.delay / 1000)
@@ -80,36 +130,6 @@ class LeisCrawler:
             await page.close()
         
         return discovered_laws
-    
-    async def _crawl_year_rondonia(self, page: Page, year: int) -> List[Dict[str, Any]]:
-        """
-        Crawl específico para um ano em Rondônia.
-        
-        NOTA: Esta é uma implementação placeholder.
-        Precisa ser adaptada para o portal real de Rondônia.
-        """
-        laws = []
-        
-        # Estrutura de exemplo - deve ser substituída por crawling real
-        example_law = {
-            'id': f"rondonia-lei-{year}-001",
-            'titulo': f"Lei Exemplo {year}",
-            'numero': "001",
-            'ano': year,
-            'data_publicacao': f"{year}-01-15",
-            'tipo_lei': "lei",
-            'origem': "rondonia",
-            'url_original': f"https://exemplo.ro.gov.br/lei-{year}-001.pdf",
-            'metadados': {
-                'fonte': 'Portal Rondônia',
-                'descoberto_em': datetime.now().isoformat(),
-                'status_crawling': 'descoberto'
-            }
-        }
-        
-        laws.append(example_law)
-        
-        return laws
     
     async def download_pdf(self, url: str, output_path: Path) -> bool:
         """
@@ -204,12 +224,13 @@ class LeisCrawler:
         }
 
 
-async def discover_laws_rondonia(start_year: int = 2020) -> List[Dict[str, Any]]:
+async def discover_laws_rondonia(start_coddoc: int = 1, end_coddoc: int = 10) -> List[Dict[str, Any]]:
     """
     Função utilitária para descobrir leis de Rondônia.
     
     Args:
-        start_year: Ano inicial para busca
+        start_coddoc: ID inicial do documento para busca.
+        end_coddoc: ID final do documento para busca.
         
     Returns:
         Lista de leis descobertas
@@ -217,7 +238,7 @@ async def discover_laws_rondonia(start_year: int = 2020) -> List[Dict[str, Any]]
     crawler = LeisCrawler()
     
     try:
-        laws = await crawler.discover_rondonia_laws(start_year=start_year)
+        laws = await crawler.discover_rondonia_laws(start_coddoc=start_coddoc, end_coddoc=end_coddoc)
         print(f"🎯 Descobertas {len(laws)} leis de Rondônia")
         return laws
     
@@ -248,4 +269,4 @@ async def download_lei_pdf(url: str, filename: str) -> bool:
 
 if __name__ == "__main__":
     # Teste básico
-    asyncio.run(discover_laws_rondonia(start_year=2024))
+    asyncio.run(discover_laws_rondonia(start_coddoc=1, end_coddoc=5))

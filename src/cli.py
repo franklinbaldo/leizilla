@@ -27,10 +27,11 @@ app.add_typer(dev_app, name="dev")
 @app.command("discover")
 def cmd_discover(
     origem: str = typer.Option("rondonia", help="Origem das leis (rondonia, acre, etc)"),
-    year: Optional[int] = typer.Option(None, help="Ano específico para buscar"),
+    start_coddoc: int = typer.Option(1, help="ID inicial do documento para buscar"),
+    end_coddoc: int = typer.Option(10, help="ID final do documento para buscar"),
 ):
     """🔍 Descobrir leis nos portais oficiais"""
-    echo(f"🔍 Descobrindo leis de {origem}" + (f" do ano {year}" if year else ""))
+    echo(f"🔍 Descobrindo leis de {origem} (coddoc: {start_coddoc}-{end_coddoc})")
     
     try:
         from crawler import LeisCrawler
@@ -42,8 +43,8 @@ def cmd_discover(
             
             if origem == "rondonia":
                 laws = await crawler.discover_rondonia_laws(
-                    start_year=year or 2020,
-                    end_year=year if year else None
+                    start_coddoc=start_coddoc,
+                    end_coddoc=end_coddoc
                 )
                 
                 for law in laws:
@@ -256,7 +257,8 @@ def cmd_stats():
 @app.command("pipeline")
 def cmd_pipeline(
     origem: str = typer.Option("rondonia", help="Origem das leis"),
-    year: Optional[int] = typer.Option(None, help="Ano específico"),
+    start_coddoc: int = typer.Option(1, help="ID inicial do documento para buscar"),
+    end_coddoc: int = typer.Option(10, help="ID final do documento para buscar"),
     limit: int = typer.Option(5, help="Limite por etapa"),
 ):
     """🚀 Executar pipeline completo"""
@@ -265,7 +267,7 @@ def cmd_pipeline(
     try:
         # Run each step
         echo("\n📝 Etapa 1/4: Descobrir leis")
-        cmd_discover(origem=origem, year=year)
+        cmd_discover(origem=origem, start_coddoc=start_coddoc, end_coddoc=end_coddoc)
         
         echo("\n📝 Etapa 2/4: Baixar PDFs")  
         cmd_download(origem=origem, limit=limit)
@@ -274,7 +276,7 @@ def cmd_pipeline(
         cmd_upload(limit=limit)
         
         echo("\n📝 Etapa 4/4: Exportar dataset")
-        cmd_export(origem=origem, year=year)
+        cmd_export(origem=origem, year=None) # year is not directly used in export anymore, but keeping for now
         
         echo("\n✅ Pipeline concluído com sucesso!")
         

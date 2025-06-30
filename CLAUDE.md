@@ -37,11 +37,11 @@ uv run leizilla dev test     # Run pytest
 uv run leizilla dev clean    # Clean build artifacts and caches
 
 # Leizilla pipeline commands
-uv run leizilla discover --origem rondonia --year 2020    # Discover laws from a specific year
+uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10    # Discover laws from a specific range of coddocs
 uv run leizilla download --origem rondonia --limit 5       # Download up to 5 PDFs
 uv run leizilla upload --limit 3                  # Upload up to 3 PDFs to Internet Archive
 uv run leizilla export --origem rondonia --year 2020      # Export dataset to Parquet
-uv run leizilla pipeline --origem rondonia --year 2020 --limit 5  # Complete pipeline for state/year/limit
+uv run leizilla pipeline --origem rondonia --start-coddoc 1 --end-coddoc 10 --limit 5  # Complete pipeline for state/year/limit
 
 # Single test execution
 uv run pytest tests/test_specific.py -v

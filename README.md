@@ -38,7 +38,7 @@ Sistema de indexação de documentos legais brasileiros que **já funciona**. Pr
 
 ## 🌐 Pipeline implementado
 
-1. **Descoberta**: `uv run leizilla discover --origem rondonia --year 2020` - encontra leis no portal oficial
+1. **Descoberta**: `uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10` - encontra leis no portal oficial
 2. **Download**: `uv run leizilla download --origem rondonia --limit 5` - baixa PDFs para processamento local  
 3. **Upload IA**: `uv run leizilla upload --limit 3` - envia para Internet Archive (OCR gratuito + torrents)
 4. **Exportação**: `uv run leizilla export --origem rondonia --year 2020` - gera datasets Parquet/JSONL
@@ -72,7 +72,7 @@ uv run leizilla dev setup
 
 ```bash
 # Pipeline básico - descobrir e baixar leis de Rondônia 2020
-uv run leizilla discover --origem rondonia --year 2020
+uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10
 uv run leizilla download --origem rondonia --limit 5
 
 # Ver estatísticas
@@ -82,18 +82,18 @@ uv run leizilla stats
 uv run leizilla search --text "lei complementar"
 
 # Pipeline completo automatizado
-uv run leizilla pipeline --origem rondonia --year 2020 --limit 10
+uv run leizilla pipeline --origem rondonia --start-coddoc 1 --end-coddoc 10 --limit 10
 ```
 
 ### **Comandos disponíveis**
 
 | Finalidade | Comando | Exemplo |
 |-----------|---------|---------|
-| **Descobrir leis** | `uv run leizilla discover` | `uv run leizilla discover --origem rondonia --year 2020` |
+| **Descobrir leis** | `uv run leizilla discover` | `uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10` |
 | **Download PDFs** | `uv run leizilla download` | `uv run leizilla download --origem rondonia --limit 5` |
 | **Upload para IA** | `uv run leizilla upload` | `uv run leizilla upload --limit 3` |
 | **Exportar dados** | `uv run leizilla export` | `uv run leizilla export --origem rondonia` |
-| **Pipeline completo** | `uv run leizilla pipeline` | `uv run leizilla pipeline --origem rondonia --year 2020` |
+| **Pipeline completo** | `uv run leizilla pipeline` | `uv run leizilla pipeline --origem rondonia --start-coddoc 1 --end-coddoc 10` |
 | **Desenvolvimento** | `uv run leizilla dev check` | `uv run leizilla dev setup`, `uv run leizilla dev test` |
 
 **💡 Vantagem**: Interface CLI moderna com Typer, help integrado (`--help`) e zero dependências extras!
