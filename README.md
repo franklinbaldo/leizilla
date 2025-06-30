@@ -82,14 +82,14 @@ uv run leizilla stats
 uv run leizilla search --text "lei complementar"
 
 # Pipeline completo automatizado
-uv run leizilla pipeline --origem rondonia --start-coddoc 1 --end-coddoc 10 --limit 10
+uv run leizilla pipeline --origem rondonia --start-coddoc 1 --end-coddoc 10 --limit 10 --crawler-type simple
 ```
 
 ### **Comandos disponíveis**
 
 | Finalidade | Comando | Exemplo |
 |-----------|---------|---------|
-| **Descobrir leis** | `uv run leizilla discover` | `uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10` |
+| **Descobrir leis** | `uv run leizilla discover` | `uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10 --crawler-type simple` |
 | **Download PDFs** | `uv run leizilla download` | `uv run leizilla download --origem rondonia --limit 5` |
 | **Upload para IA** | `uv run leizilla upload` | `uv run leizilla upload --limit 3` |
 | **Exportar dados** | `uv run leizilla export` | `uv run leizilla export --origem rondonia` |

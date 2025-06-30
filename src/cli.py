@@ -29,6 +29,7 @@ def cmd_discover(
     origem: str = typer.Option("rondonia", help="Origem das leis (rondonia, acre, etc)"),
     start_coddoc: int = typer.Option(1, help="ID inicial do documento para buscar"),
     end_coddoc: int = typer.Option(10, help="ID final do documento para buscar"),
+    crawler_type: str = typer.Option("playwright", help="Tipo de crawler a usar (playwright, simple)"),
 ):
     """🔍 Descobrir leis nos portais oficiais"""
     echo(f"🔍 Descobrindo leis de {origem} (coddoc: {start_coddoc}-{end_coddoc})")
@@ -38,7 +39,7 @@ def cmd_discover(
         from storage import DatabaseManager
         
         async def run_discover():
-            crawler = LeisCrawler()
+            crawler = LeisCrawler(crawler_type="simple") # Download can always use simple requests
             db = DatabaseManager()
             
             if origem == "rondonia":
@@ -77,7 +78,7 @@ def cmd_download(
         import tempfile
         
         async def run_download():
-            crawler = LeisCrawler()
+            crawler = LeisCrawler(crawler_type="simple") # Download can always use simple requests
             db = DatabaseManager()
             
             # Get laws without PDFs
@@ -259,6 +260,7 @@ def cmd_pipeline(
     origem: str = typer.Option("rondonia", help="Origem das leis"),
     start_coddoc: int = typer.Option(1, help="ID inicial do documento para buscar"),
     end_coddoc: int = typer.Option(10, help="ID final do documento para buscar"),
+    crawler_type: str = typer.Option("playwright", help="Tipo de crawler a usar (playwright, simple)"),
     limit: int = typer.Option(5, help="Limite por etapa"),
 ):
     """🚀 Executar pipeline completo"""
@@ -266,8 +268,9 @@ def cmd_pipeline(
     
     try:
         # Run each step
-        echo("\n📝 Etapa 1/4: Descobrir leis")
-        cmd_discover(origem=origem, start_coddoc=start_coddoc, end_coddoc=end_coddoc)
+        echo("
+📝 Etapa 1/4: Descobrir leis")
+        cmd_discover(origem=origem, start_coddoc=start_coddoc, end_coddoc=end_coddoc, crawler_type=crawler_type)
         
         echo("\n📝 Etapa 2/4: Baixar PDFs")  
         cmd_download(origem=origem, limit=limit)
