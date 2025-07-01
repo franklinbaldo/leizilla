@@ -28,3 +28,7 @@ CRAWLER_TIMEOUT = int(os.getenv("CRAWLER_TIMEOUT", "30000"))  # ms
 # Garantir que diretórios existem
 DATA_DIR.mkdir(exist_ok=True)
 TEMP_DIR.mkdir(exist_ok=True)
+
+# Diretório de Logs
+LOGS_DIR = PROJECT_ROOT / "logs"
+LOGS_DIR.mkdir(exist_ok=True)
