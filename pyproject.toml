@@ -59,6 +59,7 @@ indent-style = "space"
 line-ending = "auto"
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 # asyncio_mode = "auto" # Removido
 # addopts = "--cov=src --cov-report=html" # Exemplo de opções de coverage
 
