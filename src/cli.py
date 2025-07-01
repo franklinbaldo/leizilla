@@ -2772,7 +2772,7 @@ def dev_check_all(ctx: typer.Context):
 # confiando no gerenciamento de contexto dos conectores e fechamento explícito.
 
 
-def run_cli():
+def main():
     """Ponto de entrada principal para o CLI quando executado como script."""
     try:
         app()

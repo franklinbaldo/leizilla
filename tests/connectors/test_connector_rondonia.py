@@ -61,7 +61,16 @@ def mock_playwright_page():
         return locator_obj_mock
 
     page_mock.locator = MagicMock(side_effect=locator_side_effect)
-    page_mock.goto = AsyncMock(return_value=AsyncMock(status=200))
+
+    async def default_goto_side_effect(url, *args, **kwargs):
+        print(f"DEFAULT MOCK_PLAYWRIGHT_PAGE GOTO CALLED for URL: {url}")
+        response_mock = AsyncMock()
+        response_mock.status = 200
+        response_mock.headers = {"content-type": "text/html"}
+        response_mock.body = AsyncMock(return_value=b"Default mock response from fixture")
+        return response_mock
+
+    page_mock.goto = AsyncMock(side_effect=default_goto_side_effect) # Default goto uses the printing side_effect
     return page_mock
 
 
@@ -102,9 +111,28 @@ async def test_rondonia_discover_laws_simulado(
         return_value=mock_playwright_browser
     )
     mock_async_playwright_entry.return_value = playwright_context_manager_mock
+
+    # Более конкретный мок для page.goto в этом тесте
+    mock_discover_response = AsyncMock()
+    mock_discover_response.status = 200
+    async def new_goto_mock_discover(url, *args, **kwargs):
+        print(f"MOCK CALLED (discover test): page.goto('{url}')")
+        # Здесь мы ожидаем, что URL будет страницей деталей, а не PDF
+        # Настроим мок так, чтобы он возвращал успешный статус для страницы деталей
+        # и позволял дальнейшим page.locator()... работать как настроено в фикстуре mock_playwright_page
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.headers = {"content-type": "text/html"} # Пример заголовка
+        mock_response.body = AsyncMock(return_value=b"<html><body>Mocked page</body></html>")
+        return mock_response
+
+    # Применяем side_effect к существующему моку mock_playwright_page.goto из фикстуры
+    mock_playwright_page.goto.side_effect = new_goto_mock_discover
+
     discovered_laws = await rondonia_connector_instance.discover_laws(
         start_coddoc=1, end_coddoc=1
     )
+    print(f"Discovered laws in test: {discovered_laws}") # Добавим вывод
     assert len(discovered_laws) == 1
     law1 = discovered_laws[0]
     assert law1["origem"] == "rondonia"
@@ -141,20 +169,37 @@ async def test_rondonia_download_pdf_simulado(
     mock_pdf_response.headers = {"content-type": "application/pdf"}
     mock_pdf_response.body = AsyncMock(return_value=b"%PDF-fake-content-for-download")
 
-    async def goto_side_effect(url, **kwargs):
-        if "5775.pdf" in url:
-            return mock_pdf_response
-        return AsyncMock(status=200)
-
-    mock_playwright_page.goto = AsyncMock(side_effect=goto_side_effect)
-    law_metadata = {
+    law_metadata = { # Moved law_metadata definition earlier to be used in side_effect
         "id": "rondonia-coddoc-1",
         "origem": "rondonia",
         "titulo": "LEI Nº 5.775, DE 27 DE DEZEMBRO DE 2023",
         "url_pdf_original": "http://ditel.casacivil.ro.gov.br/uploads/00001/2023/5775.pdf",
     }
+
+    async def goto_side_effect(url, **kwargs):
+        print(f"MOCK CALLED (download test): page.goto('{url}')") # Diagnostic print
+        if law_metadata["url_pdf_original"] == url: # Exact match
+            print(f"MOCK MATCHED PDF URL (download test): '{url}'")
+            return mock_pdf_response # This has .status = 200
+        # For any other URL (e.g. if there's a redirect page first)
+        print(f"MOCK DID NOT MATCH PDF URL (download test): '{url}', returning generic 200")
+        mock_generic_response = AsyncMock()
+        mock_generic_response.status = 200
+        mock_generic_response.headers = {"content-type": "text/html"}
+        mock_generic_response.body = AsyncMock(return_value=b"<html>Generic Page</html>")
+        return mock_generic_response
+
+    # Применяем side_effect к существующему моку mock_playwright_page.goto из фикстуры
+    mock_playwright_page.goto.side_effect = goto_side_effect
+
     output_file = tmp_path / "lei_rondonia_teste.pdf"
     success = await rondonia_connector_instance.download_pdf(law_metadata, output_file)
+    # The following lines were duplicated and caused an IndentationError. They are removed.
+    # "titulo": "LEI Nº 5.775, DE 27 DE DEZEMBRO DE 2023",
+    # "url_pdf_original": "http://ditel.casacivil.ro.gov.br/uploads/00001/2023/5775.pdf",
+    # }
+    # output_file = tmp_path / "lei_rondonia_teste.pdf"
+    # success = await rondonia_connector_instance.download_pdf(law_metadata, output_file)
     assert success is True
     assert output_file.exists()
     assert output_file.read_bytes() == b"%PDF-fake-content-for-download"

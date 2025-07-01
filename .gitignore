@@ -179,3 +179,5 @@ data/
 # Temporary files
 temp/
 logs/
+
+app-main/

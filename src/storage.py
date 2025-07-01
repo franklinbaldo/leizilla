@@ -50,7 +50,17 @@ class DuckDBStorage:
             url_torrent_ia VARCHAR,
             magnet_link_ia VARCHAR,
             hash_conteudo VARCHAR,
-            status VARCHAR DEFAULT 'ativo',
+            local_pdf_path VARCHAR,        -- Path to the locally downloaded PDF
+            ia_item_id VARCHAR,            -- Internet Archive item identifier
+            status_geral VARCHAR,          -- Overall status (e.g., descoberto, pdf_local, publicado_ia)
+            status_download VARCHAR,       -- Status of PDF download attempt (e.g., sucesso, falha, pendente)
+            status_upload VARCHAR,         -- Status of IA upload attempt (e.g., sucesso, falha, pendente)
+            erro_download_info TEXT,       -- Detailed error if download failed
+            erro_upload_info TEXT,         -- Detailed error if upload failed
+            descoberto_em_cli TIMESTAMP,   -- Timestamp of discovery via CLI command
+            descoberto_em_monitor TIMESTAMP, -- Timestamp of discovery via monitor command
+            ultima_tentativa_download_em TIMESTAMP, -- Timestamp of last download attempt
+            ultima_tentativa_upload_em TIMESTAMP,   -- Timestamp of last upload attempt
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -58,6 +68,7 @@ class DuckDBStorage:
 
         # Índices principais
         conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_origem ON leis(origem)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_status_geral ON leis(status_geral)") # Index for new status
         conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_ano ON leis(ano)")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_leis_data ON leis(data_publicacao)"
