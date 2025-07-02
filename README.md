@@ -30,9 +30,26 @@ Sistema de indexação de documentos legais brasileiros que **já funciona**. Pr
 | **ETL & Storage** | **DuckDB** | ✅ Schema completo + CRUD |
 | **Backup & OCR** | **Internet Archive** | ✅ Upload e integração |
 | **Distribuição** | **Parquet** + **JSON Lines** | ✅ Exportação implementada |
-| **Build & CI** | **GitHub Actions** + **uv** | ✅ Scripts automatizados |
+| **Build & CI** | **GitHub Actions** + **uv** | ✅ Scripts automatizados (linting, Rondônia crawler) |
 | **Dependências** | **uv** | ✅ Ambiente configurado |
 | **Qualidade** | **ruff** + **mypy** | ✅ Linting e tipos |
+
+---
+
+## 🤖 CI/CD (GitHub Actions)
+
+O projeto utiliza GitHub Actions para automação de tarefas:
+
+1.  **Linting**: A cada push ou pull request para a branch `main`, o código é verificado com Ruff (linter e formatter) e Mypy (type checking). Veja o workflow em `.github/workflows/lint.yml`.
+2.  **Rondônia Law Crawler**:
+    *   **O quê**: Este workflow automatizado descobre novas leis no portal de Rondônia, baixa os PDFs correspondentes e os envia para o Internet Archive.
+    *   **Quando**: Roda semanalmente (todos os domingos à meia-noite UTC) e pode ser disparado manualmente.
+    *   **Arquivo**: `.github/workflows/rondonia_crawler.yml`
+    *   **Script principal**: `scripts/run_rondonia_crawler.py`
+    *   **Configuração (Requerido)**: Para que o upload para o Internet Archive funcione, os seguintes secrets precisam ser configurados no repositório GitHub (`Settings > Secrets and variables > Actions`):
+        *   `IA_ACCESS_KEY`: Sua chave de acesso do Internet Archive.
+        *   `IA_SECRET_KEY`: Sua chave secreta do Internet Archive.
+    *   **Funcionamento**: O script `run_rondonia_crawler.py` utiliza `LeisCrawler` para buscar leis (atualmente configurado para um pequeno range de `coddoc` IDs para demonstração) e `InternetArchivePublisher` para o upload. A configuração de `PYTHONPATH` no workflow garante que os módulos em `src/` sejam encontrados.
 
 ---
 
