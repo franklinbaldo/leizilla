@@ -45,11 +45,16 @@ O projeto utiliza GitHub Actions para automação de tarefas:
     *   **O quê**: Este workflow automatizado descobre novas leis no portal de Rondônia, baixa os PDFs correspondentes e os envia para o Internet Archive.
     *   **Quando**: Roda semanalmente (todos os domingos à meia-noite UTC) e pode ser disparado manualmente.
     *   **Arquivo**: `.github/workflows/rondonia_crawler.yml`
-    *   **Script principal**: `scripts/run_rondonia_crawler.py`
+    *   **Scripts principais**:
+        *   `scripts/run_rondonia_crawler.py`: Handles crawling laws and uploading them.
+        *   `scripts/backup_database.py`: Handles backing up the `leizilla.duckdb` database file.
     *   **Configuração (Requerido)**: Para que o upload para o Internet Archive funcione, os seguintes secrets precisam ser configurados no repositório GitHub (`Settings > Secrets and variables > Actions`):
         *   `IA_ACCESS_KEY`: Sua chave de acesso do Internet Archive.
         *   `IA_SECRET_KEY`: Sua chave secreta do Internet Archive.
-    *   **Funcionamento**: O script `run_rondonia_crawler.py` utiliza `LeisCrawler` para buscar leis (atualmente configurado para um pequeno range de `coddoc` IDs para demonstração) e `InternetArchivePublisher` para o upload. A configuração de `PYTHONPATH` no workflow garante que os módulos em `src/` sejam encontrados.
+    *   **Funcionamento**:
+        *   O script `run_rondonia_crawler.py` utiliza `LeisCrawler` para buscar leis (atualmente configurado para um pequeno range de `coddoc` IDs para demonstração) e `InternetArchivePublisher` para o upload dos PDFs.
+        *   Em seguida, o script `backup_database.py` é executado. Ele primeiro tenta realizar um `CHECKPOINT` no DuckDB para garantir consistência, e depois usa `InternetArchivePublisher` para fazer upload do arquivo `data/leizilla.duckdb` para uma coleção dedicada no Internet Archive (atualmente `leizilla-database-backups`). Este passo de backup é configurado para tentar rodar mesmo que o passo de crawling de leis falhe.
+        *   A configuração de `PYTHONPATH` no workflow garante que os módulos em `src/` sejam encontrados por ambos os scripts.
 
 ---
 
