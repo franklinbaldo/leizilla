@@ -103,6 +103,7 @@ data/                  # Local data directory (gitignored)
 **Current Phase**: Working MVP with complete pipeline
 
 The project has a **complete implementation** including:
+
 - ✅ Full CLI interface with discover/download/upload/export/search commands
 - ✅ DuckDB schema with complete CRUD operations (storage.py:1-247)
 - ✅ Playwright-based async crawler (crawler.py:1-180)
@@ -115,12 +116,14 @@ The project has a **complete implementation** including:
 ## Data Architecture
 
 ### Local DuckDB Database
+
 - **Location**: `data/leizilla.duckdb` (auto-created, gitignored)
 - **Purpose**: Local ETL processing and staging
 - **Schema**: Complete `leis` table with full-text content, metadata, JSON support, and search indices
 - **Export**: Native Parquet export for distribution
 
 ### Current Data Formats
+
 - **Parquet**: Columnar analytics format (primary)
 - **JSON Lines**: Pipeline-compatible streaming format
 - **Torrents**: P2P distribution via Internet Archive
@@ -136,6 +139,7 @@ The project has a **complete implementation** including:
 ## Environment Variables
 
 The project uses configuration from environment variables:
+
 - `IA_ACCESS_KEY` / `IA_SECRET_KEY`: Internet Archive credentials (required for upload)
 - `DUCKDB_PATH`: Database location (defaults to `data/leizilla.duckdb`)
 - `DATA_DIR`: Data directory path (defaults to `data/`)
@@ -169,6 +173,7 @@ Currently, there are no explicitly denied commands in the `deny` list.
 ## Testing and Quality
 
 Run the complete test suite:
+
 ```bash
 just test              # Run all tests
 just check             # Run linting, formatting, and type checking
@@ -176,6 +181,7 @@ just ci                # Complete CI pipeline
 ```
 
 Current test coverage includes:
+
 - Storage operations (DuckDB schema validation)
 - Configuration loading
 - CLI argument parsing

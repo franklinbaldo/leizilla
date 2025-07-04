@@ -3,7 +3,7 @@
 **Data:** 2025-06-27  
 **Status:** Aceito  
 **Responsáveis:** Franklin Baldo  
-**Contexto:** Definição de estrutura de dados para MVP  
+**Contexto:** Definição de estrutura de dados para MVP
 
 ## Contexto
 
@@ -34,7 +34,7 @@ O sistema precisa de uma estrutura de dados clara para armazenar leis brasileira
 CREATE TABLE leis (
   -- Identificação única
   id VARCHAR PRIMARY KEY,                    -- Format: "{origem}-{tipo}-{ano}-{numero}"
-  
+
   -- Metadados básicos
   titulo TEXT NOT NULL,                      -- Título/ementa da lei
   numero VARCHAR,                            -- Número oficial da lei
@@ -42,19 +42,19 @@ CREATE TABLE leis (
   data_publicacao DATE,                     -- Data oficial de publicação
   tipo_lei VARCHAR,                         -- "lei", "decreto", "portaria", etc.
   origem VARCHAR NOT NULL,                  -- "rondonia", "federal", "sao_paulo", etc.
-  
+
   -- Conteúdo
   texto_completo TEXT,                      -- OCR completo do Internet Archive
   texto_normalizado TEXT,                   -- Texto limpo para busca
-  
+
   -- Metadados extensíveis
   metadados JSON,                           -- Flexível: autores, tags, links, etc.
-  
+
   -- URLs e referências
   url_original VARCHAR,                     -- URL da fonte oficial
   url_pdf_ia VARCHAR,                       -- URL do PDF no Internet Archive
   url_ocr_ia VARCHAR,                       -- URL do texto OCR no IA
-  
+
   -- Controle interno
   hash_conteudo VARCHAR,                    -- Hash SHA-256 do conteúdo para deduplicação
   status VARCHAR DEFAULT 'ativo',          -- 'ativo', 'revogado', 'suspenso'
@@ -90,7 +90,7 @@ O `id` segue padrão estruturado para facilitar identificação:
 
 Exemplos:
 - "rondonia-lei-2023-001"
-- "federal-decreto-2024-11123"  
+- "federal-decreto-2024-11123"
 - "rondonia-portaria-2025-045"
 ```
 
@@ -115,16 +115,19 @@ Exemplos:
 ## Alternativas Consideradas
 
 ### 1. **Schema Normalizado (Múltiplas Tabelas)**
+
 - **Prós**: Normalização perfeita, sem redundância
 - **Contras**: Joins complexos para DuckDB-WASM client-side
 - **Rejeitado**: Complexidade desnecessária para MVP
 
 ### 2. **Schema Document-Based (Apenas JSON)**
+
 - **Prós**: Máxima flexibilidade
 - **Contras**: Queries SQL complexas, sem índices estruturados
 - **Rejeitado**: Performance ruim para busca
 
 ### 3. **Schema Flat (Apenas Colunas)**
+
 - **Prós**: Simplicidade máxima
 - **Contras**: Inflexível, difícil extensão
 - **Rejeitado**: Não suporta metadados ricos
@@ -132,6 +135,7 @@ Exemplos:
 ## Consequências
 
 ### **Positivas**
+
 - **Performance**: Índices otimizados para queries comuns
 - **Flexibilidade**: JSON metadados permite extensão
 - **Simplicidade**: Uma tabela principal, fácil entendimento
@@ -139,11 +143,13 @@ Exemplos:
 - **Client-Side**: Queries SQL simples no DuckDB-WASM
 
 ### **Negativas**
+
 - **Denormalização**: Alguma redundância em metadados
 - **Tamanho**: JSON pode aumentar tamanho do dataset
 - **Migração**: Mudanças de schema requerem reprocessamento
 
 ### **Mitigações**
+
 - **Versionamento**: Controle de schema via migrations
 - **Compressão**: Parquet comprime JSON eficientemente
 - **Validação**: Schema validation nos metadados JSON
@@ -151,6 +157,7 @@ Exemplos:
 ## Migrations e Versionamento
 
 ### **Migration 001: Schema Inicial**
+
 ```sql
 -- 001_create_leis_table.sql
 CREATE TABLE leis (
@@ -184,6 +191,7 @@ CREATE INDEX idx_leis_origem_tipo ON leis(origem, tipo_lei);
 ```
 
 ### **Migration Strategy**
+
 - **Semantic Versioning**: Schema versionado junto com código
 - **Backward Compatibility**: Mudanças não-breaking quando possível
 - **Data Migration**: Scripts para converter dados existentes
@@ -194,34 +202,35 @@ CREATE INDEX idx_leis_origem_tipo ON leis(origem, tipo_lei);
 
 ```sql
 -- Buscar todas leis de Rondônia em 2025
-SELECT id, titulo, data_publicacao 
-FROM leis 
-WHERE origem = 'rondonia' AND ano = 2025 
+SELECT id, titulo, data_publicacao
+FROM leis
+WHERE origem = 'rondonia' AND ano = 2025
 ORDER BY data_publicacao DESC;
 
 -- Busca textual simples
 SELECT id, titulo, ano
-FROM leis 
+FROM leis
 WHERE texto_normalizado LIKE '%meio ambiente%'
 AND origem = 'rondonia';
 
 -- Estatísticas por ano
 SELECT ano, COUNT(*) as total_leis
-FROM leis 
+FROM leis
 WHERE origem = 'rondonia'
-GROUP BY ano 
+GROUP BY ano
 ORDER BY ano DESC;
 
 -- Leis revogadas
 SELECT id, titulo, metadados->>'revoga' as revoga
-FROM leis 
+FROM leis
 WHERE JSON_EXTRACT(metadados, '$.revoga') IS NOT NULL;
 ```
 
 ### **Export Parquet**
+
 ```sql
 -- Export para distribuição
-COPY leis TO 'datasets/leis_rondonia_2025.parquet' 
+COPY leis TO 'datasets/leis_rondonia_2025.parquet'
 (FORMAT PARQUET, COMPRESSION SNAPPY)
 WHERE origem = 'rondonia' AND ano = 2025;
 

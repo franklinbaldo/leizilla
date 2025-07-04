@@ -11,8 +11,9 @@ Sistema de indexação de documentos legais brasileiros que **já funciona**. Pr
 **MVP Funcional**: Pipeline completo implementado com crawler, armazenamento DuckDB, upload para Internet Archive e exportação de datasets.
 
 ### 🚀 O que já funciona:
+
 - ✅ **CLI completa** com comandos discover/download/upload/export/search
-- ✅ **Crawler assíncrono** com Playwright para sites governamentais  
+- ✅ **Crawler assíncrono** com Playwright para sites governamentais
 - ✅ **Schema DuckDB** completo com operações CRUD
 - ✅ **Integração Internet Archive** para OCR gratuito e distribuição
 - ✅ **Exportação Parquet/JSONL** para datasets abertos
@@ -23,16 +24,16 @@ Sistema de indexação de documentos legais brasileiros que **já funciona**. Pr
 
 ## 🛠️ Stack implementada
 
-| Domínio | Ferramenta / Serviço | Status |
-|---------|----------------------|--------|
-| **Linguagem** | **Python 3.12** | ✅ Implementado |
-| **Crawling** | **Playwright** + **AnyIO** | ✅ Crawler assíncrono funcional |
-| **ETL & Storage** | **DuckDB** | ✅ Schema completo + CRUD |
-| **Backup & OCR** | **Internet Archive** | ✅ Upload e integração |
-| **Distribuição** | **Parquet** + **JSON Lines** | ✅ Exportação implementada |
-| **Build & CI** | **GitHub Actions** + **uv** | ✅ Scripts automatizados (linting, Rondônia crawler) |
-| **Dependências** | **uv** | ✅ Ambiente configurado |
-| **Qualidade** | **ruff** + **mypy** | ✅ Linting e tipos |
+| Domínio           | Ferramenta / Serviço         | Status                                               |
+| ----------------- | ---------------------------- | ---------------------------------------------------- |
+| **Linguagem**     | **Python 3.12**              | ✅ Implementado                                      |
+| **Crawling**      | **Playwright** + **AnyIO**   | ✅ Crawler assíncrono funcional                      |
+| **ETL & Storage** | **DuckDB**                   | ✅ Schema completo + CRUD                            |
+| **Backup & OCR**  | **Internet Archive**         | ✅ Upload e integração                               |
+| **Distribuição**  | **Parquet** + **JSON Lines** | ✅ Exportação implementada                           |
+| **Build & CI**    | **GitHub Actions** + **uv**  | ✅ Scripts automatizados (linting, Rondônia crawler) |
+| **Dependências**  | **uv**                       | ✅ Ambiente configurado                              |
+| **Qualidade**     | **ruff** + **mypy**          | ✅ Linting e tipos                                   |
 
 ---
 
@@ -42,26 +43,26 @@ O projeto utiliza GitHub Actions para automação de tarefas:
 
 1.  **Linting**: A cada push ou pull request para a branch `main`, o código é verificado com Ruff (linter e formatter) e Mypy (type checking). Veja o workflow em `.github/workflows/lint.yml`.
 2.  **Rondônia Law Crawler**:
-    *   **O quê**: Este workflow automatizado descobre novas leis no portal de Rondônia, baixa os PDFs correspondentes e os envia para o Internet Archive.
-    *   **Quando**: Roda semanalmente (todos os domingos à meia-noite UTC) e pode ser disparado manualmente.
-    *   **Arquivo**: `.github/workflows/rondonia_crawler.yml`
-    *   **Scripts principais**:
-        *   `scripts/run_rondonia_crawler.py`: Handles crawling laws and uploading them.
-        *   `scripts/backup_database.py`: Handles backing up the `leizilla.duckdb` database file.
-    *   **Configuração (Requerido)**: Para que o upload para o Internet Archive funcione, os seguintes secrets precisam ser configurados no repositório GitHub (`Settings > Secrets and variables > Actions`):
-        *   `IA_ACCESS_KEY`: Sua chave de acesso do Internet Archive.
-        *   `IA_SECRET_KEY`: Sua chave secreta do Internet Archive.
-    *   **Funcionamento**:
-        *   O script `run_rondonia_crawler.py` utiliza `LeisCrawler` para buscar leis (atualmente configurado para um pequeno range de `coddoc` IDs para demonstração) e `InternetArchivePublisher` para o upload dos PDFs.
-        *   Em seguida, o script `backup_database.py` é executado. Ele primeiro tenta realizar um `CHECKPOINT` no DuckDB para garantir consistência, e depois usa `InternetArchivePublisher` para fazer upload do arquivo `data/leizilla.duckdb` para uma coleção dedicada no Internet Archive (atualmente `leizilla-database-backups`). Este passo de backup é configurado para tentar rodar mesmo que o passo de crawling de leis falhe.
-        *   A configuração de `PYTHONPATH` no workflow garante que os módulos em `src/` sejam encontrados por ambos os scripts.
+    - **O quê**: Este workflow automatizado descobre novas leis no portal de Rondônia, baixa os PDFs correspondentes e os envia para o Internet Archive.
+    - **Quando**: Roda semanalmente (todos os domingos à meia-noite UTC) e pode ser disparado manualmente.
+    - **Arquivo**: `.github/workflows/rondonia_crawler.yml`
+    - **Scripts principais**:
+      - `scripts/run_rondonia_crawler.py`: Handles crawling laws and uploading them.
+      - `scripts/backup_database.py`: Handles backing up the `leizilla.duckdb` database file.
+    - **Configuração (Requerido)**: Para que o upload para o Internet Archive funcione, os seguintes secrets precisam ser configurados no repositório GitHub (`Settings > Secrets and variables > Actions`):
+      - `IA_ACCESS_KEY`: Sua chave de acesso do Internet Archive.
+      - `IA_SECRET_KEY`: Sua chave secreta do Internet Archive.
+    - **Funcionamento**:
+      - O script `run_rondonia_crawler.py` utiliza `LeisCrawler` para buscar leis (atualmente configurado para um pequeno range de `coddoc` IDs para demonstração) e `InternetArchivePublisher` para o upload dos PDFs.
+      - Em seguida, o script `backup_database.py` é executado. Ele primeiro tenta realizar um `CHECKPOINT` no DuckDB para garantir consistência, e depois usa `InternetArchivePublisher` para fazer upload do arquivo `data/leizilla.duckdb` para uma coleção dedicada no Internet Archive (atualmente `leizilla-database-backups`). Este passo de backup é configurado para tentar rodar mesmo que o passo de crawling de leis falhe.
+      - A configuração de `PYTHONPATH` no workflow garante que os módulos em `src/` sejam encontrados por ambos os scripts.
 
 ---
 
 ## 🌐 Pipeline implementado
 
 1. **Descoberta**: `uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10` - encontra leis no portal oficial
-2. **Download**: `uv run leizilla download --origem rondonia --limit 5` - baixa PDFs para processamento local  
+2. **Download**: `uv run leizilla download --origem rondonia --limit 5` - baixa PDFs para processamento local
 3. **Upload IA**: `uv run leizilla upload --limit 3` - envia para Internet Archive (OCR gratuito + torrents)
 4. **Exportação**: `uv run leizilla export --origem rondonia --year 2020` - gera datasets Parquet/JSONL
 5. **Pipeline completo**: `uv run leizilla pipeline --origem rondonia --year 2020 --limit 5` - executa tudo em sequência
@@ -71,6 +72,7 @@ O projeto utiliza GitHub Actions para automação de tarefas:
 ## 🚀 Começar agora
 
 ### **Instalação e uso**
+
 ```bash
 # 1. Instalar uv (gerenciador Python ultra-rápido)
 curl -LsSf https://astral.sh/uv/install.sh | sh  # Linux/macOS
@@ -109,14 +111,14 @@ uv run leizilla pipeline --origem rondonia --start-coddoc 1 --end-coddoc 10 --li
 
 ### **Comandos disponíveis**
 
-| Finalidade | Comando | Exemplo |
-|-----------|---------|---------|
-| **Descobrir leis** | `uv run leizilla discover` | `uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10 --crawler-type simple` |
-| **Download PDFs** | `uv run leizilla download` | `uv run leizilla download --origem rondonia --limit 5` |
-| **Upload para IA** | `uv run leizilla upload` | `uv run leizilla upload --limit 3` |
-| **Exportar dados** | `uv run leizilla export` | `uv run leizilla export --origem rondonia` |
-| **Pipeline completo** | `uv run leizilla pipeline` | `uv run leizilla pipeline --origem rondonia --start-coddoc 1 --end-coddoc 10` |
-| **Desenvolvimento** | `uv run leizilla dev check` | `uv run leizilla dev setup`, `uv run leizilla dev test` |
+| Finalidade            | Comando                     | Exemplo                                                                                             |
+| --------------------- | --------------------------- | --------------------------------------------------------------------------------------------------- |
+| **Descobrir leis**    | `uv run leizilla discover`  | `uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10 --crawler-type simple` |
+| **Download PDFs**     | `uv run leizilla download`  | `uv run leizilla download --origem rondonia --limit 5`                                              |
+| **Upload para IA**    | `uv run leizilla upload`    | `uv run leizilla upload --limit 3`                                                                  |
+| **Exportar dados**    | `uv run leizilla export`    | `uv run leizilla export --origem rondonia`                                                          |
+| **Pipeline completo** | `uv run leizilla pipeline`  | `uv run leizilla pipeline --origem rondonia --start-coddoc 1 --end-coddoc 10`                       |
+| **Desenvolvimento**   | `uv run leizilla dev check` | `uv run leizilla dev setup`, `uv run leizilla dev test`                                             |
 
 **💡 Vantagem**: Interface CLI moderna com Typer, help integrado (`--help`) e zero dependências extras!
 
@@ -141,19 +143,19 @@ data/                  # Dados locais (gitignored)
 
 ## 🗺 Roadmap
 
-| Período | Entregável | Status |
-|---------|-----------|--------|
-| **Q3 / 2025** | MVP Rondônia completo em Parquet/JSONL | ✅ **Implementado** |
-| **Q4 / 2025** | Cobertura federal 1988-presente; releases mensais | 🔄 Em progresso |
-| **Q1 / 2026** | Frontend estático (HTML/JS) com busca SQL client-side | 📋 Planejado |
-| **Q2 / 2026** | Pesquisa semântica com embeddings no DuckDB | 📋 Planejado |
+| Período       | Entregável                                            | Status              |
+| ------------- | ----------------------------------------------------- | ------------------- |
+| **Q3 / 2025** | MVP Rondônia completo em Parquet/JSONL                | ✅ **Implementado** |
+| **Q4 / 2025** | Cobertura federal 1988-presente; releases mensais     | 🔄 Em progresso     |
+| **Q1 / 2026** | Frontend estático (HTML/JS) com busca SQL client-side | 📋 Planejado        |
+| **Q2 / 2026** | Pesquisa semântica com embeddings no DuckDB           | 📋 Planejado        |
 
 ---
 
 ## 🔗 Links importantes
 
 - **[CLAUDE.md](CLAUDE.md)**: Guia completo para desenvolvimento
-- **[CONTRIBUTING.md](CONTRIBUTING.md)**: Como contribuir  
+- **[CONTRIBUTING.md](CONTRIBUTING.md)**: Como contribuir
 - **[docs/adr/](docs/adr/)**: Decisões arquiteturais
 - **[CausaGanha](https://github.com/franklinbaldo/causaganha)**: Projeto-irmão (validação Internet Archive)
 
@@ -162,8 +164,9 @@ data/                  # Dados locais (gitignored)
 ## 🤝 Contribuir
 
 ### **Formas de ajudar:**
+
 - **Testes de qualidade**: Executar pipeline em diferentes ambientes
-- **Novas fontes**: Portais de legislação de outros estados  
+- **Novas fontes**: Portais de legislação de outros estados
 - **Otimizações**: Melhorias no crawler e processamento
 - **Documentação**: Exemplos de uso e tutoriais
 
@@ -182,7 +185,7 @@ data/                  # Dados locais (gitignored)
 
 ## Licença
 
-- **Código**: MIT  
+- **Código**: MIT
 - **Dados legais**: Domínio público
 
-> *Leizilla saiu da fase filhote — já é um T-Rex devorando PDFs e cuspindo dados estruturados. Junte-se à revolução dos dados abertos!* 🦖⚖️
+> _Leizilla saiu da fase filhote — já é um T-Rex devorando PDFs e cuspindo dados estruturados. Junte-se à revolução dos dados abertos!_ 🦖⚖️

@@ -2,118 +2,119 @@
 
 ## 1. Project Vision & Mission
 
-*   **Vision:** "O dinossauro que devora PDFs jurídicos e cospe dados abertos."
-*   **Mission:** To comprehensively index all Brazilian laws, making them easily accessible as open data. The project prioritizes minimal infrastructure, radical transparency, and a 100% static operational model, eliminating the need for backend servers.
-*   **Initial Focus:** The project will commence by indexing all legislation from the state of Rondônia, with a clear roadmap to expand coverage to federal laws and subsequently other state laws.
+- **Vision:** "O dinossauro que devora PDFs jurídicos e cospe dados abertos."
+- **Mission:** To comprehensively index all Brazilian laws, making them easily accessible as open data. The project prioritizes minimal infrastructure, radical transparency, and a 100% static operational model, eliminating the need for backend servers.
+- **Initial Focus:** The project will commence by indexing all legislation from the state of Rondônia, with a clear roadmap to expand coverage to federal laws and subsequently other state laws.
 
 ## 2. Core Objectives
 
 Leizilla aims to achieve the following primary goals:
 
-*   **Comprehensive Indexing:** Create a thorough and up-to-date index of all Brazilian laws.
-*   **Minimalist Infrastructure:** Operate with a serverless architecture, leveraging static site generation principles and relying on robust third-party services for demanding tasks like OCR and large-scale data archival.
-*   **Radical Transparency:** Ensure that both the data processing methodologies and the resulting datasets are open and transparent to the public.
-*   **Open Data Provision:** Deliver processed legal data in versatile, analysis-friendly, and open formats (Parquet, JSON Lines).
-*   **Powerful Client-Side Search:** Enable users to perform complex queries directly in their web browsers without server-side processing, using DuckDB-WASM.
+- **Comprehensive Indexing:** Create a thorough and up-to-date index of all Brazilian laws.
+- **Minimalist Infrastructure:** Operate with a serverless architecture, leveraging static site generation principles and relying on robust third-party services for demanding tasks like OCR and large-scale data archival.
+- **Radical Transparency:** Ensure that both the data processing methodologies and the resulting datasets are open and transparent to the public.
+- **Open Data Provision:** Deliver processed legal data in versatile, analysis-friendly, and open formats (Parquet, JSON Lines).
+- **Powerful Client-Side Search:** Enable users to perform complex queries directly in their web browsers without server-side processing, using DuckDB-WASM.
 
 ## 3. High-Level Architecture & Data Flow
 
 The Leizilla system is designed as a pipeline that processes legal documents from official sources into structured, searchable open data.
 
-*   **Conceptual Data Flow:**
-    `Official Government Sources -> [Python/Playwright Crawler Module] -> Raw PDF Files -> [Internet Archive Upload Service] -> PDFs Stored in IA (triggers OCR & Torrent Generation by IA) -> OCRed Text Files (from IA) -> [Python ETL Module] -> Normalized & Structured Data -> [DuckDB (Local Staging & Transformation)] -> Exported Parquet & JSONL Files -> [GitHub Releases & IA Mirror (for Datasets)] -> Published Datasets -> [Static Frontend Application with DuckDB-WASM] -> Client-Side SQL Search Interface`
+- **Conceptual Data Flow:**
+  `Official Government Sources -> [Python/Playwright Crawler Module] -> Raw PDF Files -> [Internet Archive Upload Service] -> PDFs Stored in IA (triggers OCR & Torrent Generation by IA) -> OCRed Text Files (from IA) -> [Python ETL Module] -> Normalized & Structured Data -> [DuckDB (Local Staging & Transformation)] -> Exported Parquet & JSONL Files -> [GitHub Releases & IA Mirror (for Datasets)] -> Published Datasets -> [Static Frontend Application with DuckDB-WASM] -> Client-Side SQL Search Interface`
 
-*   **Step-by-Step Workflow:**
-    1.  **Crawling & PDF Acquisition:** Python scripts, utilizing the Playwright library for robust browser automation, will download PDF versions of laws directly from official government portals, beginning with Rondônia.
-    2.  **Archival & OCR via Internet Archive:** Downloaded PDFs are immediately uploaded to the Internet Archive (IA). IA then automatically performs Optical Character Recognition (OCR) to extract text from these PDFs and generates .torrent files for decentralized distribution.
-    3.  **ETL (Extract, Transform, Load):** The OCRed text is retrieved from the Internet Archive. Python-based ETL scripts will then normalize this text, clean it, and structure it into a usable format.
-    4.  **Local Data Staging & Transformation with DuckDB:** DuckDB will be used as an embedded database for efficiently storing the normalized data during the ETL process. It will facilitate SQL-based transformations and data structuring before final export.
-    5.  **Data Publication & Distribution:** The processed and structured legal data will be exported into Parquet (for analytical efficiency) and JSON Lines (for pipeline interoperability) formats. These datasets will be published through versioned GitHub Releases and mirrored on the Internet Archive. Torrents generated by IA will offer an alternative P2P distribution channel.
-    6.  **Client-Side Search Functionality:** A static web frontend (planned to be built with SvelteKit) will integrate DuckDB-WASM. This will empower users to execute SQL queries on the published Parquet or DuckDB datasets directly within their browsers, offering powerful search capabilities without any backend infrastructure.
+- **Step-by-Step Workflow:**
+  1.  **Crawling & PDF Acquisition:** Python scripts, utilizing the Playwright library for robust browser automation, will download PDF versions of laws directly from official government portals, beginning with Rondônia.
+  2.  **Archival & OCR via Internet Archive:** Downloaded PDFs are immediately uploaded to the Internet Archive (IA). IA then automatically performs Optical Character Recognition (OCR) to extract text from these PDFs and generates .torrent files for decentralized distribution.
+  3.  **ETL (Extract, Transform, Load):** The OCRed text is retrieved from the Internet Archive. Python-based ETL scripts will then normalize this text, clean it, and structure it into a usable format.
+  4.  **Local Data Staging & Transformation with DuckDB:** DuckDB will be used as an embedded database for efficiently storing the normalized data during the ETL process. It will facilitate SQL-based transformations and data structuring before final export.
+  5.  **Data Publication & Distribution:** The processed and structured legal data will be exported into Parquet (for analytical efficiency) and JSON Lines (for pipeline interoperability) formats. These datasets will be published through versioned GitHub Releases and mirrored on the Internet Archive. Torrents generated by IA will offer an alternative P2P distribution channel.
+  6.  **Client-Side Search Functionality:** A static web frontend (planned to be built with SvelteKit) will integrate DuckDB-WASM. This will empower users to execute SQL queries on the published Parquet or DuckDB datasets directly within their browsers, offering powerful search capabilities without any backend infrastructure.
 
 ## 4. Key Technologies & Stack
 
 Leizilla's technology stack is carefully chosen to align with its principles of minimalism, efficiency, and open-source reliance:
 
-*   **Programming Language:** Python 3.12 (selected for its extensive libraries and strong community support for web scraping, data manipulation, and ETL tasks).
-*   **Web Crawling & Scraping:** Playwright, in conjunction with AnyIO/Trio for asynchronous operations, to handle dynamic, JavaScript-heavy government websites effectively.
-*   **ETL & Data Storage (Local/Staging):** DuckDB (an embedded, file-based SQL database optimized for analytical workloads, offering direct Parquet export and a rich SQL dialect).
-*   **PDF Backup, OCR & Torrent Seeding:** Internet Archive (utilized for its free storage, automated OCR capabilities upon upload, and native .torrent file generation for datasets).
-*   **Data Distribution Formats:**
-    *   **Parquet:** A columnar storage format optimized for analytical query performance.
-    *   **JSON Lines:** A convenient format for streaming record-oriented data, easy to parse line by line.
-    *   **Torrent:** For resilient, decentralized, and peer-to-peer distribution of large datasets.
-*   **Client-Side Search Engine:** DuckDB-WASM (allows running DuckDB within a web browser, enabling SQL queries on local or remote Parquet/DuckDB files via JavaScript).
-*   **Build, CI/CD & Orchestration:** GitHub Actions (will be used to automate the entire workflow, including crawling, ETL, data uploading, and creating releases, using matrix builds for parallel processing where applicable).
-*   **Dependency Management:** `uv` (a fast and modern Python package installer and resolver, ensuring deterministic builds via `uv.lock`).
-*   **Code Quality & Type Safety:**
-    *   `ruff`: An extremely fast Python linter and formatter.
-    *   `mypy`: For static type checking to improve code robustness and maintainability.
+- **Programming Language:** Python 3.12 (selected for its extensive libraries and strong community support for web scraping, data manipulation, and ETL tasks).
+- **Web Crawling & Scraping:** Playwright, in conjunction with AnyIO/Trio for asynchronous operations, to handle dynamic, JavaScript-heavy government websites effectively.
+- **ETL & Data Storage (Local/Staging):** DuckDB (an embedded, file-based SQL database optimized for analytical workloads, offering direct Parquet export and a rich SQL dialect).
+- **PDF Backup, OCR & Torrent Seeding:** Internet Archive (utilized for its free storage, automated OCR capabilities upon upload, and native .torrent file generation for datasets).
+- **Data Distribution Formats:**
+  - **Parquet:** A columnar storage format optimized for analytical query performance.
+  - **JSON Lines:** A convenient format for streaming record-oriented data, easy to parse line by line.
+  - **Torrent:** For resilient, decentralized, and peer-to-peer distribution of large datasets.
+- **Client-Side Search Engine:** DuckDB-WASM (allows running DuckDB within a web browser, enabling SQL queries on local or remote Parquet/DuckDB files via JavaScript).
+- **Build, CI/CD & Orchestration:** GitHub Actions (will be used to automate the entire workflow, including crawling, ETL, data uploading, and creating releases, using matrix builds for parallel processing where applicable).
+- **Dependency Management:** `uv` (a fast and modern Python package installer and resolver, ensuring deterministic builds via `uv.lock`).
+- **Code Quality & Type Safety:**
+  - `ruff`: An extremely fast Python linter and formatter.
+  - `mypy`: For static type checking to improve code robustness and maintainability.
 
 ## 5. Dataset Outputs
 
 The primary outputs of the Leizilla project will be open datasets of Brazilian laws, provided in the following formats:
 
-*   **Primary Data Formats:**
-    *   **Parquet files:** Designed for high-performance analytics and direct use with tools like DuckDB, Pandas, and various data science libraries.
-    *   **JSON Lines files:** Each line representing a structured JSON object (e.g., a law or an article), suitable for easy parsing and integration into diverse data processing pipelines.
-*   **Distribution Channels:**
-    *   **GitHub Releases:** Datasets will be versioned and made available as downloadable assets attached to GitHub releases.
-    *   **Internet Archive:** Will serve as a primary mirror for both the raw PDFs and the processed datasets.
-    *   **Torrents:** Automatically generated by the Internet Archive, enabling peer-to-peer distribution of the datasets, enhancing availability and resilience.
+- **Primary Data Formats:**
+  - **Parquet files:** Designed for high-performance analytics and direct use with tools like DuckDB, Pandas, and various data science libraries.
+  - **JSON Lines files:** Each line representing a structured JSON object (e.g., a law or an article), suitable for easy parsing and integration into diverse data processing pipelines.
+- **Distribution Channels:**
+  - **GitHub Releases:** Datasets will be versioned and made available as downloadable assets attached to GitHub releases.
+  - **Internet Archive:** Will serve as a primary mirror for both the raw PDFs and the processed datasets.
+  - **Torrents:** Automatically generated by the Internet Archive, enabling peer-to-peer distribution of the datasets, enhancing availability and resilience.
 
 ## 6. Roadmap
 
 The development of Leizilla is planned in several key phases:
 
-*   **Q3 / 2025 (Minimum Viable Product - MVP):**
-    *   Achieve complete coverage of all state laws and the constitution of Rondônia.
-    *   Publish the initial datasets in Parquet and JSON Lines formats.
-*   **Q4 / 2025 (Federal Expansion & Enhanced Distribution):**
-    *   Expand data coverage to include Brazilian federal legislation from 1988 to the present.
-    *   Implement a system for regular monthly dataset releases distributed via torrent.
-*   **Q1 / 2026 (Frontend Development):**
-    *   Develop and launch a static web frontend using SvelteKit.
-    *   Integrate DuckDB-WASM to provide powerful, client-side SQL search capabilities over the published datasets.
-*   **Q2 / 2026 (Semantic Search Implementation):**
-    *   Enhance search functionality by incorporating semantic search.
-    *   This will involve generating text embeddings for legal texts (using models like Sentence-Transformers or Gemini).
-    *   Embeddings will be stored within DuckDB, and its vector search extension (`vector()`) will be used for similarity searches.
-*   **Beyond Q2 2026 (Further Expansion & Ecosystem Growth):**
-    *   Develop plugins and crawlers to support legislation from other major Brazilian states (e.g., São Paulo, Rio de Janeiro, Minas Gerais).
-    *   Mirror datasets on additional open data platforms like HuggingFace to increase visibility and accessibility.
+- **Q3 / 2025 (Minimum Viable Product - MVP):**
+  - Achieve complete coverage of all state laws and the constitution of Rondônia.
+  - Publish the initial datasets in Parquet and JSON Lines formats.
+- **Q4 / 2025 (Federal Expansion & Enhanced Distribution):**
+  - Expand data coverage to include Brazilian federal legislation from 1988 to the present.
+  - Implement a system for regular monthly dataset releases distributed via torrent.
+- **Q1 / 2026 (Frontend Development):**
+  - Develop and launch a static web frontend using SvelteKit.
+  - Integrate DuckDB-WASM to provide powerful, client-side SQL search capabilities over the published datasets.
+- **Q2 / 2026 (Semantic Search Implementation):**
+  - Enhance search functionality by incorporating semantic search.
+  - This will involve generating text embeddings for legal texts (using models like Sentence-Transformers or Gemini).
+  - Embeddings will be stored within DuckDB, and its vector search extension (`vector()`) will be used for similarity searches.
+- **Beyond Q2 2026 (Further Expansion & Ecosystem Growth):**
+  - Develop plugins and crawlers to support legislation from other major Brazilian states (e.g., São Paulo, Rio de Janeiro, Minas Gerais).
+  - Mirror datasets on additional open data platforms like HuggingFace to increase visibility and accessibility.
 
 ## 7. Current Project Status
 
-*   **Current Phase:** Pre-MVP (Proof of Concept & Foundational Setup).
-*   **Ongoing Activities:** The project is currently focused on:
-    *   Finalizing the selection of core tools and technologies.
-    *   Validating potential operational costs, particularly concerning large-scale OCR processing via the Internet Archive.
-    *   Assembling initial proof-of-concept components for the crawling, ETL, and data publication pipeline.
-*   **Repository State:** The repository is in its early stages, primarily containing documentation (like this Master Plan and the README) and the project's vision. The core codebase and directory structure are actively being developed.
+- **Current Phase:** Pre-MVP (Proof of Concept & Foundational Setup).
+- **Ongoing Activities:** The project is currently focused on:
+  - Finalizing the selection of core tools and technologies.
+  - Validating potential operational costs, particularly concerning large-scale OCR processing via the Internet Archive.
+  - Assembling initial proof-of-concept components for the crawling, ETL, and data publication pipeline.
+- **Repository State:** The repository is in its early stages, primarily containing documentation (like this Master Plan and the README) and the project's vision. The core codebase and directory structure are actively being developed.
 
 ## 8. Contribution Guidelines
 
 Contributions are welcome and valued at all stages of the project.
 
-*   **Current Focus (Pre-Alpha / Pre-Code Phase):**
-    *   **Source Suggestions:** Help identify and provide links to official (or reliable unofficial) portals for Brazilian legislation, especially lesser-known ones.
-    *   **Stack Feedback:** Share constructive feedback, ideas, or suggestions for alternative technologies that might be cheaper, simpler, or more effective for Leizilla's goals.
-    *   **Cost & Scalability Testing:** Provide insights or comparative data related to the time and cost of using Internet Archive's OCR services at a large scale.
-*   **Future Code Contributions (Once Alpha Code is Available):**
-    *   All code contributions will follow a standard GitHub workflow:
-        1.  Fork the Leizilla repository.
-        2.  Create a new feature branch from the main development branch.
-        3.  Commit your changes with clear, descriptive messages.
-        4.  Ensure your code passes all linting (`ruff`) and static type checking (`mypy`) requirements.
-        5.  Submit a Pull Request (PR) for review.
+- **Current Focus (Pre-Alpha / Pre-Code Phase):**
+  - **Source Suggestions:** Help identify and provide links to official (or reliable unofficial) portals for Brazilian legislation, especially lesser-known ones.
+  - **Stack Feedback:** Share constructive feedback, ideas, or suggestions for alternative technologies that might be cheaper, simpler, or more effective for Leizilla's goals.
+  - **Cost & Scalability Testing:** Provide insights or comparative data related to the time and cost of using Internet Archive's OCR services at a large scale.
+- **Future Code Contributions (Once Alpha Code is Available):**
+  - All code contributions will follow a standard GitHub workflow:
+    1.  Fork the Leizilla repository.
+    2.  Create a new feature branch from the main development branch.
+    3.  Commit your changes with clear, descriptive messages.
+    4.  Ensure your code passes all linting (`ruff`) and static type checking (`mypy`) requirements.
+    5.  Submit a Pull Request (PR) for review.
 
 ## 9. Licensing
 
 Leizilla is committed to openness:
 
-*   **Source Code:** The source code of the Leizilla project itself will be licensed under the **MIT License**.
-*   **Legal Data:** All collected and published legal data is considered to be in the **Public Domain**.
+- **Source Code:** The source code of the Leizilla project itself will be licensed under the **MIT License**.
+- **Legal Data:** All collected and published legal data is considered to be in the **Public Domain**.
 
 ---
-> *Leizilla ainda é filhote — mas o apetite já é de T-Rex. Junte-se antes que ele devore tudo sozinho.* 🦖⚖️
+
+> _Leizilla ainda é filhote — mas o apetite já é de T-Rex. Junte-se antes que ele devore tudo sozinho._ 🦖⚖️

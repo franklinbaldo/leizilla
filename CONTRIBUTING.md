@@ -46,6 +46,7 @@ uv run pytest                   # Testes diretos
 ## 🔀 Fluxo de Pull Request
 
 1. **Crie branch** a partir de `main`:
+
    ```bash
    git checkout main
    git pull origin main
@@ -55,6 +56,7 @@ uv run pytest                   # Testes diretos
 2. **Faça suas mudanças** seguindo o padrão do projeto
 
 3. **Commit usando Conventional Commits**:
+
    ```bash
    git commit -m "feat: adicionar crawler para leis estaduais"
    git commit -m "fix: corrigir parsing de metadados"
@@ -62,6 +64,7 @@ uv run pytest                   # Testes diretos
    ```
 
 4. **Checklist antes do push**:
+
    ```bash
    uv run leizilla dev check  # Deve passar sem erros
    ```
@@ -79,39 +82,46 @@ uv run pytest                   # Testes diretos
 ## 📋 Tipos de Contribuição
 
 ### 🚀 **Novas Features**
+
 - Sempre criar **ADR** primeiro em `docs/adr/`
 - Seguir padrão do projeto (veja `src/`)
 - Incluir testes unitários
 
 ### 🐛 **Bug Fixes**
+
 - Reproduzir bug em teste
 - Corrigir e verificar que teste passa
 - Mencionar issue no commit
 
 ### 📚 **Documentação**
+
 - Manter exemplos atualizados
 - Usar linguagem clara e direta
 - Evitar duplicação entre arquivos
 
 ### 🎨 **Melhorias**
+
 - Manter compatibilidade com código existente
 - Discutir mudanças breaking em issues
 
 ## 🎯 Padrões do Projeto
 
 ### **Código Python**
+
 - **Python 3.12+** obrigatório
 - **Type hints** em todas funções
 - **Docstrings** para APIs públicas
 - **ruff** para formatação e linting
 
 ### **Testes**
-- Usar **pytest** 
+
+- Usar **pytest**
 - Cobertura básica (mínimo 60%, crescer gradualmente)
 - Mockar APIs externas
 - Testes rápidos (<5s total)
 
 ### **Commits**
+
 - **Conventional Commits** obrigatório
 - Scopes: `feat`, `fix`, `docs`, `style`, `refactor`, `test`
 - Mensagens em inglês

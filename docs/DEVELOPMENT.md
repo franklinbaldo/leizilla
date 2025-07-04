@@ -30,11 +30,13 @@ leizilla/
 ## 🗃️ DuckDB Local
 
 ### **Localização**
+
 - **Path**: `data/leizilla.duckdb` (será criado automaticamente)
 - **Gitignore**: Incluído, não será commitado
 - **Backup**: Via Internet Archive (futuro)
 
 ### **Schema Definido** (conforme ADR-0003)
+
 ```sql
 -- Tabela principal de leis
 CREATE TABLE leis (
@@ -64,6 +66,7 @@ CREATE INDEX idx_leis_tipo ON leis(tipo_lei);
 ```
 
 ### **Comandos DuckDB Úteis**
+
 ```bash
 # Entrar no DuckDB interativo
 duckdb data/leizilla.duckdb
@@ -79,7 +82,7 @@ COPY leis TO 'data/leis_rondonia_2025.parquet' (FORMAT PARQUET)
 WHERE origem = 'rondonia' AND ano = 2025;
 
 # Busca por texto
-SELECT id, titulo, ano FROM leis 
+SELECT id, titulo, ano FROM leis
 WHERE texto_normalizado LIKE '%meio ambiente%';
 
 # Estatísticas básicas
@@ -111,6 +114,7 @@ DUCKDB_PATH=data/leizilla.duckdb
 O Leizilla possui uma CLI completa para todas as operações. Existem **duas formas** de executar comandos:
 
 ### **Método 1: Comandos uv diretos (recomendado)**
+
 Sempre funcionam, não precisam de ambiente ativo:
 
 ```bash
@@ -134,6 +138,7 @@ uv run leizilla stats
 ```
 
 ### **CLI com Subcomandos**
+
 Interface moderna com argumentos nomeados:
 
 ```bash
@@ -150,6 +155,7 @@ uv run leizilla pipeline --origem rondonia --year 2024 --limit 10
 O projeto usa CLI moderna com Typer, sem dependências externas de build tools.
 
 ### **Comandos de Desenvolvimento**
+
 ```bash
 # Setup inicial (rode uma vez)
 uv run leizilla dev setup         # Instala deps + pre-commit hooks
@@ -162,6 +168,7 @@ uv run leizilla dev test          # Executar testes (pytest)
 ```
 
 ### **Comandos Diretos (alternativos)**
+
 ```bash
 # Usar ferramentas diretamente quando necessário
 uv run ruff check .               # Lint direto
@@ -171,6 +178,7 @@ uv run pytest                     # Testes diretos
 ```
 
 ### **Vantagens da CLI Typer**
+
 - ✅ **Interface moderna**: Help automático com `--help`
 - ✅ **Tipo-segura**: Validação automática de argumentos
 - ✅ **Zero configuração**: Sem arquivos extras de build
@@ -180,6 +188,7 @@ uv run pytest                     # Testes diretos
 ## 🔍 Debug & Logs
 
 ### **Logging Básico**
+
 ```python
 import logging
 
@@ -194,6 +203,7 @@ logger.info("Processando PDF: %s", filename)
 ```
 
 ### **Debug Crawler**
+
 ```bash
 # Debug de descoberta com apenas 1 resultado
 uv run leizilla discover --origem rondonia --year 2024
@@ -206,6 +216,7 @@ uv run leizilla discover --origem rondonia 2>&1 | tee logs/crawler.log
 ```
 
 ### **Debug DuckDB**
+
 ```python
 import duckdb
 
@@ -218,6 +229,7 @@ conn.execute("PRAGMA profiling_output = 'query_profile.json'")
 ## 📝 Como Adicionar ADR
 
 1. **Crie arquivo numerado**:
+
    ```bash
    cp docs/adr/0001-projeto-estatico-duckdb-torrent.md \
       docs/adr/000X-sua-decisao.md
@@ -232,12 +244,14 @@ conn.execute("PRAGMA profiling_output = 'query_profile.json'")
 3. **Link no PR**:
    ```markdown
    ## ADR
+
    Esta PR implementa a decisão da ADR-000X: [Título](docs/adr/000X-sua-decisao.md)
    ```
 
 ## 📊 Diagramas Mermaid
 
 ### **Fluxo de Dados Completo**
+
 ```mermaid
 graph TD
     A[Fonte Oficial] --> B[Playwright Crawler]
@@ -253,25 +267,26 @@ graph TD
 ```
 
 ### **Arquitetura de Componentes** (futuro)
+
 ```mermaid
 graph LR
     subgraph "Local Development"
         A[Crawler] --> B[DuckDB]
         B --> C[Exporter]
     end
-    
+
     subgraph "Internet Archive"
         D[PDF Storage]
         E[OCR Service]
         F[Shared Database]
     end
-    
+
     subgraph "Distribution"
         G[GitHub Releases]
         H[Torrents]
         I[Static Frontend]
     end
-    
+
     C --> D
     D --> E
     E --> F
@@ -284,6 +299,7 @@ graph LR
 ## 🧪 Testes & Qualidade
 
 ### **Estrutura de Testes**
+
 ```
 tests/
 ├── test_crawler.py        # Testes do crawler
@@ -296,6 +312,7 @@ tests/
 ```
 
 ### **Mocking APIs Externas**
+
 ```python
 import pytest
 from unittest.mock import Mock, patch
@@ -307,6 +324,7 @@ def test_download_pdf(mock_get):
 ```
 
 ### **Testes de Performance**
+
 ```python
 import pytest
 import time
@@ -322,12 +340,14 @@ def test_duckdb_query_speed():
 ## 🚀 CI/CD Pipeline
 
 ### **GitHub Actions**
+
 - **Lint**: ruff check + format
 - **Type Check**: mypy
 - **Tests**: pytest com coverage
 - **Build**: Verificar se package instala
 
 ### **Comandos Locais**
+
 ```bash
 # Simular CI completo
 uv run leizilla dev check
@@ -344,17 +364,20 @@ uv run mypy .                 # type checking direto
 ## 📚 Referências Úteis
 
 ### **Tecnologias Core**
+
 - [DuckDB Python API](https://duckdb.org/docs/api/python/overview)
 - [Playwright Python](https://playwright.dev/python/)
 - [uv Package Manager](https://github.com/astral-sh/uv)
 - [Internet Archive CLI](https://archive.org/developers/internetarchive/)
 
 ### **ADRs Existentes**
+
 - [ADR-0001: Internet Archive como Pilar Central](../adr/0001-projeto-estatico-duckdb-torrent.md)
 - [ADR-0002: Frontend Estático Vanilla](../adr/0002-frontend-estatico-vanilla.md)
 - [ADR-0003: Schema DuckDB para Leis](../adr/0003-schema-duckdb-leis.md)
 
 ### **Padrões do Projeto**
+
 - **Conventional Commits**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`
 - **Python Style**: ruff defaults + type hints obrigatórios
 - **File Organization**: src-layout com flat structure
@@ -364,6 +387,7 @@ uv run mypy .                 # type checking direto
 ## 🔧 Troubleshooting
 
 ### **uv não funciona**
+
 ```bash
 # Instalar uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -372,6 +396,7 @@ pip install uv
 ```
 
 ### **DuckDB locked**
+
 ```bash
 # Verificar processos
 lsof data/leizilla.duckdb
@@ -380,11 +405,13 @@ kill <PID>
 ```
 
 ### **Playwright não instala browsers**
+
 ```bash
 uv run playwright install
 ```
 
 ### **Testes falham por timeout**
+
 ```bash
 # Aumentar timeout
 uv run pytest --timeout=60
