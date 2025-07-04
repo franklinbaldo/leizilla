@@ -2,7 +2,7 @@ name: Crawl Rondônia Laws
 
 on:
   schedule:
-    - cron: '0 0 * * 0' # Runs every Sunday at midnight UTC
+    - cron: "0 0 * * 0" # Runs every Sunday at midnight UTC
   workflow_dispatch: # Allows manual triggering
 
 jobs:
@@ -15,7 +15,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12' # Should match project.requires-python from pyproject.toml
+          python-version: "3.12" # Should match project.requires-python from pyproject.toml
 
       - name: Install uv
         uses: astral-sh/setup-uv@v1

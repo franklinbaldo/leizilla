@@ -242,6 +242,7 @@ conn.execute("PRAGMA profiling_output = 'query_profile.json'")
    - Consequências esperadas
 
 3. **Link no PR**:
+
    ```markdown
    ## ADR
 
