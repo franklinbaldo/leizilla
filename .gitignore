@@ -172,9 +172,6 @@ cython_debug/
 # Leizilla specific
 data/
 !data/.gitkeep
-*.duckdb
-*.duckdb-wal
-*.duckdb-shm
 
 # Temporary files
 temp/
