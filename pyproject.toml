@@ -24,6 +24,10 @@ dependencies = [
     "anyio",
     "duckdb",
     "typer",
+    "dlt",
+    "playwright",
+    "numpy",
+    "pandas",
 ]
 
 [project.optional-dependencies]
