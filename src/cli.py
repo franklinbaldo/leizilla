@@ -199,13 +199,13 @@ def cmd_search(
     origem: Optional[str] = typer.Option(None, help="Filtrar por origem"),
     year: Optional[int] = typer.Option(None, help="Filtrar por ano"),
     limit: int = typer.Option(20, help="Limite de resultados"),
+    format: str = typer.Option("text", help="Formato de saída (text, json)"),
 ):
     """🔍 Buscar leis no banco de dados"""
-    echo("🔍 Buscando leis...")
-    
     try:
         from storage import DatabaseManager
-        
+        import json
+
         db = DatabaseManager()
         laws = db.search_leis(
             origem=origem,
@@ -213,43 +213,96 @@ def cmd_search(
             texto=text,
             limit=limit
         )
-        
-        if not laws:
-            echo("📭 Nenhuma lei encontrada")
-            return
-        
-        echo(f"📋 Encontradas {len(laws)} leis:")
-        for law in laws:
-            title = law.get('titulo', 'N/A')
-            year_str = f"({law.get('ano', 'N/A')})" if law.get('ano') else ""
-            origem_str = law.get('origem', 'N/A')
-            echo(f"  • {title} {year_str} - {origem_str}")
-        
+
+        if format == "json":
+            # JSON output for programmatic consumption
+            output = {
+                'count': len(laws),
+                'results': laws
+            }
+            echo(json.dumps(output, ensure_ascii=False, indent=2))
+        else:
+            # Text output for humans
+            if not laws:
+                echo("📭 Nenhuma lei encontrada")
+                return
+
+            echo(f"📋 Encontradas {len(laws)} leis:")
+            for law in laws:
+                title = law.get('titulo', 'N/A')
+                year_str = f"({law.get('ano', 'N/A')})" if law.get('ano') else ""
+                origem_str = law.get('origem', 'N/A')
+                echo(f"  • {title} {year_str} - {origem_str}")
+
     except Exception as e:
-        echo(f"❌ Erro: {e}")
+        if format == "json":
+            import json
+            echo(json.dumps({'error': str(e)}, ensure_ascii=False))
+        else:
+            echo(f"❌ Erro: {e}")
         raise typer.Exit(1)
 
 
 @app.command("stats")
-def cmd_stats():
+def cmd_stats(
+    format: str = typer.Option("text", help="Formato de saída (text, json)"),
+):
     """📊 Mostrar estatísticas do banco de dados"""
-    echo("📊 Estatísticas do banco:")
-    
     try:
         from storage import DatabaseManager
-        
+        import json
+
         db = DatabaseManager()
         stats = db.get_stats()
-        
-        echo(f"  📚 Total de leis: {stats.get('total', 0)}")
-        echo(f"  🏛️ Por origem:")
-        for origem, count in stats.get('por_origem', {}).items():
-            echo(f"    • {origem}: {count}")
-        
-        echo(f"  📅 Por ano:")
-        for year, count in sorted(stats.get('por_ano', {}).items()):
-            echo(f"    • {year}: {count}")
-            
+
+        if format == "json":
+            # JSON output for programmatic consumption
+            echo(json.dumps(stats, ensure_ascii=False, indent=2))
+        else:
+            # Text output for humans
+            echo("📊 Estatísticas do banco:")
+            echo(f"  📚 Total de leis: {stats.get('total_leis', 0)}")
+            echo(f"  🏛️ Por origem:")
+            for origem, count in stats.get('por_origem', {}).items():
+                echo(f"    • {origem}: {count}")
+
+            echo(f"  📅 Por ano:")
+            for year, count in sorted(stats.get('por_ano', {}).items()):
+                echo(f"    • {year}: {count}")
+
+    except Exception as e:
+        if format == "json":
+            import json
+            echo(json.dumps({'error': str(e)}, ensure_ascii=False))
+        else:
+            echo(f"❌ Erro: {e}")
+        raise typer.Exit(1)
+
+
+@app.command("export-index")
+def cmd_export_index(
+    origem: Optional[str] = typer.Option(None, help="Filtrar por origem"),
+    output: str = typer.Option("leizilla_index.json", help="Arquivo de saída"),
+):
+    """📋 Exportar índice de datasets (leizilla_index.json)"""
+    try:
+        from storage import DatabaseManager
+        import json
+        from pathlib import Path
+
+        db = DatabaseManager()
+        metadata = db.get_dataset_metadata(origem=origem)
+
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+        echo(f"✅ Índice exportado: {output_path}")
+        echo(f"   Total de datasets: {len(metadata['datasets'])}")
+        echo(f"   Total de leis: {metadata['stats']['total_laws']}")
+
     except Exception as e:
         echo(f"❌ Erro: {e}")
         raise typer.Exit(1)
@@ -268,10 +321,9 @@ def cmd_pipeline(
     
     try:
         # Run each step
-        echo("
-📝 Etapa 1/4: Descobrir leis")
+        echo("\n📝 Etapa 1/4: Descobrir leis")
         cmd_discover(origem=origem, start_coddoc=start_coddoc, end_coddoc=end_coddoc, crawler_type=crawler_type)
-        
+
         echo("\n📝 Etapa 2/4: Baixar PDFs")  
         cmd_download(origem=origem, limit=limit)
         

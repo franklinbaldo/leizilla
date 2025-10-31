@@ -41,7 +41,12 @@ uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10 --cr
 uv run leizilla download --origem rondonia --limit 5       # Download up to 5 PDFs
 uv run leizilla upload --limit 3                  # Upload up to 3 PDFs to Internet Archive
 uv run leizilla export --origem rondonia --year 2020      # Export dataset to Parquet
+uv run leizilla export-index --origem rondonia --output data/leizilla_index.json  # Export dataset index metadata
 uv run leizilla pipeline --origem rondonia --start-coddoc 1 --end-coddoc 10 --limit 5 --crawler-type simple  # Complete pipeline for state/year/limit
+
+# Data query and inspection commands (with JSON output support)
+uv run leizilla search --text "meio ambiente" --origem rondonia --format json  # Search with JSON output
+uv run leizilla stats --format json                  # Get statistics in JSON format
 
 # Single test execution
 uv run pytest tests/test_specific.py -v
@@ -81,6 +86,73 @@ The project's architecture is built around Internet Archive as the foundational 
 - **ruff**: Linting and formatting
 - **GitHub Actions**: Complete CI/CD automation
 
+## leizilla-site Integration
+
+This repository is the **engine** for the Leizilla project. There is a separate **leizilla-site** repository that provides the web frontend.
+
+### Architecture Separation
+
+- **leizilla (this repo)**: Data pipeline engine
+  - Crawling, ETL, data processing
+  - CLI tools for pipeline automation
+  - Dataset generation (Parquet, DuckDB, JSON)
+
+- **leizilla-site** (separate repo): Static web frontend
+  - GitHub Pages hosted
+  - DuckDB-WASM for client-side search
+  - Executes engine via uvx in GitHub Actions
+
+### uvx Execution Model
+
+The site repository executes this engine using uvx:
+
+```bash
+# Execute from git with version pinning
+uvx git+https://github.com/franklinbaldo/leizilla.git@v1.2.3 leizilla <command>
+
+# Or use latest from main (not recommended for production)
+uvx git+https://github.com/franklinbaldo/leizilla.git@main leizilla discover --origem rondonia
+```
+
+### Benefits of uvx Approach
+
+1. **No code duplication** - Engine code lives in one place
+2. **Version pinning** - Site can pin to stable engine versions
+3. **Independent evolution** - Engine and site can evolve separately
+4. **Local execution** - Users can run same commands locally
+5. **GitHub Actions as compute** - No servers needed
+
+### JSON Output for Site Consumption
+
+Commands support `--format json` for programmatic consumption by the site:
+
+```bash
+# Get stats as JSON
+uvx git+https://github.com/franklinbaldo/leizilla.git@v1.2.3 leizilla stats --format json
+
+# Search and get JSON results
+uvx git+https://github.com/franklinbaldo/leizilla.git@v1.2.3 leizilla search --text "lei" --format json
+
+# Export dataset index metadata
+uvx git+https://github.com/franklinbaldo/leizilla.git@v1.2.3 leizilla export-index --output leizilla_index.json
+```
+
+### Version Compatibility
+
+The site pins to specific engine versions in its GitHub Actions workflows:
+
+```yaml
+env:
+  ENGINE_VERSION: v1.2.3  # Site controls which engine version to use
+```
+
+This allows:
+- Site stability (pin to tested versions)
+- Engine freedom (can evolve without breaking site)
+- Gradual upgrades (site updates when ready)
+
+See `docs/plans/LEIZILLA_SITE_IMPLEMENTATION_PLAN.md` for complete site architecture.
+
 ## Project Structure
 
 ```
@@ -92,6 +164,7 @@ src/                   # Flat source structure
 └── cli.py             # Complete command-line interface
 docs/adr/              # Architecture Decision Records
 docs/plans/            # Future feature planning documents
+  └── LEIZILLA_SITE_IMPLEMENTATION_PLAN.md  # Complete site architecture spec
 docs/DEVELOPMENT.md    # Detailed technical development guide
 tests/                 # Test suite (pytest-based)
 data/                  # Local data directory (gitignored)
@@ -100,18 +173,22 @@ data/                  # Local data directory (gitignored)
 
 ## Development Status
 
-**Current Phase**: Working MVP with complete pipeline
+**Current Phase**: Working MVP with complete pipeline + Site integration ready
 
 The project has a **complete implementation** including:
 
-- ✅ Full CLI interface with discover/download/upload/export/search commands
-- ✅ DuckDB schema with complete CRUD operations (storage.py:1-247)
+- ✅ Full CLI interface with discover/download/upload/export/search/stats commands
+- ✅ JSON output mode for programmatic consumption (`--format json`)
+- ✅ Dataset index generation (`export-index` command)
+- ✅ uvx execution compatibility for remote execution
+- ✅ DuckDB schema with complete CRUD operations (storage.py:1-260)
 - ✅ Playwright-based async crawler (crawler.py:1-180)
 - ✅ Internet Archive integration (publisher.py:1-150)
 - ✅ Centralized configuration management (config.py:1-45)
 - ✅ Complete test suite for core modules
 - ✅ Modern CLI with subcommands for pipeline automation
 - ✅ Development environment with type checking and linting
+- ✅ leizilla-site integration architecture documented
 
 ## Data Architecture
 

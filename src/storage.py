@@ -163,34 +163,98 @@ class DuckDBStorage:
     def get_stats(self) -> Dict[str, Any]:
         """Retorna estatísticas do banco."""
         conn = self.connect()
-        
+
         stats = {}
-        
+
         # Total de leis
         result = conn.execute("SELECT COUNT(*) FROM leis").fetchone()
         stats['total_leis'] = result[0] if result else 0
-        
+
         # Por origem
         results = conn.execute("""
-        SELECT origem, COUNT(*) as count 
-        FROM leis 
-        GROUP BY origem 
+        SELECT origem, COUNT(*) as count
+        FROM leis
+        GROUP BY origem
         ORDER BY count DESC
         """).fetchall()
         stats['por_origem'] = {row[0]: row[1] for row in results}
-        
+
         # Por ano
         results = conn.execute("""
-        SELECT ano, COUNT(*) as count 
-        FROM leis 
+        SELECT ano, COUNT(*) as count
+        FROM leis
         WHERE ano IS NOT NULL
-        GROUP BY ano 
+        GROUP BY ano
         ORDER BY ano DESC
         LIMIT 10
         """).fetchall()
         stats['por_ano'] = {row[0]: row[1] for row in results}
-        
+
         return stats
+
+    def get_dataset_metadata(self, origem: Optional[str] = None) -> Dict[str, Any]:
+        """Retorna metadados completos para índice de datasets."""
+        conn = self.connect()
+
+        metadata = {
+            'version': '1.0',
+            'generated_at': datetime.now().isoformat(),
+            'datasets': []
+        }
+
+        # Get distinct origins
+        origins_query = "SELECT DISTINCT origem FROM leis"
+        if origem:
+            origins_query += f" WHERE origem = '{origem}'"
+
+        origins = conn.execute(origins_query).fetchall()
+
+        for (origin,) in origins:
+            # Get years for this origin
+            years = conn.execute("""
+            SELECT DISTINCT ano
+            FROM leis
+            WHERE origem = ? AND ano IS NOT NULL
+            ORDER BY ano DESC
+            """, [origin]).fetchall()
+
+            # Complete dataset (all years)
+            total_count = conn.execute("""
+            SELECT COUNT(*) FROM leis WHERE origem = ?
+            """, [origin]).fetchone()[0]
+
+            metadata['datasets'].append({
+                'origem': origin,
+                'year': None,
+                'file': f'leis_{origin}_completo.parquet',
+                'law_count': total_count,
+                'description': f'Complete dataset for {origin}'
+            })
+
+            # Per-year datasets
+            for (year,) in years[:5]:  # Limit to 5 most recent years
+                year_count = conn.execute("""
+                SELECT COUNT(*) FROM leis
+                WHERE origem = ? AND ano = ?
+                """, [origin, year]).fetchone()[0]
+
+                metadata['datasets'].append({
+                    'origem': origin,
+                    'year': year,
+                    'file': f'leis_{origin}_{year}.parquet',
+                    'law_count': year_count,
+                    'description': f'Laws from {origin} for year {year}'
+                })
+
+        # Overall stats
+        stats = self.get_stats()
+        metadata['stats'] = {
+            'total_laws': stats['total_leis'],
+            'origins': list(stats['por_origem'].keys()),
+            'years': list(stats['por_ano'].keys())
+        }
+
+        return metadata
     
     def close(self) -> None:
         """Fecha conexão com banco."""
@@ -198,6 +262,9 @@ class DuckDBStorage:
             self.conn.close()
             self.conn = None
 
+
+# Alias para compatibilidade com CLI
+DatabaseManager = DuckDBStorage
 
 # Instância global do storage
 storage = DuckDBStorage()
