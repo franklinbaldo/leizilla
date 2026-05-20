@@ -79,7 +79,24 @@ O esboço anterior cravou "HTML renderizado no browser via XSLT/JS, nunca server
 - Wayback funciona como CDN/buffer: tira nosso crawler do caminho crítico da fonte
 - Nossa coleção IA + OCR pipeline continua intocada
 
-**Política de falha**: fail-open. Se Wayback timeout, rate-limit, ou erro → log warning, **fallback para download direto da fonte**, gravar `provenance_wayback: null`. Wayback é reforço de provenance, não bloqueante para captura.
+**Política de falha (detalhada)**:
+
+| Cenário Wayback | Ação |
+|---|---|
+| HTTP 200 + snapshot URL retornada | Caminho feliz. Fetch PDF do snapshot. `fetched_from="wayback"`. |
+| HTTP 429 (rate limit) | Backoff exponencial (1s, 2s, 4s, máx 30s). 3 tentativas, depois fallback. |
+| HTTP 5xx (server error) | Backoff curto (2s, 5s). 2 tentativas, depois fallback. |
+| HTTP 403/451 com body indicando robots.txt | **Permanente, não retry**. Wayback recusa-se a arquivar essa URL. Fallback imediato, gravar `fetched_from="source-fallback"` + `wayback_blocked_robots=true`. |
+| Timeout (>60s) | Fallback. Sem retry (Wayback save é lento por natureza, mas >60s indica problema). |
+| Snapshot existente < 24h via `/wayback/available` | Reusa, não dispara novo save. Economiza throttle quota. |
+
+**Rate limit Wayback público**: ~12 saves/min sem auth, ~120/min com chave SavePageNow ([docs IA](https://archive.org/details/spn-2)). Para scrape de Rondônia inteira (~5k leis × 2 URLs = 10k saves), throttle público leva ~14h. M2 inclui:
+- Token bucket no crawler para respeitar 12/min (worker pool size = 2).
+- Avaliar custo de SavePageNow paid API se 14h ficar inviável.
+
+**Frontend (M5)**: badge visível "fetched via source-fallback (Wayback indisponível)" quando `provenance_wayback.fetched_from = "source-fallback"`. Mantém transparência da garantia "external witness".
+
+Quando o sistema cai inteiramente em fallback de download direto, log warning para auditoria; estatística agregada (% raws com `source-fallback`) é métrica de saúde do pipeline.
 
 **Não-decisão**: Wayback **não substitui** nossa coleção IA. Snapshots Wayback não geram `_djvu.txt` (OCR automático do IA só roda em items de coleção, não em snapshots). Etapa 2 depende do OCR — então o PDF tem que viver na nossa coleção IA.
 
@@ -266,7 +283,16 @@ Relações computadas com outras leis. Permite ao frontend mostrar "esta lei foi
 
 **Decisão (aprovada): uma única tabela `versoes`** com grain (lei × dispositivo × versão). Metadados de lei e dispositivo denormalizados em cada row. Estrutura/listagem emerge via `SELECT DISTINCT`. Read-only Parquet servido estaticamente do IA — dictionary encoding + SNAPPY compress as repetições. Tradeoff explícito: simplicidade de query (zero JOIN no DuckDB-WASM) vs redundância de dados (compressão Parquet mitiga).
 
-Pode evoluir para 2 ou 3 tabelas se DuckDB-WASM ficar gargalo na prática — decisão revisitada em M5 com dados reais (~5k leis RO × ~30 dispositivos × ~2 versões = ~300k rows, tamanho do Parquet a medir).
+Pode evoluir para 2 ou 3 tabelas se DuckDB-WASM ficar gargalo na prática — decisão revisitada em M5 com dados reais.
+
+**Gatilhos de revert (qualquer um dispara discussão de split)**:
+- Parquet `versoes-{ente}-v0.parquet` excede **100 MB** comprimido (limite confortável de fetch HTTP em conexões ruins).
+- Cold DuckDB-WASM init + primeira query (single SELECT por `lei_id`) excede **5s P50** em laptop padrão (M1/M2 Air, conexão 50 Mbps).
+- Memória DuckDB-WASM durante query típica excede **500 MB** (afeta browsers em devices modestos).
+- Latência user-visible de search/filter (texto_normalizado LIKE) excede **1s P95** em dataset RO completo.
+- Cardinalidade real ultrapassa **2M rows** por ente (estimativa atual: ~1.5M para RO; >2M sugere que custos lineares começam a doer).
+
+Critério: 1 gatilho disparado abre RFC de split; 2+ obrigam split antes do M5 fechar. M4 inclui benchmark scripts para medir todos.
 
 ### 3.1 Tabela `versoes` — single source of truth
 
@@ -340,11 +366,26 @@ WHERE lei_id = 'leizilla-ro-lei-01234-2003'
   AND vigente_de <= DATE '2010-01-01'
   AND (vigente_ate > DATE '2010-01-01' OR vigente_ate IS NULL);
 
--- Estrutura/TOC de uma lei (DISTINCT extrai dispositivos)
-SELECT DISTINCT dispositivo_path, tipo_dispositivo, dispositivo_parent_path, rotulo, ordem
+-- Estrutura/TOC de uma lei (rotulo vigente por dispositivo)
+-- Regra: rotulo mostrado no TOC = COALESCE(rotulo_versao, rotulo) da versão atualmente vigente
+SELECT DISTINCT
+  dispositivo_path,
+  tipo_dispositivo,
+  dispositivo_parent_path,
+  COALESCE(rotulo_versao, rotulo) AS rotulo_tos,
+  ordem
 FROM versoes
 WHERE lei_id = 'leizilla-ro-lei-01234-2003'
+  AND vigente_ate IS NULL   -- versão vigente apenas
 ORDER BY ordem;
+
+-- Busca por nome de capítulo/título (texto_normalizado é NULL em blocos
+-- organizacionais; busca em rotulo)
+SELECT DISTINCT lei_id, dispositivo_path, rotulo
+FROM versoes
+WHERE ente = 'ro'
+  AND tipo_dispositivo IN ('livro', 'parte', 'titulo', 'capitulo', 'secao', 'subsecao')
+  AND rotulo ILIKE '%direitos fundamentais%';
 
 -- Listagem de todas as leis de um ente
 SELECT DISTINCT lei_id, titulo_lei, ementa, ano, parse_status, confianca_parse
@@ -385,6 +426,7 @@ Escrita preferida via `pyarrow.parquet.write_table` (controle granular do KV + i
 
 - `schema_version` semver-ish na coluna `leizilla.schema_version`: major bump apenas em break.
 - **Mapping `schema_version` → identifier `v{N}`**: `N` é o **major** do `schema_version`. Pré-M5: `schema_version="0.1"` → identifier `v0` (e.g. `leizilla-dataset-ro-v0`, `versoes-ro-v0.parquet`). Pós-M5: `schema_version="1"` → identifier `v1`. Identifier IA permanece inteiro `v\d+` por compatibilidade com regex de naming (§5.4); versão pré-release fica codificada no major `0`. Minor/patch (`0.1`, `0.2`) atualizam o footer KV sem novo identifier.
+- **Nota interpretativa**: `v0` **não** significa "empty/draft/abandonado" — é o major do `schema_version="0.1"`, indicando design pré-MVP. Dataset `v0` é válido, citável, e tem garantias formais de schema (XSD validado, footer KV preenchido). Promove-se a `v1` quando o MVP M5 fechar e o schema for considerado estável.
 - CI valida que `int(N)` no caminho do arquivo bate com `int(schema_version.split('.')[0])` do footer KV.
 - Zod schema único em `web/src/schemas/v0/versao.ts` (matches single table) durante M0–M4; movido para `v1/` quando schema_version promover para `1`.
 - v1 só é cravado depois do MVP rodar (reviewer #6 ponto 13). Durante M0–M4 o schema é **v0.1** (identifier `v0`); promove para v1 no fechamento de M5.
@@ -562,7 +604,7 @@ Cada dispositivo carrega sua própria **timeline de versões**. Nested para hier
 1. **`parent` attribute obrigatório** em todo `<dispositivo>`. Raiz: `parent=""`.
 2. **`<versoes>` obrigatório** com **no mínimo 1 `<versao>`** (a original). Sem exceção. Blocos organizacionais têm `<versao>` carregando só `<rotulo>` (sem `<texto>`); normativos têm `<texto>` (e opcionalmente `<rotulo>` override).
 3. **Path do dispositivo normativo é GLOBAL** (`art-5`, `art-5-par-1`, `art-5-par-1-inc-1`, `art-5-par-1-inc-1-ali-a`). Não namespaceia por bloco organizacional acima. Citação forense ("art. 5º") = lookup literal.
-4. **Path do dispositivo organizacional namespaceia internamente** (`tit-1`, `tit-1-cap-1`, `tit-1-cap-1-sec-2`). Hierarquia de blocos é própria.
+4. **Path do dispositivo organizacional namespaceia internamente** (`tit-1`, `tit-1-cap-1`, `tit-1-cap-1-sec-2`, `liv-2-tit-3-cap-1`). Hierarquia de blocos namespaceia o próprio bloco; normativos contidos não herdam o prefix. Token map: `liv-N` (livro), `parte-N` (parte), `tit-N` (titulo), `cap-N` (capitulo), `sec-N` (secao), `subsec-N` (subsecao), `anexo-N` (anexo). Numeração sequential dentro do parent.
 5. **Caput é implícito (índice 0)**: container normativo (`artigo`, `paragrafo`, `inciso`) carrega seu próprio `<texto>` no nível do container; filhos `<dispositivo>` são sub-itens. Sem `<dispositivo tipo="caput">`. Ver detalhes abaixo.
 
 **Mapping nesting XML ↔ `dispositivo_path` flat na tabela Parquet `versoes`** (§3.1): geração determinística do path. Frontend e ETL usam o **mesmo gerador** (`src/leizilla/leizilla_xml/path.py` em M3).

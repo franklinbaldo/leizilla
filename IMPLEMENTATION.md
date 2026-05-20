@@ -8,7 +8,8 @@
 
 | Milestone | Status | PR | Notas |
 |---|---|---|---|
-| **M0** — Documento vivo + Design schema | 🟡 in-progress | #6 | M0.1 done; M0.2 reescrito após review dos 3 blockers; falta `leizilla-v0.1.xsd` + fixtures + decisões §10 do SCHEMA.md |
+| **M0.1** — Documento vivo + SCHEMA.md design | 🟢 done | #6 | Aprovado em re-review; pronto para merge. |
+| **M0.2** — XSD + fixtures + lexml-export script | ⚪ todo | — | Próximo. Inclui `leizilla-v0.1.xsd`, 3 fixtures Leizilla XML, `scripts/leizilla-to-lexml.xsl`, teste CI de export, consistency-checker script, e resolução de 6 pendentes §10. |
 | M1 — Foundation (package + ADRs + deps) | ⚪ todo | — | Bloqueado por M0 |
 | M2 — Crawler real + Raw upload | ⚪ todo | — | Bloqueado por M1 |
 | M3 — OCR fetch + LLM parse + Leizilla XML | ⚪ todo | — | Bloqueado por M2 |
@@ -254,12 +255,17 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-- [x] **M0.1**: `IMPLEMENTATION.md` criado e mantido.
-- [x] **M0.2**: `docs/SCHEMA.md` v1 (granularidade IA, layout ZIP, naming).
-- [x] **M0.2**: reescrita pós-review #6 (dispositivo-cêntrico, timeline temporal, formato próprio).
-- [ ] **M0.2**: rascunhar `docs/schemas/leizilla-v0.1.xsd`.
-- [ ] **M0.2**: fixtures de 3 leis representativas em `tests/fixtures/leizilla_xml/` (incluindo uma com alterações e uma com `<bloco-livre>`).
-- [ ] **M0.2**: rascunhar `scripts/leizilla-to-lexml.xsl` + teste CI de validação contra `lexml.xsd`.
-- [ ] **M0.2**: resolver decisões pendentes em `docs/SCHEMA.md` §10 (URN dialect, compressão Parquet, política re-scrape, LGPD).
-- [ ] **M0.3**: aprofundar inspirações concretas em `docs/SCHEMA.md` §8 (paths exatos de arquivos em ficha/baliza/causaganha).
-- [ ] Re-review do PR #6 após reescrita; aprovação → fechar M0 → abrir M1.
+**M0.1 — fechado** ✅ (PR #6 aprovado em re-review). Merge em sequência.
+
+**M0.2 — XSD + fixtures + export** (próximo PR):
+- [ ] Rascunhar `docs/schemas/leizilla-v0.1.xsd` consolidando todas decisões §4 do SCHEMA.md (dispositivo universal, caput implícito, parent obrigatório, path global/namespaceado, versoes ≥1).
+- [ ] Fixtures em `tests/fixtures/leizilla_xml/` (mínimo 3): (a) lei simples sem alterações, (b) lei com timeline de alterações e `<rotulo_versao>`, (c) lei com `<bloco-livre quality="raw">` (fallback OCR ruim).
+- [ ] `scripts/leizilla-to-lexml.xsl` + teste CI `tests/test_lexml_export.py` validando contra `tests/fixtures/lexml.xsd` (bundle no repo).
+- [ ] **Consistency checker script** (`scripts/check_schema_consistency.py`): extrai exemplos de identifier e schema_version do SCHEMA.md, valida contra regex §5, checa que `v{N}` no path bate com `int(major(schema_version))`. Reduz Codex catches futuros.
+- [ ] **FK invariant test** (no ETL M3 mas validação local em M0.2): com 1 tabela denormalizada, garantir que `(lei_id, dispositivo_path, dispositivo_parent_path)` permanece consistente entre todas as rows da mesma lei (não há outra forma de detectar inconsistência sem JOIN).
+- [ ] Resolver pendentes §10: URN dialect contra CGPID spec, compressão Parquet (SNAPPY vs ZSTD em DuckDB-WASM), granularidade bundle ZIP, XPath dialect, robots.txt rate-limit, XSLT in-browser deprecation status.
+
+**M0.3 — Inspirações concretas** (paralelo a M0.2):
+- [ ] Aprofundar `docs/SCHEMA.md` §8 com paths exatos em ficha/baliza/causaganha (manifest CSV columns, naming patterns, footer KV examples).
+
+**M1 — Foundation** (após M0.2 fechar): package restructure `src/` → `src/leizilla/`, ADRs 0004–0010, deps, e a migração `origem` → `ente` em CLI + schema (storage.py:44, cli.py:29,69,169,199,260).
