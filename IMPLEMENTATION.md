@@ -88,6 +88,11 @@ Toda decisão importante recebe entrada aqui com data. Não delete entradas — 
 - **Decisão**: raw items e parsed items são IA items distintos. Raw é imutável após upload; parsed pode ser re-uploadado quantas vezes preciso.
 - **Justificativa**: isola falhas de parsing do scraping; permite trocar estratégia de Etapa 2 sem re-scraping.
 
+### 2026-05-20 — Slug `{fonte}` é token único `[a-z]+`, sem hífens
+- **Decisão**: cada fonte tem **um único slug canônico** (`casacivil`, `diario`, `assembleia`) usado idêntico em IA identifier, `raw_meta.fonte`, `parsed_meta.fonte_canonica`/`resolvido_por`, atributo `tipo` em LeiML, coluna Parquet `fonte_canonica`, e enum `FONTES`.
+- **Justificativa**: rascunho inicial misturava `diario`, `diario_oficial`, `diario-oficial` em locais diferentes — flagged pelo Codex em #6. Reconciliação determinística requer um único valor; hífen no slug quebra parsing do identifier `leizilla-raw-{ente}-{fonte}-{chave}` (ambiguidade entre fim de fonte e início de chave).
+- **Documentado em**: `docs/SCHEMA.md` §5 "Slug `{fonte}`".
+
 ### 2026-05-20 — Múltiplas fontes oficiais com tracking de divergência
 - **Decisão**: cada lei pode ter N raw items (um por fonte: Assembleia, Casa Civil, Diário Oficial). Parsed item reconcilia.
 - **Hierarquia de autoridade**: Diário Oficial > Casa Civil > Assembleia. Divergências registradas em `parsed_meta.json.divergencias` e na coluna Parquet `tem_divergencia`.

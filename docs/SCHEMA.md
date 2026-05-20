@@ -137,10 +137,10 @@ Bump de `N` apenas em **breaking schema change** (coluna removida, tipo alterado
       "fonte_a": "leizilla-raw-ro-casacivil-coddoc-00042",
       "fonte_b": "leizilla-raw-ro-diario-2003-06-15-p0012",
       "diff_summary": "§2º ausente em casacivil; texto idêntico no resto",
-      "resolvido_por": "diario_oficial"
+      "resolvido_por": "diario"
     }
   ],
-  "fonte_canonica": "diario_oficial",
+  "fonte_canonica": "diario",
   "parse_method": "llm-haiku",
   "parse_model": "claude-haiku-4-5-20251001",
   "parse_timestamp": "2026-05-20T18:45:00Z",
@@ -194,7 +194,7 @@ Tabela canônica `leis` no DuckDB e Parquet espelho.
 | `url_leiml_ia` | VARCHAR | NO | URL do `law.leiml` |
 | `url_ocr_ia` | VARCHAR (JSON array) | NO | lista de URLs `_djvu.txt` por fonte |
 | `url_pdf_ia` | VARCHAR (JSON array) | NO | lista de URLs PDF por fonte |
-| `fonte_canonica` | VARCHAR | NO | `diario_oficial`/`casacivil`/`assembleia` |
+| `fonte_canonica` | VARCHAR | NO | slug curto da fonte (`casacivil`, `diario`, `assembleia`) — ver §5 |
 | `num_fontes` | INTEGER | NO | quantidade de fontes capturadas |
 | `tem_divergencia` | BOOLEAN | NO | flag rápido frontend |
 | `divergencias` | TEXT (JSON) | YES | diff summary estruturado |
@@ -296,12 +296,12 @@ Fallback se texto não puder ser estruturado:
 ```xml
 <anotacoes>
   <fontes>
-    <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042" tipo="casa-civil"/>
-    <fonte ia-id="leizilla-raw-ro-diario-2003-06-15-p0012" tipo="diario-oficial"/>
+    <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042" tipo="casacivil"/>
+    <fonte ia-id="leizilla-raw-ro-diario-2003-06-15-p0012" tipo="diario"/>
   </fontes>
   <divergencia campo="articulacao/artigo[@id='art-3']/caput"
-               entre="casa-civil,diario-oficial"
-               resolvido-por="diario-oficial">
+               entre="casacivil,diario"
+               resolvido-por="diario">
     §2º ausente em casacivil
   </divergencia>
   <parse method="llm-haiku"
@@ -361,6 +361,8 @@ Permite abrir `law.leiml` diretamente no browser e ver HTML renderizado (XSLT na
 
 ### Slug `{fonte}` — enum por ente
 
+**Regra de slug (load-bearing)**: `{fonte}` é um token único `[a-z]+` — **sem hífens nem underscores**. Toda referência (IA identifier, `raw_meta.json.fonte`, `parsed_meta.json.fonte_canonica` / `resolvido_por`, atributo `tipo` em LeiML `<fonte>` / `<divergencia>`, coluna Parquet `fonte_canonica`, enum `FONTES` Python) usa **exatamente o mesmo slug**. Hífens no slug quebrariam a parsing do identifier `leizilla-raw-{ente}-{fonte}-{chave}` por torná-lo ambíguo (e.g., `diario-oficial-2003-06-15` não tem fronteira reconhecível entre fonte e chave). Diff/join determinístico por fonte exige um único valor canônico em todas as camadas.
+
 Cada ente declara suas fontes oficiais em `src/leizilla/fontes/{ente}.py`. Exemplo:
 
 ```python
@@ -368,9 +370,11 @@ Cada ente declara suas fontes oficiais em `src/leizilla/fontes/{ente}.py`. Exemp
 FONTES = {
     "casacivil": "https://ditel.casacivil.ro.gov.br/cotel/",
     "assembleia": "https://sapl.al.ro.leg.br/",
-    "diario": "https://www.diof.ro.gov.br/",
+    "diario": "https://www.diof.ro.gov.br/",   # Diário Oficial — slug curto sem hífen
 }
 ```
+
+Nomes longos (`diário oficial`, `casa civil`) ficam em campos `display_name` / metadata IA legível, nunca no slug.
 
 ---
 
