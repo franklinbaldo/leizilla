@@ -149,7 +149,7 @@ _RE_IA_BUNDLE = re.compile(
 # URN LEX: urn:lex:br;{jurisdicao};{tipo}:{data}[;{numero}][!{path}...]
 # Jurisdição pode ter ; interno (municipios).
 _RE_URN_LEX = re.compile(
-    r"^urn:lex:br;([^;]+;)?[^;]+;[^;]+:"
+    r"^urn:lex:br;([^;]+;)?[^;]+;(?P<tipo>[^;]+):"
     r"(?P<data>\d{4}-\d{2}-\d{2})"
     r"(;(?P<numero>[^!;]+))?"
     r"(?P<paths>(![a-z0-9-]+)*)$"
@@ -485,17 +485,65 @@ def _check_quality_only_ocr_ruim(ctx: _Ctx) -> None:
 
 
 def _check_urn_decomposes(ctx: _Ctx) -> None:
-    """§7.10 — urn-lex (if present) decomposes correctly. Tied to IA id
-    inference when urn-lex is absent — but we don't have parsed_meta.json
-    here, so we only validate the regex match for now.
+    """§7.10 — urn-lex (if present) decomposes correctly AND its
+    components match the parsed-item identifier in the filename.
 
-    Distinguishes ABSENT (attribute not set) from EMPTY (`urn-lex=""`):
-    absent skips §7.10 (falls back to IA id inference); empty fires §7.10
-    because empty isn't a valid URN format. Truthiness check would silently
-    treat both as absent.
+    Two-part check:
+    (a) Regex: urn-lex matches §5.6 pattern. Empty string fires too
+        (treated as malformed, not absent).
+    (b) Cross-check: when filename stem matches §5.3 (parsed canonical),
+        decomposed urn-lex tipo/ano/numero must match the filename's
+        components. `ente` comparison is deferred until entes.py mapping
+        (M1) — slug `ro` ↔ jurisdição `estado:rondonia` needs the table.
+        Fallback identifiers (§5.4) and arbitrary filenames skip (b).
     """
-    if ctx.urn_lex is not None and not _RE_URN_LEX.match(ctx.urn_lex):
+    if ctx.urn_lex is None:
+        return
+    m = _RE_URN_LEX.match(ctx.urn_lex)
+    if not m:
         ctx.add(10, f'urn-lex="{ctx.urn_lex}" não decompõe pela regex §5.6')
+        return
+
+    # Cross-check filename ↔ urn-lex components.
+    stem = ctx.file.stem
+    file_m = _RE_IA_PARSED.match(stem)
+    if file_m is None:
+        return  # arbitrary filename (fixtures, fallback) — skip cross-check.
+
+    urn_tipo = m.group("tipo")
+    urn_ano = m.group("data")[:4]
+    urn_numero = m.group("numero")
+    file_tipo = file_m.group("tipo")
+    file_ano = file_m.group("ano")
+    file_numero = file_m.group("numero")
+
+    if urn_tipo != file_tipo:
+        ctx.add(
+            10,
+            f'urn-lex tipo="{urn_tipo}" não bate com filename '
+            f'tipo="{file_tipo}" ({stem})',
+        )
+    if urn_ano != file_ano:
+        ctx.add(
+            10,
+            f'urn-lex ano="{urn_ano}" não bate com filename ano="{file_ano}" ({stem})',
+        )
+    # Compare numbers after stripping zero-pad on both sides.
+    if urn_numero is None:
+        ctx.add(
+            10,
+            f"urn-lex sem ;numero mas filename canônico tem "
+            f'numero="{file_numero}" ({stem})',
+        )
+    else:
+        urn_n = urn_numero.lstrip("0") or "0"
+        file_n = file_numero.lstrip("0") or "0"
+        if urn_n != file_n:
+            ctx.add(
+                10,
+                f'urn-lex numero="{urn_numero}" não bate com filename '
+                f'numero="{file_numero}" (canonical: {urn_n} vs {file_n})',
+            )
 
 
 def _check_urn_no_zero_pad(ctx: _Ctx) -> None:
@@ -553,8 +601,7 @@ def check_file(file: Path) -> list[Violation]:
             Violation(
                 file,
                 15,
-                f"elemento raiz deve ser <lei> no namespace {NS}; "
-                f"recebido: {root.tag}",
+                f"elemento raiz deve ser <lei> no namespace {NS}; recebido: {root.tag}",
             )
         ]
 

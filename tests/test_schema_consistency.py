@@ -96,7 +96,9 @@ def test_cli_exit_2_on_unreadable_file(tmp_path: Path) -> None:
     import os
 
     f = tmp_path / "locked.xml"
-    f.write_text("<lei xmlns='https://leizilla.org/lei/0.1' schema-version='0.1' vigente-em='2026-05-20'/>")
+    f.write_text(
+        "<lei xmlns='https://leizilla.org/lei/0.1' schema-version='0.1' vigente-em='2026-05-20'/>"
+    )
     os.chmod(f, 0o000)
     try:
         # Skip when running as root (chmod 000 doesn't block reads).
@@ -674,6 +676,113 @@ def test_inv04_mixed_org_normative_rejected(tmp_path: Path) -> None:
     """Codex P1: tit-1-art-2 e art-2-cap-1 são paths mistos — §4.2 proíbe."""
     for bad in ("tit-1-art-2", "art-2-cap-1", "art-5-tit-3", "tit-1-cap-2-art-1"):
         assert csc._path_tipo(bad) is None, f"mixed path '{bad}' should be rejected"
+
+
+def _write_named(tmp_path: Path, stem: str, content: str) -> Path:
+    f = tmp_path / f"{stem}.xml"
+    f.write_text(content, encoding="utf-8")
+    return f
+
+
+def test_inv10_filename_matches_urn_canonical(tmp_path: Path) -> None:
+    """Codex P1: filename canônico (§5.3) deve bater tipo/ano/numero com urn-lex."""
+    body = """  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+    </versao>
+  </dispositivo>"""
+    f = _write_named(
+        tmp_path,
+        "leizilla-ro-lei-09999-1999",
+        _wrap(body, urn_lex="urn:lex:br;estado:rondonia;lei:1999-06-15;9999"),
+    )
+    assert csc.check_file(f) == []
+
+
+def test_inv10_filename_numero_mismatch(tmp_path: Path) -> None:
+    """Filename 09999 mas URN 7777 → §7.10."""
+    body = """  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+    </versao>
+  </dispositivo>"""
+    f = _write_named(
+        tmp_path,
+        "leizilla-ro-lei-09999-1999",
+        _wrap(body, urn_lex="urn:lex:br;estado:rondonia;lei:1999-06-15;7777"),
+    )
+    v = csc.check_file(f)
+    assert any(x.invariant == 10 and "numero" in x.message for x in v)
+
+
+def test_inv10_filename_ano_mismatch(tmp_path: Path) -> None:
+    body = """  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+    </versao>
+  </dispositivo>"""
+    f = _write_named(
+        tmp_path,
+        "leizilla-ro-lei-09999-1999",
+        _wrap(body, urn_lex="urn:lex:br;estado:rondonia;lei:2020-06-15;9999"),
+    )
+    v = csc.check_file(f)
+    assert any(x.invariant == 10 and "ano" in x.message for x in v)
+
+
+def test_inv10_filename_tipo_mismatch(tmp_path: Path) -> None:
+    body = """  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+    </versao>
+  </dispositivo>"""
+    f = _write_named(
+        tmp_path,
+        "leizilla-ro-decreto-09999-1999",
+        _wrap(body, urn_lex="urn:lex:br;estado:rondonia;lei:1999-06-15;9999"),
+    )
+    v = csc.check_file(f)
+    assert any(x.invariant == 10 and "tipo" in x.message for x in v)
+
+
+def test_inv10_filename_canonical_but_urn_lacks_numero(tmp_path: Path) -> None:
+    """Canonical filename has numero, but URN omits it (CF style) → §7.10."""
+    body = """  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-federal-planalto-constituicao-1988"/>
+    </versao>
+  </dispositivo>"""
+    f = _write_named(
+        tmp_path,
+        "leizilla-federal-constituicao-00000-1988",
+        _wrap(body, urn_lex="urn:lex:br;federal;constituicao:1988-10-05"),
+    )
+    v = csc.check_file(f)
+    assert any(x.invariant == 10 and "sem ;numero" in x.message for x in v)
+
+
+def test_inv10_arbitrary_filename_skips_crosscheck(tmp_path: Path) -> None:
+    """Fixtures (simple.xml etc.) têm filename arbitrário — cross-check
+    deve ser pulado, só o regex check roda."""
+    body = """  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+    </versao>
+  </dispositivo>"""
+    # arbitrary stem — não casa _RE_IA_PARSED
+    f = _write_named(
+        tmp_path,
+        "simple",
+        _wrap(body, urn_lex="urn:lex:br;estado:rondonia;lei:1999-06-15;7777"),
+    )
+    # urn-lex válido, filename não casa pattern → §7.10 silent.
+    assert csc.check_file(f) == []
 
 
 def test_inv10_empty_urn_fires_violation(tmp_path: Path) -> None:
