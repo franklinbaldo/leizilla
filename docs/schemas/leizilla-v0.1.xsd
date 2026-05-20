@@ -110,6 +110,11 @@
         URN LEX (dialect provisório — ver SCHEMA.md §10 e §5.5).
         Formato canônico: urn:lex:br;{jurisdicao};{tipo}:{data}[;{numero}][!{path}...]
 
+        Jurisdição pode conter segmentos separados por `;` internamente —
+        e.g. municípios usam `municipio:rondonia;porto-velho` (SCHEMA.md §5.5).
+        A âncora confiável é o `:{data}` no segmento de tipo. O pattern
+        admite qualquer jurisdição/tipo até encontrar `:YYYY-MM-DD`.
+
         O segmento ;{numero} é opcional — ausente em normas sem numeração
         (e.g. Constituição Federal: urn:lex:br;federal;constituicao:1988-10-05).
         Paths de dispositivo seguem como !{slug} repetíveis.
@@ -119,7 +124,7 @@
       </xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
-      <xs:pattern value="urn:lex:br;[^;]+;[^;]+:\d{4}-\d{2}-\d{2}(;[^!]+)?(![a-z0-9-]+)*"/>
+      <xs:pattern value="urn:lex:br;[a-z][a-z0-9:;\-]*:\d{4}-\d{2}-\d{2}(;[^!]+)?(![a-z0-9\-]+)*"/>
     </xs:restriction>
   </xs:simpleType>
 
@@ -194,15 +199,22 @@
     <xs:sequence>
       <xs:element name="ente" type="SlugEnte"/>
       <xs:element name="tipo" type="TipoLei"/>
-      <xs:element name="numero" type="xs:string" minOccurs="0">
+      <xs:element name="numero" minOccurs="0">
         <xs:annotation>
           <xs:documentation>
             Número da lei. Opcional — ausente em normas sem numeração
-            formal (e.g. Constituição Federal). Quando ausente, urn-lex
-            no elemento raiz também deve ser omitido ou usar formato
-            sem segmento de número.
+            formal (e.g. Constituição Federal). Quando presente, deve
+            ser não-vazio (xs:string com minLength=1) — string vazia
+            criaria ambiguidade entre "presente mas vazio" e "ausente",
+            o que polui geração de identifier/URN downstream. Para
+            normas sem número, omita o elemento.
           </xs:documentation>
         </xs:annotation>
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:minLength value="1"/>
+          </xs:restriction>
+        </xs:simpleType>
       </xs:element>
       <xs:element name="ano" type="xs:gYear"/>
       <xs:element name="data-publicacao" type="xs:date" minOccurs="0"/>
