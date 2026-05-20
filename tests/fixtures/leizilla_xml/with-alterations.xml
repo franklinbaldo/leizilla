@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="https://leizilla.org/render/0.1/lei.xsl"?>
+<!--
+  Fixture: lei com timeline de alterações.
+
+  Cobre:
+  - Múltiplas <versao> no mesmo dispositivo, com vigente-de/vigente-ate.
+  - alterado-por apontando para URN de outra lei.
+  - rotulo_versao (override quando rótulo mudou entre versões).
+  - Cross-source reconciliation com <fonte> múltipla.
+  - Anotações com <divergencia>.
+-->
+<lei xmlns="https://leizilla.org/lei/0.1"
+     schema-version="0.1"
+     urn-lex="urn:lex:br;estado:rondonia;lei:2003-06-15;1234">
+
+  <header>
+    <ente>ro</ente>
+    <tipo>lei</tipo>
+    <numero>1234</numero>
+    <ano>2003</ano>
+    <data-publicacao>2003-06-15</data-publicacao>
+    <vigente-em>2026-05-20</vigente-em>
+    <revogada>false</revogada>
+  </header>
+
+  <dispositivos>
+
+    <dispositivo tipo="ementa" path="ementa" parent=""
+                 urn="urn:lex:br;estado:rondonia;lei:2003-06-15;1234!ementa">
+      <rotulo>Ementa</rotulo>
+      <versoes>
+        <versao numero="1" vigente-de="2003-06-15">
+          <texto>Dispõe sobre a organização administrativa do Estado de Rondônia.</texto>
+          <fonte-canonica>casacivil</fonte-canonica>
+          <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-01234"/>
+        </versao>
+      </versoes>
+    </dispositivo>
+
+    <!-- Artigo com TRÊS versões: original, alterado em 2018, alterado em 2024. -->
+    <dispositivo tipo="artigo" path="art-3" parent=""
+                 urn="urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-3">
+      <rotulo>Art. 3º</rotulo>
+      <versoes>
+        <versao numero="1"
+                vigente-de="2003-06-15"
+                vigente-ate="2018-04-10"
+                alterado-por="urn:lex:br;estado:rondonia;lei:2018-04-10;4321">
+          <texto>O Estado adotará política administrativa orientada pela eficiência e moralidade pública.</texto>
+          <fonte-canonica>casacivil</fonte-canonica>
+          <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-01234"/>
+          <fonte ia-id="leizilla-raw-ro-diario-2003-06-15-p0012"/>
+        </versao>
+        <versao numero="2"
+                vigente-de="2018-04-10"
+                vigente-ate="2024-07-30"
+                alterado-por="urn:lex:br;estado:rondonia;lei:2024-07-30;5678">
+          <texto>O Estado adotará política administrativa orientada pela eficiência, moralidade e transparência pública.</texto>
+          <fonte-canonica>casacivil</fonte-canonica>
+          <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04321"/>
+        </versao>
+        <versao numero="3"
+                vigente-de="2024-07-30">
+          <texto>O Estado adotará política administrativa orientada pela eficiência, moralidade, transparência e governança digital.</texto>
+          <fonte-canonica>casacivil</fonte-canonica>
+          <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-05678"/>
+        </versao>
+      </versoes>
+
+      <!-- §1º só foi adicionado em 2018 (nova versão da lei). Versão 1 não existe. -->
+      <dispositivo tipo="paragrafo" path="art-3-par-1" parent="art-3"
+                   urn="urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-3!par-1">
+        <rotulo>§ 1º</rotulo>
+        <versoes>
+          <versao numero="1"
+                  vigente-de="2018-04-10"
+                  alterado-por="urn:lex:br;estado:rondonia;lei:2018-04-10;4321">
+            <texto>A transparência será assegurada por meio de portal eletrônico atualizado mensalmente.</texto>
+            <fonte-canonica>casacivil</fonte-canonica>
+            <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04321"/>
+          </versao>
+        </versoes>
+      </dispositivo>
+    </dispositivo>
+
+    <!-- Artigo com divergência entre fontes na versão 1. -->
+    <dispositivo tipo="artigo" path="art-5" parent=""
+                 urn="urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-5">
+      <rotulo>Art. 5º</rotulo>
+      <versoes>
+        <versao numero="1" vigente-de="2003-06-15">
+          <texto>Os órgãos da administração direta funcionarão de acordo com regulamento próprio.</texto>
+          <fonte-canonica>casacivil</fonte-canonica>
+          <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-01234"/>
+          <fonte ia-id="leizilla-raw-ro-diario-2003-06-15-p0012"/>
+          <fonte ia-id="leizilla-raw-ro-assembleia-coddoc-01234"/>
+        </versao>
+      </versoes>
+    </dispositivo>
+
+  </dispositivos>
+
+  <anotacoes>
+    <divergencia dispositivo-path="art-5"
+                 versao-numero="1"
+                 entre="casacivil,assembleia"
+                 diff-xpath="/lei/dispositivos/dispositivo[@path='art-5']/versoes/versao[@numero='1']/texto">
+      Assembleia tem "regimento" em vez de "regulamento"; consolidado casacivil adotado conforme retificação posterior. Verificar.
+    </divergencia>
+    <parse method="llm-haiku"
+           model="claude-haiku-4-5-20251001"
+           confianca="0.88"
+           timestamp="2026-05-20T18:45:00Z"/>
+  </anotacoes>
+
+</lei>

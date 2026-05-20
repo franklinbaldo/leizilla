@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="https://leizilla.org/render/0.1/lei.xsl"?>
+<!--
+  Fixture: fallback OCR ruim — <bloco-livre>.
+
+  Cobre:
+  - Caminho de fallback quando LLM não consegue estruturar dispositivos.
+  - quality="raw" (pior caso: OCR tão ruim que nem dá pra estimar qualidade).
+  - Header normal mas <dispositivos> contém <bloco-livre> em vez de <dispositivo>.
+  - Anotações documentam que parse falhou estruturadamente.
+  - URN da lei pode ainda existir se data_publicacao for extraível do PDF
+    cabeçalho mesmo com OCR ruim do corpo.
+-->
+<lei xmlns="https://leizilla.org/lei/0.1"
+     schema-version="0.1"
+     urn-lex="urn:lex:br;estado:rondonia;lei:1985-11-20;0042">
+
+  <header>
+    <ente>ro</ente>
+    <tipo>lei</tipo>
+    <numero>42</numero>
+    <ano>1985</ano>
+    <data-publicacao>1985-11-20</data-publicacao>
+    <vigente-em>2026-05-20</vigente-em>
+    <revogada>false</revogada>
+  </header>
+
+  <dispositivos>
+    <bloco-livre quality="raw">
+      <p>LE| N° 42/8S - 20 DE NOVEMBRO DE 19BS</p>
+      <p>O G0VERNAD0R D0 ESTAD0 DE R0NDONIA, faç0 saber que a Assembleia Legislativa decret@ e eu sancion0 a seguinte Lei:</p>
+      <p>Art. 1° Fica criad0 0 Conselh0 Estadual de Cultura, vincu|ado à Secretaria d3 Educação e Cultura, c0m as seguintes atribuiçõe5:</p>
+      <p>I- pr0m0ver e incentivar 0 desenv0|vimento cu|tura| n0 Estad0;</p>
+      <p>I| - rea|izar 5tudos e pesquisas s0bre questões cu|turais re|evantes;</p>
+      <p>[trecho i|egível n0 OCR]</p>
+      <p>Art. 4° Esta Lei entra em vigor na data de 5ua publicação.</p>
+      <p>PA|ÁCIO D0 GOVERN0 - P0rto Vel|0/R0, 20 de n0vembr0 de 1985.</p>
+    </bloco-livre>
+  </dispositivos>
+
+  <anotacoes>
+    <parse method="llm-haiku"
+           model="claude-haiku-4-5-20251001"
+           confianca="0.12"
+           timestamp="2026-05-20T18:45:00Z"/>
+  </anotacoes>
+
+</lei>
