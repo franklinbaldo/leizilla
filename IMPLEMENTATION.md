@@ -28,7 +28,7 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
                                               ↓
                 ETAPA 2 (LLM/agentes parsing) → Leizilla XML + parsed_meta.json no IA
                                               ↓
-                etl/consolidate                → Parquet v1 no IA (dataset item)
+                etl/consolidate                → Parquet v0.1 no IA (dataset item)
                                               ↓
                 deploy-web                     → Astro+Svelte+Pico+DuckDB-WASM no GH Pages
 ```
@@ -41,7 +41,7 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 4. **Múltiplas fontes por lei são esperadas.** Assembleia + Casa Civil + Diário Oficial fazem **cross-verificação** do vigente compilado — não competem por canonicidade. Divergências indicam possível erro de consolidação ou retificação não-aplicada; frontend exibe como "verificar", não como ranking de autoridade. Ver SCHEMA.md §0.2.
 5. **Genérico por ente federativo desde dia 1.** Tudo parametrizado por `{ente}`.
 6. **Leizilla XML é canônico, dispositivo-cêntrico.** Formato próprio (não fork). LexML é gate de CI (export reduzido sob demanda), não constraint estrutural. SSR híbrido: Astro renderiza páginas de detalhe; XSLT in-browser é fallback.
-7. **ZIP raw bulk, Parquet analytics (3 tabelas: leis + dispositivos + versoes), IA item distribuição.** Padrão ficha + normalização para timeline temporal.
+7. **ZIP raw bulk (padrão ficha) + Parquet relacional normalizado (3 tabelas com FKs: leis ← dispositivos ← versoes) + IA item para distribuição.** Ficha tem 1 Parquet por entidade; nosso modelo introduz normalização relacional explícita para suportar timeline temporal por dispositivo. Manifest CSV no IA como source of truth (padrão baliza).
 8. **Vigente compilado é canônico, histórico via timeline.** Parsed item = "como deve estar vigente hoje" (best-effort). Versões anteriores acessíveis via date picker. Fontes (DO, Casa Civil, Assembleia) cross-verificam — não competem por autoridade.
 
 ---
@@ -88,6 +88,13 @@ Outras decisões do mesmo review já incorporadas em SCHEMA.md:
 - Schema Parquet é v0.1 durante M0–M4, promove a v1 só em M5.
 - SSR híbrido via Astro (suaviza princípio 6 — XSLT in-browser é fallback).
 - Confiança baixa exibida explicitamente no frontend (banner LLM/OCR).
+
+### 2026-05-20 — Renomear `origem` → `ente` em CLI e schema (M1)
+
+- **Decisão**: a coluna `origem` no DuckDB schema (storage.py:44) e a flag `--origem` no CLI (cli.py:29,69,169,199,260) serão renomeadas para `ente`. SCHEMA.md já assume `ente` em todo o Parquet v0.1 e identifiers IA.
+- **Quando**: migração executa em M1 junto com o restructure do package (`src/` → `src/leizilla/`). Não fazemos compat shim — o pipeline atual não tem dados em produção, é só desenvolvimento.
+- **Por quê**: `origem` era nome herdado da fase pré-stack-franklinbaldo (ADR-0003); `ente` é mais preciso (ente federativo) e generaliza para União/estados/municípios.
+- **Por que registrar agora**: reviewer #6 apontou que o log de decisões não tinha entrada explícita; sem isso, no M1 vão aparecer dois nomes convivendo sem rastreio.
 
 ### 2026-05-20 — Fixes Codex no PR #6
 
@@ -180,7 +187,7 @@ uv run pytest tests/test_lexml_export.py -v  # gate CI: Leizilla XML → LexML (
 |---|---|---|
 | Raw (individual) | `leizilla-raw-{ente}-{fonte}-{chave}` | `leizilla-raw-ro-casacivil-coddoc-00042` |
 | Raw (bundle ZIP) | `leizilla-bundle-{ente}-{fonte}-{periodo}` | `leizilla-bundle-ro-casacivil-2026-W20` |
-| Parsed (lei canônica) | `leizilla-{ente}-{tipo}-{numero}-{ano}` | `leizilla-ro-lei-01234-2003` |
+| Parsed (lei canônica) | `leizilla-{ente}-{tipo}-{numero:05d}-{ano}` | `leizilla-ro-lei-01234-2003` |
 | Dataset (Parquet) | `leizilla-dataset-{ente}-v{N}` | `leizilla-dataset-ro-v1` |
 
 Slug `{ente}`: `ro`, `sp`, `federal`, `ro-porto-velho` (kebab-case, UF-municipio).

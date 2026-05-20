@@ -189,9 +189,11 @@ Audit trail mínimo separado para facilitar verificação sem carregar `parsed_m
 }
 ```
 
-### 2.4 `alteracoes.json` (novo)
+### 2.4 `alteracoes.json` (novo, derivado)
 
 Relações computadas com outras leis. Permite ao frontend mostrar "esta lei foi alterada por X" sem ter que escanear o `law.xml` inteiro.
+
+> **Derivado, não fonte primária**: source-of-truth é o atributo `alterado-por` de cada `<versao>` dentro de `law.xml`. Este sidecar é **regenerado** a cada update do `law.xml` (mesmo upload IA). Em caso de conflito, `law.xml` ganha. Não editar manualmente.
 
 ```json
 {
@@ -212,7 +214,9 @@ Relações computadas com outras leis. Permite ao frontend mostrar "esta lei foi
 
 ---
 
-## 3. Schema Parquet v1 — três tabelas
+## 3. Schema Parquet v0.1 — três tabelas
+
+> Schema é **v0.1 durante M0–M4**; promove a **v1 apenas no fechamento de M5** (ver §3.6 e §7). Identificadores `leizilla.schema_version` no footer KV e o `v{N}` no caminho do arquivo refletem isso.
 
 Dispositivo-cêntrico exige três tabelas relacionadas. Cada uma vira um Parquet separado no dataset item.
 
@@ -231,9 +235,9 @@ Dispositivo-cêntrico exige três tabelas relacionadas. Cada uma vira um Parquet
 | `ementa` | VARCHAR | YES | |
 | `url_law_xml_ia` | VARCHAR | NO | URL do `law.xml` no IA |
 | `vigente_em` | DATE | NO | data da compilação vigente |
-| `tem_divergencia` | BOOLEAN | NO | flag rápido frontend |
-| `num_divergencias` | INTEGER | NO | |
-| `num_dispositivos` | INTEGER | NO | |
+| `tem_divergencia` | BOOLEAN | NO | flag rápido frontend; agregado: `OR` sobre todas as `versoes.tem_divergencia` de dispositivos desta lei |
+| `num_divergencias` | INTEGER | NO | soma de `versoes.tem_divergencia=true` |
+| `num_dispositivos` | INTEGER | NO | pré-computado para listagens baratas |
 | `num_versoes_total` | INTEGER | NO | soma de versoes em todos os dispositivos |
 | `revogada` | BOOLEAN | NO | |
 | `parse_status` | VARCHAR | NO | `raw_only`/`parsed`/`failed` |
@@ -248,7 +252,7 @@ Dispositivo-cêntrico exige três tabelas relacionadas. Cada uma vira um Parquet
 |---|---|---|---|
 | `dispositivo_id` | VARCHAR | NO | composto: `{lei_id}#{path}` (e.g. `leizilla-ro-lei-01234-2003#art-3-par-2`) |
 | `lei_id` | VARCHAR | NO | FK para `leis.id` |
-| `urn_dispositivo` | VARCHAR | YES | `urn:lex:...;1234!art-3!par-2` (LexML dialect, ver §5.4) |
+| `urn_dispositivo` | VARCHAR | YES | `urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-3!par-2` (LexML dialect, ver §5.5). Regra: `urn_dispositivo` é `NULL` ⟺ `leis.urn_lex` da lei pai é `NULL` (lei sem data extraível) |
 | `tipo` | VARCHAR | NO | `artigo`/`paragrafo`/`inciso`/`alinea`/`item`/`caput` |
 | `rotulo` | VARCHAR | NO | "Art. 1º", "§ 2º", "II", "a)" |
 | `path` | VARCHAR | NO | hierárquico: `art-3` / `art-3-par-2` / `art-3-par-2-inc-1` / `art-3-par-2-inc-1-ali-a` |
@@ -270,7 +274,7 @@ Dispositivo-cêntrico exige três tabelas relacionadas. Cada uma vira um Parquet
 | `vigente_de` | DATE | NO | |
 | `vigente_ate` | DATE | YES | NULL = ainda vigente |
 | `texto` | VARCHAR | NO | |
-| `texto_normalizado` | VARCHAR | YES | NFC + cleanup, p/ busca |
+| `texto_normalizado` | VARCHAR | NO | NFC + cleanup, alimenta busca client-side. **Sempre gerado quando `texto` é NOT NULL** — nullable só faz sentido se `texto` também fosse null (não acontece). |
 | `alterado_por_lei_id` | VARCHAR | YES | NULL na versão original; senão FK para `leis.id` da lei alteradora |
 | `fonte_canonica` | VARCHAR | NO | slug curto da fonte usada (`casacivil`, `diario`, `assembleia`...) |
 | `fontes_consultadas` | VARCHAR (JSON array) | NO | lista de raw IA ids usados |
@@ -281,7 +285,9 @@ Dispositivo-cêntrico exige três tabelas relacionadas. Cada uma vira um Parquet
 
 ### 3.4 Representação de arrays e JSON
 
-**Decisão (aprovada)**: arrays como `VARCHAR` com JSON serializado, **não** Parquet LIST nativo. Justificativa: simplifica TanStack Query + Svelte components; JSON universal; custo storage irrelevante com SNAPPY.
+**Decisão (aprovada)**: arrays **no Parquet** como `VARCHAR` com JSON serializado, **não** Parquet LIST nativo. Justificativa: simplifica TanStack Query + Svelte components; JSON universal; custo storage irrelevante com SNAPPY.
+
+**Sidecars JSON** (`raw_meta.json`, `parsed_meta.json`, `provenance.json`, `alteracoes.json`) usam arrays JSON nativos — a restrição §3.4 é específica do Parquet. Mesma semântica, formato adequado a cada camada.
 
 ### 3.5 Footer KV metadata (PyArrow)
 
@@ -319,9 +325,10 @@ Esboço. Definição XSD formal em `docs/schemas/leizilla-v0.1.xsd` (M0.2).
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet type="text/xsl" href="https://leizilla.org/render/0.1/lei.xsl"?>
+<!-- ⚠️ Todos URN LEX nos exemplos são dialect provisório — ver §10 pendentes (verificar contra spec CGPID). -->
 <lei xmlns="https://leizilla.org/lei/0.1"
      schema-version="0.1"
-     urn-lex="urn:lex:br;estado:rondonia:lei:2003-06-15;1234">
+     urn-lex="urn:lex:br;estado:rondonia;lei:2003-06-15;1234">
   <header>...</header>
   <dispositivos>...</dispositivos>
   <anotacoes>...</anotacoes>
@@ -341,6 +348,14 @@ Esboço. Definição XSD formal em `docs/schemas/leizilla-v0.1.xsd` (M0.2).
   <vigente-em>2026-05-20</vigente-em>
   <revogada>false</revogada>
 </header>
+<!--
+  Semântica das datas:
+  - <vigente-em> (header) = data de referência da compilação. "Esta versão
+    do law.xml representa a lei como ela estava vigente em 2026-05-20."
+    Update sempre que reprocessar.
+  - <versao vigente-de="..." vigente-ate="..."> (dispositivo) = intervalo
+    de validade daquela redação específica do dispositivo. Não confundir.
+-->
 ```
 
 ### 4.3 `<dispositivos>` — corpo dispositivo-cêntrico
@@ -349,11 +364,12 @@ Cada dispositivo carrega sua própria **timeline de versões**. Nested para hier
 
 ```xml
 <dispositivos>
-  <dispositivo tipo="artigo" path="art-1" urn="urn:lex:...;1234!art-1">
+  <dispositivo tipo="artigo" path="art-1"
+               urn="urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-1">
     <rotulo>Art. 1º</rotulo>
     <versoes>
       <versao numero="1" vigente-de="2003-06-15" vigente-ate="2024-07-30"
-              alterado-por="urn:lex:br;estado:rondonia:lei:2024-06-30;5678">
+              alterado-por="urn:lex:br;estado:rondonia;lei:2024-06-30;5678">
         <texto>Esta Lei dispõe sobre...</texto>
         <fonte-canonica>casacivil</fonte-canonica>
         <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
@@ -365,7 +381,8 @@ Cada dispositivo carrega sua própria **timeline de versões**. Nested para hier
         <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00187"/>
       </versao>
     </versoes>
-    <dispositivo tipo="paragrafo" path="art-1-par-1" urn="urn:lex:...;1234!art-1!par-1">
+    <dispositivo tipo="paragrafo" path="art-1-par-1"
+                 urn="urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-1!par-1">
       <rotulo>§ 1º</rotulo>
       <versoes>
         <versao numero="1" vigente-de="2003-06-15">
@@ -377,6 +394,14 @@ Cada dispositivo carrega sua própria **timeline de versões**. Nested para hier
     </dispositivo>
   </dispositivo>
 </dispositivos>
+```
+
+**Mapping nesting XML ↔ `path` flat na tabela Parquet `dispositivos`** (§3.2): o `path` é determinístico, derivado do nesting da hierarquia. Exemplo: `<dispositivo tipo="artigo">` no índice 3 contendo `<dispositivo tipo="paragrafo">` no índice 2 → `path="art-3-par-2"`. Frontend e ETL usam o **mesmo gerador** (`src/leizilla/leiml/path.py` em M3).
+
+```
+artigo[3] > paragrafo[2] > inciso[1] > alinea[a]
+   └────────┬──────────────┬──────────┬─────────┘
+        art-3        art-3-par-2  art-3-par-2-inc-1  art-3-par-2-inc-1-ali-a
 ```
 
 Regras:
@@ -455,6 +480,8 @@ Abrir o XML direto no browser exibe HTML (XSLT in-browser). **Não** é o caminh
 
 > Codex P2 fix: o `id` no Parquet (§3.1) **sempre** usa o `numero` zero-padded para bater com o IA identifier. Lookup `id → IA item` é literal, sem normalização extra.
 
+**Numero não-numérico** (algumas leis antigas: "Lei A-12", romanos): tratar como caso de fallback. Não tentar normalizar para inteiro. O identifier vai para o pattern fallback abaixo, com `chave` derivado da fonte primária.
+
 **Fallback**:
 ```
 ^leizilla-(?P<ente>[a-z][a-z0-9-]*)-(?P<tipo>[a-z]+)-fallback-(?P<fonte>[a-z]+)-(?P<chave>[a-z0-9-]+)$
@@ -469,6 +496,8 @@ Abrir o XML direto no browser exibe HTML (XSLT in-browser). **Não** é o caminh
 
 ### 5.5 URN LEX
 
+> ⚠️ **Dialect provisório**: todos os exemplos URN abaixo (e em §4) usam separadores que ainda precisam ser validados contra a especificação oficial CGPID — ver §10. Se o dialect mudar, todos os exemplos do doc precisam refresh em PR único.
+
 **Lei**: `urn:lex:br;{jurisdicao};lei:{YYYY-MM-DD};{numero}`
 - `{jurisdicao}` para estados: `estado:rondonia` / `estado:sao-paulo`
 - `{jurisdicao}` para federal: `federal`
@@ -476,7 +505,7 @@ Abrir o XML direto no browser exibe HTML (XSLT in-browser). **Não** é o caminh
 
 **Dispositivo**: `{urn-lei}!art-N` ou `{urn-lei}!art-N!par-M!inc-K!ali-L` (separador `!` cf. extensão LexML para sub-document addressing).
 
-**Fallback URN quando `data_publicacao` desconhecida** (reviewer #6 ponto 3): `urn_lex` na coluna Parquet é nullable. Quando data não é extraível, gravar `NULL` (não falsificar). Identifier IA usa fallback `{ente}-{tipo}-fallback-{fonte}-{chave}` que não depende de URN.
+**Fallback URN quando `data_publicacao` desconhecida** (reviewer #6 ponto 3): `urn_lex` na coluna Parquet é nullable. Quando data não é extraível, gravar `NULL` (não falsificar). Identifier IA usa fallback `leizilla-{ente}-{tipo}-fallback-{fonte}-{chave}` (§5.3) que não depende de URN.
 
 > **Pendente M0.2**: verificar contra a especificação oficial CGPID se o separador interno é `;`, `,` ou `:` em casos como `urn:lex:br;rondonia:estadual:lei,2003-06-15;1234`. Reviewer #6 sugeriu que CGPID usa vírgulas em alguns campos. Validar antes de cravar o exemplo.
 
@@ -496,6 +525,8 @@ Lista canônica em `src/leizilla/entes.py` (M1) com nome oficial, UF pai, códig
 Hífens quebrariam parsing de `leizilla-raw-{ente}-{fonte}-{chave}` (sem fronteira reconhecível). Nomes longos (`diário oficial`, `casa civil`) ficam em campos `display_name` / metadata IA legível.
 
 Slugs canônicos lockados: `casacivil`, `diario`, `assembleia`, `planalto`, `camara`, `senado`.
+
+**Slug `diario` cobre todo Diário Oficial** (estadual, municipal, federal/DOU). A distinção entre DO-RO e DOU é resolvida pelo `{ente}` no identifier: `leizilla-raw-ro-diario-...` vs `leizilla-raw-federal-diario-...`. O slug `{fonte}` é orientado a **tipo de fonte**, não a instituição específica.
 
 ---
 
@@ -571,6 +602,7 @@ CI: ao bumpar major, `web/src/schemas/v{N}/` precisa existir + ser referenciado 
 
 ## 10. Decisões pendentes (resolver em M0.2)
 
+- [ ] **Modelagem de `caput`** (§4.3) — duas opções para o XSD: (a) atributo `tem-caput="true"` em `<dispositivo tipo="artigo">` com o texto do caput dentro do próprio elemento, ou (b) primeiro `<dispositivo>` filho com `tipo="caput"` carregando o texto. LexML usa (b). Decidir antes de escrever `leizilla-v0.1.xsd`.
 - [ ] **Verificar URN LEX dialect** (§5.5) — separadores `;`/`,`/`:` contra spec CGPID atual.
 - [ ] **Compressão Parquet**: SNAPPY vs ZSTD. Verificar DuckDB-WASM 1.28 (ou versão atual) suporta ZSTD via teste real em M0.2.
 - [ ] **Granularidade bundle ZIP**: semanal (`YYYY-Www`) atual; revisitar se tamanho ficar trivial.
