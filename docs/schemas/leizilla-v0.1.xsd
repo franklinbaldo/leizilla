@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Leizilla XML v0.1 — schema canônico do Leizilla.
+
+  Consolida as decisões de docs/SCHEMA.md §4. Premissas load-bearing:
+
+  - Dispositivo é unidade universal de texto da lei (§0.1).
+  - Dispositivo recursivo: container <dispositivo> pode conter outros
+    <dispositivo> filhos. Caput é o próprio <texto> do container (sem
+    elemento separado).
+  - Atributo `parent` obrigatório em todo <dispositivo> (raiz parent="").
+  - <versoes> obrigatório com ≥1 <versao>. Normativos têm <texto>;
+    organizacionais têm só <rotulo_versao> (sem <texto>).
+  - Fallback <bloco-livre quality="..."> quando LLM não estrutura.
+
+  XSD propositalmente permissivo em alguns pontos para acomodar
+  iteração inicial. Endurece em v0.2 conforme M2-M4 expõem casos
+  reais que escapam.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns="https://leizilla.org/lei/0.1"
+           xmlns:leizilla="https://leizilla.org/lei/0.1"
+           targetNamespace="https://leizilla.org/lei/0.1"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified"
+           version="0.1">
+
+  <!-- ==================================================================
+       Tipos enumerados
+       ================================================================== -->
+
+  <xs:simpleType name="TipoDispositivo">
+    <xs:annotation>
+      <xs:documentation>
+        Enum unificado para todos os tipos de dispositivo.
+
+        Normativos (carregam &lt;texto&gt; em &lt;versoes&gt;):
+        titulo-lei, ementa, preambulo, artigo, paragrafo, inciso, alinea,
+        item, anexo, disposicao-transitoria, disposicao-final.
+
+        Organizacionais (só &lt;rotulo_versao&gt;, sem &lt;texto&gt;):
+        livro, parte, titulo, capitulo, secao, subsecao.
+
+        NÃO inclui "caput" — caput é índice 0 implícito (SCHEMA.md §4.3).
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <!-- normativos -->
+      <xs:enumeration value="titulo-lei"/>
+      <xs:enumeration value="ementa"/>
+      <xs:enumeration value="preambulo"/>
+      <xs:enumeration value="artigo"/>
+      <xs:enumeration value="paragrafo"/>
+      <xs:enumeration value="inciso"/>
+      <xs:enumeration value="alinea"/>
+      <xs:enumeration value="item"/>
+      <xs:enumeration value="anexo"/>
+      <xs:enumeration value="disposicao-transitoria"/>
+      <xs:enumeration value="disposicao-final"/>
+      <!-- organizacionais -->
+      <xs:enumeration value="livro"/>
+      <xs:enumeration value="parte"/>
+      <xs:enumeration value="titulo"/>
+      <xs:enumeration value="capitulo"/>
+      <xs:enumeration value="secao"/>
+      <xs:enumeration value="subsecao"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TipoLei">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="lei"/>
+      <xs:enumeration value="decreto"/>
+      <xs:enumeration value="lc"/>
+      <xs:enumeration value="resolucao"/>
+      <xs:enumeration value="portaria"/>
+      <xs:enumeration value="medida-provisoria"/>
+      <xs:enumeration value="emenda-constitucional"/>
+      <xs:enumeration value="constituicao"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="SlugFonte">
+    <xs:annotation>
+      <xs:documentation>
+        Slug de fonte: token único [a-z]+ sem hífens nem underscores.
+        SCHEMA.md §5.7.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[a-z]+"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="SlugEnte">
+    <xs:annotation>
+      <xs:documentation>
+        Slug de ente federativo: [a-z][a-z0-9-]*. Inclui `federal`,
+        siglas UF (`ro`, `sp`), e `{uf}-{municipio}` (`ro-porto-velho`).
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[a-z][a-z0-9-]*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="UrnLex">
+    <xs:annotation>
+      <xs:documentation>
+        URN LEX (dialect provisório — ver SCHEMA.md §10 e §5.5).
+        Formato esperado: urn:lex:br;{jurisdicao};{tipo}:{data};{numero}
+        opcionalmente seguido de !{path-de-dispositivo}.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="urn:lex:br;[^;]+;[^;]+:\d{4}-\d{2}-\d{2};[^!]+(![a-z0-9-]+)*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="DispositivoPath">
+    <xs:annotation>
+      <xs:documentation>
+        Path do dispositivo. Normativos: global (art-5, art-5-par-1).
+        Organizacionais: namespaceado no nesting (tit-1, tit-1-cap-1).
+        Raiz: string vazia.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="|[a-z][a-z0-9-]*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="BlocoLivreQuality">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="low"/>
+      <xs:enumeration value="medium"/>
+      <xs:enumeration value="high"/>
+      <xs:enumeration value="raw"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ParseMethod">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="llm-haiku"/>
+      <xs:enumeration value="llm-opus"/>
+      <xs:enumeration value="llm-sonnet"/>
+      <xs:enumeration value="manual"/>
+      <xs:enumeration value="deterministic"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- ==================================================================
+       Tipos complexos
+       ================================================================== -->
+
+  <xs:complexType name="HeaderType">
+    <xs:annotation>
+      <xs:documentation>
+        Header carrega APENAS metadados estruturais/bibliográficos.
+        Texto (título oficial, ementa, preâmbulo) vive em &lt;dispositivos&gt;
+        como tipo="titulo-lei" / "ementa" / "preambulo". SCHEMA.md §4.2.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="ente" type="SlugEnte"/>
+      <xs:element name="tipo" type="TipoLei"/>
+      <xs:element name="numero" type="xs:string" minOccurs="0"/>
+      <xs:element name="ano" type="xs:gYear"/>
+      <xs:element name="data-publicacao" type="xs:date" minOccurs="0"/>
+      <xs:element name="vigente-em" type="xs:date">
+        <xs:annotation>
+          <xs:documentation>
+            Data de referência da compilação. "Esta versão do law.xml
+            representa a lei como ela estava vigente em &lt;vigente-em&gt;."
+            Não confundir com &lt;versao vigente-de/vigente-ate&gt; (intervalo
+            de validade de uma redação específica).
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="revogada" type="xs:boolean" default="false" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="FonteType">
+    <xs:attribute name="ia-id" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="VersaoType">
+    <xs:annotation>
+      <xs:documentation>
+        Uma redação histórica do dispositivo.
+
+        - Normativos: &lt;texto&gt; obrigatório.
+        - Organizacionais: &lt;texto&gt; ausente; &lt;rotulo_versao&gt; opcional
+          carrega o rótulo da época (útil quando capítulo é renomeado).
+
+        XSD não consegue expressar a regra "texto presente iff dispositivo
+        é normativo" via cardinalidade pura — validação semântica fica
+        no consistency checker (M0.2).
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="texto" type="xs:string" minOccurs="0"/>
+      <xs:element name="rotulo_versao" type="xs:string" minOccurs="0"/>
+      <xs:element name="fonte-canonica" type="SlugFonte" minOccurs="0"/>
+      <xs:element name="fonte" type="FonteType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="numero" type="xs:positiveInteger" use="required"/>
+    <xs:attribute name="vigente-de" type="xs:date" use="required"/>
+    <xs:attribute name="vigente-ate" type="xs:date" use="optional">
+      <xs:annotation>
+        <xs:documentation>Ausente = ainda vigente.</xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="alterado-por" type="UrnLex" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          URN da lei alteradora (não da versão específica). Ausente na
+          versão original.
+        </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+  </xs:complexType>
+
+  <xs:complexType name="VersoesType">
+    <xs:sequence>
+      <xs:element name="versao" type="VersaoType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Dispositivo recursivo. ComplexType nomeado para auto-referência. -->
+  <xs:complexType name="DispositivoType">
+    <xs:sequence>
+      <xs:element name="rotulo" type="xs:string" minOccurs="0"/>
+      <xs:element name="versoes" type="VersoesType" minOccurs="1"/>
+      <xs:element name="dispositivo" type="DispositivoType"
+                  minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="tipo" type="TipoDispositivo" use="required"/>
+    <xs:attribute name="path" type="DispositivoPath" use="required"/>
+    <xs:attribute name="parent" type="DispositivoPath" use="required">
+      <xs:annotation>
+        <xs:documentation>
+          Obrigatório em todo dispositivo. Raiz: parent="" (string vazia).
+          SCHEMA.md §0.1.
+        </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="urn" type="UrnLex" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          URN do dispositivo. Opcional — ausente quando o lei.urn-lex
+          é desconhecido (data_publicacao não extraível). Quando
+          presente, é {lei.urn-lex}!{path}.
+        </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+  </xs:complexType>
+
+  <xs:complexType name="BlocoLivreType">
+    <xs:annotation>
+      <xs:documentation>
+        Fallback quando LLM não consegue estruturar o texto OCR em
+        dispositivos. Frontend renderiza com banner "texto não
+        estruturado". SCHEMA.md §4.4.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="p" type="xs:string" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="quality" type="BlocoLivreQuality" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="DispositivosType">
+    <xs:annotation>
+      <xs:documentation>
+        Container de dispositivos OU fallback &lt;bloco-livre&gt;. Choice
+        exclusivo — uma lei é parseada (dispositivos) ou OCR-livre
+        (bloco-livre), nunca os dois.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:choice>
+      <xs:element name="dispositivo" type="DispositivoType"
+                  minOccurs="1" maxOccurs="unbounded"/>
+      <xs:element name="bloco-livre" type="BlocoLivreType"/>
+    </xs:choice>
+  </xs:complexType>
+
+  <xs:complexType name="DivergenciaType">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute name="dispositivo-path" type="DispositivoPath" use="required"/>
+        <xs:attribute name="versao-numero" type="xs:positiveInteger" use="required"/>
+        <xs:attribute name="entre" type="xs:string" use="required">
+          <xs:annotation>
+            <xs:documentation>
+              Lista de slugs de fonte separados por vírgula
+              (e.g. "casacivil,diario").
+            </xs:documentation>
+          </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="diff-xpath" type="xs:string" use="optional"/>
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+
+  <xs:complexType name="ParseType">
+    <xs:attribute name="method" type="ParseMethod" use="required"/>
+    <xs:attribute name="model" type="xs:string" use="optional"/>
+    <xs:attribute name="confianca" use="optional">
+      <xs:simpleType>
+        <xs:restriction base="xs:decimal">
+          <xs:minInclusive value="0.0"/>
+          <xs:maxInclusive value="1.0"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="timestamp" type="xs:dateTime" use="optional"/>
+  </xs:complexType>
+
+  <xs:complexType name="AnotacoesType">
+    <xs:sequence>
+      <xs:element name="divergencia" type="DivergenciaType"
+                  minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="parse" type="ParseType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ==================================================================
+       Elemento raiz
+       ================================================================== -->
+
+  <xs:element name="lei">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="header" type="HeaderType"/>
+        <xs:element name="dispositivos" type="DispositivosType"/>
+        <xs:element name="anotacoes" type="AnotacoesType" minOccurs="0"/>
+      </xs:sequence>
+      <xs:attribute name="schema-version" use="required">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:enumeration value="0.1"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:attribute>
+      <xs:attribute name="urn-lex" type="UrnLex" use="optional">
+        <xs:annotation>
+          <xs:documentation>
+            URN LEX da lei. Opcional porque data_publicacao pode ser
+            desconhecida em fallback. Quando presente, dispositivos
+            herdam via concatenação `{urn-lex}!{path}`.
+          </xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
+    </xs:complexType>
+  </xs:element>
+
+</xs:schema>

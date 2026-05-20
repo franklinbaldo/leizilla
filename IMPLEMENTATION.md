@@ -9,7 +9,7 @@
 | Milestone | Status | PR | Notas |
 |---|---|---|---|
 | **M0.1** — Documento vivo + SCHEMA.md design | 🟢 done | #6 | Aprovado em re-review; pronto para merge. |
-| **M0.2** — XSD + fixtures + lexml-export script | ⚪ todo | — | Próximo. Inclui `leizilla-v0.1.xsd`, 3 fixtures Leizilla XML, `scripts/leizilla-to-lexml.xsl`, teste CI de export, consistency-checker script, e resolução de 6 pendentes §10. |
+| **M0.2** — XSD + fixtures + lexml-export script | 🟡 in-progress | TBD | XSD v0.1 escrito; 1 de 4 fixtures (simple.xml); pendente: with-alterations, with-blocos-organizacionais, with-bloco-livre, leizilla-to-lexml.xsl, test_lexml_export.py, check_schema_consistency.py, resolver 6 pendentes §10. |
 | M1 — Foundation (package + ADRs + deps) | ⚪ todo | — | Bloqueado por M0 |
 | M2 — Crawler real + Raw upload | ⚪ todo | — | Bloqueado por M1 |
 | M3 — OCR fetch + LLM parse + Leizilla XML | ⚪ todo | — | Bloqueado por M2 |

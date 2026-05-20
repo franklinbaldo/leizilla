@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="https://leizilla.org/render/0.1/lei.xsl"?>
+<!--
+  Fixture: lei curta sem alterações, sem blocos organizacionais.
+
+  Cobre:
+  - dispositivos top-level: titulo-lei, ementa, preambulo, artigo.
+  - artigo com paragrafo aninhado (caput implícito).
+  - todos os atributos obrigatórios: parent, path, tipo, schema-version.
+  - URN LEX no formato canônico (dialect provisório).
+  - <versao> única por dispositivo (sem alterações).
+-->
+<lei xmlns="https://leizilla.org/lei/0.1"
+     schema-version="0.1"
+     urn-lex="urn:lex:br;estado:rondonia;lei:1999-06-15;9999">
+
+  <header>
+    <ente>ro</ente>
+    <tipo>lei</tipo>
+    <numero>9999</numero>
+    <ano>1999</ano>
+    <data-publicacao>1999-06-15</data-publicacao>
+    <vigente-em>2026-05-20</vigente-em>
+    <revogada>false</revogada>
+  </header>
+
+  <dispositivos>
+
+    <dispositivo tipo="titulo-lei" path="titulo-lei" parent=""
+                 urn="urn:lex:br;estado:rondonia;lei:1999-06-15;9999!titulo-lei">
+      <rotulo>Título</rotulo>
+      <versoes>
+        <versao numero="1" vigente-de="1999-06-15">
+          <texto>LEI Nº 9.999, DE 15 DE JUNHO DE 1999</texto>
+          <fonte-canonica>casacivil</fonte-canonica>
+          <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+        </versao>
+      </versoes>
+    </dispositivo>
+
+    <dispositivo tipo="ementa" path="ementa" parent=""
+                 urn="urn:lex:br;estado:rondonia;lei:1999-06-15;9999!ementa">
+      <rotulo>Ementa</rotulo>
+      <versoes>
+        <versao numero="1" vigente-de="1999-06-15">
+          <texto>Institui o Dia Estadual do Servidor Público de Rondônia.</texto>
+          <fonte-canonica>casacivil</fonte-canonica>
+          <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+        </versao>
+      </versoes>
+    </dispositivo>
+
+    <dispositivo tipo="preambulo" path="preambulo" parent=""
+                 urn="urn:lex:br;estado:rondonia;lei:1999-06-15;9999!preambulo">
+      <rotulo>Preâmbulo</rotulo>
+      <versoes>
+        <versao numero="1" vigente-de="1999-06-15">
+          <texto>O GOVERNADOR DO ESTADO DE RONDÔNIA faço saber que a Assembleia Legislativa decreta e eu sanciono a seguinte Lei:</texto>
+          <fonte-canonica>casacivil</fonte-canonica>
+          <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+        </versao>
+      </versoes>
+    </dispositivo>
+
+    <dispositivo tipo="artigo" path="art-1" parent=""
+                 urn="urn:lex:br;estado:rondonia;lei:1999-06-15;9999!art-1">
+      <rotulo>Art. 1º</rotulo>
+      <versoes>
+        <versao numero="1" vigente-de="1999-06-15">
+          <texto>Fica instituído o Dia Estadual do Servidor Público de Rondônia, a ser comemorado anualmente no dia 28 de outubro.</texto>
+          <fonte-canonica>casacivil</fonte-canonica>
+          <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+        </versao>
+      </versoes>
+    </dispositivo>
+
+    <dispositivo tipo="artigo" path="art-2" parent=""
+                 urn="urn:lex:br;estado:rondonia;lei:1999-06-15;9999!art-2">
+      <rotulo>Art. 2º</rotulo>
+      <versoes>
+        <versao numero="1" vigente-de="1999-06-15">
+          <texto>O Poder Executivo poderá promover atividades alusivas à data, sem prejuízo do expediente normal das repartições públicas.</texto>
+          <fonte-canonica>casacivil</fonte-canonica>
+          <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+        </versao>
+      </versoes>
+      <dispositivo tipo="paragrafo" path="art-2-par-unico" parent="art-2"
+                   urn="urn:lex:br;estado:rondonia;lei:1999-06-15;9999!art-2!par-unico">
+        <rotulo>Parágrafo único</rotulo>
+        <versoes>
+          <versao numero="1" vigente-de="1999-06-15">
+            <texto>As atividades de que trata o caput observarão o calendário oficial do Estado.</texto>
+            <fonte-canonica>casacivil</fonte-canonica>
+            <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+          </versao>
+        </versoes>
+      </dispositivo>
+    </dispositivo>
+
+    <dispositivo tipo="artigo" path="art-3" parent=""
+                 urn="urn:lex:br;estado:rondonia;lei:1999-06-15;9999!art-3">
+      <rotulo>Art. 3º</rotulo>
+      <versoes>
+        <versao numero="1" vigente-de="1999-06-15">
+          <texto>Esta Lei entra em vigor na data de sua publicação.</texto>
+          <fonte-canonica>casacivil</fonte-canonica>
+          <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+        </versao>
+      </versoes>
+    </dispositivo>
+
+  </dispositivos>
+
+  <anotacoes>
+    <parse method="llm-haiku"
+           model="claude-haiku-4-5-20251001"
+           confianca="0.95"
+           timestamp="2026-05-20T18:45:00Z"/>
+  </anotacoes>
+
+</lei>
