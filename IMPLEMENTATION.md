@@ -2,15 +2,13 @@
 
 > **Documento vivo.** Este arquivo espelha o plano de migração e é atualizado a cada PR. Sempre que uma decisão for tomada, um problema for descoberto, ou um milestone fechar, edite aqui. O git log deste arquivo é a memória institucional da migração.
 
-**Plano-mãe (read-only):** `/root/.claude/plans/eu-quero-fazer-esse-iterative-trinket.md` (não versionado — é o handoff do Claude Code).
-
 ---
 
 ## Status atual
 
 | Milestone | Status | PR | Notas |
 |---|---|---|---|
-| **M0** — Documento vivo + Design schema | 🟡 in-progress | — | M0.1 done; M0.2 rascunho em `docs/SCHEMA.md`; falta `leiml-v0.1.xsd` e fixtures |
+| **M0** — Documento vivo + Design schema | 🟡 in-progress | #6 | M0.1 done; M0.2 reescrito após review dos 3 blockers; falta `leizilla-v0.1.xsd` + fixtures + decisões §10 do SCHEMA.md |
 | M1 — Foundation (package + ADRs + deps) | ⚪ todo | — | Bloqueado por M0 |
 | M2 — Crawler real + Raw upload | ⚪ todo | — | Bloqueado por M1 |
 | M3 — OCR fetch + LLM parse + LeiML | ⚪ todo | — | Bloqueado por M2 |
@@ -42,8 +40,9 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 3. **Etapa 2 é pluggable.** Default: Claude Haiku via API. Alternativas: Claude Code routine com Opus, parser determinístico, curadoria manual.
 4. **Múltiplas fontes por lei são esperadas.** Assembleia + Casa Civil + Diário Oficial; reconciliação com hierarquia DO > Casa Civil > Assembleia.
 5. **Genérico por ente federativo desde dia 1.** Tudo parametrizado por `{ente}`.
-6. **LeiML é canônico, HTML é apresentação.** LeiML exportável para LexML (CI round-trip). HTML renderizado no browser via XSLT/JS.
-7. **ZIP raw bulk, Parquet analytics, IA item distribuição.** Padrão ficha.
+6. **Leizilla XML é canônico, dispositivo-cêntrico.** Formato próprio (não fork). LexML é gate de CI (export reduzido sob demanda), não constraint estrutural. SSR híbrido: Astro renderiza páginas de detalhe; XSLT in-browser é fallback.
+7. **ZIP raw bulk, Parquet analytics (3 tabelas: leis + dispositivos + versoes), IA item distribuição.** Padrão ficha + normalização para timeline temporal.
+8. **Vigente compilado é canônico, histórico via timeline.** Parsed item = "como deve estar vigente hoje" (best-effort). Versões anteriores acessíveis via date picker. Fontes (DO, Casa Civil, Assembleia) cross-verificam — não competem por autoridade.
 
 ---
 
@@ -53,7 +52,7 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 |---|---|---|
 | Backend | Python | 3.12 |
 | ETL | DuckDB + PyArrow | latest |
-| Storage canônico | LeiML XML (nosso fork de LexML) | 0.1 |
+| Storage canônico | Leizilla XML (formato próprio, dispositivo-cêntrico) | 0.1 |
 | Storage distribuído | Internet Archive | — |
 | Frontend framework | Astro | 6.3 |
 | Frontend components | Svelte | 5.55 |
@@ -69,6 +68,31 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-20 — Rewrite arquitetural pós-review #6 (3 blockers)
+
+Parecer técnico de @franklinbaldo no PR #6 levantou 3 blockers que mudaram fundamentos do design. Resolvidos antes de fechar M0:
+
+- **Blocker 1 — DO×vigente como tese de canonicidade**: hierarquia "DO > Casa Civil > Assembleia" foi descartada. Decisão: parsed item canônico é o **vigente compilado** (best-effort); histórico fica acessível via timeline de versões por dispositivo (date picker → "como era a lei em 2010-01-01?"). Fontes não competem por autoridade — cross-verificam a compilação. Documentado em `docs/SCHEMA.md` §0.2.
+
+- **Blocker 2 — Alterações legislativas fora de escopo**: trazidas para v0.1. Schema Leizilla XML modela cada dispositivo como container de versões (`<versao numero="N" vigente-de="..." vigente-ate="..." alterado-por="urn:lex:...">`). `alteracoes.json` sidecar pré-computa relações (`alterada_por`, `altera`, `revogada_por`, `revoga`). Documentado em `docs/SCHEMA.md` §0.2, §4.3.
+
+- **Blocker 3 — LeiML como NIH disfarçado**: fork LeiML abandonado. **Leizilla XML v0.1** é formato próprio escrito do zero, **dispositivo-cêntrico** (não lei-cêntrico — insight do usuário: "unidade básica é dispositivo, não a lei"). LexML vira gate de CI (XSLT export valida que conseguimos representação reduzida quando preciso para gov interop) — não constraint estrutural. Perdas conhecidas (divergencias, parse meta, bloco-livre) ficam documentadas no XSLT. Documentado em `docs/SCHEMA.md` §0.3, §4, §6.
+
+Outras decisões do mesmo review já incorporadas em SCHEMA.md:
+- `git_sha` 40 chars completo (não 7).
+- Regex parsed `\d{5,}` (não `\d{5}`).
+- Tipo Parquet `VARCHAR` (não `TEXT`).
+- `urn_lex` nullable (data desconhecida não falsifica URN).
+- Bundle `lexml.xsd` no repo (reprodutibilidade).
+- Schema Parquet é v0.1 durante M0–M4, promove a v1 só em M5.
+- SSR híbrido via Astro (suaviza princípio 6 — XSLT in-browser é fallback).
+- Confiança baixa exibida explicitamente no frontend (banner LLM/OCR).
+
+### 2026-05-20 — Fixes Codex no PR #6
+
+- **P1 fallback parsed sem `{fonte}`**: pattern em §1.3 dizia `leizilla-{ente}-{tipo}-fallback-{chave}` mas regex em §5 exigia `{fonte}`. Corrigido: fallback sempre inclui `{fonte}` para evitar colisão. SCHEMA.md §1.3, §5.3.
+- **P2 `id` Parquet sem zero-pad**: descrição da coluna `id` em §3 não explicitava que `numero` é zero-padded. Corrigido: lookup `id → IA item` é literal, sem normalização extra. SCHEMA.md §3.1, §5.3.
 
 ### 2026-05-20 — Migração para stack franklinbaldo iniciada
 - **Decisão**: adotar Astro + Svelte + Pico + DuckDB-WASM, mirror do que já funciona em verne/cobogo/franklinbaldo.github.io.
@@ -163,8 +187,12 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-- [ ] **M0.2**: escrever `docs/SCHEMA.md` com decisões de granularidade IA, layout ZIP, schema Parquet v1, schema LeiML v0.1
-- [ ] **M0.2**: rascunhar `docs/schemas/leiml-v0.1.xsd`
-- [ ] **M0.2**: fixtures de 3 leis representativas em `tests/fixtures/leiml/` validando round-trip LeiML→LexML
-- [ ] **M0.3**: documentar inspirações concretas em `docs/SCHEMA.md` (links para arquivos específicos em ficha/baliza/causaganha)
-- [ ] PR de M0 para review antes de iniciar M1
+- [x] **M0.1**: `IMPLEMENTATION.md` criado e mantido.
+- [x] **M0.2**: `docs/SCHEMA.md` v1 (granularidade IA, layout ZIP, naming).
+- [x] **M0.2**: reescrita pós-review #6 (dispositivo-cêntrico, timeline temporal, formato próprio).
+- [ ] **M0.2**: rascunhar `docs/schemas/leizilla-v0.1.xsd`.
+- [ ] **M0.2**: fixtures de 3 leis representativas em `tests/fixtures/leizilla_xml/` (incluindo uma com alterações e uma com `<bloco-livre>`).
+- [ ] **M0.2**: rascunhar `scripts/leizilla-to-lexml.xsl` + teste CI de validação contra `lexml.xsd`.
+- [ ] **M0.2**: resolver decisões pendentes em `docs/SCHEMA.md` §10 (URN dialect, compressão Parquet, política re-scrape, LGPD).
+- [ ] **M0.3**: aprofundar inspirações concretas em `docs/SCHEMA.md` §8 (paths exatos de arquivos em ficha/baliza/causaganha).
+- [ ] Re-review do PR #6 após reescrita; aprovação → fechar M0 → abrir M1.
