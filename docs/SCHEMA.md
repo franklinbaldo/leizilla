@@ -150,7 +150,7 @@ Não inclui HTML pré-gerado (renderização SSR via Astro a partir de `law.xml`
 
 **Pattern**: `leizilla-dataset-{ente}-v{N}`
 
-Conteúdo: `leis-{ente}-v{N}.parquet`, `dispositivos-{ente}-v{N}.parquet`, `versoes-{ente}-v{N}.parquet`, `manifest-{ente}.csv`, `README.md`.
+Conteúdo: `versoes-{ente}-v{N}.parquet` (single table, ver §3), `manifest-{ente}.csv`, `README.md`.
 
 Bump de `N` apenas em **breaking schema change** (coluna removida, tipo alterado de forma incompatível).
 
@@ -260,106 +260,133 @@ Relações computadas com outras leis. Permite ao frontend mostrar "esta lei foi
 
 ---
 
-## 3. Schema Parquet v0.1 — três tabelas
+## 3. Schema Parquet v0.1 — single table (transitório)
 
-> Schema é **v0.1 durante M0–M4**; promove a **v1 apenas no fechamento de M5** (ver §3.6 e §7). Identificadores `leizilla.schema_version` no footer KV e o `v{N}` no caminho do arquivo refletem isso.
+> Schema é **v0.1 durante M0–M4**; promove a **v1 apenas no fechamento de M5** (ver §3.4 e §7). Identificadores `leizilla.schema_version` no footer KV e o `v{N}` no caminho do arquivo refletem isso.
 
-Dispositivo-cêntrico exige três tabelas relacionadas. Cada uma vira um Parquet separado no dataset item.
+**Decisão (aprovada): uma única tabela `versoes`** com grain (lei × dispositivo × versão). Metadados de lei e dispositivo denormalizados em cada row. Estrutura/listagem emerge via `SELECT DISTINCT`. Read-only Parquet servido estaticamente do IA — dictionary encoding + SNAPPY compress as repetições. Tradeoff explícito: simplicidade de query (zero JOIN no DuckDB-WASM) vs redundância de dados (compressão Parquet mitiga).
 
-### 3.1 Tabela `leis` — header por lei
+Pode evoluir para 2 ou 3 tabelas se DuckDB-WASM ficar gargalo na prática — decisão revisitada em M5 com dados reais (~5k leis RO × ~30 dispositivos × ~2 versões = ~300k rows, tamanho do Parquet a medir).
+
+### 3.1 Tabela `versoes` — single source of truth
+
+Cada row é uma versão de um dispositivo de uma lei. Colunas agrupadas por origem semântica:
+
+**Lei (denormalizado, repetido por row da mesma lei):**
 
 | coluna | tipo | nullable | nota |
 |---|---|---|---|
-| `id` | VARCHAR | NO | identifier IA do parsed item, **zero-padded** (e.g. `leizilla-ro-lei-01234-2003`) |
+| `lei_id` | VARCHAR | NO | identifier IA do parsed item, zero-padded (e.g. `leizilla-ro-lei-01234-2003`) |
 | `ente` | VARCHAR | NO | `ro`, `sp`, `federal`, `ro-porto-velho`... |
-| `tipo` | VARCHAR | NO | `lei`, `decreto`, `lc`, `resolucao`... |
-| `numero` | VARCHAR | YES | nullable porque fallback existe |
+| `tipo_lei` | VARCHAR | NO | `lei`, `decreto`, `lc`, `resolucao`... |
+| `numero_lei` | VARCHAR | YES | nullable porque fallback existe |
 | `ano` | INTEGER | NO | |
 | `data_publicacao` | DATE | YES | |
-| `urn_lex` | VARCHAR | YES | nullable se `data_publicacao` desconhecida (URN LEX requer data) — ver §5.4 |
-| `titulo` | VARCHAR | YES | |
-| `ementa` | VARCHAR | YES | |
+| `urn_lex` | VARCHAR | YES | nullable se `data_publicacao` desconhecida; URN LEX requer data — ver §5.5 |
+| `titulo_lei` | VARCHAR | YES | título oficial denormalizado (mesmo conteúdo do dispositivo `tipo_dispositivo='titulo-lei'`) |
+| `ementa` | VARCHAR | YES | ementa denormalizada (mesmo conteúdo do dispositivo `tipo_dispositivo='ementa'`) |
 | `url_law_xml_ia` | VARCHAR | NO | URL do `law.xml` no IA |
-| `vigente_em` | DATE | NO | data da compilação vigente |
-| `tem_divergencia` | BOOLEAN | NO | flag rápido frontend; agregado: `OR` sobre todas as `versoes.tem_divergencia` de dispositivos desta lei |
-| `num_divergencias` | INTEGER | NO | soma de `versoes.tem_divergencia=true` |
-| `num_dispositivos` | INTEGER | NO | pré-computado para listagens baratas |
-| `num_versoes_total` | INTEGER | NO | soma de versoes em todos os dispositivos |
-| `revogada` | BOOLEAN | NO | |
+| `vigente_em` | DATE | NO | data de referência da compilação (toda a lei) |
+| `revogada` | BOOLEAN | NO | a lei inteira foi revogada |
 | `parse_status` | VARCHAR | NO | `raw_only`/`parsed`/`failed` |
 | `parse_method` | VARCHAR | YES | `llm-haiku`/`llm-opus`/`manual`/`deterministic` |
 | `confianca_parse` | FLOAT | YES | 0.0–1.0 |
+
+**Dispositivo (denormalizado, repetido por versão do mesmo dispositivo):**
+
+| coluna | tipo | nullable | nota |
+|---|---|---|---|
+| `dispositivo_path` | VARCHAR | NO | `art-3` / `art-3-par-2` / `tit-1-cap-1` / etc. Normativos = global; organizacionais = namespaceado (§4.3 regras 3 e 4) |
+| `dispositivo_parent_path` | VARCHAR | NO | path do pai; raiz = `""`; sempre declarado (§0.1) |
+| `tipo_dispositivo` | VARCHAR | NO | enum unificado (§0.1): normativos (`titulo-lei`, `ementa`, `preambulo`, `artigo`, `paragrafo`, `inciso`, `alinea`, `item`, `anexo`, `disposicao-transitoria`, `disposicao-final`) + organizacionais (`livro`, `parte`, `titulo`, `capitulo`, `secao`, `subsecao`). **Não inclui `caput`** — caput é índice 0 implícito (§4.3). |
+| `rotulo` | VARCHAR | NO | "Art. 1º", "§ 2º", "II", "a)", "TÍTULO I — Dos Princípios"... estável; override por versão fica em `rotulo_versao` |
+| `ordem` | INTEGER | NO | ordem dentro do parent (1, 2, 3...) |
+| `urn_dispositivo` | VARCHAR | YES | NULL ⟺ `urn_lex` é NULL |
+
+**Versão (único por row):**
+
+| coluna | tipo | nullable | nota |
+|---|---|---|---|
+| `versao_id` | VARCHAR | NO | `{lei_id}#{dispositivo_path}#v{N}` — PK |
+| `numero_versao` | INTEGER | NO | 1, 2, 3... cronológico dentro do dispositivo |
+| `vigente_de` | DATE | NO | |
+| `vigente_ate` | DATE | YES | NULL = ainda vigente |
+| `texto` | VARCHAR | YES | NULL quando dispositivo é organizacional (tipo ∈ {livro, parte, titulo, capitulo, secao, subsecao}); NOT NULL para normativos |
+| `texto_normalizado` | VARCHAR | YES | NFC + cleanup p/ busca client-side. NULL nas mesmas condições de `texto` |
+| `rotulo_versao` | VARCHAR | YES | override do `rotulo` estável; útil quando rotulo muda entre versões (renomear capítulo). Normalmente NULL |
+| `alterado_por_lei_id` | VARCHAR | YES | NULL na versão original; senão lei_id da lei alteradora |
+| `fonte_canonica` | VARCHAR | NO | slug curto da fonte (`casacivil`, `diario`, `assembleia`...) |
+| `fontes_consultadas` | VARCHAR (JSON array) | NO | lista de raw IA ids usados nesta versão |
+| `tem_divergencia` | BOOLEAN | NO | |
+| `divergencias` | VARCHAR (JSON) | YES | diff summary entre fontes para esta versão |
+| `hash_texto` | VARCHAR | YES | sha256 de `texto`; NULL quando `texto` é NULL |
+| `bloco_livre_quality` | VARCHAR | YES | `null` (parsing OK) / `low` / `medium` / `high` / `raw` se `<bloco-livre>` foi usado (§4.4) |
 | `created_at` | TIMESTAMP | NO | |
 | `updated_at` | TIMESTAMP | NO | |
 
-### 3.2 Tabela `dispositivos` — uma linha por dispositivo
+### 3.2 Padrões de query
 
-| coluna | tipo | nullable | nota |
-|---|---|---|---|
-| `dispositivo_id` | VARCHAR | NO | composto: `{lei_id}#{path}` (e.g. `leizilla-ro-lei-01234-2003#art-3-par-2`) |
-| `lei_id` | VARCHAR | NO | FK para `leis.id` |
-| `urn_dispositivo` | VARCHAR | YES | `urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-3!par-2` (LexML dialect, ver §5.5). Regra: `urn_dispositivo` é `NULL` ⟺ `leis.urn_lex` da lei pai é `NULL` (lei sem data extraível) |
-| `tipo` | VARCHAR | NO | enum unificado (ver §0.1): normativos (`titulo-lei`, `ementa`, `preambulo`, `artigo`, `paragrafo`, `inciso`, `alinea`, `item`, `anexo`, `disposicao-transitoria`, `disposicao-final`) + organizacionais (`livro`, `parte`, `titulo`, `capitulo`, `secao`, `subsecao`). **Não inclui `caput`** — caput é índice 0 implícito (§4.3). Filtrar blocos vs normativos: `WHERE texto IS NOT NULL` (normativos têm texto) ou `WHERE tipo IN (...)` por enum. |
-| `rotulo` | VARCHAR | NO | "Art. 1º", "§ 2º", "II", "a)" |
-| `path` | VARCHAR | NO | hierárquico: `art-3` / `art-3-par-2` / `art-3-par-2-inc-1` / `art-3-par-2-inc-1-ali-a` |
-| `parent_path` | VARCHAR | NO | path do dispositivo pai. Raiz: string vazia `""`. Sempre declarado (§0.1: parent obrigatório). |
-| `ordem` | INTEGER | NO | ordem dentro do parent (1, 2, 3...) |
-| `texto_vigente` | VARCHAR | YES | texto da versão atualmente vigente (denormalizado para query rápida) |
-| `vigente_desde` | DATE | YES | data efeito da versão vigente |
-| `revogado` | BOOLEAN | NO | |
-| `revogado_em` | DATE | YES | |
+```sql
+-- Texto vigente de art-5 da Lei 1234/2003 hoje
+SELECT texto FROM versoes
+WHERE lei_id = 'leizilla-ro-lei-01234-2003'
+  AND dispositivo_path = 'art-5'
+  AND vigente_ate IS NULL;
 
-### 3.3 Tabela `versoes` — uma linha por versão histórica de cada dispositivo
+-- Texto de art-5 como estava em 2010-01-01
+SELECT texto FROM versoes
+WHERE lei_id = 'leizilla-ro-lei-01234-2003'
+  AND dispositivo_path = 'art-5'
+  AND vigente_de <= DATE '2010-01-01'
+  AND (vigente_ate > DATE '2010-01-01' OR vigente_ate IS NULL);
 
-| coluna | tipo | nullable | nota |
-|---|---|---|---|
-| `versao_id` | VARCHAR | NO | `{dispositivo_id}#v{N}` |
-| `dispositivo_id` | VARCHAR | NO | FK para `dispositivos.dispositivo_id` |
-| `lei_id` | VARCHAR | NO | denormalizado p/ join-free queries |
-| `numero_versao` | INTEGER | NO | 1, 2, 3... cronológico |
-| `vigente_de` | DATE | NO | |
-| `vigente_ate` | DATE | YES | NULL = ainda vigente |
-| `texto` | VARCHAR | YES | NULL quando o dispositivo é organizacional (tipo ∈ {livro, parte, titulo, capitulo, secao, subsecao}); NOT NULL para normativos. |
-| `texto_normalizado` | VARCHAR | YES | NFC + cleanup, alimenta busca client-side. Mesmo padrão de nullability que `texto`. |
-| `rotulo` | VARCHAR | YES | rotulo na versão (override do `dispositivos.rotulo` estável). Útil quando rotulo muda entre versões (renomear capítulo). Normalmente NULL. |
-| `alterado_por_lei_id` | VARCHAR | YES | NULL na versão original; senão FK para `leis.id` da lei alteradora |
-| `fonte_canonica` | VARCHAR | NO | slug curto da fonte usada (`casacivil`, `diario`, `assembleia`...) |
-| `fontes_consultadas` | VARCHAR (JSON array) | NO | lista de raw IA ids usados |
-| `tem_divergencia` | BOOLEAN | NO | |
-| `divergencias` | VARCHAR (JSON) | YES | diff summary entre fontes |
-| `hash_texto` | VARCHAR | NO | sha256 |
-| `bloco_livre_quality` | VARCHAR | YES | `null` (parsing OK) / `low` / `medium` / `high` / `raw` se `<bloco-livre>` foi usado (ver §4.4 — `raw` para casos onde OCR é tão ruim que nem dá pra estimar qualidade) |
+-- Estrutura/TOC de uma lei (DISTINCT extrai dispositivos)
+SELECT DISTINCT dispositivo_path, tipo_dispositivo, dispositivo_parent_path, rotulo, ordem
+FROM versoes
+WHERE lei_id = 'leizilla-ro-lei-01234-2003'
+ORDER BY ordem;
 
-### 3.4 Representação de arrays e JSON
+-- Listagem de todas as leis de um ente
+SELECT DISTINCT lei_id, titulo_lei, ementa, ano, parse_status, confianca_parse
+FROM versoes
+WHERE ente = 'ro'
+ORDER BY ano DESC, numero_lei;
 
-**Decisão (aprovada)**: arrays **no Parquet** como `VARCHAR` com JSON serializado, **não** Parquet LIST nativo. Justificativa: simplifica TanStack Query + Svelte components; JSON universal; custo storage irrelevante com SNAPPY.
+-- Busca full-text em texto normalizado
+SELECT lei_id, dispositivo_path, texto FROM versoes
+WHERE ente = 'ro'
+  AND vigente_ate IS NULL
+  AND texto_normalizado LIKE '%servidor publico%';
+```
 
-**Sidecars JSON** (`raw_meta.json`, `parsed_meta.json`, `provenance.json`, `alteracoes.json`) usam arrays JSON nativos — a restrição §3.4 é específica do Parquet. Mesma semântica, formato adequado a cada camada.
+### 3.3 Representação de arrays e JSON
 
-### 3.5 Footer KV metadata (PyArrow)
+Arrays **no Parquet** como `VARCHAR` com JSON serializado, **não** Parquet LIST nativo. Justificativa: simplifica TanStack Query + Svelte components; JSON universal; custo storage irrelevante com SNAPPY.
+
+**Sidecars JSON** (`raw_meta.json`, `parsed_meta.json`, `provenance.json`, `alteracoes.json`) usam arrays JSON nativos — a restrição é específica do Parquet.
+
+### 3.4 Footer KV metadata (PyArrow)
 
 ```python
 {
   "leizilla.schema_version": "0.1",
   "leizilla.xml_schema_version": "0.1",
   "leizilla.ente": "ro",
-  "leizilla.table": "dispositivos",  # ou leis / versoes
+  "leizilla.table": "versoes",
   "leizilla.generated_at": "2026-05-20T19:00:00Z",
-  "leizilla.row_count": "12483",
+  "leizilla.row_count": "298473",
   "leizilla.git_sha": "abc1234def5678901234567890abcdef12345678"
 }
 ```
 
-Escrita via `pyarrow.parquet.write_table` (não DuckDB `COPY` — esse não embute KV custom).
+Escrita via `pyarrow.parquet.write_table` (não DuckDB `COPY` — esse não embute KV custom). `git_sha` é o SHA completo (40 chars), não truncado.
 
-> Reviewer #6 ponto 8 fix: `git_sha` é o SHA completo (40 chars), não truncado.
-
-### 3.6 Versioning
+### 3.5 Versioning
 
 - `schema_version` semver-ish na coluna `leizilla.schema_version`: major bump apenas em break.
 - **Mapping `schema_version` → identifier `v{N}`**: `N` é o **major** do `schema_version`. Pré-M5: `schema_version="0.1"` → identifier `v0` (e.g. `leizilla-dataset-ro-v0`, `leis-ro-v0.parquet`). Pós-M5: `schema_version="1"` → identifier `v1`. Identifier IA permanece inteiro `v\d+` por compatibilidade com regex de naming (§5.4); versão pré-release fica codificada no major `0`. Minor/patch (`0.1`, `0.2`) atualizam o footer KV sem novo identifier.
 - CI valida que `int(N)` no caminho do arquivo bate com `int(schema_version.split('.')[0])` do footer KV.
-- Zod schema em `web/src/schemas/v0/lei.ts` + `dispositivo.ts` + `versao.ts` durante M0–M4; movido para `v1/` quando schema_version promover para `1`.
+- Zod schema único em `web/src/schemas/v0/versao.ts` (matches single table) durante M0–M4; movido para `v1/` quando schema_version promover para `1`.
 - v1 só é cravado depois do MVP rodar (reviewer #6 ponto 13). Durante M0–M4 o schema é **v0.1** (identifier `v0`); promove para v1 no fechamento de M5.
 
 ---
@@ -414,7 +441,7 @@ Cada dispositivo carrega sua própria **timeline de versões**. Nested para hier
 
 **Regra do caput (Opção D — aprovada)**: caput não é elemento separado nem tipo. Todo `<dispositivo>` normativo container (artigo, parágrafo, inciso) carrega `<texto>` na sua própria `<versao>` — isso **é** o caput quando o dispositivo tem filhos. Conceitualmente o caput é o "índice 0" dos filhos do container. Implica:
 
-- **Sem `<dispositivo tipo="caput">`**. Caput é propriedade implícita do container normativo. `caput` **não está** no enum de `tipo` (§3.2).
+- **Sem `<dispositivo tipo="caput">`**. Caput é propriedade implícita do container normativo. `caput` **não está** no enum de `tipo_dispositivo` (§3.1).
 - **URN aponta para o container**: `urn:lex:...!art-5` resolve para o texto intrínseco (caput) do art-5. Sub-itens via `!art-5!par-1`, etc.
 - **Versionamento granular preservado**: alterar só o caput = nova `<versao>` no próprio `<dispositivo path="art-5">`. Alterar só o §1 = nova `<versao>` em `<dispositivo path="art-5-par-1">`. Independentes.
 - **Aplica recursivamente**: parágrafo com incisos também tem "caput" (seu próprio texto antes dos incisos), mesma regra.
@@ -538,7 +565,7 @@ Cada dispositivo carrega sua própria **timeline de versões**. Nested para hier
 4. **Path do dispositivo organizacional namespaceia internamente** (`tit-1`, `tit-1-cap-1`, `tit-1-cap-1-sec-2`). Hierarquia de blocos é própria.
 5. **Caput é implícito (índice 0)**: container normativo (`artigo`, `paragrafo`, `inciso`) carrega seu próprio `<texto>` no nível do container; filhos `<dispositivo>` são sub-itens. Sem `<dispositivo tipo="caput">`. Ver detalhes abaixo.
 
-**Mapping nesting XML ↔ `path` flat na tabela Parquet `dispositivos`** (§3.2): geração determinística do path. Frontend e ETL usam o **mesmo gerador** (`src/leizilla/leizilla_xml/path.py` em M3).
+**Mapping nesting XML ↔ `dispositivo_path` flat na tabela Parquet `versoes`** (§3.1): geração determinística do path. Frontend e ETL usam o **mesmo gerador** (`src/leizilla/leizilla_xml/path.py` em M3).
 
 ```
 TÍTULO I  >  CAPÍTULO I  >  Art. 1º  >  § 1º  >  inciso I  >  alínea a
@@ -619,7 +646,7 @@ Abrir o XML direto no browser exibe HTML (XSLT in-browser). **Não** é o caminh
 
 > Reviewer #6 ponto 4 fix: `\d{5,}` em vez de `\d{5}` — leis federais já passam de 5 dígitos por extenso; zero-pad mínimo de 5 mantém ordenação lexicográfica para a maioria.
 
-> Codex P2 fix: o `id` no Parquet (§3.1) **sempre** usa o `numero` zero-padded para bater com o IA identifier. Lookup `id → IA item` é literal, sem normalização extra.
+> Codex P2 fix: o `lei_id` no Parquet (§3.1) **sempre** usa o `numero` zero-padded para bater com o IA identifier. Lookup `lei_id → IA item` é literal, sem normalização extra.
 
 **Numero não-numérico** (algumas leis antigas: "Lei A-12", romanos): tratar como caso de fallback. Não tentar normalizar para inteiro. O identifier vai para o pattern fallback abaixo, com `chave` derivado da fonte primária.
 
@@ -713,8 +740,8 @@ CI: ao bumpar major, `web/src/schemas/v{N}/` precisa existir + ser referenciado 
 
 ### Da ficha
 - ZIP de raw bulk (§1.2) ← ficha mirror dos 37 ZIPs RFB.
-- Parquet como camada canônica ← ficha tem `cnpjs.parquet`, `socios.parquet`. Nossa `leis-{ente}-v{N}.parquet` + `dispositivos-{ente}-v{N}.parquet` + `versoes-{ente}-v{N}.parquet` seguem mesma filosofia, normalizada em 3 tabelas.
-- Footer KV `schema_version` ← ficha embute; replicamos em §3.5.
+- Parquet como camada canônica ← ficha tem `cnpjs.parquet`, `socios.parquet`. Nossa `versoes-{ente}-v{N}.parquet` segue mesma filosofia (single table denormalizada por grain, ver §3).
+- Footer KV `schema_version` ← ficha embute; replicamos em §3.4.
 
 ### Da baliza
 - Manifest CSV no IA como source of truth ← baliza usa `baliza-pncp-manifest/manifest.csv`. Nossa `manifest-{ente}.csv` segue mesma estrutura.
@@ -729,17 +756,18 @@ CI: ao bumpar major, `web/src/schemas/v{N}/` precisa existir + ser referenciado 
 - ✅ **Granularidade IA raw**: individual por PDF (§1.1) + bundle ZIP semanal redundante (§1.2).
 - ✅ **Slug fonte é `[a-z]+` único** (§5.7).
 - ✅ **Bundle `lexml.xsd` no repo** (§6) — reprodutibilidade.
-- ✅ **`git_sha` SHA completo (40 chars)** (§3.5).
+- ✅ **`git_sha` SHA completo (40 chars)** (§3.4).
 - ✅ **Regex parsed aceita `\d{5,}`** (§5.3).
-- ✅ **Tipo Parquet usa `VARCHAR`** (§3.1–3.3), não `TEXT`.
+- ✅ **Tipo Parquet usa `VARCHAR`** (§3.1), não `TEXT`.
 - ✅ **Fallback parsed inclui `{fonte}`** (§5.3).
-- ✅ **`id` Parquet sempre zero-padded** (§3.1).
+- ✅ **`lei_id` Parquet sempre zero-padded** (§3.1).
 - ✅ **Dispositivo é unidade primária** (§0.1).
 - ✅ **Vigente compilado é canônico, histórico via timeline** (§0.2).
 - ✅ **Formato próprio (Leizilla XML), não fork LexML** (§0.3).
 - ✅ **SSR híbrido via Astro** (§0.4), softening do princípio 6 anterior.
 - ✅ **`urn_lex` Parquet é nullable** (§5.5).
-- ✅ **Schema Parquet é v0.1 durante M0–M4; promove a v1 em M5** (§3.6, §7).
+- ✅ **Schema Parquet é v0.1 durante M0–M4; promove a v1 em M5** (§3.5, §7).
+- ✅ **Single table `versoes` (denormalizada)** (§3) — substitui 3 tabelas relacionais. Decisão revisitável em M5 com dados reais.
 - ✅ **Caput é índice 0 implícito** (§4.3) — Opção D: container carrega `<versoes>` próprio; sem `<dispositivo tipo="caput">` separado. Aplica recursivamente a todos containers.
 - ✅ **Wayback Machine como caminho primário de fetch** (§0.5) — buffer/CDN entre nós e a fonte; fail-open para fallback de download direto.
 - ✅ **LGPD: leis publicadas, sem despublicação** — Leis estaduais e federais são atos públicos (CF art. 5º LX, art. 84 IV, art. 37 caput). LGPD (Lei 13.709/2018) não autoriza despublicação de norma pública e não está acima da Constituição. Citação de pessoas físicas em leis antigas (nomeações, aposentadorias, concessões) faz parte do ato administrativo público — indexar e republicar é continuidade do ato original, não tratamento novo. Documentar em ADR-0009 (Claude routines + ética) em M1.

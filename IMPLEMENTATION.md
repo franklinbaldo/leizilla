@@ -41,9 +41,9 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 4. **Múltiplas fontes por lei são esperadas.** Assembleia + Casa Civil + Diário Oficial fazem **cross-verificação** do vigente compilado — não competem por canonicidade. Divergências indicam possível erro de consolidação ou retificação não-aplicada; frontend exibe como "verificar", não como ranking de autoridade. Ver SCHEMA.md §0.2.
 5. **Genérico por ente federativo desde dia 1.** Tudo parametrizado por `{ente}`.
 6. **Leizilla XML é canônico, dispositivo-cêntrico.** Formato próprio (não fork). LexML é gate de CI (export reduzido sob demanda), não constraint estrutural. SSR híbrido: Astro renderiza páginas de detalhe; XSLT in-browser é fallback.
-7. **ZIP raw bulk (padrão ficha) + Parquet relacional normalizado (3 tabelas com FKs: leis ← dispositivos ← versoes) + IA item para distribuição.** Ficha tem 1 Parquet por entidade; nosso modelo introduz normalização relacional explícita para suportar timeline temporal por dispositivo. Manifest CSV no IA como source of truth (padrão baliza).
-9. **Wayback Machine é caminho primário de fetch.** Crawler não bate na fonte original — dispara Wayback save de `fonte_url` + `pdf_url`, depois fetch o PDF do snapshot Wayback para upload na nossa coleção IA. Fail-open: se Wayback falha, fallback de download direto. Polite com sites .gov.br frágeis + testemunha externa automática. Detalhes em SCHEMA.md §0.5.
+7. **ZIP raw bulk (padrão ficha) + Parquet single-table denormalizado + IA item para distribuição.** Manifest CSV no IA como source of truth (padrão baliza). Uma única tabela `versoes` (grain: lei × dispositivo × versão) cobre tudo durante M0–M4; estrutura emerge via `SELECT DISTINCT`. Pode evoluir para tabelas separadas se DuckDB-WASM ficar gargalo (decisão em M5).
 8. **Vigente compilado é canônico, histórico via timeline.** Parsed item = "como deve estar vigente hoje" (best-effort). Versões anteriores acessíveis via date picker. Fontes (DO, Casa Civil, Assembleia) cross-verificam — não competem por autoridade.
+9. **Wayback Machine é caminho primário de fetch.** Crawler não bate na fonte original — dispara Wayback save de `fonte_url` + `pdf_url`, depois fetch o PDF do snapshot Wayback para upload na nossa coleção IA. Fail-open: se Wayback falha, fallback de download direto. Polite com sites .gov.br frágeis + testemunha externa automática. Detalhes em SCHEMA.md §0.5.
 
 ---
 
@@ -89,6 +89,14 @@ Outras decisões do mesmo review já incorporadas em SCHEMA.md:
 - Schema Parquet é v0.1 durante M0–M4, promove a v1 só em M5.
 - SSR híbrido via Astro (suaviza princípio 6 — XSLT in-browser é fallback).
 - Confiança baixa exibida explicitamente no frontend (banner LLM/OCR).
+
+### 2026-05-20 — Parquet single table (versoes), denormalizado
+
+- **Decisão**: uma única tabela `versoes` no Parquet, com grain (lei × dispositivo × versão). Metadados de lei e dispositivo denormalizados em cada row. Substitui o design anterior de 3 tabelas relacionais (`leis` + `dispositivos` + `versoes`).
+- **Justificativa**: Parquet é read-only servido estaticamente do IA; dictionary encoding + SNAPPY mitigam a redundância. Zero JOIN em DuckDB-WASM = queries triviais + menos arquivos pro browser baixar (1 fetch). Estrutura (TOC, listagem) emerge via `SELECT DISTINCT`. Pré-agregados (num_dispositivos, num_divergencias) viram queries `COUNT(DISTINCT ...)` cacheáveis no client.
+- **Trade-off aceito**: redundância de dados (lei metadata repetida por dispositivo-versão). Estimativa RO: 5k leis × ~30 dispositivos × ~2 versões = ~300k rows. Tamanho do Parquet medido em M4 com dados reais.
+- **Revisitar em M5**: se DuckDB-WASM ficar gargalo (file size grande, latência de fetch), reavaliar split em 2 ou 3 tabelas. Por enquanto: single table.
+- **Documentado em**: SCHEMA.md §3 (rewrite completo, com padrões de query exemplificados).
 
 ### 2026-05-20 — Dispositivo universal: tudo que é texto da lei
 
