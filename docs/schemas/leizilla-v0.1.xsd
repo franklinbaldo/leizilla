@@ -60,7 +60,7 @@
         Jurisdição aceita 1 ou 2 segmentos (federal/estadual usam 1; municipal
         usa 2: municipio:UF;slug). Bang-path opcional referencia dispositivos.
       -->
-      <xs:pattern value="urn:lex:br;([^;]+;)?[^;]+;[^;]+:\d{4}-\d{2}-\d{2}(;[^!]+)?(![a-z0-9-]+)*"/>
+      <xs:pattern value="urn:lex:br;([^;]+;)?[^;]+;[^;]+:\d{4}-\d{2}-\d{2}(;[^!;]+)?(![a-z0-9-]+)*"/>
     </xs:restriction>
   </xs:simpleType>
 
