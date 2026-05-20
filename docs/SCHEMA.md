@@ -402,7 +402,7 @@ Path determina tipo. Token map é a fonte única de verdade.
 | `anexo-N` | anexo | "Anexo N" (romanos) |
 | `disp-transitoria-N` | disposicao-transitoria | "Art. N (Disposições Transitórias)" |
 | `disp-final-N` | disposicao-final | "Art. N (Disposições Finais)" |
-| `ocr-ruim` | bloco-ocr-ruim | (sem rótulo; render mostra banner) |
+| `ocr-ruim` ou `ocr-ruim-N` | bloco-ocr-ruim | (sem rótulo; render mostra banner) |
 
 **Tokens organizacionais** (agrupadores; texto = nome do bloco):
 
@@ -420,6 +420,7 @@ Path determina tipo. Token map é a fonte única de verdade.
 - Sub-dispositivos normativos compõem o path do ancestral normativo: `art-5-par-2`, `art-5-par-2-inc-3`, `art-5-par-2-inc-3-ali-a`.
 - Organizacionais têm path **namespaceado pelo nesting**: `tit-2`, `tit-2-cap-1`, `tit-2-cap-1-sec-3`.
 - Quando normativo está dentro de organizacional, path permanece global mas o nesting XML preserva o agrupamento. Não há duplicação de path.
+- **Renumeração por emenda** (e.g., "Art. 5º-A" inserido por emenda entre art. 5 e art. 6): path usa sufixo letra → `art-5-a`. Token map mapeia `art-N` e `art-N-X` (X = letra) para tipo `artigo` com rótulo derivado "Art. Nº" ou "Art. Nº-X". Validação real desse padrão fica para M3 quando expusermos leis com emendas.
 
 Adicionar novo tipo de dispositivo no futuro = adicionar entrada no token map. XSD não muda (path pattern é genérico).
 
@@ -602,7 +603,9 @@ Art. 4° Esta Lei entra em vigor na data de 5ua publicação.</texto>
 </dispositivo>
 ```
 
-`quality` enum: `low` / `medium` / `high` / `raw`. Atributo só aparece quando `path == "ocr-ruim"` (consistency checker valida).
+`quality` enum: `low` / `medium` / `high` / `raw`. Atributo só aparece quando `path` começa com `ocr-ruim` (consistency checker valida).
+
+**Múltiplos blocos OCR-ruim**: quando uma lei tem várias seções ilegíveis intercaladas com dispositivos parseados, usar `path="ocr-ruim-1"`, `path="ocr-ruim-2"`, ... — token `ocr-ruim-N` é parte do token map (§4.2). Path único na árvore continua sendo invariante (`xs:unique` no XSD).
 
 ---
 
@@ -704,10 +707,12 @@ XSD não consegue expressar tudo. `scripts/check_schema_consistency.py` (M0.2) v
 6. **`<inicio>` obrigatório** quando `<versao em="X">` com `X ≠ data-publicacao(<lei>)` e sem `alterado-por`.
 7. **Ordenação de versões** num dispositivo: `em` estritamente crescente.
 8. **`<fonte ia-id>`** casa com regex de IA identifier (§5.1).
-9. **`quality` atributo** só aparece em `<dispositivo path="ocr-ruim">`.
-10. **`urn-lex` da `<lei>`** (se presente) decompõe corretamente: ente, tipo, data, numero recuperados batem com o `id` do parsed item.
+9. **`quality` atributo** só aparece em `<dispositivo>` com `path` começando por `ocr-ruim`.
+10. **`urn-lex` da `<lei>`** (se presente) decompõe corretamente: ente, tipo, data, numero recuperados batem com o `id` do parsed item. **`urn-lex` ausente**: ente e tipo recuperados via decomposição do `id` do parsed item (regex §5.3 ou §5.4), e a fonte canônica de identidade vira o IA identifier.
 11. **Exemplos no markdown** (`docs/SCHEMA.md`, `IMPLEMENTATION.md`) que aparentam ser IA identifiers casam com regex em §5.
 12. **`schema_version`** no XSD, no footer KV do Parquet, e no `schema-version` attribute do `<lei>` root concordam.
+13. **Path único** em toda a árvore de dispositivos da lei (validado pelo `xs:unique` no XSD; checker confirma como duplo-check).
+14. **URN LEX sem zero-pad**: número da lei na URN é o número legal raw (`;1234`, `;42`). Zero-pad é exclusivo do identifier IA (`leizilla-ro-lei-00042-1985`); checker rejeita URNs com `;0+\d+` quando o número subjacente tem &lt; 5 dígitos.
 
 ---
 

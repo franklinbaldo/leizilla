@@ -279,9 +279,9 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 - [x] `docs/schemas/leizilla-v0.1.xsd` enxuto (~235 linhas; 6 elementos).
 - [x] 6 fixtures cobrindo: caso simples (herança pura), alterações + divergência multi-fonte + vacatio, blocos organizacionais (CF/88), revogações parciais (4 tipos), revogação total da lei, OCR ruim.
 - [x] `tests/fixtures/leizilla_xml/README.md` com matriz de cobertura.
+- [ ] **🔴 Bloqueante para fechar M0.2**: `scripts/check_schema_consistency.py` validando as 14 invariantes do SCHEMA.md §7. XSD é propositalmente loose (permite `<fonte diverge="false"><texto>x</texto></fonte>`, `quality` em qualquer dispositivo, etc.); sem o checker em CI o "schema" é metade do contrato.
 - [ ] `scripts/leizilla-to-lexml.xsl` + teste CI `tests/test_lexml_export.py` validando contra `tests/fixtures/lexml.xsd` (bundle no repo).
-- [ ] `scripts/check_schema_consistency.py` validando as 12 invariantes do SCHEMA.md §7 (incluindo: `<fonte diverge>` requer `<texto>`, revogação total exclui parciais, herança de vigência consistente, ordenação de versões, token map cobre todos os paths).
-- [ ] Negative test cases (XML inválido proposital → validator deve rejeitar).
+- [ ] Negative test cases (XML inválido proposital → checker deve rejeitar).
 - [ ] Resolver pendentes §8.2: URN dialect contra CGPID spec, compressão Parquet (SNAPPY vs ZSTD em DuckDB-WASM), granularidade bundle ZIP, política de re-scrape, robots.txt rate-limit, custo LLM real.
 
 **M0.3 — Inspirações concretas** (paralelo a M0.2):
