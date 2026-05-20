@@ -328,7 +328,7 @@ Dispositivo-cêntrico exige três tabelas relacionadas. Cada uma vira um Parquet
 | `tem_divergencia` | BOOLEAN | NO | |
 | `divergencias` | VARCHAR (JSON) | YES | diff summary entre fontes |
 | `hash_texto` | VARCHAR | NO | sha256 |
-| `bloco_livre_quality` | VARCHAR | YES | `null` (parsing OK) / `low` / `medium` / `high` se `<bloco-livre>` foi usado |
+| `bloco_livre_quality` | VARCHAR | YES | `null` (parsing OK) / `low` / `medium` / `high` / `raw` se `<bloco-livre>` foi usado (ver §4.4 — `raw` para casos onde OCR é tão ruim que nem dá pra estimar qualidade) |
 
 ### 3.4 Representação de arrays e JSON
 
@@ -357,9 +357,10 @@ Escrita via `pyarrow.parquet.write_table` (não DuckDB `COPY` — esse não embu
 ### 3.6 Versioning
 
 - `schema_version` semver-ish na coluna `leizilla.schema_version`: major bump apenas em break.
-- CI valida que o `v{N}` no caminho do arquivo bate com o footer KV.
-- Zod schema em `web/src/schemas/v1/lei.ts` + `dispositivo.ts` + `versao.ts` bumped junto.
-- v1 só é cravado depois do MVP rodar (reviewer #6 ponto 13). Durante M0–M4 o schema é **v0.1**; promove para v1 no fechamento de M5.
+- **Mapping `schema_version` → identifier `v{N}`**: `N` é o **major** do `schema_version`. Pré-M5: `schema_version="0.1"` → identifier `v0` (e.g. `leizilla-dataset-ro-v0`, `leis-ro-v0.parquet`). Pós-M5: `schema_version="1"` → identifier `v1`. Identifier IA permanece inteiro `v\d+` por compatibilidade com regex de naming (§5.4); versão pré-release fica codificada no major `0`. Minor/patch (`0.1`, `0.2`) atualizam o footer KV sem novo identifier.
+- CI valida que `int(N)` no caminho do arquivo bate com `int(schema_version.split('.')[0])` do footer KV.
+- Zod schema em `web/src/schemas/v0/lei.ts` + `dispositivo.ts` + `versao.ts` durante M0–M4; movido para `v1/` quando schema_version promover para `1`.
+- v1 só é cravado depois do MVP rodar (reviewer #6 ponto 13). Durante M0–M4 o schema é **v0.1** (identifier `v0`); promove para v1 no fechamento de M5.
 
 ---
 
