@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture: blocos organizacionais (CF/88 como exemplo pedagógico).
+
+  Cobre:
+  - Path organizacional namespaceado: tit-1, tit-2, tit-2-cap-1.
+  - Path normativo global mesmo aninhado em organizacional:
+    art-1 dentro de tit-1, art-5 dentro de tit-2-cap-1.
+  - urn-lex de constituição sem ;numero final.
+  - vigente-em fora do intervalo de criação (mostra que a CF está
+    sendo lida como "vigente em 2026").
+  - "Texto" do bloco organizacional é o nome do bloco (sem
+    distinção entre texto normativo e nome de capítulo).
+-->
+<lei xmlns="https://leizilla.org/lei/0.1"
+     schema-version="0.1"
+     urn-lex="urn:lex:br;federal;constituicao:1988-10-05"
+     vigente-em="2026-05-20">
+
+  <dispositivo path="titulo-lei">
+    <versao>
+      <texto>CONSTITUIÇÃO DA REPÚBLICA FEDERATIVA DO BRASIL DE 1988</texto>
+      <fonte ia-id="leizilla-raw-federal-planalto-constituicao-1988"/>
+    </versao>
+  </dispositivo>
+
+  <dispositivo path="preambulo">
+    <versao>
+      <texto>Nós, representantes do povo brasileiro, reunidos em Assembleia Nacional Constituinte para instituir um Estado Democrático, destinado a assegurar o exercício dos direitos sociais e individuais...</texto>
+      <fonte ia-id="leizilla-raw-federal-planalto-constituicao-1988"/>
+    </versao>
+  </dispositivo>
+
+  <dispositivo path="tit-1">
+    <versao>
+      <texto>TÍTULO I — DOS PRINCÍPIOS FUNDAMENTAIS</texto>
+      <fonte ia-id="leizilla-raw-federal-planalto-constituicao-1988"/>
+    </versao>
+
+    <dispositivo path="art-1">
+      <versao>
+        <texto>A República Federativa do Brasil, formada pela união indissolúvel dos Estados e Municípios e do Distrito Federal, constitui-se em Estado Democrático de Direito e tem como fundamentos:</texto>
+        <fonte ia-id="leizilla-raw-federal-planalto-constituicao-1988"/>
+      </versao>
+
+      <dispositivo path="art-1-inc-1">
+        <versao>
+          <texto>a soberania;</texto>
+          <fonte ia-id="leizilla-raw-federal-planalto-constituicao-1988"/>
+        </versao>
+      </dispositivo>
+
+      <dispositivo path="art-1-par-unico">
+        <versao>
+          <texto>Todo o poder emana do povo, que o exerce por meio de representantes eleitos ou diretamente, nos termos desta Constituição.</texto>
+          <fonte ia-id="leizilla-raw-federal-planalto-constituicao-1988"/>
+        </versao>
+      </dispositivo>
+    </dispositivo>
+  </dispositivo>
+
+  <dispositivo path="tit-2">
+    <versao>
+      <texto>TÍTULO II — DOS DIREITOS E GARANTIAS FUNDAMENTAIS</texto>
+      <fonte ia-id="leizilla-raw-federal-planalto-constituicao-1988"/>
+    </versao>
+
+    <dispositivo path="tit-2-cap-1">
+      <versao>
+        <texto>CAPÍTULO I — DOS DIREITOS E DEVERES INDIVIDUAIS E COLETIVOS</texto>
+        <fonte ia-id="leizilla-raw-federal-planalto-constituicao-1988"/>
+      </versao>
+
+      <dispositivo path="art-5">
+        <versao>
+          <texto>Todos são iguais perante a lei, sem distinção de qualquer natureza, garantindo-se aos brasileiros e aos estrangeiros residentes no País a inviolabilidade do direito à vida, à liberdade, à igualdade, à segurança e à propriedade, nos termos seguintes:</texto>
+          <fonte ia-id="leizilla-raw-federal-planalto-constituicao-1988"/>
+        </versao>
+      </dispositivo>
+    </dispositivo>
+  </dispositivo>
+
+  <dispositivo path="anexo-1">
+    <versao>
+      <texto>ANEXO I — Bandeira Nacional (descrição conforme Lei nº 5.700/1971).</texto>
+      <fonte ia-id="leizilla-raw-federal-planalto-constituicao-1988"/>
+    </versao>
+  </dispositivo>
+
+</lei>

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture: revogações em todas as suas formas estruturadas.
+
+  Cobre:
+  - <revogacao> parcial (expressa) num dispositivo após a última versão.
+  - <revogacao> parcial por inconstitucionalidade (URN de ADI).
+  - <revogacao> parcial por caducidade (sem `por`, lei temporária).
+  - <revogacao> parcial tácita (URN da lei posterior incompatível).
+  - <fonte> filha em cada <revogacao> apontando para o IA item que
+    documenta o ato revocatório.
+
+  Não cobre revogação TOTAL da lei — está em with-revogacao-total.xml
+  (não criado aqui para manter a matriz em 5 fixtures; cenário coberto
+  estruturalmente no XSD via posicionamento de <revogacao> no root).
+-->
+<lei xmlns="https://leizilla.org/lei/0.1"
+     schema-version="0.1"
+     urn-lex="urn:lex:br;estado:rondonia;lei:1990-03-20;0500"
+     vigente-em="2026-05-20">
+
+  <dispositivo path="ementa">
+    <versao>
+      <texto>Dispõe sobre o regime jurídico dos servidores públicos do Estado de Rondônia.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00500"/>
+    </versao>
+  </dispositivo>
+
+  <dispositivo path="art-1">
+    <versao>
+      <texto>Esta Lei estabelece o regime jurídico dos servidores públicos do Estado de Rondônia.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00500"/>
+    </versao>
+  </dispositivo>
+
+  <dispositivo path="art-3">
+    <versao>
+      <texto>São direitos do servidor público: estabilidade após três anos de efetivo exercício, férias anuais remuneradas, e gratificação natalina.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00500"/>
+    </versao>
+    <revogacao em="2020-06-15" tipo="expressa"
+               por="urn:lex:br;estado:rondonia;lei:2020-06-15;9999">
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+    </revogacao>
+  </dispositivo>
+
+  <dispositivo path="art-5">
+    <versao>
+      <texto>Os candidatos a cargo público deverão comprovar filiação a partido político, mediante atestado da respectiva agremiação.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00500"/>
+    </versao>
+    <revogacao em="2015-08-12" tipo="inconstitucionalidade"
+               por="urn:lex:br;federal;adi:2015-08-12;5234">
+      <fonte ia-id="leizilla-raw-federal-stf-adi-5234-2015"/>
+    </revogacao>
+  </dispositivo>
+
+  <dispositivo path="art-7">
+    <versao em="1990-03-20">
+      <texto>As disposições deste artigo vigorarão por 5 (cinco) anos a contar da publicação desta Lei, podendo ser prorrogadas por lei específica.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00500"/>
+    </versao>
+    <revogacao em="1995-03-20" tipo="caducidade">
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00500"/>
+    </revogacao>
+  </dispositivo>
+
+  <dispositivo path="art-9">
+    <versao>
+      <texto>Aplicam-se subsidiariamente as normas estaduais sobre licitação para contratação de serviços técnicos especializados.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00500"/>
+    </versao>
+    <revogacao em="2021-04-01" tipo="tacita"
+               por="urn:lex:br;federal;lei:2021-04-01;14133">
+      <fonte ia-id="leizilla-raw-federal-planalto-lei-14133-2021"/>
+    </revogacao>
+  </dispositivo>
+
+</lei>

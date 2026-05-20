@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture: revogação TOTAL da lei.
+
+  Cobre:
+  - <revogacao> elemento filho da <lei> (não de dispositivo).
+  - Posição estrutural = escopo: revogação total cascateia para
+    todos os dispositivos.
+  - Consistency checker valida: revogação total exclui qualquer
+    <revogacao> em descendentes.
+-->
+<lei xmlns="https://leizilla.org/lei/0.1"
+     schema-version="0.1"
+     urn-lex="urn:lex:br;estado:rondonia;lei:1985-11-20;0042"
+     vigente-em="2026-05-20">
+
+  <revogacao em="2018-12-30" tipo="expressa"
+             por="urn:lex:br;estado:rondonia;lei:2018-12-30;4500">
+    <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04500"/>
+  </revogacao>
+
+  <dispositivo path="ementa">
+    <versao>
+      <texto>Cria o Conselho Estadual de Cultura de Rondônia.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+    </versao>
+  </dispositivo>
+
+  <dispositivo path="art-1">
+    <versao>
+      <texto>Fica criado o Conselho Estadual de Cultura, vinculado à Secretaria de Educação e Cultura, com as seguintes atribuições.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+    </versao>
+  </dispositivo>
+
+  <dispositivo path="art-2">
+    <versao>
+      <texto>O Conselho será composto por 9 (nove) membros nomeados pelo Governador, com mandato de 4 (quatro) anos.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+    </versao>
+  </dispositivo>
+
+</lei>
