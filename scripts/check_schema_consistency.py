@@ -547,8 +547,14 @@ def _check_urn_decomposes(ctx: _Ctx) -> None:
 
 
 def _check_urn_no_zero_pad(ctx: _Ctx) -> None:
-    """§7.14 — URN LEX número is the raw legal number (no zero-pad)."""
-    if not ctx.urn_lex:
+    """§7.14 — URN LEX número is the raw legal number (no zero-pad).
+
+    Uses `is None` (not truthiness) so empty `urn-lex=""` is handled
+    consistently with _check_urn_decomposes — empty falls through to the
+    regex match (which fails) and §7.10 reports it; §7.14 stays silent
+    (no number to zero-pad-check).
+    """
+    if ctx.urn_lex is None:
         return
     m = _RE_URN_LEX.match(ctx.urn_lex)
     if not m:
