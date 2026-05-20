@@ -46,7 +46,27 @@ Em vez disso: **Leizilla XML v0.1 é escrito do zero**, otimizado para nossos ca
 
 O esboço anterior cravou "HTML renderizado no browser via XSLT/JS, nunca server-side". Suavizado: páginas de detalhe de lei (`/lei/{id}`) renderizam server-side via Astro (acessibilidade WCAG, SEO, no-JS funciona, LBI 13.146/2015). Busca/timeline interativa fica client-side com Svelte+DuckDB-WASM. XSLT in-browser é fallback opcional para quem abre `law.xml` diretamente.
 
-### 0.5 Genericidade real, não só de slug
+### 0.5 Wayback Machine como caminho primário de fetch (aprovada)
+
+**Decisão**: o crawler **não baixa direto da fonte oficial**. Em vez disso:
+
+1. Crawler descobre `fonte_url` (HTML que lista a lei) e `pdf_url`
+2. Dispara `POST https://web.archive.org/save/{url}` para ambos (com check prévio `/wayback/available?url=...` para reuso de snapshot recente <24h)
+3. **Fetcha o PDF de volta da Wayback Machine** (não da fonte original)
+4. Upload do PDF para nossa coleção IA (continua acionando OCR automático)
+5. Grava `provenance_wayback` em `raw_meta.json` com URLs de snapshot
+
+**Justificativa**:
+- Bate na fonte original **uma única vez** (via bot do Wayback), não centenas. Polite com sites .gov.br frágeis
+- Timestamp Wayback é testemunha independente para auditoria forense — terceiro confiável atesta "esta URL continha este PDF em T"
+- Wayback funciona como CDN/buffer: tira nosso crawler do caminho crítico da fonte
+- Nossa coleção IA + OCR pipeline continua intocada
+
+**Política de falha**: fail-open. Se Wayback timeout, rate-limit, ou erro → log warning, **fallback para download direto da fonte**, gravar `provenance_wayback: null`. Wayback é reforço de provenance, não bloqueante para captura.
+
+**Não-decisão**: Wayback **não substitui** nossa coleção IA. Snapshots Wayback não geram `_djvu.txt` (OCR automático do IA só roda em items de coleção, não em snapshots). Etapa 2 depende do OCR — então o PDF tem que viver na nossa coleção IA.
+
+### 0.6 Genericidade real, não só de slug
 
 O esboço anterior afirmou "genérico por ente desde dia 1" mas o vocabulário era estadual. Realidade: cada nível federativo tem fontes diferentes (Federal: Câmara, Senado, Planalto, DOU; Municípios: ~5.570 estruturas distintas). O modelo Leizilla XML **não** assume estrutura de fonte — apenas que cada dispositivo tem `<fonte ia-id="..."/>` apontando para um raw item. O catálogo `src/leizilla/fontes/{ente}.py` declara fontes válidas por ente; o resto do código consome a lista sem hardcode.
 
@@ -129,13 +149,22 @@ Bump de `N` apenas em **breaking schema change** (coluna removida, tipo alterado
   "ente": "ro",
   "fonte": "casacivil",
   "fonte_url": "https://ditel.casacivil.ro.gov.br/cotel/livros/Folder.aspx?coddoc=42",
+  "pdf_url": "https://ditel.casacivil.ro.gov.br/.../doc-1234.pdf",
   "chave": "coddoc-00042",
   "data_captura": "2026-05-20T14:30:00Z",
   "hash_pdf": "sha256:abc123...",
   "user_agent": "leizilla-crawler/1.0",
-  "ia_id_bundle": "leizilla-bundle-ro-casacivil-2026-W20"
+  "ia_id_bundle": "leizilla-bundle-ro-casacivil-2026-W20",
+  "provenance_wayback": {
+    "fonte_url_snapshot": "https://web.archive.org/web/20260520143000/https://ditel.casacivil.ro.gov.br/cotel/livros/Folder.aspx?coddoc=42",
+    "pdf_url_snapshot": "https://web.archive.org/web/20260520143015/https://ditel.casacivil.ro.gov.br/.../doc-1234.pdf",
+    "captured_at": "2026-05-20T14:30:15Z",
+    "fetched_from": "wayback"
+  }
 }
 ```
+
+`provenance_wayback.fetched_from` é `"wayback"` quando o PDF foi baixado via Wayback (caminho primário, §0.5) ou `"source-fallback"` quando Wayback falhou e baixamos direto da fonte. `null` se Wayback falhou e o fallback ainda não rodou. Os snapshots ficam `null` individualmente em caso de falha por URL.
 
 ### 2.2 `parsed_meta.json` (sidecar do parsed item)
 
@@ -362,6 +391,15 @@ Esboço. Definição XSD formal em `docs/schemas/leizilla-v0.1.xsd` (M0.2).
 
 Cada dispositivo carrega sua própria **timeline de versões**. Nested para hierarquia.
 
+**Regra do caput (Opção D — aprovada)**: caput não é elemento separado. Todo `<dispositivo>` container (artigo, parágrafo, inciso) tem `<versoes>` opcional carregando **seu próprio texto intrínseco** — que corresponde ao "caput" na terminologia jurídica quando o dispositivo tem filhos. Conceitualmente o caput é o "índice 0" dos filhos do container. Implica:
+
+- **Sem elemento `<dispositivo tipo="caput">`**. Caput é propriedade implícita do container.
+- **URN aponta para o container**: `urn:lex:...!art-5` resolve para o texto intrínseco (caput) do art-5. Sub-itens via `!art-5!par-1`, etc.
+- **Versionamento granular preservado**: alterar só o caput = nova `<versao>` no próprio `<dispositivo path="art-5">`. Alterar só o §1 = nova `<versao>` em `<dispositivo path="art-5-par-1">`. Independentes.
+- **Aplica recursivamente**: parágrafo com incisos também tem "caput" (seu próprio texto antes dos incisos), mesma regra.
+- **Parquet `dispositivos`**: 1 row por dispositivo. A row do container **é** o caput. Não há row extra "caput".
+- **Export LexML** (XSLT): wrap mecânico — `<dispositivo path="art-5"><versoes>{T}</versoes>...</dispositivo>` vira `<Artigo><Caput><Texto>{T}</Texto></Caput>...</Artigo>`.
+
 ```xml
 <dispositivos>
   <dispositivo tipo="artigo" path="art-1"
@@ -520,7 +558,7 @@ Lista canônica em `src/leizilla/entes.py` (M1) com nome oficial, UF pai, códig
 
 ### 5.7 Slug `{fonte}` — regra load-bearing
 
-`{fonte}` é token único `[a-z]+` — **sem hífens nem underscores**. Toda referência (IA identifier, `raw_meta.json.fonte`, `parsed_meta.json.fonte_consultadas`, atributo `<fonte-canonica>` em XML, coluna Parquet `fonte_canonica`, enum `FONTES` Python) usa **exatamente o mesmo slug**.
+`{fonte}` é token único `[a-z]+` — **sem hífens nem underscores**. Toda referência (IA identifier, `raw_meta.json.fonte`, `parsed_meta.json.fontes_consultadas[]`, atributo `<fonte-canonica>` em XML, coluna Parquet `fonte_canonica` e `versoes.fontes_consultadas`, enum `FONTES` Python) usa **exatamente o mesmo slug**.
 
 Hífens quebrariam parsing de `leizilla-raw-{ente}-{fonte}-{chave}` (sem fronteira reconhecível). Nomes longos (`diário oficial`, `casa civil`) ficam em campos `display_name` / metadata IA legível.
 
@@ -599,23 +637,26 @@ CI: ao bumpar major, `web/src/schemas/v{N}/` precisa existir + ser referenciado 
 - ✅ **SSR híbrido via Astro** (§0.4), softening do princípio 6 anterior.
 - ✅ **`urn_lex` Parquet é nullable** (§5.5).
 - ✅ **Schema Parquet é v0.1 durante M0–M4; promove a v1 em M5** (§3.6, §7).
+- ✅ **Caput é índice 0 implícito** (§4.3) — Opção D: container carrega `<versoes>` próprio; sem `<dispositivo tipo="caput">` separado. Aplica recursivamente a todos containers.
+- ✅ **Wayback Machine como caminho primário de fetch** (§0.5) — buffer/CDN entre nós e a fonte; fail-open para fallback de download direto.
+- ✅ **LGPD: leis publicadas, sem despublicação** — Leis estaduais e federais são atos públicos (CF art. 5º LX, art. 84 IV, art. 37 caput). LGPD (Lei 13.709/2018) não autoriza despublicação de norma pública e não está acima da Constituição. Citação de pessoas físicas em leis antigas (nomeações, aposentadorias, concessões) faz parte do ato administrativo público — indexar e republicar é continuidade do ato original, não tratamento novo. Documentar em ADR-0009 (Claude routines + ética) em M1.
+- ✅ **Custo LLM diluído no tempo** — estimativa de ~$40–100/ente (5k leis × 10k tokens × Haiku) é aceitável; ingestão é one-shot por lei, custo amortiza. Re-parsing pontual em fill-gaps é marginal. Não é fator de bloqueio do design.
+- ✅ **Re-scrape sob auditoria** — re-scrape NÃO é automático. Disparado só quando auditoria periódica conclui que qualidade do raw caiu (e.g., versão do PDF foi corrigida pela fonte, ou OCR muito ruim). Quando re-scrape acontece, novo raw item vira `{chave}-r{N}` (revisão); raw anterior permanece (imutabilidade §0.X). Documentado como processo em IMPLEMENTATION.md (auditoria periódica de qualidade).
+- ✅ **Auditoria de novas fontes por ente** — processo paralelo à re-scrape: auditoria periódica avalia se novas fontes oficiais devem ser adicionadas ao `src/leizilla/fontes/{ente}.py` (e.g., descobrir que estado X tem um portal de transparência que reúne consolidados). Não bloqueia M0.
 
 ## 10. Decisões pendentes (resolver em M0.2)
 
-- [ ] **Modelagem de `caput`** (§4.3) — duas opções para o XSD: (a) atributo `tem-caput="true"` em `<dispositivo tipo="artigo">` com o texto do caput dentro do próprio elemento, ou (b) primeiro `<dispositivo>` filho com `tipo="caput"` carregando o texto. LexML usa (b). Decidir antes de escrever `leizilla-v0.1.xsd`.
 - [ ] **Verificar URN LEX dialect** (§5.5) — separadores `;`/`,`/`:` contra spec CGPID atual.
 - [ ] **Compressão Parquet**: SNAPPY vs ZSTD. Verificar DuckDB-WASM 1.28 (ou versão atual) suporta ZSTD via teste real em M0.2.
 - [ ] **Granularidade bundle ZIP**: semanal (`YYYY-Www`) atual; revisitar se tamanho ficar trivial.
 - [ ] **XPath dialect em `diff-xpath`** (§4.5) — declarar "XPath 1.0 subset, atributos com aspas simples" (reviewer #6 ponto 9).
-- [ ] **Política de re-scrape**: PDF re-publicado pela fonte (hash diferente do anterior) vira novo raw item `{chave}-v2`? Ou substitui? (reviewer #6 ponto 11) — decidir antes de M2.
-- [ ] **Robots.txt + rate limiting** como princípio explícito no crawler (reviewer #6 ponto 12) — adicionar em ADR-0008 (pipeline) e `src/leizilla/crawler.py`.
-- [ ] **LGPD em leis antigas com nomes** (reviewer #6 ponto 8 da parecer) — triagem necessária? Política de redação? Adiar para v0.2 ou decidir agora?
+- [ ] **Robots.txt + rate limiting** como princípio explícito no crawler (reviewer #6 ponto 12) — adicionar em ADR-0008 (pipeline) e `src/leizilla/crawler.py`. Nota: com §0.5 (Wayback como fetch primário), bater na fonte original fica raro — robots.txt continua valendo, rate-limit do nosso crawler vira proteção do Wayback save endpoint (15 req/min sem auth, 100 com SavePageNow).
 - [ ] **XSLT in-browser deprecation** (reviewer #6 ponto 4) — confirmar que primário é Astro SSR, XSLT é fallback opcional. Atualizar §4.6 se Astro SSR cobrir 100%.
-- [ ] **Estimativa custo LLM realista** (reviewer #6 ponto 6) — recalcular: 5.000 leis × 10k tokens × Haiku ≈ $40–100/ente. Atualizar IMPLEMENTATION.md se diferir muito.
+- [ ] **Modelagem de blocos legislativos** (livro, parte, título, capítulo, seção, subseção, anexos) — agrupadores organizacionais sem texto normativo próprio. Atualmente fora do schema; CF e códigos não cabem sem isso. Decidir: hierarquia única com `<bloco>` aninhado com `<dispositivo>`, ou duas hierarquias paralelas (`<estrutura>` + `<dispositivos>` flat com `<dispositivo-ref>`). Path do dispositivo permanece global (`art-5`), não namespaceado por bloco.
 
 ## 11. Open questions (v0.2 ou posterior)
 
-- **Catálogo de fontes federais** (Câmara, Senado, Planalto, DOU) — modelagem em §0.5 acomoda, mas vocabulário concreto fica para quando atacarmos `ente=federal`.
+- **Catálogo de fontes federais** (Câmara, Senado, Planalto, DOU) — modelagem em §0.6 acomoda, mas vocabulário concreto fica para quando atacarmos `ente=federal`.
 - **Catálogo de fontes municipais** — ~5.570 estruturas distintas; modelo `src/leizilla/fontes/{ente}.py` escala, mas curadoria é desafio próprio.
 - **Versionamento de raw quando fonte republica** (overlap com §10) — política mais fina depois.
 - **Acessibilidade WCAG completa** — Astro SSR resolve maior parte; auditoria formal em M5.
