@@ -1,0 +1,839 @@
+# SCHEMA.md — Design de dados do Leizilla
+
+> Decisões load-bearing sobre granularidade de IA items, modelo XML dispositivo-cêntrico, schema Parquet, naming, e export LexML. Editado quando uma decisão muda — coluna **Status** indica `proposta`, `aprovada`, ou `superseded-by-#PR`.
+
+**Histórico**: a v0 deste documento esboçava um formato "LeiML" como fork de LexML, com a lei como unidade primária. Reescrito após review do PR #6: (a) **dispositivo é a unidade primária**, não a lei; (b) formato próprio escrito do zero ("Leizilla XML"), com export LexML apenas como gate de CI — não como constraint estrutural; (c) timeline temporal nativa de dispositivos para tratar alterações legislativas; (d) parsed item = "vigente compilado" como objeto principal, histórico exposto via timeline. Ver §0.
+
+Companion docs:
+- `IMPLEMENTATION.md` (raiz) — status geral e log de decisões cronológico
+- `docs/adr/0005-ia-identifiers.md` (a criar em M1) — formalização normativa
+- `docs/schemas/leizilla-v0.1.xsd` (a criar em M0.2) — schema XML
+
+---
+
+## 0. Princípios de modelagem (reescrita pós-review #6)
+
+### 0.1 Dispositivo é a unidade primária e universal de texto
+
+A unidade básica de dado **não é a lei** — é o **dispositivo**. E "dispositivo" é o tipo universal para **tudo que for texto que ajude a interpretar a norma**:
+
+**Normativos** (carregam texto normativo próprio em `<versoes><versao><texto>...`):
+- `titulo-lei`: nome oficial ("LEI Nº 14.133, DE 1º DE ABRIL DE 2021")
+- `ementa`: resumo oficial
+- `preambulo`: "O Presidente da República, faço saber..."
+- `artigo`, `paragrafo`, `inciso`, `alinea`, `item`: articulação
+- `anexo`: anexos com texto (tabelas, listas, fórmulas — estrutura interna em v0.2)
+- `disposicao-transitoria`, `disposicao-final`: blocos finais de disposições
+
+**Organizacionais** (agrupadores sem texto normativo, só `<rotulo>` versionável):
+- `livro`, `parte`, `titulo`, `capitulo`, `secao`, `subsecao`
+
+Tudo é `<dispositivo>` com `tipo` diferenciando. Blocos organizacionais ("TÍTULO I — Dos Princípios") são uma **espécie** de dispositivo, sem `<texto>` mas com `<rotulo>` versionável (renomear capítulo é alteração real).
+
+**Cada dispositivo declara seu pai explicitamente** (`parent` attribute obrigatório). Raiz: `parent=""`. Hierarquia explícita, navegável em ambas direções.
+
+Justificativa:
+- Lawyers citam dispositivos, não leis inteiras ("art. 5º, §2º, II, alínea b da CF/88").
+- Alterações operam sobre dispositivos individuais (caput, parágrafo isolado, anexo isolado).
+- Revogações são parciais com frequência (revoga art. 3º mantém o resto; revoga Anexo II mantém articulação).
+- Cross-references granulares ("Lei 14.133/2021 art. 3 alterou Lei 1.234/2003 art. 5 §2").
+- DuckDB-WASM indexa dispositivos com SQL trivial; lei é apenas o agregador.
+- **Uniformidade**: zero exceção. Todo texto da lei tem o mesmo molde de tratamento, mesma timeline temporal, mesmo padrão de divergência multi-fonte.
+
+Isso difere de LexML/Akoma Ntoso, que centram em document/work com elementos separados (`<Ementa>`, `<Preambulo>`, `<Articulacao>`, `<Anexo>`). Para nosso uso (busca jurídica + timeline temporal + alterações granulares), dispositivo universal é mais expressivo.
+
+### 0.2 Vigente compilado é o objeto canônico; histórico é timeline
+
+O parsed item canônico representa a lei **como ela deve estar vigente hoje** (best-effort compilation). Versões anteriores são **acessíveis** mas não são objetos primários — são snapshots indexados na timeline de cada dispositivo (date picker → "como era em 2010-01-01?").
+
+A "hierarquia de autoridade DO > Casa Civil > Assembleia" do esboço anterior foi descartada. As fontes não competem por canonicidade — elas cross-verificam a compilação vigente:
+
+- Casa Civil/COTEL geralmente mantém o consolidado vigente — fonte primária para texto atual.
+- Diário Oficial dá fé da publicação original — fonte primária para snapshots históricos.
+- Assembleia Legislativa dá o texto legislativo original (pode diferir de DO por retificações tardias).
+- Divergências entre fontes indicam **possível erro de consolidação ou retificação não-aplicada**, não ranking. Frontend mostra como "verificar".
+
+### 0.3 Formato próprio (não fork), com export LexML como gate de CI
+
+O esboço anterior propunha "LeiML" como fork de LexML. Descartado: dispositivo-cêntrico + timeline + divergencias multi-fonte + parse-LLM-metadata + bloco-livre não cabem confortavelmente em LexML, e a regra de round-trip ficaria perdendo dados em todo PR.
+
+Em vez disso: **Leizilla XML v0.1 é escrito do zero**, otimizado para nossos casos de uso. Mantemos a **disciplina** de LexML/Akoma Ntoso (URN LEX para identificar dispositivos, semântica jurídica) e um **gate de CI**: a cada PR, rodar `scripts/lexml_export.py` que produz um LexML válido a partir do nosso XML para casos representativos. O LexML resultante é uma **representação reduzida** (perde divergencias, parse meta, bloco-livre quality) — isso é OK; o gate só garante que conseguimos exportar para gov interop quando preciso, sem amarrar nosso design.
+
+### 0.4 Granularidade na renderização — SSR híbrido
+
+O esboço anterior cravou "HTML renderizado no browser via XSLT/JS, nunca server-side". Suavizado: páginas de detalhe de lei (`/lei/{id}`) renderizam server-side via Astro (acessibilidade WCAG, SEO, no-JS funciona, LBI 13.146/2015). Busca/timeline interativa fica client-side com Svelte+DuckDB-WASM. XSLT in-browser é fallback opcional para quem abre `law.xml` diretamente.
+
+### 0.5 Wayback Machine como caminho primário de fetch (aprovada)
+
+**Decisão**: o crawler **não baixa direto da fonte oficial**. Em vez disso:
+
+1. Crawler descobre `fonte_url` (HTML que lista a lei) e `pdf_url`
+2. Dispara `POST https://web.archive.org/save/{url}` para ambos (com check prévio `/wayback/available?url=...` para reuso de snapshot recente <24h)
+3. **Fetcha o PDF de volta da Wayback Machine** (não da fonte original)
+4. Upload do PDF para nossa coleção IA (continua acionando OCR automático)
+5. Grava `provenance_wayback` em `raw_meta.json` com URLs de snapshot
+
+**Justificativa**:
+- Bate na fonte original **uma única vez** (via bot do Wayback), não centenas. Polite com sites .gov.br frágeis
+- Timestamp Wayback é testemunha independente para auditoria forense — terceiro confiável atesta "esta URL continha este PDF em T"
+- Wayback funciona como CDN/buffer: tira nosso crawler do caminho crítico da fonte
+- Nossa coleção IA + OCR pipeline continua intocada
+
+**Política de falha (detalhada)**:
+
+| Cenário Wayback | Ação |
+|---|---|
+| HTTP 200 + snapshot URL retornada | Caminho feliz. Fetch PDF do snapshot. `fetched_from="wayback"`. |
+| HTTP 429 (rate limit) | Backoff exponencial (1s, 2s, 4s, máx 30s). 3 tentativas, depois fallback. |
+| HTTP 5xx (server error) | Backoff curto (2s, 5s). 2 tentativas, depois fallback. |
+| HTTP 403/451 com body indicando robots.txt | **Permanente, não retry**. Wayback recusa-se a arquivar essa URL. Fallback imediato, gravar `fetched_from="source-fallback"` + `wayback_blocked_robots=true`. |
+| Timeout (>60s) | Fallback. Sem retry (Wayback save é lento por natureza, mas >60s indica problema). |
+| Snapshot existente < 24h via `/wayback/available` | Reusa, não dispara novo save. Economiza throttle quota. |
+
+**Rate limit Wayback público**: ~12 saves/min sem auth, ~120/min com chave SavePageNow ([docs IA](https://archive.org/details/spn-2)). Para scrape de Rondônia inteira (~5k leis × 2 URLs = 10k saves), throttle público leva ~14h. M2 inclui:
+- Token bucket no crawler para respeitar 12/min (worker pool size = 2).
+- Avaliar custo de SavePageNow paid API se 14h ficar inviável.
+
+**Frontend (M5)**: badge visível "fetched via source-fallback (Wayback indisponível)" quando `provenance_wayback.fetched_from = "source-fallback"`. Mantém transparência da garantia "external witness".
+
+Quando o sistema cai inteiramente em fallback de download direto, log warning para auditoria; estatística agregada (% raws com `source-fallback`) é métrica de saúde do pipeline.
+
+**Não-decisão**: Wayback **não substitui** nossa coleção IA. Snapshots Wayback não geram `_djvu.txt` (OCR automático do IA só roda em items de coleção, não em snapshots). Etapa 2 depende do OCR — então o PDF tem que viver na nossa coleção IA.
+
+### 0.6 Genericidade real, não só de slug
+
+O esboço anterior afirmou "genérico por ente desde dia 1" mas o vocabulário era estadual. Realidade: cada nível federativo tem fontes diferentes (Federal: Câmara, Senado, Planalto, DOU; Municípios: ~5.570 estruturas distintas). O modelo Leizilla XML **não** assume estrutura de fonte — apenas que cada dispositivo tem `<fonte ia-id="..."/>` apontando para um raw item. O catálogo `src/leizilla/fontes/{ente}.py` declara fontes válidas por ente; o resto do código consome a lista sem hardcode.
+
+---
+
+## 1. Granularidade dos IA items
+
+### 1.1 Raw items — individual por PDF (aprovada)
+
+**Pattern**: `leizilla-raw-{ente}-{fonte}-{chave}`
+
+| ente | fonte | chave | Exemplo |
+|---|---|---|---|
+| `ro` | `casacivil` | `coddoc-{N:05d}` | `leizilla-raw-ro-casacivil-coddoc-00042` |
+| `ro` | `assembleia` | `coddoc-{N:05d}` | `leizilla-raw-ro-assembleia-coddoc-00042` |
+| `ro` | `diario` | `{YYYY-MM-DD}-p{pagina:04d}` | `leizilla-raw-ro-diario-2003-06-15-p0012` |
+| `federal` | `planalto` | `lei-{numero:05d}-{ano}` | `leizilla-raw-federal-planalto-lei-12345-2024` |
+
+**Justificativa**: IA faz OCR **apenas** em PDFs individuais (não em PDFs dentro de ZIP). Permalink por PDF facilita citação e debugging. Manifest CSV escala para milhares de items.
+
+### 1.2 Raw items — bundle ZIP semanal (aprovada, redundância)
+
+**Pattern**: `leizilla-bundle-{ente}-{fonte}-{periodo}` onde `{periodo}` = ISO week (`YYYY-Www`).
+
+Exemplo: `leizilla-bundle-ro-casacivil-2026-W20`
+
+**Layout interno**:
+```
+manifest.csv         columns: coddoc, ia_id, fonte_url, hash_pdf, data_captura
+pdfs/{chave}.pdf
+meta/{chave}.json
+```
+
+Forensics + download em lote. Mirror histórico das fontes.
+
+### 1.3 Parsed items — 1 lei = 1 IA item (aprovada)
+
+**Pattern canônico**: `leizilla-{ente}-{tipo}-{numero:05d}-{ano}`
+
+| Exemplo | Notas |
+|---|---|
+| `leizilla-ro-lei-01234-2003` | caso normal |
+| `leizilla-ro-decreto-00056-2024` | tipo=decreto |
+| `leizilla-federal-lc-00141-2012` | LC = lei complementar |
+
+**Pattern fallback** (lei antiga sem numeração formal): `leizilla-{ente}-{tipo}-fallback-{fonte}-{chave}`
+
+Exemplo: `leizilla-ro-lei-fallback-casacivil-coddoc-00099`
+
+> Codex P1 fix (PR #6): fallback **inclui obrigatoriamente** o segmento `{fonte}` para evitar colisão quando diferentes fontes compartilham a mesma chave.
+
+**Conteúdo do parsed item** (vigente compilado + histórico em timeline):
+```
+leizilla-ro-lei-01234-2003/
+├── law.xml             ← Leizilla XML v0.1 (dispositivo-cêntrico, com timeline)
+├── parsed_meta.json    ← metadados estruturados de produção
+├── provenance.json     ← rastreabilidade raw items + parse method
+└── alteracoes.json     ← relações computadas (alteradoPor, altera, revogadoPor)
+```
+
+Não inclui HTML pré-gerado (renderização SSR via Astro a partir de `law.xml`). Não inclui `law.lexml` (export sob demanda; ver §6).
+
+### 1.4 Dataset items — versionados (aprovada)
+
+**Pattern**: `leizilla-dataset-{ente}-v{N}`
+
+Conteúdo: `versoes-{ente}-v{N}.parquet` (single table, ver §3), `manifest-{ente}.csv`, `README.md`.
+
+Bump de `N` apenas em **breaking schema change** (coluna removida, tipo alterado de forma incompatível).
+
+---
+
+## 2. Layout dos JSON sidecars
+
+### 2.1 `raw_meta.json` (sidecar do raw item)
+
+```json
+{
+  "leizilla_meta_version": "0.1",
+  "ente": "ro",
+  "fonte": "casacivil",
+  "fonte_url": "https://ditel.casacivil.ro.gov.br/cotel/livros/Folder.aspx?coddoc=42",
+  "pdf_url": "https://ditel.casacivil.ro.gov.br/.../doc-1234.pdf",
+  "chave": "coddoc-00042",
+  "data_captura": "2026-05-20T14:30:00Z",
+  "hash_pdf": "sha256:abc123...",
+  "user_agent": "leizilla-crawler/1.0",
+  "ia_id_bundle": "leizilla-bundle-ro-casacivil-2026-W20",
+  "provenance_wayback": {
+    "fonte_url_snapshot": "https://web.archive.org/web/20260520143000/https://ditel.casacivil.ro.gov.br/cotel/livros/Folder.aspx?coddoc=42",
+    "pdf_url_snapshot": "https://web.archive.org/web/20260520143015/https://ditel.casacivil.ro.gov.br/.../doc-1234.pdf",
+    "captured_at": "2026-05-20T14:30:15Z",
+    "fetched_from": "wayback"
+  }
+}
+```
+
+`provenance_wayback.fetched_from` é `"wayback"` quando o PDF foi baixado via Wayback (caminho primário, §0.5) ou `"source-fallback"` quando Wayback falhou e baixamos direto da fonte. `null` se Wayback falhou e o fallback ainda não rodou. Os snapshots ficam `null` individualmente em caso de falha por URL.
+
+### 2.2 `parsed_meta.json` (sidecar do parsed item)
+
+```json
+{
+  "leizilla_meta_version": "0.1",
+  "schema_xml_version": "0.1",
+  "urn_lex": "urn:lex:br;estado:rondonia:lei:2003-06-15;1234",
+  "ente": "ro",
+  "tipo": "lei",
+  "numero": "1234",
+  "ano": 2003,
+  "data_publicacao": "2003-06-15",
+  "ementa": "Dispõe sobre...",
+  "vigente_em": "2026-05-20",
+  "num_dispositivos": 27,
+  "num_versoes_total": 31,
+  "fontes_consultadas": [
+    "leizilla-raw-ro-casacivil-coddoc-00042",
+    "leizilla-raw-ro-diario-2003-06-15-p0012"
+  ],
+  "tem_divergencia": true,
+  "num_divergencias": 1,
+  "parse_method": "llm-haiku",
+  "parse_model": "claude-haiku-4-5-20251001",
+  "parse_timestamp": "2026-05-20T18:45:00Z",
+  "confianca_parse": 0.92,
+  "validacao_xsd": "passed"
+}
+```
+
+### 2.3 `provenance.json`
+
+Audit trail mínimo separado para facilitar verificação sem carregar `parsed_meta.json` completo.
+
+```json
+{
+  "fontes_raw": [
+    {
+      "ia_id": "leizilla-raw-ro-casacivil-coddoc-00042",
+      "ocr_url": "https://archive.org/download/leizilla-raw-ro-casacivil-coddoc-00042/law_djvu.txt",
+      "hash_pdf": "sha256:abc123...",
+      "consumed_at": "2026-05-20T18:45:00Z"
+    }
+  ],
+  "produced_by": {
+    "tool": "leizilla.etl.llm_parse",
+    "version": "0.1.0",
+    "git_sha": "abc1234def5678901234567890abcdef12345678"
+  }
+}
+```
+
+### 2.4 `alteracoes.json` (novo, derivado)
+
+Relações computadas com outras leis. Permite ao frontend mostrar "esta lei foi alterada por X" sem ter que escanear o `law.xml` inteiro.
+
+> **Derivado, não fonte primária**: source-of-truth é o atributo `alterado-por` de cada `<versao>` dentro de `law.xml`. Este sidecar é **regenerado** a cada update do `law.xml` (mesmo upload IA). Em caso de conflito, `law.xml` ganha. Não editar manualmente.
+
+```json
+{
+  "leizilla_meta_version": "0.1",
+  "alterada_por": [
+    {
+      "urn_lex": "urn:lex:br;estado:rondonia:lei:2024-06-30;5678",
+      "ia_id": "leizilla-ro-lei-05678-2024",
+      "dispositivos_afetados": ["art-3-par-2", "art-5"],
+      "data_efeito": "2024-07-30"
+    }
+  ],
+  "altera": [],
+  "revogada_por": null,
+  "revoga": []
+}
+```
+
+---
+
+## 3. Schema Parquet v0.1 — single table (transitório)
+
+> Schema é **v0.1 durante M0–M4**; promove a **v1 apenas no fechamento de M5** (ver §3.4 e §7). Identificadores `leizilla.schema_version` no footer KV e o `v{N}` no caminho do arquivo refletem isso.
+
+**Decisão (aprovada): uma única tabela `versoes`** com grain (lei × dispositivo × versão). Metadados de lei e dispositivo denormalizados em cada row. Estrutura/listagem emerge via `SELECT DISTINCT`. Read-only Parquet servido estaticamente do IA — dictionary encoding + SNAPPY compress as repetições. Tradeoff explícito: simplicidade de query (zero JOIN no DuckDB-WASM) vs redundância de dados (compressão Parquet mitiga).
+
+Pode evoluir para 2 ou 3 tabelas se DuckDB-WASM ficar gargalo na prática — decisão revisitada em M5 com dados reais.
+
+**Gatilhos de revert (qualquer um dispara discussão de split)**:
+- Parquet `versoes-{ente}-v0.parquet` excede **100 MB** comprimido (limite confortável de fetch HTTP em conexões ruins).
+- Cold DuckDB-WASM init + primeira query (single SELECT por `lei_id`) excede **5s P50** em laptop padrão (M1/M2 Air, conexão 50 Mbps).
+- Memória DuckDB-WASM durante query típica excede **500 MB** (afeta browsers em devices modestos).
+- Latência user-visible de search/filter (texto_normalizado LIKE) excede **1s P95** em dataset RO completo.
+- Cardinalidade real ultrapassa **2M rows** por ente (estimativa atual: ~1.5M para RO; >2M sugere que custos lineares começam a doer).
+
+Critério: 1 gatilho disparado abre RFC de split; 2+ obrigam split antes do M5 fechar. M4 inclui benchmark scripts para medir todos.
+
+### 3.1 Tabela `versoes` — single source of truth
+
+Cada row é uma versão de um dispositivo de uma lei. Colunas agrupadas por origem semântica:
+
+**Lei (denormalizado, repetido por row da mesma lei):**
+
+| coluna | tipo | nullable | nota |
+|---|---|---|---|
+| `lei_id` | VARCHAR | NO | identifier IA do parsed item, zero-padded (e.g. `leizilla-ro-lei-01234-2003`) |
+| `ente` | VARCHAR | NO | `ro`, `sp`, `federal`, `ro-porto-velho`... |
+| `tipo_lei` | VARCHAR | NO | `lei`, `decreto`, `lc`, `resolucao`... |
+| `numero_lei` | VARCHAR | YES | nullable porque fallback existe |
+| `ano` | INTEGER | NO | |
+| `data_publicacao` | DATE | YES | |
+| `urn_lex` | VARCHAR | YES | nullable se `data_publicacao` desconhecida; URN LEX requer data — ver §5.5 |
+| `titulo_lei` | VARCHAR | YES | título oficial denormalizado (mesmo conteúdo do dispositivo `tipo_dispositivo='titulo-lei'`) |
+| `ementa` | VARCHAR | YES | ementa denormalizada (mesmo conteúdo do dispositivo `tipo_dispositivo='ementa'`) |
+| `url_law_xml_ia` | VARCHAR | NO | URL do `law.xml` no IA |
+| `vigente_em` | DATE | NO | data de referência da compilação (toda a lei) |
+| `revogada` | BOOLEAN | NO | a lei inteira foi revogada |
+| `parse_status` | VARCHAR | NO | `raw_only`/`parsed`/`failed` |
+| `parse_method` | VARCHAR | YES | `llm-haiku`/`llm-opus`/`manual`/`deterministic` |
+| `confianca_parse` | FLOAT | YES | 0.0–1.0 |
+
+**Dispositivo (denormalizado, repetido por versão do mesmo dispositivo):**
+
+| coluna | tipo | nullable | nota |
+|---|---|---|---|
+| `dispositivo_path` | VARCHAR | NO | `art-3` / `art-3-par-2` / `tit-1-cap-1` / etc. Normativos = global; organizacionais = namespaceado (§4.3 regras 3 e 4) |
+| `dispositivo_parent_path` | VARCHAR | NO | path do pai; raiz = `""`; sempre declarado (§0.1) |
+| `tipo_dispositivo` | VARCHAR | NO | enum unificado (§0.1): normativos (`titulo-lei`, `ementa`, `preambulo`, `artigo`, `paragrafo`, `inciso`, `alinea`, `item`, `anexo`, `disposicao-transitoria`, `disposicao-final`) + organizacionais (`livro`, `parte`, `titulo`, `capitulo`, `secao`, `subsecao`). **Não inclui `caput`** — caput é índice 0 implícito (§4.3). |
+| `rotulo` | VARCHAR | NO | "Art. 1º", "§ 2º", "II", "a)", "TÍTULO I — Dos Princípios"... estável; override por versão fica em `rotulo_versao` |
+| `ordem` | INTEGER | NO | ordem dentro do parent (1, 2, 3...) |
+| `urn_dispositivo` | VARCHAR | YES | NULL ⟺ `urn_lex` é NULL |
+
+**Versão (único por row):**
+
+| coluna | tipo | nullable | nota |
+|---|---|---|---|
+| `versao_id` | VARCHAR | NO | `{lei_id}#{dispositivo_path}#v{N}` — PK |
+| `numero_versao` | INTEGER | NO | 1, 2, 3... cronológico dentro do dispositivo |
+| `vigente_de` | DATE | NO | |
+| `vigente_ate` | DATE | YES | NULL = ainda vigente |
+| `texto` | VARCHAR | YES | NULL quando dispositivo é organizacional (tipo ∈ {livro, parte, titulo, capitulo, secao, subsecao}); NOT NULL para normativos |
+| `texto_normalizado` | VARCHAR | YES | NFC + cleanup p/ busca client-side. NULL nas mesmas condições de `texto` |
+| `rotulo_versao` | VARCHAR | YES | override do `rotulo` estável; útil quando rotulo muda entre versões (renomear capítulo). Normalmente NULL |
+| `alterado_por_lei_id` | VARCHAR | YES | NULL na versão original; senão lei_id da lei alteradora |
+| `fonte_canonica` | VARCHAR | NO | slug curto da fonte (`casacivil`, `diario`, `assembleia`...) |
+| `fontes_consultadas` | VARCHAR (JSON array) | NO | lista de raw IA ids usados nesta versão |
+| `tem_divergencia` | BOOLEAN | NO | |
+| `divergencias` | VARCHAR (JSON) | YES | diff summary entre fontes para esta versão |
+| `hash_texto` | VARCHAR | YES | sha256 de `texto`; NULL quando `texto` é NULL |
+| `bloco_livre_quality` | VARCHAR | YES | `null` (parsing OK) / `low` / `medium` / `high` / `raw` se `<bloco-livre>` foi usado (§4.4) |
+| `created_at` | TIMESTAMP | NO | |
+| `updated_at` | TIMESTAMP | NO | |
+
+### 3.2 Padrões de query
+
+```sql
+-- Texto vigente de art-5 da Lei 1234/2003 hoje
+SELECT texto FROM versoes
+WHERE lei_id = 'leizilla-ro-lei-01234-2003'
+  AND dispositivo_path = 'art-5'
+  AND vigente_ate IS NULL;
+
+-- Texto de art-5 como estava em 2010-01-01
+SELECT texto FROM versoes
+WHERE lei_id = 'leizilla-ro-lei-01234-2003'
+  AND dispositivo_path = 'art-5'
+  AND vigente_de <= DATE '2010-01-01'
+  AND (vigente_ate > DATE '2010-01-01' OR vigente_ate IS NULL);
+
+-- Estrutura/TOC de uma lei (rotulo vigente por dispositivo)
+-- Regra: rotulo mostrado no TOC = COALESCE(rotulo_versao, rotulo) da versão atualmente vigente
+SELECT DISTINCT
+  dispositivo_path,
+  tipo_dispositivo,
+  dispositivo_parent_path,
+  COALESCE(rotulo_versao, rotulo) AS rotulo_tos,
+  ordem
+FROM versoes
+WHERE lei_id = 'leizilla-ro-lei-01234-2003'
+  AND vigente_ate IS NULL   -- versão vigente apenas
+ORDER BY ordem;
+
+-- Busca por nome de capítulo/título (texto_normalizado é NULL em blocos
+-- organizacionais; busca em rotulo)
+SELECT DISTINCT lei_id, dispositivo_path, rotulo
+FROM versoes
+WHERE ente = 'ro'
+  AND tipo_dispositivo IN ('livro', 'parte', 'titulo', 'capitulo', 'secao', 'subsecao')
+  AND rotulo ILIKE '%direitos fundamentais%';
+
+-- Listagem de todas as leis de um ente
+SELECT DISTINCT lei_id, titulo_lei, ementa, ano, parse_status, confianca_parse
+FROM versoes
+WHERE ente = 'ro'
+ORDER BY ano DESC, numero_lei;
+
+-- Busca full-text em texto normalizado
+SELECT lei_id, dispositivo_path, texto FROM versoes
+WHERE ente = 'ro'
+  AND vigente_ate IS NULL
+  AND texto_normalizado LIKE '%servidor publico%';
+```
+
+### 3.3 Representação de arrays e JSON
+
+Arrays **no Parquet** como `VARCHAR` com JSON serializado, **não** Parquet LIST nativo. Justificativa: simplifica TanStack Query + Svelte components; JSON universal; custo storage irrelevante com SNAPPY.
+
+**Sidecars JSON** (`raw_meta.json`, `parsed_meta.json`, `provenance.json`, `alteracoes.json`) usam arrays JSON nativos — a restrição é específica do Parquet.
+
+### 3.4 Footer KV metadata (PyArrow)
+
+```python
+{
+  "leizilla.schema_version": "0.1",
+  "leizilla.xml_schema_version": "0.1",
+  "leizilla.ente": "ro",
+  "leizilla.table": "versoes",
+  "leizilla.generated_at": "2026-05-20T19:00:00Z",
+  "leizilla.row_count": "298473",
+  "leizilla.git_sha": "abc1234def5678901234567890abcdef12345678"
+}
+```
+
+Escrita preferida via `pyarrow.parquet.write_table` (controle granular do KV + interop com Arrow ecosystem). DuckDB também suporta KV custom via `COPY (...) TO 'file.parquet' (FORMAT parquet, KV_METADATA {...})` — ambos os paths são válidos; escolha do writer fica para M4 baseada em complexidade do ETL. `git_sha` é o SHA completo (40 chars), não truncado.
+
+### 3.5 Versioning
+
+- `schema_version` semver-ish na coluna `leizilla.schema_version`: major bump apenas em break.
+- **Mapping `schema_version` → identifier `v{N}`**: `N` é o **major** do `schema_version`. Pré-M5: `schema_version="0.1"` → identifier `v0` (e.g. `leizilla-dataset-ro-v0`, `versoes-ro-v0.parquet`). Pós-M5: `schema_version="1"` → identifier `v1`. Identifier IA permanece inteiro `v\d+` por compatibilidade com regex de naming (§5.4); versão pré-release fica codificada no major `0`. Minor/patch (`0.1`, `0.2`) atualizam o footer KV sem novo identifier.
+- **Nota interpretativa**: `v0` **não** significa "empty/draft/abandonado" — é o major do `schema_version="0.1"`, indicando design pré-MVP. Dataset `v0` é válido, citável, e tem garantias formais de schema (XSD validado, footer KV preenchido). Promove-se a `v1` quando o MVP M5 fechar e o schema for considerado estável.
+- CI valida que `int(N)` no caminho do arquivo bate com `int(schema_version.split('.')[0])` do footer KV.
+- Zod schema único em `web/src/schemas/v0/versao.ts` (matches single table) durante M0–M4; movido para `v1/` quando schema_version promover para `1`.
+- v1 só é cravado depois do MVP rodar (reviewer #6 ponto 13). Durante M0–M4 o schema é **v0.1** (identifier `v0`); promove para v1 no fechamento de M5.
+
+---
+
+## 4. Leizilla XML v0.1 — formato canônico
+
+Esboço. Definição XSD formal em `docs/schemas/leizilla-v0.1.xsd` (M0.2).
+
+### 4.1 Estrutura raiz
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="https://leizilla.org/render/0.1/lei.xsl"?>
+<!-- ⚠️ Todos URN LEX nos exemplos são dialect provisório — ver §10 pendentes (verificar contra spec CGPID). -->
+<lei xmlns="https://leizilla.org/lei/0.1"
+     schema-version="0.1"
+     urn-lex="urn:lex:br;estado:rondonia;lei:2003-06-15;1234">
+  <header>...</header>
+  <dispositivos>...</dispositivos>
+  <anotacoes>...</anotacoes>
+</lei>
+```
+
+### 4.2 `<header>` — metadados da lei
+
+```xml
+<!-- Header carrega APENAS metadados estruturais/bibliográficos.
+     Todo texto (título oficial, ementa, preâmbulo, articulação, anexos)
+     vive em <dispositivos> (§0.1). -->
+<header>
+  <ente>ro</ente>
+  <tipo>lei</tipo>
+  <numero>1234</numero>
+  <ano>2003</ano>
+  <data-publicacao>2003-06-15</data-publicacao>
+  <vigente-em>2026-05-20</vigente-em>
+  <revogada>false</revogada>
+</header>
+<!--
+  Semântica das datas:
+  - <vigente-em> (header) = data de referência da compilação. "Esta versão
+    do law.xml representa a lei como ela estava vigente em 2026-05-20."
+    Update sempre que reprocessar.
+  - <versao vigente-de="..." vigente-ate="..."> (dispositivo) = intervalo
+    de validade daquela redação específica do dispositivo. Não confundir.
+-->
+```
+
+### 4.3 `<dispositivos>` — corpo dispositivo-cêntrico
+
+Cada dispositivo carrega sua própria **timeline de versões**. Nested para hierarquia.
+
+**Regra do caput (Opção D — aprovada)**: caput não é elemento separado nem tipo. Todo `<dispositivo>` normativo container (artigo, parágrafo, inciso) carrega `<texto>` na sua própria `<versao>` — isso **é** o caput quando o dispositivo tem filhos. Conceitualmente o caput é o "índice 0" dos filhos do container. Implica:
+
+- **Sem `<dispositivo tipo="caput">`**. Caput é propriedade implícita do container normativo. `caput` **não está** no enum de `tipo_dispositivo` (§3.1).
+- **URN aponta para o container**: `urn:lex:...!art-5` resolve para o texto intrínseco (caput) do art-5. Sub-itens via `!art-5!par-1`, etc.
+- **Versionamento granular preservado**: alterar só o caput = nova `<versao>` no próprio `<dispositivo path="art-5">`. Alterar só o §1 = nova `<versao>` em `<dispositivo path="art-5-par-1">`. Independentes.
+- **Aplica recursivamente**: parágrafo com incisos também tem "caput" (seu próprio texto antes dos incisos), mesma regra.
+- **Parquet `dispositivos`**: 1 row por dispositivo. A row do container **é** o caput. Não há row extra "caput".
+- **Export LexML** (XSLT): wrap mecânico — `<dispositivo path="art-5"><versoes><versao><texto>{T}</texto></versao></versoes>...` vira `<Artigo><Caput><Texto>{T}</Texto></Caput>...</Artigo>`.
+
+```xml
+<!-- Exemplo cobrindo: título-lei + ementa + preâmbulo + blocos organizacionais
+     + articulação + anexo. Tudo é <dispositivo>; tipo discrimina o papel. -->
+<dispositivos>
+
+  <dispositivo tipo="titulo-lei" path="titulo-lei" parent=""
+               urn="urn:lex:br;estado:rondonia;lei:2003-06-15;1234!titulo-lei">
+    <rotulo>Título</rotulo>
+    <versoes>
+      <versao numero="1" vigente-de="2003-06-15">
+        <texto>LEI Nº 1.234, DE 15 DE JUNHO DE 2003</texto>
+        <fonte-canonica>casacivil</fonte-canonica>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+      </versao>
+    </versoes>
+  </dispositivo>
+
+  <dispositivo tipo="ementa" path="ementa" parent="">
+    <rotulo>Ementa</rotulo>
+    <versoes>
+      <versao numero="1" vigente-de="2003-06-15">
+        <texto>Dispõe sobre a organização administrativa do Estado de Rondônia.</texto>
+        <fonte-canonica>casacivil</fonte-canonica>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+      </versao>
+    </versoes>
+  </dispositivo>
+
+  <dispositivo tipo="preambulo" path="preambulo" parent="">
+    <rotulo>Preâmbulo</rotulo>
+    <versoes>
+      <versao numero="1" vigente-de="2003-06-15">
+        <texto>O GOVERNADOR DO ESTADO DE RONDÔNIA faço saber...</texto>
+        <fonte-canonica>casacivil</fonte-canonica>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+      </versao>
+    </versoes>
+  </dispositivo>
+
+  <!-- Bloco organizacional: tem <rotulo> versionável, NÃO tem <texto> nas versões -->
+  <dispositivo tipo="titulo" path="tit-1" parent="">
+    <rotulo>TÍTULO I — Dos Princípios Fundamentais</rotulo>
+    <versoes>
+      <!-- Bloco pode ter versão se rotulo mudar; sem <texto> -->
+      <versao numero="1" vigente-de="2003-06-15">
+        <rotulo>TÍTULO I — Dos Princípios Fundamentais</rotulo>
+        <fonte-canonica>casacivil</fonte-canonica>
+      </versao>
+    </versoes>
+
+    <dispositivo tipo="capitulo" path="tit-1-cap-1" parent="tit-1">
+      <rotulo>CAPÍTULO I — Disposições Preliminares</rotulo>
+      <versoes>
+        <versao numero="1" vigente-de="2003-06-15">
+          <rotulo>CAPÍTULO I — Disposições Preliminares</rotulo>
+          <fonte-canonica>casacivil</fonte-canonica>
+        </versao>
+      </versoes>
+
+      <!-- Path do artigo permanece GLOBAL (art-1), não tit-1-cap-1-art-1.
+           parent="tit-1-cap-1" declara o nesting. Citação "art. 1º" = lookup
+           direto por path. -->
+      <dispositivo tipo="artigo" path="art-1" parent="tit-1-cap-1"
+                   urn="urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-1">
+        <rotulo>Art. 1º</rotulo>
+        <versoes>
+          <versao numero="1" vigente-de="2003-06-15" vigente-ate="2024-07-30"
+                  alterado-por="urn:lex:br;estado:rondonia;lei:2024-06-30;5678">
+            <texto>Esta Lei dispõe sobre...</texto>     <!-- caput do art-1 -->
+            <fonte-canonica>casacivil</fonte-canonica>
+            <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+            <fonte ia-id="leizilla-raw-ro-diario-2003-06-15-p0012"/>
+          </versao>
+          <versao numero="2" vigente-de="2024-07-30">
+            <texto>Esta Lei dispõe sobre (redação dada pela Lei 5.678/2024)...</texto>
+            <fonte-canonica>casacivil</fonte-canonica>
+            <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00187"/>
+          </versao>
+        </versoes>
+
+        <dispositivo tipo="paragrafo" path="art-1-par-1" parent="art-1"
+                     urn="urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-1!par-1">
+          <rotulo>§ 1º</rotulo>
+          <versoes>
+            <versao numero="1" vigente-de="2003-06-15">
+              <texto>...</texto>                          <!-- caput do § -->
+              <fonte-canonica>casacivil</fonte-canonica>
+              <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+            </versao>
+          </versoes>
+        </dispositivo>
+      </dispositivo>
+    </dispositivo>
+  </dispositivo>
+
+  <dispositivo tipo="anexo" path="anexo-1" parent="">
+    <rotulo>ANEXO I — Tabela de Cargos</rotulo>
+    <versoes>
+      <versao numero="1" vigente-de="2003-06-15">
+        <texto>... conteúdo do anexo (estrutura interna em v0.2) ...</texto>
+        <fonte-canonica>casacivil</fonte-canonica>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+      </versao>
+    </versoes>
+  </dispositivo>
+
+</dispositivos>
+```
+
+**Regras (todas obrigatórias)**:
+
+1. **`parent` attribute obrigatório** em todo `<dispositivo>`. Raiz: `parent=""`.
+2. **`<versoes>` obrigatório** com **no mínimo 1 `<versao>`** (a original). Sem exceção. Blocos organizacionais têm `<versao>` carregando só `<rotulo>` (sem `<texto>`); normativos têm `<texto>` (e opcionalmente `<rotulo>` override).
+3. **Path do dispositivo normativo é GLOBAL** (`art-5`, `art-5-par-1`, `art-5-par-1-inc-1`, `art-5-par-1-inc-1-ali-a`). Não namespaceia por bloco organizacional acima. Citação forense ("art. 5º") = lookup literal.
+4. **Path do dispositivo organizacional namespaceia internamente** (`tit-1`, `tit-1-cap-1`, `tit-1-cap-1-sec-2`, `liv-2-tit-3-cap-1`). Hierarquia de blocos namespaceia o próprio bloco; normativos contidos não herdam o prefix. Token map: `liv-N` (livro), `parte-N` (parte), `tit-N` (titulo), `cap-N` (capitulo), `sec-N` (secao), `subsec-N` (subsecao), `anexo-N` (anexo). Numeração sequential dentro do parent.
+5. **Caput é implícito (índice 0)**: container normativo (`artigo`, `paragrafo`, `inciso`) carrega seu próprio `<texto>` no nível do container; filhos `<dispositivo>` são sub-itens. Sem `<dispositivo tipo="caput">`. Ver detalhes abaixo.
+
+**Mapping nesting XML ↔ `dispositivo_path` flat na tabela Parquet `versoes`** (§3.1): geração determinística do path. Frontend e ETL usam o **mesmo gerador** (`src/leizilla/leizilla_xml/path.py` em M3).
+
+```
+TÍTULO I  >  CAPÍTULO I  >  Art. 1º  >  § 1º  >  inciso I  >  alínea a
+  tit-1     tit-1-cap-1     art-1     art-1-par-1   art-1-par-1-inc-1   art-1-par-1-inc-1-ali-a
+  (org)       (org)         (norm)     (norm)         (norm)               (norm)
+```
+
+**Outras regras de versão**:
+- `vigente-ate` ausente = ainda vigente.
+- `alterado-por` aponta para URN da lei alteradora (não para versão específica).
+- Hierarquia via nesting XML + `parent` attribute (redundância intencional para validação cruzada).
+
+### 4.4 Fallback: `<bloco-livre>` para OCR ruim
+
+Se o LLM não conseguir estruturar dispositivos:
+
+```xml
+<dispositivos>
+  <bloco-livre quality="low">
+    <p>...texto OCR cru, possivelmente fragmentado...</p>
+  </bloco-livre>
+</dispositivos>
+```
+
+Atributo `quality` é extensível: `low` / `medium` / `high` / `raw` (reviewer #6 ponto 🟢). Frontend renderiza com banner "texto não estruturado".
+
+### 4.5 `<anotacoes>` — metadados de processamento
+
+```xml
+<anotacoes>
+  <divergencia
+      dispositivo-path="art-3-par-2"
+      versao-numero="1"
+      entre="casacivil,diario"
+      diff-xpath="/dispositivo/versoes/versao[@numero='1']/texto">
+    §2º está ausente em casacivil; presente em diario. Texto vigente
+    adotado de casacivil (consolidado oficial); inconsistência marcada
+    para verificação manual.
+  </divergencia>
+  <parse
+      method="llm-haiku"
+      model="claude-haiku-4-5-20251001"
+      confianca="0.92"
+      timestamp="2026-05-20T18:45:00Z"/>
+</anotacoes>
+```
+
+> **Confiança baixa exibida explicitamente**: reviewer #6 ponto 5. Frontend mostra banner no card de detalhe da lei se `confianca_parse < 0.8` ou `parse_method = "llm-*"`: "Este texto foi compilado por LLM a partir de OCR — para texto oficial, consulte: [links das fontes raw]".
+
+### 4.6 Stylesheet processing instruction
+
+Todo `law.xml` começa com:
+```xml
+<?xml-stylesheet type="text/xsl" href="https://leizilla.org/render/0.1/lei.xsl"?>
+```
+
+Abrir o XML direto no browser exibe HTML (XSLT in-browser). **Não** é o caminho de renderização primário (esse é Astro SSR — reviewer #6 ponto 12). É fallback opcional.
+
+---
+
+## 5. Naming completo — regex formal
+
+### 5.1 Raw individual
+```
+^leizilla-raw-(?P<ente>[a-z][a-z0-9-]*)-(?P<fonte>[a-z]+)-(?P<chave>[a-z0-9-]+)$
+```
+
+### 5.2 Raw bundle ZIP
+```
+^leizilla-bundle-(?P<ente>[a-z][a-z0-9-]*)-(?P<fonte>[a-z]+)-(?P<periodo>\d{4}-W\d{2})$
+```
+
+### 5.3 Parsed
+**Canônico**:
+```
+^leizilla-(?P<ente>[a-z][a-z0-9-]*)-(?P<tipo>[a-z]+)-(?P<numero>\d{5,})-(?P<ano>\d{4})$
+```
+
+> Reviewer #6 ponto 4 fix: `\d{5,}` em vez de `\d{5}` — leis federais já passam de 5 dígitos por extenso; zero-pad mínimo de 5 mantém ordenação lexicográfica para a maioria.
+
+> Codex P2 fix: o `lei_id` no Parquet (§3.1) **sempre** usa o `numero` zero-padded para bater com o IA identifier. Lookup `lei_id → IA item` é literal, sem normalização extra.
+
+**Numero não-numérico** (algumas leis antigas: "Lei A-12", romanos): tratar como caso de fallback. Não tentar normalizar para inteiro. O identifier vai para o pattern fallback abaixo, com `chave` derivado da fonte primária.
+
+**Fallback**:
+```
+^leizilla-(?P<ente>[a-z][a-z0-9-]*)-(?P<tipo>[a-z]+)-fallback-(?P<fonte>[a-z]+)-(?P<chave>[a-z0-9-]+)$
+```
+
+> Codex P1 fix: `{fonte}` é obrigatório no fallback, evitando colisão quando fontes diferentes compartilham `chave`.
+
+### 5.4 Dataset
+```
+^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)$
+```
+
+### 5.5 URN LEX
+
+> ⚠️ **Dialect provisório**: todos os exemplos URN abaixo (e em §4) usam separadores que ainda precisam ser validados contra a especificação oficial CGPID — ver §10. Se o dialect mudar, todos os exemplos do doc precisam refresh em PR único.
+
+**Lei**: `urn:lex:br;{jurisdicao};lei:{YYYY-MM-DD};{numero}`
+- `{jurisdicao}` para estados: `estado:rondonia` / `estado:sao-paulo`
+- `{jurisdicao}` para federal: `federal`
+- `{jurisdicao}` para municípios: `municipio:rondonia;porto-velho`
+
+**Dispositivo**: `{urn-lei}!art-N` ou `{urn-lei}!art-N!par-M!inc-K!ali-L` (separador `!` cf. extensão LexML para sub-document addressing).
+
+**Fallback URN quando `data_publicacao` desconhecida** (reviewer #6 ponto 3): `urn_lex` na coluna Parquet é nullable. Quando data não é extraível, gravar `NULL` (não falsificar). Identifier IA usa fallback `leizilla-{ente}-{tipo}-fallback-{fonte}-{chave}` (§5.3) que não depende de URN.
+
+> **Pendente M0.2**: verificar contra a especificação oficial CGPID se o separador interno é `;`, `,` ou `:` em casos como `urn:lex:br;rondonia:estadual:lei,2003-06-15;1234`. Reviewer #6 sugeriu que CGPID usa vírgulas em alguns campos. Validar antes de cravar o exemplo.
+
+### 5.6 Slug `{ente}`
+
+- União: `federal`
+- Estados: ISO 3166-2:BR sem `BR-`, lowercase: `ro`, `sp`, `mg`, `rj`...
+- Municípios: `{uf}-{slug-kebab}`: `ro-porto-velho`, `sp-sao-paulo`
+- DF: `df`
+
+Lista canônica em `src/leizilla/entes.py` (M1) com nome oficial, UF pai, código IBGE.
+
+### 5.7 Slug `{fonte}` — regra load-bearing
+
+`{fonte}` é token único `[a-z]+` — **sem hífens nem underscores**. Toda referência (IA identifier, `raw_meta.json.fonte`, `parsed_meta.json.fontes_consultadas[]`, atributo `<fonte-canonica>` em XML, coluna Parquet `fonte_canonica` e `versoes.fontes_consultadas`, enum `FONTES` Python) usa **exatamente o mesmo slug**.
+
+Hífens quebrariam parsing de `leizilla-raw-{ente}-{fonte}-{chave}` (sem fronteira reconhecível). Nomes longos (`diário oficial`, `casa civil`) ficam em campos `display_name` / metadata IA legível.
+
+Slugs canônicos lockados: `casacivil`, `diario`, `assembleia`, `planalto`, `camara`, `senado`.
+
+**Slug `diario` cobre todo Diário Oficial** (estadual, municipal, federal/DOU). A distinção entre DO-RO e DOU é resolvida pelo `{ente}` no identifier: `leizilla-raw-ro-diario-...` vs `leizilla-raw-federal-diario-...`. O slug `{fonte}` é orientado a **tipo de fonte**, não a instituição específica.
+
+---
+
+## 6. Export LexML — gate de CI, não constraint estrutural
+
+**Decisão (aprovada, pós-review #6)**: Leizilla XML é o formato canônico. LexML é gerado sob demanda como **representação reduzida** para gov interop.
+
+**Perdas conhecidas no export** (documentadas no XSLT):
+- `<bloco-livre quality="low">` → vira `<Texto>` cru sem marcação.
+- `<anotacoes><divergencia>` e `<parse>` → descartados (não têm equivalente LexML).
+- Timeline `<versoes>` colapsa para `<TextoArticulado>` da versão vigente apenas; histórico vira `<Alteracao>` LexML quando possível.
+
+**Estratégia**:
+- XSLT `scripts/leizilla-to-lexml.xsl` realiza conversão.
+- CLI `uv run leizilla export-lexml --ia-id leizilla-ro-lei-01234-2003` gera `law.lexml` localmente.
+- **Não** uploadamos `law.lexml` ao IA por padrão. Sob demanda para release oficial: ZIP separado `leizilla-lexml-export-{ente}-{date}.zip`.
+
+**CI gate**:
+- A cada PR, `pytest tests/test_lexml_export.py`:
+  1. Pega 3 fixtures `tests/fixtures/leizilla_xml/`.
+  2. Aplica `leizilla-to-lexml.xsl`.
+  3. Valida XML contra XSD oficial LexML em `tests/fixtures/lexml.xsd` (bundle no repo — reviewer #6 ponto 6 + §9 resolvida: **bundle aprovada**).
+  4. Falha se LexML resultante não validar.
+
+CI **não** valida round-trip (LexML → Leizilla XML não é objetivo).
+
+---
+
+## 7. Versionamento — regras de bump
+
+| Coisa | Versão atual | Bump major em |
+|---|---|---|
+| Leizilla XML | `0.1` | mudança incompatível no schema XSD |
+| Parquet schema | `0.1` (vira `1` em M5) | coluna removida ou tipo breaking |
+| Sidecar JSON | `0.1` | campo obrigatório add/remove |
+| `leizilla` CLI | `1.0` (após M5) | breaking em subcomandos |
+
+CI: ao bumpar major, `web/src/schemas/v{N}/` precisa existir + ser referenciado em `web/src/lib/queries.ts`. Build quebra se faltar.
+
+---
+
+## 8. Inspirações dos sister projects
+
+### Da ficha
+- ZIP de raw bulk (§1.2) ← ficha mirror dos 37 ZIPs RFB.
+- Parquet como camada canônica ← ficha tem `cnpjs.parquet`, `socios.parquet`. Nossa `versoes-{ente}-v{N}.parquet` segue mesma filosofia (single table denormalizada por grain, ver §3).
+- Footer KV `schema_version` ← ficha embute; replicamos em §3.4.
+
+### Da baliza
+- Manifest CSV no IA como source of truth ← baliza usa `baliza-pncp-manifest/manifest.csv`. Nossa `manifest-{ente}.csv` segue mesma estrutura.
+
+### Da causaganha
+- Sync manifest por `(tribunal, date)` ← rastreio granular. Nossa rastreia `(ente, fonte, chave)`.
+
+---
+
+## 9. Decisões resolvidas em M0 (rastreio)
+
+- ✅ **Granularidade IA raw**: individual por PDF (§1.1) + bundle ZIP semanal redundante (§1.2).
+- ✅ **Slug fonte é `[a-z]+` único** (§5.7).
+- ✅ **Bundle `lexml.xsd` no repo** (§6) — reprodutibilidade.
+- ✅ **`git_sha` SHA completo (40 chars)** (§3.4).
+- ✅ **Regex parsed aceita `\d{5,}`** (§5.3).
+- ✅ **Tipo Parquet usa `VARCHAR`** (§3.1), não `TEXT`.
+- ✅ **Fallback parsed inclui `{fonte}`** (§5.3).
+- ✅ **`lei_id` Parquet sempre zero-padded** (§3.1).
+- ✅ **Dispositivo é unidade primária** (§0.1).
+- ✅ **Vigente compilado é canônico, histórico via timeline** (§0.2).
+- ✅ **Formato próprio (Leizilla XML), não fork LexML** (§0.3).
+- ✅ **SSR híbrido via Astro** (§0.4), softening do princípio 6 anterior.
+- ✅ **`urn_lex` Parquet é nullable** (§5.5).
+- ✅ **Schema Parquet é v0.1 durante M0–M4; promove a v1 em M5** (§3.5, §7).
+- ✅ **Single table `versoes` (denormalizada)** (§3) — substitui 3 tabelas relacionais. Decisão revisitável em M5 com dados reais.
+- ✅ **Caput é índice 0 implícito** (§4.3) — Opção D: container carrega `<versoes>` próprio; sem `<dispositivo tipo="caput">` separado. Aplica recursivamente a todos containers.
+- ✅ **Wayback Machine como caminho primário de fetch** (§0.5) — buffer/CDN entre nós e a fonte; fail-open para fallback de download direto.
+- ✅ **LGPD: leis publicadas, sem despublicação** — Leis estaduais e federais são atos públicos (CF art. 5º LX, art. 84 IV, art. 37 caput). LGPD (Lei 13.709/2018) não autoriza despublicação de norma pública e não está acima da Constituição. Citação de pessoas físicas em leis antigas (nomeações, aposentadorias, concessões) faz parte do ato administrativo público — indexar e republicar é continuidade do ato original, não tratamento novo. Documentar em ADR-0009 (Claude routines + ética) em M1.
+- ✅ **Custo LLM diluído no tempo** — estimativa de ~$40–100/ente (5k leis × 10k tokens × Haiku) é aceitável; ingestão é one-shot por lei, custo amortiza. Re-parsing pontual em fill-gaps é marginal. Não é fator de bloqueio do design.
+- ✅ **Re-scrape sob auditoria** — re-scrape NÃO é automático. Disparado só quando auditoria periódica conclui que qualidade do raw caiu (e.g., versão do PDF foi corrigida pela fonte, ou OCR muito ruim). Quando re-scrape acontece, novo raw item vira `{chave}-r{N}` (revisão); raw anterior permanece (imutabilidade §0.X). Documentado como processo em IMPLEMENTATION.md (auditoria periódica de qualidade).
+- ✅ **Auditoria de novas fontes por ente** — processo paralelo à re-scrape: auditoria periódica avalia se novas fontes oficiais devem ser adicionadas ao `src/leizilla/fontes/{ente}.py` (e.g., descobrir que estado X tem um portal de transparência que reúne consolidados). Não bloqueia M0.
+- ✅ **Dispositivo é unidade universal de texto** (§0.1) — `tipo` enum cobre normativos (titulo-lei, ementa, preambulo, artigo, paragrafo, inciso, alinea, item, anexo, disposicao-*) e organizacionais (livro, parte, titulo, capitulo, secao, subsecao). Tudo que é texto da lei é `<dispositivo>`. Header carrega só metadados bibliográficos.
+- ✅ **Path do dispositivo normativo é global** (§4.3 regra 3) — `art-5` permanece `art-5` independente do bloco. Citação forense direta.
+- ✅ **Parent attribute obrigatório** (§0.1) — todo `<dispositivo>` declara `parent="..."`. Raiz: `parent=""`. Redundante com nesting XML mas explicitude força clareza e permite validação cruzada.
+- ✅ **Sem `eh_bloco` column** — redundante com `tipo`. Filtros via `texto IS NOT NULL` (normativos) ou `tipo IN (...)`.
+
+## 10. Decisões pendentes (resolver em M0.2)
+
+- [ ] **Verificar URN LEX dialect** (§5.5) — separadores `;`/`,`/`:` contra spec CGPID atual.
+- [ ] **Compressão Parquet**: SNAPPY vs ZSTD. Verificar DuckDB-WASM 1.28 (ou versão atual) suporta ZSTD via teste real em M0.2.
+- [ ] **Granularidade bundle ZIP**: semanal (`YYYY-Www`) atual; revisitar se tamanho ficar trivial.
+- [ ] **XPath dialect em `diff-xpath`** (§4.5) — declarar "XPath 1.0 subset, atributos com aspas simples" (reviewer #6 ponto 9).
+- [ ] **Robots.txt + rate limiting** como princípio explícito no crawler (reviewer #6 ponto 12) — adicionar em ADR-0008 (pipeline) e `src/leizilla/crawler.py`. Nota: com §0.5 (Wayback como fetch primário), bater na fonte original fica raro — robots.txt continua valendo, rate-limit do nosso crawler vira proteção do Wayback save endpoint (15 req/min sem auth, 100 com SavePageNow).
+- [ ] **XSLT in-browser deprecation** (reviewer #6 ponto 4) — confirmar que primário é Astro SSR, XSLT é fallback opcional. Atualizar §4.6 se Astro SSR cobrir 100%.
+
+## 11. Open questions (v0.2 ou posterior)
+
+- **Catálogo de fontes federais** (Câmara, Senado, Planalto, DOU) — modelagem em §0.6 acomoda, mas vocabulário concreto fica para quando atacarmos `ente=federal`.
+- **Catálogo de fontes municipais** — ~5.570 estruturas distintas; modelo `src/leizilla/fontes/{ente}.py` escala, mas curadoria é desafio próprio.
+- **Versionamento de raw quando fonte republica** (overlap com §10) — política mais fina depois.
+- **Acessibilidade WCAG completa** — Astro SSR resolve maior parte; auditoria formal em M5.
+- **Multilíngua** — fora de escopo Leizilla.
