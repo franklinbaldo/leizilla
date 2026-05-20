@@ -287,7 +287,7 @@ Dispositivo-cêntrico exige três tabelas relacionadas. Cada uma vira um Parquet
 
 ```python
 {
-  "leizilla.schema_version": "1",
+  "leizilla.schema_version": "0.1",
   "leizilla.xml_schema_version": "0.1",
   "leizilla.ente": "ro",
   "leizilla.table": "dispositivos",  # ou leis / versoes

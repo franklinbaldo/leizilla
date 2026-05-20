@@ -11,7 +11,7 @@
 | **M0** — Documento vivo + Design schema | 🟡 in-progress | #6 | M0.1 done; M0.2 reescrito após review dos 3 blockers; falta `leizilla-v0.1.xsd` + fixtures + decisões §10 do SCHEMA.md |
 | M1 — Foundation (package + ADRs + deps) | ⚪ todo | — | Bloqueado por M0 |
 | M2 — Crawler real + Raw upload | ⚪ todo | — | Bloqueado por M1 |
-| M3 — OCR fetch + LLM parse + LeiML | ⚪ todo | — | Bloqueado por M2 |
+| M3 — OCR fetch + LLM parse + Leizilla XML | ⚪ todo | — | Bloqueado por M2 |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
 | M6 — GitHub Actions | ⚪ todo | — | Depende de M2–M5 |
@@ -26,7 +26,7 @@ Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 ```
 Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt)
                                               ↓
-                ETAPA 2 (LLM/agentes parsing) → LeiML XML + parsed_meta.json no IA
+                ETAPA 2 (LLM/agentes parsing) → Leizilla XML + parsed_meta.json no IA
                                               ↓
                 etl/consolidate                → Parquet v1 no IA (dataset item)
                                               ↓
@@ -38,7 +38,7 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 1. **Duas etapas no IA, sempre separadas.** Raw é imutável; parsed re-roda quantas vezes for preciso.
 2. **OCR é responsabilidade do Internet Archive.** Nunca rodamos OCR local.
 3. **Etapa 2 é pluggable.** Default: Claude Haiku via API. Alternativas: Claude Code routine com Opus, parser determinístico, curadoria manual.
-4. **Múltiplas fontes por lei são esperadas.** Assembleia + Casa Civil + Diário Oficial; reconciliação com hierarquia DO > Casa Civil > Assembleia.
+4. **Múltiplas fontes por lei são esperadas.** Assembleia + Casa Civil + Diário Oficial fazem **cross-verificação** do vigente compilado — não competem por canonicidade. Divergências indicam possível erro de consolidação ou retificação não-aplicada; frontend exibe como "verificar", não como ranking de autoridade. Ver SCHEMA.md §0.2.
 5. **Genérico por ente federativo desde dia 1.** Tudo parametrizado por `{ente}`.
 6. **Leizilla XML é canônico, dispositivo-cêntrico.** Formato próprio (não fork). LexML é gate de CI (export reduzido sob demanda), não constraint estrutural. SSR híbrido: Astro renderiza páginas de detalhe; XSLT in-browser é fallback.
 7. **ZIP raw bulk, Parquet analytics (3 tabelas: leis + dispositivos + versoes), IA item distribuição.** Padrão ficha + normalização para timeline temporal.
@@ -98,11 +98,14 @@ Outras decisões do mesmo review já incorporadas em SCHEMA.md:
 - **Decisão**: adotar Astro + Svelte + Pico + DuckDB-WASM, mirror do que já funciona em verne/cobogo/franklinbaldo.github.io.
 - **Justificativa**: stack provada, build static, zero servidor, integra DuckDB-WASM nativamente.
 
-### 2026-05-20 — LeiML em vez de LexML cru
-- **Decisão**: criar formato próprio `LeiML` v0.1 (namespace `https://leizilla.org/leiml/0.1`), inspirado em LexML mas modernizado.
-- **Justificativa**: LexML/e-PING parado desde ~2010, XSD pesado, tooling Python esparso.
-- **Constraint inviolável**: LeiML é 100% exportável para LexML via `leiml-to-lexml.xsl`. CI valida round-trip a cada PR.
-- **URN compartilhado**: `urn:lex:br;...` (padrão LEX é OK e estável).
+### 2026-05-20 — LeiML em vez de LexML cru ⚠️ **SUPERSEDED**
+
+> **Superseded por** "Rewrite arquitetural pós-review #6 (3 blockers)" acima (mesmo dia). LeiML foi abandonado como fork — formato canônico atual é **Leizilla XML v0.1** (formato próprio, escrito do zero, dispositivo-cêntrico). LexML não é mais round-trip, é gate de CI one-way. Mantido aqui apenas como audit trail da iteração.
+
+- ~~**Decisão**: criar formato próprio `LeiML` v0.1 (namespace `https://leizilla.org/leiml/0.1`), inspirado em LexML mas modernizado.~~
+- ~~**Justificativa**: LexML/e-PING parado desde ~2010, XSD pesado, tooling Python esparso.~~
+- ~~**Constraint inviolável**: LeiML é 100% exportável para LexML via `leiml-to-lexml.xsl`. CI valida round-trip a cada PR.~~
+- **URN compartilhado**: `urn:lex:br;...` (padrão LEX é OK e estável). _Esta parte permanece válida._
 
 ### 2026-05-20 — OCR delegado ao Internet Archive
 - **Decisão**: não rodar OCR local em circunstância alguma. Upload PDF → IA OCR automático → poll `_djvu.txt`.
@@ -113,14 +116,15 @@ Outras decisões do mesmo review já incorporadas em SCHEMA.md:
 - **Justificativa**: isola falhas de parsing do scraping; permite trocar estratégia de Etapa 2 sem re-scraping.
 
 ### 2026-05-20 — Slug `{fonte}` é token único `[a-z]+`, sem hífens
-- **Decisão**: cada fonte tem **um único slug canônico** (`casacivil`, `diario`, `assembleia`) usado idêntico em IA identifier, `raw_meta.fonte`, `parsed_meta.fonte_canonica`/`resolvido_por`, atributo `tipo` em LeiML, coluna Parquet `fonte_canonica`, e enum `FONTES`.
+- **Decisão**: cada fonte tem **um único slug canônico** (`casacivil`, `diario`, `assembleia`) usado idêntico em IA identifier, `raw_meta.fonte`, `parsed_meta.fontes_consultadas`, elemento `<fonte-canonica>` em Leizilla XML, coluna Parquet `fonte_canonica`, e enum `FONTES`.
 - **Justificativa**: rascunho inicial misturava `diario`, `diario_oficial`, `diario-oficial` em locais diferentes — flagged pelo Codex em #6. Reconciliação determinística requer um único valor; hífen no slug quebra parsing do identifier `leizilla-raw-{ente}-{fonte}-{chave}` (ambiguidade entre fim de fonte e início de chave).
 - **Documentado em**: `docs/SCHEMA.md` §5 "Slug `{fonte}`".
 
-### 2026-05-20 — Múltiplas fontes oficiais com tracking de divergência
-- **Decisão**: cada lei pode ter N raw items (um por fonte: Assembleia, Casa Civil, Diário Oficial). Parsed item reconcilia.
-- **Hierarquia de autoridade**: Diário Oficial > Casa Civil > Assembleia. Divergências registradas em `parsed_meta.json.divergencias` e na coluna Parquet `tem_divergencia`.
-- **Frontend**: `LawCard.svelte` mostra badge "⚠ Divergência entre fontes" com modal de diff.
+### 2026-05-20 — Múltiplas fontes oficiais com tracking de divergência (atualizado pós-rewrite)
+- **Decisão**: cada lei pode ter N raw items (um por fonte: Assembleia, Casa Civil, Diário Oficial). Parsed item compila o vigente e expõe divergências.
+- **Cross-verificação, não ranking**: ~~Hierarquia Diário Oficial > Casa Civil > Assembleia~~ — descartada na reescrita. Fontes cross-verificam o vigente compilado; divergência sinaliza "verificar", não "fonte X ganha". Ver SCHEMA.md §0.2.
+- **Divergências registradas** em `parsed_meta.json.tem_divergencia` + `parsed_meta.json.num_divergencias` (flag rápido), tabela Parquet `versoes.divergencias` (JSON com diff por versão de dispositivo), e elemento `<divergencia>` em `law.xml`.
+- **Frontend**: `LawCard.svelte` mostra badge "⚠ Divergência entre fontes" com modal; banner adicional se `confianca_parse < 0.8` ou `parse_method` for LLM.
 
 ---
 
@@ -165,7 +169,7 @@ npm run build  # static build → dist/
 
 ```bash
 uv run leizilla dev check    # lint + format + typecheck + test
-uv run pytest tests/test_leiml_export.py -v  # round-trip LeiML→LexML
+uv run pytest tests/test_lexml_export.py -v  # gate CI: Leizilla XML → LexML (one-way)
 ```
 
 ---
