@@ -23,6 +23,7 @@
 -->
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
            xmlns="https://leizilla.org/lei/0.1"
+           xmlns:leizilla="https://leizilla.org/lei/0.1"
            targetNamespace="https://leizilla.org/lei/0.1"
            elementFormDefault="qualified"
            attributeFormDefault="unqualified"
@@ -55,7 +56,11 @@
       </xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
-      <xs:pattern value="urn:lex:br;[^;]+;[^;]+:\d{4}-\d{2}-\d{2}(;[^!]+)?(![a-z0-9-]+)*"/>
+      <!--
+        Jurisdição aceita 1 ou 2 segmentos (federal/estadual usam 1; municipal
+        usa 2: municipio:UF;slug). Bang-path opcional referencia dispositivos.
+      -->
+      <xs:pattern value="urn:lex:br;([^;]+;)?[^;]+;[^;]+:\d{4}-\d{2}-\d{2}(;[^!]+)?(![a-z0-9-]+)*"/>
     </xs:restriction>
   </xs:simpleType>
 
@@ -230,6 +235,15 @@
       <xs:attribute name="urn-lex" type="UrnLex" use="optional"/>
       <xs:attribute name="vigente-em" type="xs:date" use="required"/>
     </xs:complexType>
+
+    <!--
+      Path do dispositivo é identificador lógico (deriva urn_dispositivo,
+      versao_id). Deve ser único em toda a árvore de dispositivos da lei.
+    -->
+    <xs:unique name="dispositivoPathUnique">
+      <xs:selector xpath=".//leizilla:dispositivo"/>
+      <xs:field xpath="@path"/>
+    </xs:unique>
   </xs:element>
 
 </xs:schema>
