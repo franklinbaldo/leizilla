@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture: caso comum — lei pequena sem alterações, sem blocos
+  organizacionais. Demonstra herança de vigência pura: nenhum
+  dispositivo declara `em`; todos herdam de data-publicacao
+  extraída da URN da <lei>.
+
+  Cobre:
+  - Tokens normativos: ementa, art-N, art-N-par-unico.
+  - <fonte> única por versão (caso típico: só Casa Civil disponível).
+  - Sem <inicio>, sem <revogacao>, sem `em`, sem `alterado-por`.
+  - Validação: deve passar xmllint contra o XSD com zero warnings.
+-->
+<lei xmlns="https://leizilla.org/lei/0.1"
+     schema-version="0.1"
+     urn-lex="urn:lex:br;estado:rondonia;lei:1999-06-15;9999"
+     vigente-em="2026-05-20">
+
+  <dispositivo path="ementa">
+    <versao>
+      <texto>Institui o Dia Estadual do Servidor Público de Rondônia.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+    </versao>
+  </dispositivo>
+
+  <dispositivo path="art-1">
+    <versao>
+      <texto>Fica instituído o Dia Estadual do Servidor Público de Rondônia, a ser comemorado anualmente no dia 28 de outubro.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+    </versao>
+  </dispositivo>
+
+  <dispositivo path="art-2">
+    <versao>
+      <texto>O Poder Executivo poderá promover atividades alusivas à data, sem prejuízo do expediente normal das repartições públicas.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+    </versao>
+    <dispositivo path="art-2-par-unico">
+      <versao>
+        <texto>As atividades de que trata o caput observarão o calendário oficial do Estado.</texto>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+      </versao>
+    </dispositivo>
+  </dispositivo>
+
+  <dispositivo path="art-3">
+    <versao>
+      <texto>Esta Lei entra em vigor na data de sua publicação.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+    </versao>
+  </dispositivo>
+
+</lei>

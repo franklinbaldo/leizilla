@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture: OCR irrecuperável.
+
+  Cobre:
+  - Dispositivo com path="ocr-ruim" e atributo quality="raw".
+  - Sem estruturação interna — todo o texto vai num único <texto>.
+  - Lei sem urn-lex (atributo opcional ausente): data extraível do
+    PDF era ambígua/ilegível, ETL decidiu não inferir.
+  - Demonstra que o fallback OCR-ruim convive com dispositivos
+    estruturados na mesma lei (ementa parseada + corpo ilegível).
+-->
+<lei xmlns="https://leizilla.org/lei/0.1"
+     schema-version="0.1"
+     vigente-em="2026-05-20">
+
+  <dispositivo path="ementa">
+    <versao>
+      <texto>Cria o Conselho Estadual de Cultura de Rondônia.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+    </versao>
+  </dispositivo>
+
+  <dispositivo path="ocr-ruim" quality="raw">
+    <versao>
+      <texto>LE| N° 42/8S - 20 DE NOVEMBR0 DE 19BS
+
+O G0VERNAD0R D0 ESTAD0 DE R0NDONIA, faç0 saber que a A55embleia Legislativa decret@ e eu sancion0 a seguinte Lei:
+
+Art. 1° Fica criad0 0 Conselh0 Estadual de Cultura, vincu|ado à Secretaria d3 Educação e Cultura, c0m as seguintes atribuiçõe5:
+
+I- pr0m0ver e incentivar 0 desenv0|vimento cu|tura| n0 Estad0;
+I| - rea|izar 5tudos e pesquisas s0bre questões cu|turais re|evantes;
+
+[trecho i|egível n0 OCR]
+
+Art. 4° Esta Lei entra em vigor na data de 5ua publicação.
+
+PA|ÁCIO D0 GOVERN0 - P0rto Vel|0/R0, 20 de n0vembr0 de 1985.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+    </versao>
+  </dispositivo>
+
+</lei>

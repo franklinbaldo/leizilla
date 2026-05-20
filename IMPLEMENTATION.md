@@ -8,8 +8,9 @@
 
 | Milestone | Status | PR | Notas |
 |---|---|---|---|
-| **M0.1** — Documento vivo + SCHEMA.md design | 🟢 done | #6 | Aprovado em re-review; pronto para merge. |
-| **M0.2** — XSD + fixtures + lexml-export script | ⚪ todo | — | Próximo. Inclui `leizilla-v0.1.xsd`, 3 fixtures Leizilla XML, `scripts/leizilla-to-lexml.xsl`, teste CI de export, consistency-checker script, e resolução de 6 pendentes §10. |
+| **M0.1** — Documento vivo + SCHEMA.md design | 🟢 done | #6 | Aprovado em re-review; merged em main. |
+| **M0.2a** — Schema v1 (tentativa) | 🔴 superseded | #7 | XSD `header` + `rotulo` + `<bloco-livre>` + etc. Substituído pelo redesign first-principles. Fica como referência histórica. |
+| **M0.2b** — Redesign first-principles | 🟡 in-progress | TBD | Pivô: dispositivo é unidade, vigência herda, fonte é única tag, `<revogacao>` evento estruturado. SCHEMA.md reescrito + XSD enxuto (~235 linhas) + 6 fixtures cobrindo todos os cenários. Pendente: consistency checker, leizilla-to-lexml.xsl, test_lexml_export.py, resolver 6 pendentes §10. |
 | M1 — Foundation (package + ADRs + deps) | ⚪ todo | — | Bloqueado por M0 |
 | M2 — Crawler real + Raw upload | ⚪ todo | — | Bloqueado por M1 |
 | M3 — OCR fetch + LLM parse + Leizilla XML | ⚪ todo | — | Bloqueado por M2 |
@@ -70,6 +71,20 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-20 — Redesign first-principles do Leizilla XML (supersede #7)
+
+Auditoria a partir do princípio "dispositivo é a unidade básica" revelou que o XSD do PR #7 carregava ~10 conceitos derivados ou redundantes. Reescrita do zero. Diff radical:
+
+- **Cai do XML**: `<header>` (URN cobre tudo), `<rotulo>` e `<rotulo_versao>` (derivados de `(tipo, path)` via token map), atributo `tipo` no dispositivo (deriva do `path`), atributo `parent` (nesting XML é o parent), atributo `urn` no dispositivo (deriva de `lei.urn-lex + "!" + path`), `<versoes>` wrapper (`<versao>` filha direta), `<versao numero="N">` (`em` é chave natural), `<fonte-canonica>` separado (não existe "fonte canônica" — existe texto canônico no `<texto>` da versão + fontes que corroboram ou divergem), `<anotacoes>` no XML (processo de parse vai para `parsed_meta.json` sidecar), `<bloco-livre>` elemento separado (OCR ruim vira `<dispositivo path="ocr-ruim" quality="raw">`).
+
+- **Entra no XML**: herança de vigência implícita (`vigente-ate` é inferido, não armazenado; `em` herda do ancestral ou da `data-publicacao` da URN); `<inicio tipo="...">` com `<fonte>` filha quando proveniência da vigência é não-óbvia (vacatio, consolidacao, inferencia-llm, decisao-judicial); `<revogacao em em por? tipo>` rica como evento estruturado em vez de flag, com 5 tipos jurídicos (`expressa`, `tacita`, `caducidade`, `inconstitucionalidade`, `nao-recepcao`) e posição estrutural indicando escopo (raiz da `<lei>` = total; dentro de dispositivo = parcial); `<fonte>` como tag unificada em 4 contextos (versão, início, revogação na lei, revogação em dispositivo).
+
+- **Auditoria por embeddings substitui flag manual**: LLM não sabe quando errou. Comparação `embedding(raw_djvu)` × `embedding(texto parseado)` por dispositivo detecta drift automaticamente. Sem `revisao-pendente` no XML. Plano detalhado em arquivo separado (M3+).
+
+Resultado: XSD de ~235 linhas (vs. 359 do PR #7); 6 elementos (`<lei>`, `<dispositivo>`, `<versao>`, `<inicio>`, `<texto>`, `<fonte>`, `<revogacao>`); caso comum (lei pequena sem alterações) vira fixture de ~50 linhas com zero `em`/`vigente-ate`/`vigente-de`. Tabela de migração completa em `docs/SCHEMA.md` §9.
+
+PR #7 marcado como superseded.
 
 ### 2026-05-20 — Rewrite arquitetural pós-review #6 (3 blockers)
 
@@ -255,15 +270,19 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0.1 — fechado** ✅ (PR #6 aprovado em re-review). Merge em sequência.
+**M0.1 — fechado** ✅ (PR #6 merged).
 
-**M0.2 — XSD + fixtures + export** (próximo PR):
-- [ ] Rascunhar `docs/schemas/leizilla-v0.1.xsd` consolidando todas decisões §4 do SCHEMA.md (dispositivo universal, caput implícito, parent obrigatório, path global/namespaceado, versoes ≥1).
-- [ ] Fixtures em `tests/fixtures/leizilla_xml/` (mínimo 3): (a) lei simples sem alterações, (b) lei com timeline de alterações e `<rotulo_versao>`, (c) lei com `<bloco-livre quality="raw">` (fallback OCR ruim).
+**M0.2a — superseded** 🔴 (PR #7). Design v1 do XSD foi abandonado após auditoria first-principles. Fica como referência histórica.
+
+**M0.2b — Redesign first-principles** (PR em curso):
+- [x] `docs/SCHEMA.md` reescrito do zero (princípio "dispositivo é a unidade").
+- [x] `docs/schemas/leizilla-v0.1.xsd` enxuto (~235 linhas; 6 elementos).
+- [x] 6 fixtures cobrindo: caso simples (herança pura), alterações + divergência multi-fonte + vacatio, blocos organizacionais (CF/88), revogações parciais (4 tipos), revogação total da lei, OCR ruim.
+- [x] `tests/fixtures/leizilla_xml/README.md` com matriz de cobertura.
+- [ ] **🔴 Bloqueante para fechar M0.2**: `scripts/check_schema_consistency.py` validando as 14 invariantes do SCHEMA.md §7. XSD é propositalmente loose (permite `<fonte diverge="false"><texto>x</texto></fonte>`, `quality` em qualquer dispositivo, etc.); sem o checker em CI o "schema" é metade do contrato.
 - [ ] `scripts/leizilla-to-lexml.xsl` + teste CI `tests/test_lexml_export.py` validando contra `tests/fixtures/lexml.xsd` (bundle no repo).
-- [ ] **Consistency checker script** (`scripts/check_schema_consistency.py`): extrai exemplos de identifier e schema_version do SCHEMA.md, valida contra regex §5, checa que `v{N}` no path bate com `int(major(schema_version))`. Reduz Codex catches futuros.
-- [ ] **FK invariant test** (no ETL M3 mas validação local em M0.2): com 1 tabela denormalizada, garantir que `(lei_id, dispositivo_path, dispositivo_parent_path)` permanece consistente entre todas as rows da mesma lei (não há outra forma de detectar inconsistência sem JOIN).
-- [ ] Resolver pendentes §10: URN dialect contra CGPID spec, compressão Parquet (SNAPPY vs ZSTD em DuckDB-WASM), granularidade bundle ZIP, XPath dialect, robots.txt rate-limit, XSLT in-browser deprecation status.
+- [ ] Negative test cases (XML inválido proposital → checker deve rejeitar).
+- [ ] Resolver pendentes §8.2: URN dialect contra CGPID spec, compressão Parquet (SNAPPY vs ZSTD em DuckDB-WASM), granularidade bundle ZIP, política de re-scrape, robots.txt rate-limit, custo LLM real.
 
 **M0.3 — Inspirações concretas** (paralelo a M0.2):
 - [ ] Aprofundar `docs/SCHEMA.md` §8 com paths exatos em ficha/baliza/causaganha (manifest CSV columns, naming patterns, footer KV examples).

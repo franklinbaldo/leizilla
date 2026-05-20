@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Leizilla XML v0.1 — schema canônico (redesign first-principles).
+
+  Premissas load-bearing (ver docs/SCHEMA.md §0):
+
+  - Lei = árvore de dispositivos. Dispositivo = árvore de dispositivos +
+    linha do tempo de redações. Redação = texto + testemunhos (fontes).
+  - Tipo do dispositivo deriva do path via token map (SCHEMA.md §4.2).
+    XSD não conhece o token map; pattern de path é genérico.
+  - Vigência herda do pai (ancestral dispositivo, depois data-publicacao
+    da URN). vigente-ate não é armazenado — é inferido.
+  - A tag fonte é única em 4 contextos (versao, inicio, revogacao na
+    lei, revogacao no dispositivo). Atributo diverge só faz sentido
+    em versao; consistency checker valida.
+  - Atributo quality só faz sentido quando path=ocr-ruim;
+    consistency checker valida.
+  - Processo de parse (método LLM, confiança, divergências detalhadas)
+    vai para parsed_meta.json sidecar — não está no XML.
+
+  Invariantes não-expressáveis em XSD ficam no consistency checker
+  (scripts/check_schema_consistency.py, M0.2). Ver SCHEMA.md §7.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns="https://leizilla.org/lei/0.1"
+           xmlns:leizilla="https://leizilla.org/lei/0.1"
+           targetNamespace="https://leizilla.org/lei/0.1"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified"
+           version="0.1">
+
+  <!-- ==================================================================
+       Tipos simples
+       ================================================================== -->
+
+  <xs:simpleType name="DispositivoPath">
+    <xs:annotation>
+      <xs:documentation>
+        Path do dispositivo. Tokens normativos globais (art-N, par-N,
+        inc-N, ali-X) ou organizacionais namespaceados (tit-N, cap-N,
+        sec-N). Pattern genérico — semântica é dada pelo token map e
+        validada pelo consistency checker.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[a-z][a-z0-9-]*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="UrnLex">
+    <xs:annotation>
+      <xs:documentation>
+        URN LEX (dialect provisório — ver SCHEMA.md secao 5.6 e 8).
+        Aceita lei (com numero), constituicao (sem numero), e
+        referencias a dispositivos via sufixo bang-path.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <!--
+        Jurisdição aceita 1 ou 2 segmentos (federal/estadual usam 1; municipal
+        usa 2: municipio:UF;slug). Bang-path opcional referencia dispositivos.
+      -->
+      <xs:pattern value="urn:lex:br;([^;]+;)?[^;]+;[^;]+:\d{4}-\d{2}-\d{2}(;[^!;]+)?(![a-z0-9-]+)*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="IaId">
+    <xs:annotation>
+      <xs:documentation>
+        Identifier IA de raw item. Pattern casa com SCHEMA.md secao 5.1.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="leizilla-raw-[a-z][a-z0-9-]*-[a-z]+-[a-z0-9-]+"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="InicioTipo">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="data-publicacao"/>
+      <xs:enumeration value="texto-lei-alteradora"/>
+      <xs:enumeration value="vacatio-legis"/>
+      <xs:enumeration value="consolidacao"/>
+      <xs:enumeration value="inferencia-llm"/>
+      <xs:enumeration value="decisao-judicial"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="RevogacaoTipo">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="expressa"/>
+      <xs:enumeration value="tacita"/>
+      <xs:enumeration value="caducidade"/>
+      <xs:enumeration value="inconstitucionalidade"/>
+      <xs:enumeration value="nao-recepcao"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="OcrQuality">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="low"/>
+      <xs:enumeration value="medium"/>
+      <xs:enumeration value="high"/>
+      <xs:enumeration value="raw"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- ==================================================================
+       Tipos complexos
+       ================================================================== -->
+
+  <xs:complexType name="FonteType">
+    <xs:annotation>
+      <xs:documentation>
+        Testemunha que aponta para um IA raw item. Em uma versao, pode
+        carregar elemento texto filho quando diverge=true. Em inicio e
+        revogacao, nunca tem texto filho (consistency checker).
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="texto" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="ia-id" type="IaId" use="required"/>
+    <xs:attribute name="diverge" type="xs:boolean" use="optional"/>
+  </xs:complexType>
+
+  <xs:complexType name="InicioType">
+    <xs:annotation>
+      <xs:documentation>
+        Proveniencia da vigencia. Sub-elemento opcional de versao.
+        Obrigatorio quando em difere de data-publicacao da lei e
+        nao ha alterado-por (consistency checker valida).
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="fonte" type="FonteType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="tipo" type="InicioTipo" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="RevogacaoType">
+    <xs:annotation>
+      <xs:documentation>
+        Evento de revogacao. Posicao estrutural indica escopo: filho
+        da lei = revogacao total; filho de dispositivo = revogacao
+        parcial. Consistency checker valida exclusividade (revogacao
+        total exclui parciais descendentes).
+
+        tipo=caducidade nao tem por (validado por consistency checker;
+        XSD permite ambos para nao engessar).
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="fonte" type="FonteType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="em" type="xs:date" use="required"/>
+    <xs:attribute name="por" type="UrnLex" use="optional"/>
+    <xs:attribute name="tipo" type="RevogacaoTipo" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="VersaoType">
+    <xs:annotation>
+      <xs:documentation>
+        Uma redacao historica do dispositivo. em opcional — quando
+        omitido, herda do ancestral (consistency checker resolve).
+
+        Multiplas fontes sao permitidas (testemunhas multiplas).
+        Quando alguma fonte tem diverge=true, carrega elemento texto
+        proprio inline; o texto da versao e o canonico (compilacao
+        ETL).
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="inicio" type="InicioType" minOccurs="0"/>
+      <xs:element name="texto" type="xs:string"/>
+      <xs:element name="fonte" type="FonteType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="em" type="xs:date" use="optional"/>
+    <xs:attribute name="alterado-por" type="UrnLex" use="optional"/>
+  </xs:complexType>
+
+  <xs:complexType name="DispositivoType">
+    <xs:annotation>
+      <xs:documentation>
+        Dispositivo recursivo. Tipo deriva do path via token map.
+
+        Cardinalidade:
+        - 1+ versao obrigatoria.
+        - 0+ dispositivo filhos (recursao).
+        - 0..1 revogacao (revogacao parcial deste dispositivo;
+          cascateia para descendentes).
+
+        Atributo quality so e semanticamente valido quando
+        path=ocr-ruim (consistency checker valida).
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="versao" type="VersaoType" minOccurs="1" maxOccurs="unbounded"/>
+      <xs:element name="dispositivo" type="DispositivoType" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="revogacao" type="RevogacaoType" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="path" type="DispositivoPath" use="required"/>
+    <xs:attribute name="quality" type="OcrQuality" use="optional"/>
+  </xs:complexType>
+
+  <!-- ==================================================================
+       Elemento raiz
+       ================================================================== -->
+
+  <xs:element name="lei">
+    <xs:complexType>
+      <xs:annotation>
+        <xs:documentation>
+          Raiz do Leizilla XML.
+
+          - urn-lex opcional: ausente em fallbacks (lei sem data
+            extraivel).
+          - revogacao opcional na raiz: presenca = lei totalmente
+            revogada; exclui revogacao em dispositivos descendentes
+            (consistency checker valida).
+          - 1+ dispositivo filhos.
+        </xs:documentation>
+      </xs:annotation>
+      <xs:sequence>
+        <xs:element name="revogacao" type="RevogacaoType" minOccurs="0"/>
+        <xs:element name="dispositivo" type="DispositivoType" minOccurs="1" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attribute name="schema-version" use="required">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:enumeration value="0.1"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:attribute>
+      <xs:attribute name="urn-lex" type="UrnLex" use="optional"/>
+      <xs:attribute name="vigente-em" type="xs:date" use="required"/>
+    </xs:complexType>
+
+    <!--
+      Path do dispositivo é identificador lógico (deriva urn_dispositivo,
+      versao_id). Deve ser único em toda a árvore de dispositivos da lei.
+    -->
+    <xs:unique name="dispositivoPathUnique">
+      <xs:selector xpath=".//leizilla:dispositivo"/>
+      <xs:field xpath="@path"/>
+    </xs:unique>
+  </xs:element>
+
+</xs:schema>
