@@ -268,6 +268,7 @@ def test_inv14_no_zero_pad_for_5plus_digits(tmp_path: Path) -> None:
         ("art-5-par-2-inc-3", "inciso"),
         ("art-5-par-2-inc-3-ali-a", "alinea"),
         ("art-5-a", "artigo"),
+        ("art-5-a-par-2", "paragrafo"),
         ("par-unico", "paragrafo"),
         ("art-1-par-unico", "paragrafo"),
         ("anexo-1", "anexo"),
@@ -276,10 +277,77 @@ def test_inv14_no_zero_pad_for_5plus_digits(tmp_path: Path) -> None:
         ("tit-1", "titulo"),
         ("tit-2-cap-1", "capitulo"),
         ("tit-2-cap-1-sec-3", "secao"),
+        ("disp-transitoria-3", "disposicao-transitoria"),
+        ("disp-transitoria-3-par-2", "paragrafo"),
         ("blarg", None),
         ("art", None),
         ("", None),
+        # Codex P1 #1: garbage prefix must not classify by suffix.
+        ("foo-art-1", None),
+        ("art-5-foo", None),
+        ("xxx-tit-1-cap-1", None),
+        ("art-1-blarg-2", None),
     ],
 )
 def test_token_map(path: str, expected: str | None) -> None:
     assert csc._path_tipo(path) == expected
+
+
+# ---------------------------------------------------------------------------
+# Codex P2 #3: invalid calendar dates don't crash
+# ---------------------------------------------------------------------------
+
+
+def test_invalid_calendar_date_in_urn_does_not_crash(tmp_path: Path) -> None:
+    """URN regex accepts `2020-13-01` (digit-shape only) but it's not a
+    real date. Checker must not crash."""
+    xml = _wrap(
+        """  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+    </versao>
+  </dispositivo>""",
+        urn_lex="urn:lex:br;estado:rondonia;lei:2020-13-01;1234",
+    )
+    # Should complete without raising.
+    violations = csc.check_file(_write(tmp_path, xml))
+    # Doesn't matter which invariants fire — just that we didn't crash.
+    assert isinstance(violations, list)
+
+
+# ---------------------------------------------------------------------------
+# Codex P1 #2: vigência irresolvível
+# ---------------------------------------------------------------------------
+
+
+def test_inv05_urn_present_but_undecodable(tmp_path: Path) -> None:
+    """URN presente mas regex §5.6 falha → vigência irresolvível."""
+    xml = _wrap(
+        """  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+    </versao>
+  </dispositivo>""",
+        urn_lex="urn:lex:br;malformed",
+    )
+    v = csc.check_file(_write(tmp_path, xml))
+    assert any(x.invariant == 5 for x in v)
+
+
+def test_inv05_no_urn_is_exempt(tmp_path: Path) -> None:
+    """Lei sem urn-lex (caso fallback OCR-ruim): §7.5 NÃO reporta —
+    vigência genuinamente não tem âncora."""
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
+     vigente-em="2026-05-20">
+  <dispositivo path="ocr-ruim" quality="raw">
+    <versao>
+      <texto>texto ilegível</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+    </versao>
+  </dispositivo>
+</lei>"""
+    v = csc.check_file(_write(tmp_path, xml))
+    assert not any(x.invariant == 5 for x in v)

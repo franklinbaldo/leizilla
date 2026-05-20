@@ -703,7 +703,7 @@ XSD não consegue expressar tudo. `scripts/check_schema_consistency.py` (M0.2) v
 2. **`<revogacao>` na raiz da `<lei>` exclui** qualquer `<revogacao>` em dispositivo descendente (revogação total cascateia).
 3. **`<revogacao tipo="caducidade">` não tem atributo `por`**; demais tipos têm.
 4. **`path` casa com token map** (§4.2). Tokens desconhecidos → erro.
-5. **Herança de vigência**: `<versao>` sem `em` resolve para ancestral declarado ou `data-publicacao` da URN.
+5. **Herança de vigência**: `<versao>` sem `em` resolve para ancestral declarado ou `data-publicacao` da URN. *Carve-out*: quando `urn-lex` é ausente (caso OCR-ruim fallback), vigência genuinamente não tem âncora — checker exempta. Se `urn-lex` presente mas indecodificável (regex §5.6 falha), §7.5 reporta uma vez por lei.
 6. **`<inicio>` obrigatório** quando `<versao em="X">` com `X ≠ data-publicacao(<lei>)` e sem `alterado-por`.
 7. **Ordenação de versões** num dispositivo: `em` estritamente crescente.
 8. **`<fonte ia-id>`** casa com regex de IA identifier (§5.1).

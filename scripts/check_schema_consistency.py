@@ -68,34 +68,42 @@ def _path_tipo(path: str) -> str | None:
     For normative composite paths (art-5-par-2-inc-3), returns the tipo
     of the LAST token. For organizational namespaced paths (tit-2-cap-1),
     same — returns capitulo.
+
+    Validates the FULL composition chain — `foo-art-1` is rejected (the
+    `foo` prefix matches no token), even though `art-1` alone would be
+    valid as an artigo.
     """
-    # Try whole path against normativo (single-token cases)
+    if not path:
+        return None
+    # Whole-path tokens (paths that ARE a single token, e.g. "ementa",
+    # "titulo-lei", "art-5", "art-5-a", "ocr-ruim-3", "tit-1").
     for pat, tipo in _NORMATIVO_TOKENS + _ORGANIZACIONAL_TOKENS:
         if pat.match(path):
             return tipo
-    # Composite: split on hyphens, try to find a valid suffix token.
-    # We walk from the rightmost possible token boundary. Token is
-    # 1 segment (e.g. "ementa") or 2 segments (e.g. "art-5", "tit-2",
-    # "par-unico"). Try 2-segment first since 1-segment tokens are static
-    # and would have matched the whole-path check above.
+    # Composite walk: consume tokens left-to-right. At each position try
+    # longest-fitting token first (3-seg `disp-transitoria-N`, `art-N-X`)
+    # then 2-seg (`art-N`, `par-N`, `tit-N`, etc.). Single-segment tokens
+    # like "ementa" are static and cannot appear mid-composite.
     parts = path.split("-")
-    for take in (2, 1):
-        if len(parts) < take:
-            continue
-        tail = "-".join(parts[-take:])
-        # Special-case art-5-a (3 segments, letter suffix)
-        if take == 2 and len(parts) >= 3:
-            maybe_letter = parts[-1]
-            if (
-                len(maybe_letter) == 1
-                and maybe_letter.isalpha()
-                and re.match(r"^art-\d+$", "-".join(parts[-3:-1]))
-            ):
-                return "artigo"
-        for pat, tipo in _NORMATIVO_TOKENS + _ORGANIZACIONAL_TOKENS:
-            if pat.match(tail):
-                return tipo
-    return None
+    i = 0
+    last_tipo: str | None = None
+    while i < len(parts):
+        matched = False
+        for take in (3, 2):
+            if i + take > len(parts):
+                continue
+            candidate = "-".join(parts[i : i + take])
+            for pat, tipo in _NORMATIVO_TOKENS + _ORGANIZACIONAL_TOKENS:
+                if pat.match(candidate):
+                    last_tipo = tipo
+                    i += take
+                    matched = True
+                    break
+            if matched:
+                break
+        if not matched:
+            return None
+    return last_tipo
 
 
 # ---------------------------------------------------------------------------
@@ -138,12 +146,23 @@ _RE_URN_LEX = re.compile(
 
 
 def _extract_data_publicacao(urn_lex: str | None) -> datetime.date | None:
+    """Decompose URN LEX → publication date.
+
+    Returns None when urn-lex is absent, fails the regex, or carries a
+    regex-valid but calendar-invalid date (e.g. `2020-13-01`). Calendar
+    validity is best-effort here; §7.10 reports the regex-level rejection
+    separately, and an invalid calendar slips through XSD too (the
+    pattern only enforces digit shape).
+    """
     if not urn_lex:
         return None
     m = _RE_URN_LEX.match(urn_lex)
     if not m:
         return None
-    return datetime.date.fromisoformat(m.group("data"))
+    try:
+        return datetime.date.fromisoformat(m.group("data"))
+    except ValueError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -254,13 +273,29 @@ def _check_path_token_map(ctx: _Ctx) -> None:
 
 def _check_inheritance_inicio(ctx: _Ctx) -> None:
     """§7.5+§7.6 — Versão sem `em` herda; versão com `em ≠ data-publicacao`
-    e sem `alterado-por` deve ter <inicio>."""
+    e sem `alterado-por` deve ter <inicio>.
+
+    Carve-out (§7.5): quando `urn-lex` é ausente, vigência não tem âncora
+    nenhuma (data-publicacao indisponível) — é o caso fallback OCR-ruim.
+    Verificação estrita de §7.5 fica suspensa nesse caso. Reportamos
+    §7.5 apenas quando URN é presente porém não decodificável (caso em
+    que §7.10 também reporta).
+    """
     pub = ctx.data_publicacao
+    if ctx.urn_lex is not None and pub is None:
+        # urn-lex presente mas regex não casou — §7.10 já reporta;
+        # vigência fica irresolvível, registramos uma vez pela lei.
+        ctx.add(
+            5,
+            f'urn-lex="{ctx.urn_lex}" não decompõe → vigência inerdada '
+            f"não consegue resolver pra nenhuma versão sem `em`",
+        )
     for d, _ in _walk_all_dispositivos(ctx.root):
         for v in d.findall(f"{{{NS}}}versao"):
             em = v.get("em")
             if em is None:
-                # Herança implícita — §7.5 OK por definição.
+                # Herança implícita — §7.5 OK quando pub disponível
+                # (ou quando urn-lex ausente, caso fallback exempto).
                 continue
             alterado_por = v.get("alterado-por")
             inicio = v.find(f"{{{NS}}}inicio")
