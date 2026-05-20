@@ -541,6 +541,10 @@ def check_file(file: Path) -> list[Violation]:
     except ET.ParseError as e:
         # invariant=0 reserved for fatal parse failures (CLI exit 2).
         return [Violation(file, 0, f"XML inválido: {e}")]
+    except OSError as e:
+        # File I/O failure (directory, permission denied, unreadable). Same
+        # exit-code semantics as a parse failure — the file is unusable.
+        return [Violation(file, 0, f"I/O falhou: {e}")]
     root = tree.getroot()
     if root.tag != f"{{{NS}}}lei":
         # XML parsed but root is wrong — §7.15 structural violation,

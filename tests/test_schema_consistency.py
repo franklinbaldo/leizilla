@@ -83,6 +83,30 @@ def test_cli_exit_2_on_xml_parse_error(tmp_path: Path) -> None:
     assert csc.main(["check_schema_consistency.py", str(f)]) == 2
 
 
+def test_cli_exit_2_on_directory_input(tmp_path: Path) -> None:
+    """Codex P2: passing a directory (IsADirectoryError) → exit 2,
+    not an uncaught traceback."""
+    d = tmp_path / "subdir"
+    d.mkdir()
+    assert csc.main(["check_schema_consistency.py", str(d)]) == 2
+
+
+def test_cli_exit_2_on_unreadable_file(tmp_path: Path) -> None:
+    """Codex P2: permission denied (PermissionError) → exit 2."""
+    import os
+
+    f = tmp_path / "locked.xml"
+    f.write_text("<lei xmlns='https://leizilla.org/lei/0.1' schema-version='0.1' vigente-em='2026-05-20'/>")
+    os.chmod(f, 0o000)
+    try:
+        # Skip when running as root (chmod 000 doesn't block reads).
+        if os.access(f, os.R_OK):
+            pytest.skip("running as root; chmod 000 has no effect")
+        assert csc.main(["check_schema_consistency.py", str(f)]) == 2
+    finally:
+        os.chmod(f, 0o644)
+
+
 def test_cli_exit_2_on_missing_file(tmp_path: Path) -> None:
     assert csc.main(["check_schema_consistency.py", str(tmp_path / "nope.xml")]) == 2
 
