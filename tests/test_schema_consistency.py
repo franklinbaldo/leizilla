@@ -191,6 +191,52 @@ def test_inv08_bad_ia_id(tmp_path: Path) -> None:
     assert any(x.invariant == 8 for x in v)
 
 
+def test_inv08_rejects_non_raw_ia_id(tmp_path: Path) -> None:
+    """Codex P2: <fonte> só aceita raw IA identifiers (§5.1).
+    Parsed/dataset/bundle/fallback patterns devem ser rejeitados."""
+    for bad in (
+        "leizilla-ro-lei-01234-2003",  # parsed canônico
+        "leizilla-dataset-ro-v1",  # dataset
+        "leizilla-bundle-ro-casacivil-2026-W20",  # bundle ZIP
+        "leizilla-ro-lei-fallback-casacivil-00042",  # parsed fallback
+    ):
+        xml = _wrap(
+            f"""  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="{bad}"/>
+    </versao>
+  </dispositivo>"""
+        )
+        v = csc.check_file(_write(tmp_path, xml))
+        assert any(x.invariant == 8 for x in v), (
+            f"<fonte ia-id='{bad}'> deveria ser rejeitado (não é raw); "
+            f"got: {[str(x) for x in v]}"
+        )
+
+
+def test_inv08_accepts_raw_variants(tmp_path: Path) -> None:
+    """Raw IA identifiers válidos (§5.1) passam por §7.8."""
+    for good in (
+        "leizilla-raw-ro-casacivil-coddoc-00042",
+        "leizilla-raw-federal-planalto-constituicao-1988",
+        "leizilla-raw-ro-diario-2003-06-15-p0012",
+        "leizilla-raw-sp-sao-paulo-camara-2020-001",
+    ):
+        xml = _wrap(
+            f"""  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="{good}"/>
+    </versao>
+  </dispositivo>"""
+        )
+        v = csc.check_file(_write(tmp_path, xml))
+        assert not any(x.invariant == 8 for x in v), (
+            f"<fonte ia-id='{good}'> deveria ser aceito; got: {[str(x) for x in v]}"
+        )
+
+
 def test_inv09_quality_on_normal_path(tmp_path: Path) -> None:
     xml = _wrap(
         """  <dispositivo path="art-1" quality="raw">

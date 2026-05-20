@@ -146,14 +146,6 @@ _RE_IA_BUNDLE = re.compile(
     r"^leizilla-bundle-(?P<ente>[a-z][a-z0-9-]*)-(?P<fonte>[a-z]+)-"
     r"(?P<periodo>\d{4}-W\d{2})$"
 )
-_IA_ANY = [
-    _RE_IA_RAW,
-    _RE_IA_PARSED,
-    _RE_IA_PARSED_FALLBACK,
-    _RE_IA_DATASET,
-    _RE_IA_BUNDLE,
-]
-
 # URN LEX: urn:lex:br;{jurisdicao};{tipo}:{data}[;{numero}][!{path}...]
 # Jurisdição pode ter ; interno (municipios).
 _RE_URN_LEX = re.compile(
@@ -398,13 +390,21 @@ def _check_versoes_ordem(ctx: _Ctx) -> None:
 
 
 def _check_ia_id_format(ctx: _Ctx) -> None:
-    """§7.8 — <fonte ia-id> matches one of the §5 regexes."""
+    """§7.8 — <fonte ia-id> matches the RAW IA identifier regex (§5.1).
+
+    `<fonte>` references raw items only (PDF originals that triggered IA's
+    automatic OCR). Parsed, dataset, and bundle identifiers don't belong
+    in `<fonte>` — they live in other contexts (parsed_meta.json sidecar,
+    Parquet KV metadata, dataset releases). Accepting them here would
+    silently let downstream consumers fetch non-raw items expecting raw
+    content (PDF + OCR).
+    """
     for fonte in ctx.root.iter(f"{{{NS}}}fonte"):
         ia = fonte.get("ia-id")
         if ia is None:
             continue
-        if not any(rx.match(ia) for rx in _IA_ANY):
-            ctx.add(8, f'ia-id="{ia}" não casa com nenhum padrão IA (§5)')
+        if not _RE_IA_RAW.match(ia):
+            ctx.add(8, f'ia-id="{ia}" não casa com regex de raw IA identifier (§5.1)')
 
 
 def _check_quality_only_ocr_ruim(ctx: _Ctx) -> None:
@@ -427,13 +427,6 @@ def _check_urn_decomposes(ctx: _Ctx) -> None:
     here, so we only validate the regex match for now."""
     if ctx.urn_lex and not _RE_URN_LEX.match(ctx.urn_lex):
         ctx.add(10, f'urn-lex="{ctx.urn_lex}" não decompõe pela regex §5.6')
-
-
-def _check_unique_paths(ctx: _Ctx) -> None:
-    """§7.13 — Path unique across the dispositivo tree of the lei.
-    Already enforced by xs:unique in XSD; double-check here."""
-    for path, elt in list(ctx.paths_seen.items()):
-        pass  # paths_seen is already deduped during walk; collisions raise below
 
 
 def _check_urn_no_zero_pad(ctx: _Ctx) -> None:
