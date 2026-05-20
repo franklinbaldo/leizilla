@@ -50,6 +50,69 @@ def test_positive_fixtures_pass(fixture: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# CLI exit codes (per docstring contract)
+# ---------------------------------------------------------------------------
+
+
+def test_cli_exit_0_on_clean_files(tmp_path: Path) -> None:
+    """All clean fixtures → exit 0."""
+    args = ["check_schema_consistency.py"] + [
+        str(f) for f in sorted(FIXTURES.glob("*.xml"))
+    ]
+    assert csc.main(args) == 0
+
+
+def test_cli_exit_1_on_consistency_violation(tmp_path: Path) -> None:
+    """Consistency violation → exit 1, distinct from parse error."""
+    xml = _wrap(
+        """  <dispositivo path="blarg-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+    </versao>
+  </dispositivo>"""
+    )
+    f = _write(tmp_path, xml)
+    assert csc.main(["check_schema_consistency.py", str(f)]) == 1
+
+
+def test_cli_exit_2_on_xml_parse_error(tmp_path: Path) -> None:
+    """Malformed XML → exit 2 (Codex P2)."""
+    f = tmp_path / "broken.xml"
+    f.write_text("<not-xml<", encoding="utf-8")
+    assert csc.main(["check_schema_consistency.py", str(f)]) == 2
+
+
+def test_cli_exit_2_on_missing_file(tmp_path: Path) -> None:
+    assert csc.main(["check_schema_consistency.py", str(tmp_path / "nope.xml")]) == 2
+
+
+def test_cli_exit_2_on_no_args() -> None:
+    assert csc.main(["check_schema_consistency.py"]) == 2
+
+
+def test_cli_exit_2_takes_priority_over_violations(tmp_path: Path) -> None:
+    """When some files have violations AND others have parse errors,
+    exit 2 takes priority (broken input is more urgent than rule violations)."""
+    bad_xml = tmp_path / "bad.xml"
+    bad_xml.write_text("<not-xml<", encoding="utf-8")
+    violation_xml = _write(
+        tmp_path,
+        _wrap(
+            """  <dispositivo path="unknown-token">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+    </versao>
+  </dispositivo>"""
+        ),
+    )
+    assert (
+        csc.main(["check_schema_consistency.py", str(bad_xml), str(violation_xml)]) == 2
+    )
+
+
+# ---------------------------------------------------------------------------
 # Negative cases — one per invariant
 # ---------------------------------------------------------------------------
 

@@ -516,6 +516,19 @@ def main(argv: list[str]) -> int:
 
     for v in all_violations:
         print(str(v))
+
+    # Parse errors are encoded as `invariant=0` by check_file (see docstring).
+    # Per the CLI contract, unparseable XML → exit 2, distinct from
+    # consistency violations → exit 1. Automation needs to distinguish
+    # broken input from valid-but-invalid XML.
+    parse_errors = [v for v in all_violations if v.invariant == 0]
+    if parse_errors:
+        print(
+            f"\n{len(parse_errors)} arquivo(s) com XML inválido — "
+            f"não foi possível executar checagens.",
+            file=sys.stderr,
+        )
+        return 2
     if all_violations:
         print(
             f"\n{len(all_violations)} violação(ões) em "
