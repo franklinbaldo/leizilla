@@ -146,6 +146,61 @@ def test_inv01_no_diverge_with_texto(tmp_path: Path) -> None:
     assert any(x.invariant == 1 and "sem diverge" in x.message for x in v)
 
 
+@pytest.mark.parametrize("diverge_value", ["true", "1", " true ", "  1  "])
+def test_inv01_accepts_xs_boolean_true_variants(
+    tmp_path: Path, diverge_value: str
+) -> None:
+    """Codex P2: xs:boolean aceita true|1|whitespace-collapsed.
+    diverge="1" com <texto> filho deve passar (não acusar §7.1 falso positivo)."""
+    xml = _wrap(
+        f"""  <dispositivo path="art-1">
+    <versao>
+      <texto>canonico</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+      <fonte ia-id="leizilla-raw-ro-diario-2000-01-01-p0001" diverge="{diverge_value}">
+        <texto>divergente</texto>
+      </fonte>
+    </versao>
+  </dispositivo>"""
+    )
+    v = csc.check_file(_write(tmp_path, xml))
+    assert not any(x.invariant == 1 for x in v), (
+        f"diverge='{diverge_value}' com <texto> deveria passar; got: {[str(x) for x in v]}"
+    )
+
+
+@pytest.mark.parametrize("diverge_value", ["false", "0", " false "])
+def test_inv01_accepts_xs_boolean_false_variants(
+    tmp_path: Path, diverge_value: str
+) -> None:
+    """diverge="0" sem <texto> filho é válido (equivalente a false)."""
+    xml = _wrap(
+        f"""  <dispositivo path="art-1">
+    <versao>
+      <texto>canonico</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001" diverge="{diverge_value}"/>
+    </versao>
+  </dispositivo>"""
+    )
+    v = csc.check_file(_write(tmp_path, xml))
+    assert not any(x.invariant == 1 for x in v)
+
+
+def test_inv01_diverge_one_without_texto_still_violation(tmp_path: Path) -> None:
+    """diverge="1" (xs:boolean true) sem <texto> filho → §7.1."""
+    xml = _wrap(
+        """  <dispositivo path="art-1">
+    <versao>
+      <texto>canonico</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+      <fonte ia-id="leizilla-raw-ro-diario-2000-01-01-p0001" diverge="1"/>
+    </versao>
+  </dispositivo>"""
+    )
+    v = csc.check_file(_write(tmp_path, xml))
+    assert any(x.invariant == 1 for x in v)
+
+
 def test_inv02_revogacao_total_excludes_partial(tmp_path: Path) -> None:
     xml = _wrap(
         """  <revogacao em="2020-01-01" tipo="expressa" por="urn:lex:br;estado:rondonia;lei:2020-01-01;9999">

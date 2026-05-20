@@ -255,11 +255,32 @@ def _inherited_em(chain: list[ET.Element]) -> datetime.date | None:
     return None
 
 
+def _parse_xs_boolean(value: str | None) -> bool | None:
+    """Parse an xs:boolean lexical value.
+
+    xs:boolean accepts {true, false, 1, 0} after whitespace collapse.
+    Returns None for missing or invalid (caller can decide treatment).
+    """
+    if value is None:
+        return None
+    v = value.strip()
+    if v in ("true", "1"):
+        return True
+    if v in ("false", "0"):
+        return False
+    return None
+
+
 def _check_fonte_diverge_texto(ctx: _Ctx) -> None:
     """§7.1 — <fonte diverge="true"> requires <texto> child;
-    <fonte> without diverge cannot have <texto> child."""
+    <fonte> without diverge=true cannot have <texto> child.
+
+    Accepts all xs:boolean lexical forms ("true", "1", "false", "0",
+    whitespace-collapsed) — XSD defines `diverge` as xs:boolean, so a
+    schema-valid `diverge="1"` must behave identically to `diverge="true"`.
+    """
     for fonte in ctx.root.iter(f"{{{NS}}}fonte"):
-        diverge = fonte.get("diverge") == "true"
+        diverge = _parse_xs_boolean(fonte.get("diverge")) is True
         has_texto = fonte.find(f"{{{NS}}}texto") is not None
         ia = fonte.get("ia-id", "?")
         if diverge and not has_texto:
