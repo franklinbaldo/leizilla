@@ -573,6 +573,37 @@ def test_inv05_urn_present_but_undecodable(tmp_path: Path) -> None:
     assert any(x.invariant == 5 for x in v)
 
 
+def test_inherited_em_skips_invalid_dates(tmp_path: Path) -> None:
+    """Kilo: _inherited_em deve pular ValueError e continuar buscando.
+    Aqui o parent tem 1ª versão com em calendar-invalid + 2ª versão com
+    em válido. Inheritance deveria retornar a segunda data, não None."""
+    # Build a chain manually to isolate _inherited_em behavior.
+    import xml.etree.ElementTree as ET
+
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
+     urn-lex="urn:lex:br;estado:rondonia;lei:2000-01-01;1234"
+     vigente-em="2026-05-20">
+  <dispositivo path="art-3">
+    <versao em="2020-13-01">
+      <texto>data invalida</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+    </versao>
+    <versao em="2018-04-10" alterado-por="urn:lex:br;estado:rondonia;lei:2018-04-10;4321">
+      <texto>data valida</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04321"/>
+    </versao>
+  </dispositivo>
+</lei>"""
+    root = ET.fromstring(xml)
+    art3 = root.find("{https://leizilla.org/lei/0.1}dispositivo")
+    result = csc._inherited_em([art3])
+    assert result is not None, (
+        "deveria pular a 1ª versao com em invalido e retornar 2018-04-10"
+    )
+    assert result.isoformat() == "2018-04-10"
+
+
 def test_inv07_inherited_em_catches_out_of_order(tmp_path: Path) -> None:
     """Codex P1: sub-dispositivo cuja primeira versão herda `em` do parent
     e a segunda versão declara `em` ANTERIOR — out of order que o checker

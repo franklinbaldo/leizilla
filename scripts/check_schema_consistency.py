@@ -242,6 +242,9 @@ def _inherited_em(chain: list[ET.Element]) -> datetime.date | None:
 
     Per §4.3 step 2: missing `em` inherits from "ancestral mais próximo
     que tem uma <versao> com `em` declarado".
+
+    A regex-valid but calendar-invalid `em` (e.g. "2020-13-01") is
+    skipped, not treated as fatal — same pattern as _check_versoes_ordem.
     """
     for ancestor in reversed(chain):
         for av in ancestor.findall(f"{{{NS}}}versao"):
@@ -251,7 +254,7 @@ def _inherited_em(chain: list[ET.Element]) -> datetime.date | None:
             try:
                 return datetime.date.fromisoformat(aem)
             except ValueError:
-                return None
+                continue
     return None
 
 
