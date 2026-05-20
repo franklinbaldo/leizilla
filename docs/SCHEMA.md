@@ -379,12 +379,12 @@ Arrays **no Parquet** como `VARCHAR` com JSON serializado, **não** Parquet LIST
 }
 ```
 
-Escrita via `pyarrow.parquet.write_table` (não DuckDB `COPY` — esse não embute KV custom). `git_sha` é o SHA completo (40 chars), não truncado.
+Escrita preferida via `pyarrow.parquet.write_table` (controle granular do KV + interop com Arrow ecosystem). DuckDB também suporta KV custom via `COPY (...) TO 'file.parquet' (FORMAT parquet, KV_METADATA {...})` — ambos os paths são válidos; escolha do writer fica para M4 baseada em complexidade do ETL. `git_sha` é o SHA completo (40 chars), não truncado.
 
 ### 3.5 Versioning
 
 - `schema_version` semver-ish na coluna `leizilla.schema_version`: major bump apenas em break.
-- **Mapping `schema_version` → identifier `v{N}`**: `N` é o **major** do `schema_version`. Pré-M5: `schema_version="0.1"` → identifier `v0` (e.g. `leizilla-dataset-ro-v0`, `leis-ro-v0.parquet`). Pós-M5: `schema_version="1"` → identifier `v1`. Identifier IA permanece inteiro `v\d+` por compatibilidade com regex de naming (§5.4); versão pré-release fica codificada no major `0`. Minor/patch (`0.1`, `0.2`) atualizam o footer KV sem novo identifier.
+- **Mapping `schema_version` → identifier `v{N}`**: `N` é o **major** do `schema_version`. Pré-M5: `schema_version="0.1"` → identifier `v0` (e.g. `leizilla-dataset-ro-v0`, `versoes-ro-v0.parquet`). Pós-M5: `schema_version="1"` → identifier `v1`. Identifier IA permanece inteiro `v\d+` por compatibilidade com regex de naming (§5.4); versão pré-release fica codificada no major `0`. Minor/patch (`0.1`, `0.2`) atualizam o footer KV sem novo identifier.
 - CI valida que `int(N)` no caminho do arquivo bate com `int(schema_version.split('.')[0])` do footer KV.
 - Zod schema único em `web/src/schemas/v0/versao.ts` (matches single table) durante M0–M4; movido para `v1/` quando schema_version promover para `1`.
 - v1 só é cravado depois do MVP rodar (reviewer #6 ponto 13). Durante M0–M4 o schema é **v0.1** (identifier `v0`); promove para v1 no fechamento de M5.
