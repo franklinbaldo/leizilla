@@ -4,21 +4,26 @@
   Fixture: lei estruturada com blocos organizacionais (livro/título/capítulo/seção).
 
   Cobre:
-  - Hierarquia nested: livro > titulo > capitulo > secao > artigo > parágrafo.
-  - Path organizacional namespaceado: liv-1, liv-1-tit-1, liv-1-tit-1-cap-1, etc.
+  - Hierarquia nested: titulo > capitulo > artigo > inciso/paragrafo.
+  - Path organizacional namespaceado: tit-1, tit-1-cap-1, etc.
   - Path normativo permanece global: art-1 (não tit-1-cap-1-art-1).
-  - Bloco com <versao> carregando só <rotulo_versao> (sem <texto>).
-  - parent declarando o nesting (paragrafo aponta para artigo, artigo aponta
-    para o capítulo, e assim por diante).
+  - Bloco com <versao> carregando só <rotulo_versao> APENAS quando difere
+    de <rotulo> (override real). Quando idêntico, omite-se e consumer
+    aplica COALESCE(rotulo_versao, rotulo) — SCHEMA.md §3.2.
+  - parent declarando o nesting (paragrafo aponta para artigo, artigo
+    aponta para o capítulo, e assim por diante).
+  - Constituição Federal sem <numero> — usa urn-lex sem segmento de
+    número: urn:lex:br;federal;constituicao:1988-10-05. Header omite
+    <numero> (xs:string vazio não permitido; minOccurs=0 cobre o caso).
+  - Path de inciso usa numeral arábico (inc-1) com romano em rotulo (I).
 -->
 <lei xmlns="https://leizilla.org/lei/0.1"
      schema-version="0.1"
-     urn-lex="urn:lex:br;federal;constituicao:1988-10-05;0">
+     urn-lex="urn:lex:br;federal;constituicao:1988-10-05">
 
   <header>
     <ente>federal</ente>
     <tipo>constituicao</tipo>
-    <numero>0</numero>
     <ano>1988</ano>
     <data-publicacao>1988-10-05</data-publicacao>
     <vigente-em>2026-05-20</vigente-em>
@@ -49,21 +54,21 @@
       </versoes>
     </dispositivo>
 
-    <!-- Bloco organizacional: TÍTULO I (sem texto, só rotulo) -->
+    <!-- Bloco organizacional: TÍTULO I (sem texto, sem rotulo_versao — rótulo nunca mudou) -->
     <dispositivo tipo="titulo" path="tit-1" parent="">
       <rotulo>TÍTULO I — DOS PRINCÍPIOS FUNDAMENTAIS</rotulo>
       <versoes>
         <versao numero="1" vigente-de="1988-10-05">
-          <rotulo_versao>TÍTULO I — DOS PRINCÍPIOS FUNDAMENTAIS</rotulo_versao>
           <fonte-canonica>planalto</fonte-canonica>
           <fonte ia-id="leizilla-raw-federal-planalto-constituicao-1988"/>
         </versao>
       </versoes>
 
       <!-- Artigo normativo dentro do bloco. Path GLOBAL (art-1, não tit-1-art-1).
-           parent="tit-1" declara o nesting organizacional. -->
+           parent="tit-1" declara o nesting organizacional.
+           URN sem segmento de número (constituição): ...;1988-10-05!art-1 -->
       <dispositivo tipo="artigo" path="art-1" parent="tit-1"
-                   urn="urn:lex:br;federal;constituicao:1988-10-05;0!art-1">
+                   urn="urn:lex:br;federal;constituicao:1988-10-05!art-1">
         <rotulo>Art. 1º</rotulo>
         <versoes>
           <versao numero="1" vigente-de="1988-10-05">
@@ -74,7 +79,7 @@
         </versoes>
 
         <dispositivo tipo="inciso" path="art-1-inc-1" parent="art-1"
-                     urn="urn:lex:br;federal;constituicao:1988-10-05;0!art-1!inc-1">
+                     urn="urn:lex:br;federal;constituicao:1988-10-05!art-1!inc-1">
           <rotulo>I</rotulo>
           <versoes>
             <versao numero="1" vigente-de="1988-10-05">
@@ -86,7 +91,7 @@
         </dispositivo>
 
         <dispositivo tipo="paragrafo" path="art-1-par-unico" parent="art-1"
-                     urn="urn:lex:br;federal;constituicao:1988-10-05;0!art-1!par-unico">
+                     urn="urn:lex:br;federal;constituicao:1988-10-05!art-1!par-unico">
           <rotulo>Parágrafo único</rotulo>
           <versoes>
             <versao numero="1" vigente-de="1988-10-05">
@@ -99,22 +104,25 @@
       </dispositivo>
     </dispositivo>
 
-    <!-- Bloco organizacional aninhado: TÍTULO II > CAPÍTULO I > SEÇÃO I -->
+    <!-- Bloco organizacional aninhado: TÍTULO II > CAPÍTULO I.
+         rotulo_versao redundante removido (era idêntico ao rotulo). -->
     <dispositivo tipo="titulo" path="tit-2" parent="">
       <rotulo>TÍTULO II — DOS DIREITOS E GARANTIAS FUNDAMENTAIS</rotulo>
       <versoes>
         <versao numero="1" vigente-de="1988-10-05">
-          <rotulo_versao>TÍTULO II — DOS DIREITOS E GARANTIAS FUNDAMENTAIS</rotulo_versao>
           <fonte-canonica>planalto</fonte-canonica>
           <fonte ia-id="leizilla-raw-federal-planalto-constituicao-1988"/>
         </versao>
       </versoes>
 
+      <!-- DIVERGENT rotulo_versao: rótulo "vivo" expandido relativo à versão de 1988.
+           Demonstra o override real — bloco organizacional pode ser renomeado
+           (ou redenominado pelo consolidador) entre versões. -->
       <dispositivo tipo="capitulo" path="tit-2-cap-1" parent="tit-2">
         <rotulo>CAPÍTULO I — DOS DIREITOS E DEVERES INDIVIDUAIS E COLETIVOS</rotulo>
         <versoes>
           <versao numero="1" vigente-de="1988-10-05">
-            <rotulo_versao>CAPÍTULO I — DOS DIREITOS E DEVERES INDIVIDUAIS E COLETIVOS</rotulo_versao>
+            <rotulo_versao>CAPÍTULO I — DOS DIREITOS INDIVIDUAIS E COLETIVOS</rotulo_versao>
             <fonte-canonica>planalto</fonte-canonica>
             <fonte ia-id="leizilla-raw-federal-planalto-constituicao-1988"/>
           </versao>
@@ -122,7 +130,7 @@
 
         <!-- art-5 mora dentro de tit-2-cap-1, mas path permanece global -->
         <dispositivo tipo="artigo" path="art-5" parent="tit-2-cap-1"
-                     urn="urn:lex:br;federal;constituicao:1988-10-05;0!art-5">
+                     urn="urn:lex:br;federal;constituicao:1988-10-05!art-5">
           <rotulo>Art. 5º</rotulo>
           <versoes>
             <versao numero="1" vigente-de="1988-10-05">

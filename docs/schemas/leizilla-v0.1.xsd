@@ -108,21 +108,44 @@
     <xs:annotation>
       <xs:documentation>
         URN LEX (dialect provisório — ver SCHEMA.md §10 e §5.5).
-        Formato esperado: urn:lex:br;{jurisdicao};{tipo}:{data};{numero}
-        opcionalmente seguido de !{path-de-dispositivo}.
+        Formato canônico: urn:lex:br;{jurisdicao};{tipo}:{data}[;{numero}][!{path}...]
+
+        O segmento ;{numero} é opcional — ausente em normas sem numeração
+        (e.g. Constituição Federal: urn:lex:br;federal;constituicao:1988-10-05).
+        Paths de dispositivo seguem como !{slug} repetíveis.
+
+        Zero-pad NÃO faz parte da URN — zero-pad é exclusivo do identifier IA
+        (SCHEMA.md §5.1). A URN representa o número legal (42, não 0042).
       </xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
-      <xs:pattern value="urn:lex:br;[^;]+;[^;]+:\d{4}-\d{2}-\d{2};[^!]+(![a-z0-9-]+)*"/>
+      <xs:pattern value="urn:lex:br;[^;]+;[^;]+:\d{4}-\d{2}-\d{2}(;[^!]+)?(![a-z0-9-]+)*"/>
     </xs:restriction>
   </xs:simpleType>
 
   <xs:simpleType name="DispositivoPath">
     <xs:annotation>
       <xs:documentation>
-        Path do dispositivo. Normativos: global (art-5, art-5-par-1).
+        Path do dispositivo (atributo `path`). Sempre não-vazio.
+        Normativos: global (art-5, art-5-par-1).
         Organizacionais: namespaceado no nesting (tit-1, tit-1-cap-1).
-        Raiz: string vazia.
+        Especiais: titulo-lei, ementa, preambulo, preambulo, anexo-1.
+
+        Deve ser não-vazio — apenas `parent` admite string vazia (raiz).
+        Ver ParentPath para o atributo `parent`.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[a-z][a-z0-9-]*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ParentPath">
+    <xs:annotation>
+      <xs:documentation>
+        Path do dispositivo pai (atributo `parent`). String vazia
+        significa "filho direto da lei" (sem pai dispositivo). Caso
+        contrário, mesmo formato de DispositivoPath.
       </xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
@@ -140,10 +163,17 @@
   </xs:simpleType>
 
   <xs:simpleType name="ParseMethod">
+    <xs:annotation>
+      <xs:documentation>
+        Estratégia de parsing. llm-haiku = produção padrão; llm-opus =
+        fill-gaps routine (casos difíceis); manual = curadoria humana via PR;
+        deterministic = parser regex/grammar para fontes estruturadas.
+        SCHEMA.md §2.2 — histórico de reprocessamentos vive em provenance.json.
+      </xs:documentation>
+    </xs:annotation>
     <xs:restriction base="xs:string">
       <xs:enumeration value="llm-haiku"/>
       <xs:enumeration value="llm-opus"/>
-      <xs:enumeration value="llm-sonnet"/>
       <xs:enumeration value="manual"/>
       <xs:enumeration value="deterministic"/>
     </xs:restriction>
@@ -164,7 +194,16 @@
     <xs:sequence>
       <xs:element name="ente" type="SlugEnte"/>
       <xs:element name="tipo" type="TipoLei"/>
-      <xs:element name="numero" type="xs:string" minOccurs="0"/>
+      <xs:element name="numero" type="xs:string" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>
+            Número da lei. Opcional — ausente em normas sem numeração
+            formal (e.g. Constituição Federal). Quando ausente, urn-lex
+            no elemento raiz também deve ser omitido ou usar formato
+            sem segmento de número.
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
       <xs:element name="ano" type="xs:gYear"/>
       <xs:element name="data-publicacao" type="xs:date" minOccurs="0"/>
       <xs:element name="vigente-em" type="xs:date">
@@ -177,11 +216,27 @@
           </xs:documentation>
         </xs:annotation>
       </xs:element>
-      <xs:element name="revogada" type="xs:boolean" default="false" minOccurs="0"/>
+      <xs:element name="revogada" type="xs:boolean">
+        <xs:annotation>
+          <xs:documentation>
+            Obrigatório. Falso para a grande maioria das leis vigentes.
+            Não usar XSD default — comportamento de default em elemento
+            (diferente de atributo) só aplica a texto vazio, não a
+            elemento ausente.
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
     </xs:sequence>
   </xs:complexType>
 
   <xs:complexType name="FonteType">
+    <xs:annotation>
+      <xs:documentation>
+        Referência a um raw IA item. ia-id segue o padrão
+        leizilla-raw-{ente}-{fonte}-{chave} (SCHEMA.md §5.1).
+        Pattern não enforçado em v0.1 — será adicionado em v0.2.
+      </xs:documentation>
+    </xs:annotation>
     <xs:attribute name="ia-id" type="xs:string" use="required"/>
   </xs:complexType>
 
@@ -193,10 +248,15 @@
         - Normativos: &lt;texto&gt; obrigatório.
         - Organizacionais: &lt;texto&gt; ausente; &lt;rotulo_versao&gt; opcional
           carrega o rótulo da época (útil quando capítulo é renomeado).
+          Ausente quando rótulo não mudou — consumer aplica
+          COALESCE(rotulo_versao, rotulo) conforme SCHEMA.md §3.2.
 
         XSD não consegue expressar a regra "texto presente iff dispositivo
         é normativo" via cardinalidade pura — validação semântica fica
         no consistency checker (M0.2).
+
+        Dispositivos criados por lei posterior têm primeira versão com
+        vigente-de = data da lei criadora + alterado-por = URN da lei criadora.
       </xs:documentation>
     </xs:annotation>
     <xs:sequence>
@@ -230,6 +290,14 @@
 
   <!-- Dispositivo recursivo. ComplexType nomeado para auto-referência. -->
   <xs:complexType name="DispositivoType">
+    <xs:annotation>
+      <xs:documentation>
+        Paths de incisos usam Arabic ordinal em path (inc-1, inc-2) com
+        numeral romano em &lt;rotulo&gt; (I, II, III). Mesma convenção para
+        alíneas: path ali-1, ali-2; rotulo a, b, c. Decisão: ordenação
+        SQL/ASCII consistente; romano apenas na apresentação.
+      </xs:documentation>
+    </xs:annotation>
     <xs:sequence>
       <xs:element name="rotulo" type="xs:string" minOccurs="0"/>
       <xs:element name="versoes" type="VersoesType" minOccurs="1"/>
@@ -237,8 +305,12 @@
                   minOccurs="0" maxOccurs="unbounded"/>
     </xs:sequence>
     <xs:attribute name="tipo" type="TipoDispositivo" use="required"/>
-    <xs:attribute name="path" type="DispositivoPath" use="required"/>
-    <xs:attribute name="parent" type="DispositivoPath" use="required">
+    <xs:attribute name="path" type="DispositivoPath" use="required">
+      <xs:annotation>
+        <xs:documentation>Sempre não-vazio. Ver DispositivoPath.</xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="parent" type="ParentPath" use="required">
       <xs:annotation>
         <xs:documentation>
           Obrigatório em todo dispositivo. Raiz: parent="" (string vazia).
@@ -305,6 +377,12 @@
   </xs:complexType>
 
   <xs:complexType name="ParseType">
+    <xs:annotation>
+      <xs:documentation>
+        Registra o parse mais recente. Histórico completo de reprocessamentos
+        (e.g. Haiku → Opus) vive em provenance.json sidecar, não neste elemento.
+      </xs:documentation>
+    </xs:annotation>
     <xs:attribute name="method" type="ParseMethod" use="required"/>
     <xs:attribute name="model" type="xs:string" use="optional"/>
     <xs:attribute name="confianca" use="optional">
@@ -347,9 +425,11 @@
       <xs:attribute name="urn-lex" type="UrnLex" use="optional">
         <xs:annotation>
           <xs:documentation>
-            URN LEX da lei. Opcional porque data_publicacao pode ser
-            desconhecida em fallback. Quando presente, dispositivos
-            herdam via concatenação `{urn-lex}!{path}`.
+            URN LEX da lei. Opcional — ausente quando data_publicacao
+            é desconhecida (fallback) ou norma não tem número (e.g.
+            Constituição Federal pode usar urn:lex:br;federal;constituicao:1988-10-05
+            sem segmento de número). Quando presente, dispositivos herdam
+            via concatenação `{urn-lex}!{path}`.
           </xs:documentation>
         </xs:annotation>
       </xs:attribute>
