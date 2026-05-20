@@ -61,6 +61,10 @@ _ORGANIZACIONAL_TOKENS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^subsec-\d+$"), "subsecao"),
 ]
 
+# Token class — §4.2 forbids mixed composites (e.g. tit-1-art-2).
+_NORMATIVO_TIPOS = {t for _, t in _NORMATIVO_TOKENS}
+_ORGANIZACIONAL_TIPOS = {t for _, t in _ORGANIZACIONAL_TOKENS}
+
 
 def _path_tipo(path: str) -> str | None:
     """Return tipo for a path, or None if unrecognized.
@@ -84,9 +88,15 @@ def _path_tipo(path: str) -> str | None:
     # longest-fitting token first (3-seg `disp-transitoria-N`, `art-N-X`)
     # then 2-seg (`art-N`, `par-N`, `tit-N`, etc.). Single-segment tokens
     # like "ementa" are static and cannot appear mid-composite.
+    #
+    # Per §4.2 path rules, composites are EITHER all-organizational
+    # (`tit-1-cap-1-sec-3`) OR all-normative (`art-5-par-2-inc-3`) —
+    # never mixed. Mixed chains like `tit-1-art-2` or `art-2-cap-1` are
+    # invalid (organizational nesting is XML structure, not path).
     parts = path.split("-")
     i = 0
     last_tipo: str | None = None
+    composite_class: str | None = None  # "organizacional" | "normativo"
     while i < len(parts):
         matched = False
         for take in (3, 2):
@@ -95,6 +105,15 @@ def _path_tipo(path: str) -> str | None:
             candidate = "-".join(parts[i : i + take])
             for pat, tipo in _NORMATIVO_TOKENS + _ORGANIZACIONAL_TOKENS:
                 if pat.match(candidate):
+                    this_class = (
+                        "organizacional"
+                        if tipo in _ORGANIZACIONAL_TIPOS
+                        else "normativo"
+                    )
+                    if composite_class is not None and this_class != composite_class:
+                        # Mixed chain — §4.2 violation.
+                        return None
+                    composite_class = this_class
                     last_tipo = tipo
                     i += take
                     matched = True
@@ -207,16 +226,41 @@ def _iter_dispositivos(parent: ET.Element):
 
 
 def _walk_all_dispositivos(root: ET.Element):
-    """Yield every <dispositivo> in the tree, with its parent <dispositivo>
-    or None when the parent is <lei>."""
-    stack: list[tuple[ET.Element, ET.Element | None]] = [
-        (d, None) for d in _iter_dispositivos(root)
+    """Yield every <dispositivo> in the tree, with its full ancestor chain.
+
+    Chain is ordered root → nearest, i.e. for art-3-par-1 the chain is
+    [<dispositivo path="art-3">]. Empty chain means the dispositivo is
+    a direct child of <lei>.
+    """
+    stack: list[tuple[ET.Element, list[ET.Element]]] = [
+        (d, []) for d in _iter_dispositivos(root)
     ]
     while stack:
-        node, parent = stack.pop()
-        yield node, parent
+        node, chain = stack.pop()
+        yield node, chain
+        new_chain = chain + [node]
         for child in _iter_dispositivos(node):
-            stack.append((child, node))
+            stack.append((child, new_chain))
+
+
+def _inherited_em(chain: list[ET.Element]) -> datetime.date | None:
+    """Walk ancestor chain (nearest first) looking for the first dispositivo
+    whose own first <versao> declares `em`. Returns None if no ancestor
+    has a declared `em` — caller falls back to data-publicacao da URN.
+
+    Per §4.3 step 2: missing `em` inherits from "ancestral mais próximo
+    que tem uma <versao> com `em` declarado".
+    """
+    for ancestor in reversed(chain):
+        for av in ancestor.findall(f"{{{NS}}}versao"):
+            aem = av.get("em")
+            if aem is None:
+                continue
+            try:
+                return datetime.date.fromisoformat(aem)
+            except ValueError:
+                return None
+    return None
 
 
 def _check_fonte_diverge_texto(ctx: _Ctx) -> None:
@@ -320,21 +364,29 @@ def _check_inheritance_inicio(ctx: _Ctx) -> None:
 
 def _check_versoes_ordem(ctx: _Ctx) -> None:
     """§7.7 — Ordering of versões within a dispositivo: `em` strictly
-    increasing (when present)."""
+    increasing (when present).
+
+    Missing `em` resolves via §4.3 inheritance chain: own > nearest
+    ancestor with declared `em` > data-publicacao. Comparing inherited
+    dates catches cases where a nested dispositivo declares an `em`
+    earlier than its parent's first versão.
+    """
     pub = ctx.data_publicacao
-    for d, _ in _walk_all_dispositivos(ctx.root):
+    for d, chain in _walk_all_dispositivos(ctx.root):
         prev_date: datetime.date | None = None
         for v in d.findall(f"{{{NS}}}versao"):
             em = v.get("em")
+            cur: datetime.date | None
             if em is not None:
                 try:
                     cur = datetime.date.fromisoformat(em)
                 except ValueError:
                     continue
-            elif pub is not None:
-                cur = pub
             else:
-                continue
+                # §4.3 inheritance: ancestor first, then pub.
+                cur = _inherited_em(chain) or pub
+                if cur is None:
+                    continue
             if prev_date is not None and cur <= prev_date:
                 path = d.get("path", "?")
                 ctx.add(

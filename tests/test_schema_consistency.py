@@ -336,6 +336,40 @@ def test_inv05_urn_present_but_undecodable(tmp_path: Path) -> None:
     assert any(x.invariant == 5 for x in v)
 
 
+def test_inv07_inherited_em_catches_out_of_order(tmp_path: Path) -> None:
+    """Codex P1: sub-dispositivo cuja primeira versão herda `em` do parent
+    e a segunda versão declara `em` ANTERIOR — out of order que o checker
+    antigo perdia (comparava com pub em vez de com o em herdado)."""
+    xml = _wrap(
+        """  <dispositivo path="art-3">
+    <versao em="2018-04-10" alterado-por="urn:lex:br;estado:rondonia;lei:2018-04-10;4321">
+      <texto>v1 art-3</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04321"/>
+    </versao>
+    <dispositivo path="art-3-par-1">
+      <versao>
+        <texto>v1 par-1 (herda em=2018-04-10 do parent)</texto>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04321"/>
+      </versao>
+      <versao em="2010-01-01" alterado-por="urn:lex:br;estado:rondonia;lei:2010-01-01;5555">
+        <texto>v2 par-1 — out of order! 2010 antes de 2018</texto>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-05555"/>
+      </versao>
+    </dispositivo>
+  </dispositivo>"""
+    )
+    v = csc.check_file(_write(tmp_path, xml))
+    assert any(x.invariant == 7 for x in v), (
+        f"esperava §7.7 violation; got: {[str(x) for x in v]}"
+    )
+
+
+def test_inv04_mixed_org_normative_rejected(tmp_path: Path) -> None:
+    """Codex P1: tit-1-art-2 e art-2-cap-1 são paths mistos — §4.2 proíbe."""
+    for bad in ("tit-1-art-2", "art-2-cap-1", "art-5-tit-3", "tit-1-cap-2-art-1"):
+        assert csc._path_tipo(bad) is None, f"mixed path '{bad}' should be rejected"
+
+
 def test_inv05_no_urn_is_exempt(tmp_path: Path) -> None:
     """Lei sem urn-lex (caso fallback OCR-ruim): §7.5 NÃO reporta —
     vigência genuinamente não tem âncora."""
