@@ -1,6 +1,6 @@
 """Consistency checker for Leizilla XML v0.1.
 
-Validates the 14 invariants from docs/SCHEMA.md §7 that XSD cannot
+Validates the invariants from docs/SCHEMA.md §7 that XSD cannot
 express. XSD is intentionally loose; this checker is the other half
 of the schema contract.
 
@@ -539,10 +539,20 @@ def check_file(file: Path) -> list[Violation]:
     try:
         tree = ET.parse(file)
     except ET.ParseError as e:
+        # invariant=0 reserved for fatal parse failures (CLI exit 2).
         return [Violation(file, 0, f"XML inválido: {e}")]
     root = tree.getroot()
     if root.tag != f"{{{NS}}}lei":
-        return [Violation(file, 0, f"elemento raiz não é <lei>: {root.tag}")]
+        # XML parsed but root is wrong — §7.15 structural violation,
+        # not a parse error. CLI exits 1 (consistency violation).
+        return [
+            Violation(
+                file,
+                15,
+                f"elemento raiz deve ser <lei> no namespace {NS}; "
+                f"recebido: {root.tag}",
+            )
+        ]
 
     urn_lex = root.get("urn-lex")
     ctx = _Ctx(

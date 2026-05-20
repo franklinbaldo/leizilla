@@ -91,6 +91,20 @@ def test_cli_exit_2_on_no_args() -> None:
     assert csc.main(["check_schema_consistency.py"]) == 2
 
 
+def test_inv15_wrong_root_element_is_violation_not_parse_error(
+    tmp_path: Path,
+) -> None:
+    """Codex P2: XML bem-formado com root != <lei> é §7.15 (consistency
+    violation, exit 1), não parse error (exit 2)."""
+    f = tmp_path / "wrong-root.xml"
+    f.write_text('<?xml version="1.0"?>\n<foo/>', encoding="utf-8")
+    violations = csc.check_file(f)
+    assert any(v.invariant == 15 for v in violations)
+    assert not any(v.invariant == 0 for v in violations)
+    # CLI deve retornar 1 (violation), não 2 (parse error).
+    assert csc.main(["check_schema_consistency.py", str(f)]) == 1
+
+
 def test_cli_exit_2_takes_priority_over_violations(tmp_path: Path) -> None:
     """When some files have violations AND others have parse errors,
     exit 2 takes priority (broken input is more urgent than rule violations)."""

@@ -713,6 +713,7 @@ XSD não consegue expressar tudo. `scripts/check_schema_consistency.py` (M0.2) v
 12. **`schema_version`** no XSD, no footer KV do Parquet, e no `schema-version` attribute do `<lei>` root concordam.
 13. **Path único** em toda a árvore de dispositivos da lei (validado pelo `xs:unique` no XSD; checker confirma como duplo-check).
 14. **URN LEX sem zero-pad**: número da lei na URN é o número legal raw (`;1234`, `;42`). Zero-pad é exclusivo do identifier IA (`leizilla-ro-lei-00042-1985`); checker rejeita URNs com `;0+\d+` quando o número subjacente tem &lt; 5 dígitos.
+15. **Elemento raiz é `<lei>`** no namespace `https://leizilla.org/lei/0.1`. XML bem-formado com root diferente é violação estrutural (checker exit 1), distinta de XML mal-formado (parse error, exit 2).
 
 ---
 
