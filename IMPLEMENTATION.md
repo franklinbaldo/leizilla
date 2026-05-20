@@ -274,14 +274,14 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 **M0.2a — superseded** 🔴 (PR #7). Design v1 do XSD foi abandonado após auditoria first-principles. Fica como referência histórica.
 
-**M0.2b — Redesign first-principles** (PR em curso):
+**M0.2b — Redesign first-principles** (PR #8 merged):
 - [x] `docs/SCHEMA.md` reescrito do zero (princípio "dispositivo é a unidade").
 - [x] `docs/schemas/leizilla-v0.1.xsd` enxuto (~235 linhas; 6 elementos).
 - [x] 6 fixtures cobrindo: caso simples (herança pura), alterações + divergência multi-fonte + vacatio, blocos organizacionais (CF/88), revogações parciais (4 tipos), revogação total da lei, OCR ruim.
 - [x] `tests/fixtures/leizilla_xml/README.md` com matriz de cobertura.
-- [ ] **🔴 Bloqueante para fechar M0.2**: `scripts/check_schema_consistency.py` validando as 14 invariantes do SCHEMA.md §7. XSD é propositalmente loose (permite `<fonte diverge="false"><texto>x</texto></fonte>`, `quality` em qualquer dispositivo, etc.); sem o checker em CI o "schema" é metade do contrato.
+- [x] **`scripts/check_schema_consistency.py`** validando as 14 invariantes do SCHEMA.md §7. + `tests/test_schema_consistency.py` com 1 caso negativo por invariante (38 testes, todos passam).
 - [ ] `scripts/leizilla-to-lexml.xsl` + teste CI `tests/test_lexml_export.py` validando contra `tests/fixtures/lexml.xsd` (bundle no repo).
-- [ ] Negative test cases (XML inválido proposital → checker deve rejeitar).
+- [ ] Wire `check_schema_consistency.py` no CI (rodar contra `tests/fixtures/leizilla_xml/*.xml` a cada PR).
 - [ ] Resolver pendentes §8.2: URN dialect contra CGPID spec, compressão Parquet (SNAPPY vs ZSTD em DuckDB-WASM), granularidade bundle ZIP, política de re-scrape, robots.txt rate-limit, custo LLM real.
 
 **M0.3 — Inspirações concretas** (paralelo a M0.2):
