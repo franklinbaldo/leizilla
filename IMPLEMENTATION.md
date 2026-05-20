@@ -90,6 +90,18 @@ Outras decisões do mesmo review já incorporadas em SCHEMA.md:
 - SSR híbrido via Astro (suaviza princípio 6 — XSLT in-browser é fallback).
 - Confiança baixa exibida explicitamente no frontend (banner LLM/OCR).
 
+### 2026-05-20 — Dispositivo universal: tudo que é texto da lei
+
+- **Decisão**: `<dispositivo>` é o elemento universal para qualquer texto da lei. `tipo` discrimina o papel.
+- **Normativos** (têm `<texto>` em `<versoes>`): `titulo-lei`, `ementa`, `preambulo`, `artigo`, `paragrafo`, `inciso`, `alinea`, `item`, `anexo`, `disposicao-transitoria`, `disposicao-final`.
+- **Organizacionais** (só `<rotulo>` em `<versoes>`, sem `<texto>`): `livro`, `parte`, `titulo`, `capitulo`, `secao`, `subsecao`. São uma **espécie** de dispositivo (insight do usuário), sem texto normativo próprio.
+- **Header** carrega só metadados bibliográficos (ente, tipo, numero, ano, data, urn, vigente-em, revogada). `<ementa>` e nome oficial da lei migraram para dispositivos.
+- **Parent obrigatório** em todo `<dispositivo>` (`parent=""` na raiz). Redundante com nesting XML mas explicitude força clareza.
+- **Path normativo é global**: `art-5` permanece `art-5` independente do bloco organizacional acima. Citação forense direta = lookup literal.
+- **Path organizacional namespaceia internamente**: `tit-1`, `tit-1-cap-1`, `tit-1-cap-1-sec-2`.
+- **Sem coluna `eh_bloco`**: redundante com `tipo`; filtros via `WHERE texto IS NOT NULL` ou `WHERE tipo IN (...)`. Insight do usuário: "qualquer dispositivo tem um bloco que o agrupa em algum lugar, o XML permite isso" — não precisa de flag explícito.
+- **Documentado em**: SCHEMA.md §0.1, §3.2, §4.2 (header slim), §4.3 (exemplo cobrindo titulo-lei + ementa + preambulo + blocos + articulação + anexo).
+
 ### 2026-05-20 — Wayback Machine como caminho primário de fetch
 
 - **Decisão**: crawler dispara `POST /save` no Wayback Machine para `fonte_url` + `pdf_url`, depois **fetch o PDF do snapshot Wayback** (não da fonte original) para upload na nossa coleção IA. Fail-open: timeout/erro/rate-limit do Wayback → fallback para download direto da fonte, gravar `fetched_from: "source-fallback"` em `raw_meta.json.provenance_wayback`.

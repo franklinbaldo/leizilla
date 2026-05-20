@@ -13,17 +13,34 @@ Companion docs:
 
 ## 0. Princípios de modelagem (reescrita pós-review #6)
 
-### 0.1 Dispositivo é a unidade primária
+### 0.1 Dispositivo é a unidade primária e universal de texto
 
-A unidade básica de dado **não é a lei** — é o **dispositivo** (artigo, parágrafo, inciso, alínea, item). Justificativa:
+A unidade básica de dado **não é a lei** — é o **dispositivo**. E "dispositivo" é o tipo universal para **tudo que for texto que ajude a interpretar a norma**:
 
+**Normativos** (carregam texto normativo próprio em `<versoes><versao><texto>...`):
+- `titulo-lei`: nome oficial ("LEI Nº 14.133, DE 1º DE ABRIL DE 2021")
+- `ementa`: resumo oficial
+- `preambulo`: "O Presidente da República, faço saber..."
+- `artigo`, `paragrafo`, `inciso`, `alinea`, `item`: articulação
+- `anexo`: anexos com texto (tabelas, listas, fórmulas — estrutura interna em v0.2)
+- `disposicao-transitoria`, `disposicao-final`: blocos finais de disposições
+
+**Organizacionais** (agrupadores sem texto normativo, só `<rotulo>` versionável):
+- `livro`, `parte`, `titulo`, `capitulo`, `secao`, `subsecao`
+
+Tudo é `<dispositivo>` com `tipo` diferenciando. Blocos organizacionais ("TÍTULO I — Dos Princípios") são uma **espécie** de dispositivo, sem `<texto>` mas com `<rotulo>` versionável (renomear capítulo é alteração real).
+
+**Cada dispositivo declara seu pai explicitamente** (`parent` attribute obrigatório). Raiz: `parent=""`. Hierarquia explícita, navegável em ambas direções.
+
+Justificativa:
 - Lawyers citam dispositivos, não leis inteiras ("art. 5º, §2º, II, alínea b da CF/88").
-- Alterações legislativas operam sobre dispositivos individuais, não sobre a lei toda.
-- Revogações são parciais com frequência (revoga art. 3º mantém o resto).
-- Cross-references naturais ("Lei 14.133/2021 art. 3 alterou Lei 1.234/2003 art. 5 §2").
-- DuckDB-WASM consegue indexar e buscar dispositivos com SQL trivial; a lei é apenas o agregador.
+- Alterações operam sobre dispositivos individuais (caput, parágrafo isolado, anexo isolado).
+- Revogações são parciais com frequência (revoga art. 3º mantém o resto; revoga Anexo II mantém articulação).
+- Cross-references granulares ("Lei 14.133/2021 art. 3 alterou Lei 1.234/2003 art. 5 §2").
+- DuckDB-WASM indexa dispositivos com SQL trivial; lei é apenas o agregador.
+- **Uniformidade**: zero exceção. Todo texto da lei tem o mesmo molde de tratamento, mesma timeline temporal, mesmo padrão de divergência multi-fonte.
 
-Isso difere de LexML/Akoma Ntoso, que centram em document/work. Para nosso uso (busca jurídica + timeline temporal), dispositivo-cêntrico é mais expressivo.
+Isso difere de LexML/Akoma Ntoso, que centram em document/work com elementos separados (`<Ementa>`, `<Preambulo>`, `<Articulacao>`, `<Anexo>`). Para nosso uso (busca jurídica + timeline temporal + alterações granulares), dispositivo universal é mais expressivo.
 
 ### 0.2 Vigente compilado é o objeto canônico; histórico é timeline
 
@@ -282,10 +299,10 @@ Dispositivo-cêntrico exige três tabelas relacionadas. Cada uma vira um Parquet
 | `dispositivo_id` | VARCHAR | NO | composto: `{lei_id}#{path}` (e.g. `leizilla-ro-lei-01234-2003#art-3-par-2`) |
 | `lei_id` | VARCHAR | NO | FK para `leis.id` |
 | `urn_dispositivo` | VARCHAR | YES | `urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-3!par-2` (LexML dialect, ver §5.5). Regra: `urn_dispositivo` é `NULL` ⟺ `leis.urn_lex` da lei pai é `NULL` (lei sem data extraível) |
-| `tipo` | VARCHAR | NO | `artigo`/`paragrafo`/`inciso`/`alinea`/`item`/`caput` |
+| `tipo` | VARCHAR | NO | enum unificado (ver §0.1): normativos (`titulo-lei`, `ementa`, `preambulo`, `artigo`, `paragrafo`, `inciso`, `alinea`, `item`, `anexo`, `disposicao-transitoria`, `disposicao-final`) + organizacionais (`livro`, `parte`, `titulo`, `capitulo`, `secao`, `subsecao`). **Não inclui `caput`** — caput é índice 0 implícito (§4.3). Filtrar blocos vs normativos: `WHERE texto IS NOT NULL` (normativos têm texto) ou `WHERE tipo IN (...)` por enum. |
 | `rotulo` | VARCHAR | NO | "Art. 1º", "§ 2º", "II", "a)" |
 | `path` | VARCHAR | NO | hierárquico: `art-3` / `art-3-par-2` / `art-3-par-2-inc-1` / `art-3-par-2-inc-1-ali-a` |
-| `parent_path` | VARCHAR | YES | NULL para raiz; senão path do dispositivo pai |
+| `parent_path` | VARCHAR | NO | path do dispositivo pai. Raiz: string vazia `""`. Sempre declarado (§0.1: parent obrigatório). |
 | `ordem` | INTEGER | NO | ordem dentro do parent (1, 2, 3...) |
 | `texto_vigente` | VARCHAR | YES | texto da versão atualmente vigente (denormalizado para query rápida) |
 | `vigente_desde` | DATE | YES | data efeito da versão vigente |
@@ -302,8 +319,9 @@ Dispositivo-cêntrico exige três tabelas relacionadas. Cada uma vira um Parquet
 | `numero_versao` | INTEGER | NO | 1, 2, 3... cronológico |
 | `vigente_de` | DATE | NO | |
 | `vigente_ate` | DATE | YES | NULL = ainda vigente |
-| `texto` | VARCHAR | NO | |
-| `texto_normalizado` | VARCHAR | NO | NFC + cleanup, alimenta busca client-side. **Sempre gerado quando `texto` é NOT NULL** — nullable só faz sentido se `texto` também fosse null (não acontece). |
+| `texto` | VARCHAR | YES | NULL quando o dispositivo é organizacional (tipo ∈ {livro, parte, titulo, capitulo, secao, subsecao}); NOT NULL para normativos. |
+| `texto_normalizado` | VARCHAR | YES | NFC + cleanup, alimenta busca client-side. Mesmo padrão de nullability que `texto`. |
+| `rotulo` | VARCHAR | YES | rotulo na versão (override do `dispositivos.rotulo` estável). Útil quando rotulo muda entre versões (renomear capítulo). Normalmente NULL. |
 | `alterado_por_lei_id` | VARCHAR | YES | NULL na versão original; senão FK para `leis.id` da lei alteradora |
 | `fonte_canonica` | VARCHAR | NO | slug curto da fonte usada (`casacivil`, `diario`, `assembleia`...) |
 | `fontes_consultadas` | VARCHAR (JSON array) | NO | lista de raw IA ids usados |
@@ -367,13 +385,15 @@ Esboço. Definição XSD formal em `docs/schemas/leizilla-v0.1.xsd` (M0.2).
 ### 4.2 `<header>` — metadados da lei
 
 ```xml
+<!-- Header carrega APENAS metadados estruturais/bibliográficos.
+     Todo texto (título oficial, ementa, preâmbulo, articulação, anexos)
+     vive em <dispositivos> (§0.1). -->
 <header>
   <ente>ro</ente>
   <tipo>lei</tipo>
   <numero>1234</numero>
   <ano>2003</ano>
   <data-publicacao>2003-06-15</data-publicacao>
-  <ementa>Dispõe sobre...</ementa>
   <vigente-em>2026-05-20</vigente-em>
   <revogada>false</revogada>
 </header>
@@ -391,62 +411,144 @@ Esboço. Definição XSD formal em `docs/schemas/leizilla-v0.1.xsd` (M0.2).
 
 Cada dispositivo carrega sua própria **timeline de versões**. Nested para hierarquia.
 
-**Regra do caput (Opção D — aprovada)**: caput não é elemento separado. Todo `<dispositivo>` container (artigo, parágrafo, inciso) tem `<versoes>` opcional carregando **seu próprio texto intrínseco** — que corresponde ao "caput" na terminologia jurídica quando o dispositivo tem filhos. Conceitualmente o caput é o "índice 0" dos filhos do container. Implica:
+**Regra do caput (Opção D — aprovada)**: caput não é elemento separado nem tipo. Todo `<dispositivo>` normativo container (artigo, parágrafo, inciso) carrega `<texto>` na sua própria `<versao>` — isso **é** o caput quando o dispositivo tem filhos. Conceitualmente o caput é o "índice 0" dos filhos do container. Implica:
 
-- **Sem elemento `<dispositivo tipo="caput">`**. Caput é propriedade implícita do container.
+- **Sem `<dispositivo tipo="caput">`**. Caput é propriedade implícita do container normativo. `caput` **não está** no enum de `tipo` (§3.2).
 - **URN aponta para o container**: `urn:lex:...!art-5` resolve para o texto intrínseco (caput) do art-5. Sub-itens via `!art-5!par-1`, etc.
 - **Versionamento granular preservado**: alterar só o caput = nova `<versao>` no próprio `<dispositivo path="art-5">`. Alterar só o §1 = nova `<versao>` em `<dispositivo path="art-5-par-1">`. Independentes.
 - **Aplica recursivamente**: parágrafo com incisos também tem "caput" (seu próprio texto antes dos incisos), mesma regra.
 - **Parquet `dispositivos`**: 1 row por dispositivo. A row do container **é** o caput. Não há row extra "caput".
-- **Export LexML** (XSLT): wrap mecânico — `<dispositivo path="art-5"><versoes>{T}</versoes>...</dispositivo>` vira `<Artigo><Caput><Texto>{T}</Texto></Caput>...</Artigo>`.
+- **Export LexML** (XSLT): wrap mecânico — `<dispositivo path="art-5"><versoes><versao><texto>{T}</texto></versao></versoes>...` vira `<Artigo><Caput><Texto>{T}</Texto></Caput>...</Artigo>`.
 
 ```xml
+<!-- Exemplo cobrindo: título-lei + ementa + preâmbulo + blocos organizacionais
+     + articulação + anexo. Tudo é <dispositivo>; tipo discrimina o papel. -->
 <dispositivos>
-  <dispositivo tipo="artigo" path="art-1"
-               urn="urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-1">
-    <rotulo>Art. 1º</rotulo>
+
+  <dispositivo tipo="titulo-lei" path="titulo-lei" parent=""
+               urn="urn:lex:br;estado:rondonia;lei:2003-06-15;1234!titulo-lei">
+    <rotulo>Título</rotulo>
     <versoes>
-      <versao numero="1" vigente-de="2003-06-15" vigente-ate="2024-07-30"
-              alterado-por="urn:lex:br;estado:rondonia;lei:2024-06-30;5678">
-        <texto>Esta Lei dispõe sobre...</texto>
+      <versao numero="1" vigente-de="2003-06-15">
+        <texto>LEI Nº 1.234, DE 15 DE JUNHO DE 2003</texto>
         <fonte-canonica>casacivil</fonte-canonica>
         <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
-        <fonte ia-id="leizilla-raw-ro-diario-2003-06-15-p0012"/>
-      </versao>
-      <versao numero="2" vigente-de="2024-07-30">
-        <texto>Esta Lei dispõe sobre (redação dada pela Lei 5.678/2024)...</texto>
-        <fonte-canonica>casacivil</fonte-canonica>
-        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00187"/>
       </versao>
     </versoes>
-    <dispositivo tipo="paragrafo" path="art-1-par-1"
-                 urn="urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-1!par-1">
-      <rotulo>§ 1º</rotulo>
+  </dispositivo>
+
+  <dispositivo tipo="ementa" path="ementa" parent="">
+    <rotulo>Ementa</rotulo>
+    <versoes>
+      <versao numero="1" vigente-de="2003-06-15">
+        <texto>Dispõe sobre a organização administrativa do Estado de Rondônia.</texto>
+        <fonte-canonica>casacivil</fonte-canonica>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+      </versao>
+    </versoes>
+  </dispositivo>
+
+  <dispositivo tipo="preambulo" path="preambulo" parent="">
+    <rotulo>Preâmbulo</rotulo>
+    <versoes>
+      <versao numero="1" vigente-de="2003-06-15">
+        <texto>O GOVERNADOR DO ESTADO DE RONDÔNIA faço saber...</texto>
+        <fonte-canonica>casacivil</fonte-canonica>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+      </versao>
+    </versoes>
+  </dispositivo>
+
+  <!-- Bloco organizacional: tem <rotulo> versionável, NÃO tem <texto> nas versões -->
+  <dispositivo tipo="titulo" path="tit-1" parent="">
+    <rotulo>TÍTULO I — Dos Princípios Fundamentais</rotulo>
+    <versoes>
+      <!-- Bloco pode ter versão se rotulo mudar; sem <texto> -->
+      <versao numero="1" vigente-de="2003-06-15">
+        <rotulo>TÍTULO I — Dos Princípios Fundamentais</rotulo>
+        <fonte-canonica>casacivil</fonte-canonica>
+      </versao>
+    </versoes>
+
+    <dispositivo tipo="capitulo" path="tit-1-cap-1" parent="tit-1">
+      <rotulo>CAPÍTULO I — Disposições Preliminares</rotulo>
       <versoes>
         <versao numero="1" vigente-de="2003-06-15">
-          <texto>...</texto>
+          <rotulo>CAPÍTULO I — Disposições Preliminares</rotulo>
           <fonte-canonica>casacivil</fonte-canonica>
-          <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
         </versao>
       </versoes>
+
+      <!-- Path do artigo permanece GLOBAL (art-1), não tit-1-cap-1-art-1.
+           parent="tit-1-cap-1" declara o nesting. Citação "art. 1º" = lookup
+           direto por path. -->
+      <dispositivo tipo="artigo" path="art-1" parent="tit-1-cap-1"
+                   urn="urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-1">
+        <rotulo>Art. 1º</rotulo>
+        <versoes>
+          <versao numero="1" vigente-de="2003-06-15" vigente-ate="2024-07-30"
+                  alterado-por="urn:lex:br;estado:rondonia;lei:2024-06-30;5678">
+            <texto>Esta Lei dispõe sobre...</texto>     <!-- caput do art-1 -->
+            <fonte-canonica>casacivil</fonte-canonica>
+            <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+            <fonte ia-id="leizilla-raw-ro-diario-2003-06-15-p0012"/>
+          </versao>
+          <versao numero="2" vigente-de="2024-07-30">
+            <texto>Esta Lei dispõe sobre (redação dada pela Lei 5.678/2024)...</texto>
+            <fonte-canonica>casacivil</fonte-canonica>
+            <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00187"/>
+          </versao>
+        </versoes>
+
+        <dispositivo tipo="paragrafo" path="art-1-par-1" parent="art-1"
+                     urn="urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-1!par-1">
+          <rotulo>§ 1º</rotulo>
+          <versoes>
+            <versao numero="1" vigente-de="2003-06-15">
+              <texto>...</texto>                          <!-- caput do § -->
+              <fonte-canonica>casacivil</fonte-canonica>
+              <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+            </versao>
+          </versoes>
+        </dispositivo>
+      </dispositivo>
     </dispositivo>
   </dispositivo>
+
+  <dispositivo tipo="anexo" path="anexo-1" parent="">
+    <rotulo>ANEXO I — Tabela de Cargos</rotulo>
+    <versoes>
+      <versao numero="1" vigente-de="2003-06-15">
+        <texto>... conteúdo do anexo (estrutura interna em v0.2) ...</texto>
+        <fonte-canonica>casacivil</fonte-canonica>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+      </versao>
+    </versoes>
+  </dispositivo>
+
 </dispositivos>
 ```
 
-**Mapping nesting XML ↔ `path` flat na tabela Parquet `dispositivos`** (§3.2): o `path` é determinístico, derivado do nesting da hierarquia. Exemplo: `<dispositivo tipo="artigo">` no índice 3 contendo `<dispositivo tipo="paragrafo">` no índice 2 → `path="art-3-par-2"`. Frontend e ETL usam o **mesmo gerador** (`src/leizilla/leiml/path.py` em M3).
+**Regras (todas obrigatórias)**:
+
+1. **`parent` attribute obrigatório** em todo `<dispositivo>`. Raiz: `parent=""`.
+2. **`<versoes>` obrigatório** com **no mínimo 1 `<versao>`** (a original). Sem exceção. Blocos organizacionais têm `<versao>` carregando só `<rotulo>` (sem `<texto>`); normativos têm `<texto>` (e opcionalmente `<rotulo>` override).
+3. **Path do dispositivo normativo é GLOBAL** (`art-5`, `art-5-par-1`, `art-5-par-1-inc-1`, `art-5-par-1-inc-1-ali-a`). Não namespaceia por bloco organizacional acima. Citação forense ("art. 5º") = lookup literal.
+4. **Path do dispositivo organizacional namespaceia internamente** (`tit-1`, `tit-1-cap-1`, `tit-1-cap-1-sec-2`). Hierarquia de blocos é própria.
+5. **Caput é implícito (índice 0)**: container normativo (`artigo`, `paragrafo`, `inciso`) carrega seu próprio `<texto>` no nível do container; filhos `<dispositivo>` são sub-itens. Sem `<dispositivo tipo="caput">`. Ver detalhes abaixo.
+
+**Mapping nesting XML ↔ `path` flat na tabela Parquet `dispositivos`** (§3.2): geração determinística do path. Frontend e ETL usam o **mesmo gerador** (`src/leizilla/leizilla_xml/path.py` em M3).
 
 ```
-artigo[3] > paragrafo[2] > inciso[1] > alinea[a]
-   └────────┬──────────────┬──────────┬─────────┘
-        art-3        art-3-par-2  art-3-par-2-inc-1  art-3-par-2-inc-1-ali-a
+TÍTULO I  >  CAPÍTULO I  >  Art. 1º  >  § 1º  >  inciso I  >  alínea a
+  tit-1     tit-1-cap-1     art-1     art-1-par-1   art-1-par-1-inc-1   art-1-par-1-inc-1-ali-a
+  (org)       (org)         (norm)     (norm)         (norm)               (norm)
 ```
 
-Regras:
-- Cada `<dispositivo>` tem **no mínimo 1** `<versao>` (a original).
+**Outras regras de versão**:
 - `vigente-ate` ausente = ainda vigente.
 - `alterado-por` aponta para URN da lei alteradora (não para versão específica).
-- Hierarquia via nesting; `path` é a chave determinística (gerada do nesting).
+- Hierarquia via nesting XML + `parent` attribute (redundância intencional para validação cruzada).
 
 ### 4.4 Fallback: `<bloco-livre>` para OCR ruim
 
@@ -643,6 +745,10 @@ CI: ao bumpar major, `web/src/schemas/v{N}/` precisa existir + ser referenciado 
 - ✅ **Custo LLM diluído no tempo** — estimativa de ~$40–100/ente (5k leis × 10k tokens × Haiku) é aceitável; ingestão é one-shot por lei, custo amortiza. Re-parsing pontual em fill-gaps é marginal. Não é fator de bloqueio do design.
 - ✅ **Re-scrape sob auditoria** — re-scrape NÃO é automático. Disparado só quando auditoria periódica conclui que qualidade do raw caiu (e.g., versão do PDF foi corrigida pela fonte, ou OCR muito ruim). Quando re-scrape acontece, novo raw item vira `{chave}-r{N}` (revisão); raw anterior permanece (imutabilidade §0.X). Documentado como processo em IMPLEMENTATION.md (auditoria periódica de qualidade).
 - ✅ **Auditoria de novas fontes por ente** — processo paralelo à re-scrape: auditoria periódica avalia se novas fontes oficiais devem ser adicionadas ao `src/leizilla/fontes/{ente}.py` (e.g., descobrir que estado X tem um portal de transparência que reúne consolidados). Não bloqueia M0.
+- ✅ **Dispositivo é unidade universal de texto** (§0.1) — `tipo` enum cobre normativos (titulo-lei, ementa, preambulo, artigo, paragrafo, inciso, alinea, item, anexo, disposicao-*) e organizacionais (livro, parte, titulo, capitulo, secao, subsecao). Tudo que é texto da lei é `<dispositivo>`. Header carrega só metadados bibliográficos.
+- ✅ **Path do dispositivo normativo é global** (§4.3 regra 3) — `art-5` permanece `art-5` independente do bloco. Citação forense direta.
+- ✅ **Parent attribute obrigatório** (§0.1) — todo `<dispositivo>` declara `parent="..."`. Raiz: `parent=""`. Redundante com nesting XML mas explicitude força clareza e permite validação cruzada.
+- ✅ **Sem `eh_bloco` column** — redundante com `tipo`. Filtros via `texto IS NOT NULL` (normativos) ou `tipo IN (...)`.
 
 ## 10. Decisões pendentes (resolver em M0.2)
 
@@ -652,7 +758,6 @@ CI: ao bumpar major, `web/src/schemas/v{N}/` precisa existir + ser referenciado 
 - [ ] **XPath dialect em `diff-xpath`** (§4.5) — declarar "XPath 1.0 subset, atributos com aspas simples" (reviewer #6 ponto 9).
 - [ ] **Robots.txt + rate limiting** como princípio explícito no crawler (reviewer #6 ponto 12) — adicionar em ADR-0008 (pipeline) e `src/leizilla/crawler.py`. Nota: com §0.5 (Wayback como fetch primário), bater na fonte original fica raro — robots.txt continua valendo, rate-limit do nosso crawler vira proteção do Wayback save endpoint (15 req/min sem auth, 100 com SavePageNow).
 - [ ] **XSLT in-browser deprecation** (reviewer #6 ponto 4) — confirmar que primário é Astro SSR, XSLT é fallback opcional. Atualizar §4.6 se Astro SSR cobrir 100%.
-- [ ] **Modelagem de blocos legislativos** (livro, parte, título, capítulo, seção, subseção, anexos) — agrupadores organizacionais sem texto normativo próprio. Atualmente fora do schema; CF e códigos não cabem sem isso. Decidir: hierarquia única com `<bloco>` aninhado com `<dispositivo>`, ou duas hierarquias paralelas (`<estrutura>` + `<dispositivos>` flat com `<dispositivo-ref>`). Path do dispositivo permanece global (`art-5`), não namespaceado por bloco.
 
 ## 11. Open questions (v0.2 ou posterior)
 
