@@ -210,6 +210,79 @@ def test_inv04_unknown_token(tmp_path: Path) -> None:
     assert any(x.invariant == 4 for x in v)
 
 
+def test_inv04_normativo_must_compose_from_parent(tmp_path: Path) -> None:
+    """Codex P1: child com path normativo aninhado em parent normativo
+    deve compor do path do parent. art-2-par-1 dentro de art-1 é
+    inconsistente — par-1 pertence a art-2, não a art-1."""
+    xml = _wrap(
+        """  <dispositivo path="art-1">
+    <versao>
+      <texto>caput art-1</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+    </versao>
+    <dispositivo path="art-2-par-1">
+      <versao>
+        <texto>par-1 — mas pendurado em art-1!</texto>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+      </versao>
+    </dispositivo>
+  </dispositivo>"""
+    )
+    v = csc.check_file(_write(tmp_path, xml))
+    assert any(x.invariant == 4 and "compõe" in x.message for x in v), (
+        f"esperava §7.4 composition violation; got: {[str(x) for x in v]}"
+    )
+
+
+def test_inv04_organizacional_must_compose_from_parent(tmp_path: Path) -> None:
+    """tit-3-cap-1 aninhado em tit-1 é inconsistente."""
+    xml = _wrap(
+        """  <dispositivo path="tit-1">
+    <versao>
+      <texto>TÍTULO I</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+    </versao>
+    <dispositivo path="tit-3-cap-1">
+      <versao>
+        <texto>cap-1 pendurado errado</texto>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+      </versao>
+    </dispositivo>
+  </dispositivo>"""
+    )
+    v = csc.check_file(_write(tmp_path, xml))
+    assert any(x.invariant == 4 and "compõe" in x.message for x in v)
+
+
+def test_inv04_normative_in_organizational_keeps_global(tmp_path: Path) -> None:
+    """Normativo aninhado em organizacional NÃO compõe — path permanece global.
+    art-5 dentro de tit-2-cap-1 é correto."""
+    xml = _wrap(
+        """  <dispositivo path="tit-2">
+    <versao>
+      <texto>TÍTULO II</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+    </versao>
+    <dispositivo path="tit-2-cap-1">
+      <versao>
+        <texto>CAP I</texto>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+      </versao>
+      <dispositivo path="art-5">
+        <versao>
+          <texto>art global, não compõe com tit-2-cap-1</texto>
+          <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+        </versao>
+      </dispositivo>
+    </dispositivo>
+  </dispositivo>"""
+    )
+    v = csc.check_file(_write(tmp_path, xml))
+    assert not any(x.invariant == 4 for x in v), (
+        f"normativo em organizacional não deve disparar §7.4; got: {[str(x) for x in v]}"
+    )
+
+
 def test_inv06_inicio_required(tmp_path: Path) -> None:
     """versao em ≠ data-publicacao, sem alterado-por, sem <inicio>."""
     xml = _wrap(

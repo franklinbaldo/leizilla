@@ -297,14 +297,53 @@ def _check_caducidade_no_por(ctx: _Ctx) -> None:
             ctx.add(3, f'<revogacao em="{em}" tipo="{tipo}"> não tem atributo "por"')
 
 
+def _path_class(path: str) -> str | None:
+    """Return "organizacional" / "normativo" / None for a path."""
+    tipo = _path_tipo(path)
+    if tipo is None:
+        return None
+    return "organizacional" if tipo in _ORGANIZACIONAL_TIPOS else "normativo"
+
+
 def _check_path_token_map(ctx: _Ctx) -> None:
-    """§7.4 — path matches token map. Unknown tokens → error."""
-    for d, _ in _walk_all_dispositivos(ctx.root):
+    """§7.4 — path matches token map AND (when nested under same-class
+    parent) composes from parent's path.
+
+    Per §4.2 path rules:
+    - Sub-dispositivos normativos compõem o path do ancestral normativo:
+      `art-5-par-2`, `art-5-par-2-inc-3`.
+    - Organizacionais têm path namespaceado pelo nesting:
+      `tit-2`, `tit-2-cap-1`.
+    - Quando normativo está dentro de organizacional, path do normativo
+      permanece global (não compõe com pai organizacional).
+
+    So a child path must start with `parent.path + "-"` IFF child and
+    parent share the same class. Mixed parent/child (org → norm) is OK
+    and the normative keeps its global form.
+    """
+    for d, chain in _walk_all_dispositivos(ctx.root):
         path = d.get("path")
         if path is None:
             continue
         if _path_tipo(path) is None:
             ctx.add(4, f'path="{path}" não casa com nenhum token do mapa (§4.2)')
+            continue
+        # Composition check: when nested under a same-class parent,
+        # child path must start with `parent.path + "-"`.
+        if not chain:
+            continue  # top-level — no parent constraint.
+        parent = chain[-1]
+        parent_path = parent.get("path") or ""
+        if not parent_path or _path_tipo(parent_path) is None:
+            continue  # parent already flagged separately.
+        if _path_class(path) != _path_class(parent_path):
+            continue  # mixed class (org → norm) — no composition required.
+        if not path.startswith(parent_path + "-"):
+            ctx.add(
+                4,
+                f'path="{path}" não compõe do parent path="{parent_path}" '
+                f'(mesma classe, deveria começar com "{parent_path}-") §4.2',
+            )
 
 
 def _check_inheritance_inicio(ctx: _Ctx) -> None:
