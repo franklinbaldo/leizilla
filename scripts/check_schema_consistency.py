@@ -487,8 +487,14 @@ def _check_quality_only_ocr_ruim(ctx: _Ctx) -> None:
 def _check_urn_decomposes(ctx: _Ctx) -> None:
     """§7.10 — urn-lex (if present) decomposes correctly. Tied to IA id
     inference when urn-lex is absent — but we don't have parsed_meta.json
-    here, so we only validate the regex match for now."""
-    if ctx.urn_lex and not _RE_URN_LEX.match(ctx.urn_lex):
+    here, so we only validate the regex match for now.
+
+    Distinguishes ABSENT (attribute not set) from EMPTY (`urn-lex=""`):
+    absent skips §7.10 (falls back to IA id inference); empty fires §7.10
+    because empty isn't a valid URN format. Truthiness check would silently
+    treat both as absent.
+    """
+    if ctx.urn_lex is not None and not _RE_URN_LEX.match(ctx.urn_lex):
         ctx.add(10, f'urn-lex="{ctx.urn_lex}" não decompõe pela regex §5.6')
 
 

@@ -638,6 +638,25 @@ def test_inv04_mixed_org_normative_rejected(tmp_path: Path) -> None:
         assert csc._path_tipo(bad) is None, f"mixed path '{bad}' should be rejected"
 
 
+def test_inv10_empty_urn_fires_violation(tmp_path: Path) -> None:
+    """Codex P2: urn-lex="" (present-but-empty) deve disparar §7.10,
+    não ser confundido com urn-lex ausente."""
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
+     urn-lex="" vigente-em="2026-05-20">
+  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+    </versao>
+  </dispositivo>
+</lei>"""
+    v = csc.check_file(_write(tmp_path, xml))
+    assert any(x.invariant == 10 for x in v), (
+        f"empty urn-lex deveria disparar §7.10; got: {[str(x) for x in v]}"
+    )
+
+
 def test_inv05_no_urn_is_exempt(tmp_path: Path) -> None:
     """Lei sem urn-lex (caso fallback OCR-ruim): §7.5 NÃO reporta —
     vigência genuinamente não tem âncora."""
