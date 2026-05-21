@@ -80,6 +80,34 @@ Implica: **não há flag manual** tipo `revisao-pendente` no XML. LLM não sabe 
 
 Plano detalhado em arquivo separado (M3+).
 
+### 0.6 Granularidade é incremental — publica cedo, refina depois
+
+O schema **permite explicitamente** que uma lei inteira viva num único `<dispositivo>` com o texto integral no `<texto>`. Isso é XSD-válido e checker-válido:
+
+```xml
+<lei urn-lex="..." vigente-em="..." schema-version="0.1">
+  <dispositivo path="art-1">
+    <versao>
+      <texto>[texto integral da lei, sem separar artigos/parágrafos/etc.]</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+    </versao>
+  </dispositivo>
+</lei>
+```
+
+Por design — não é fallback nem caso degenerado. É a ponta "mínima viável" de um espectro contínuo:
+
+- **Pass 1** (deterministic, regex bruto): identifica que é Lei nº 42/1985 mas não separa artigos. Publica como 1 dispositivo carregando o corpo inteiro.
+- **Pass 2** (LLM Haiku): refina, identifica artigos e parágrafos. Sobrescreve parsed item.
+- **Pass 3** (LLM Opus + curadoria): chega ao ideal (incisos, alíneas, blocos organizacionais).
+
+O dataset é útil desde o pass 1 — busca full-text funciona, identifier é citável, audit por embeddings já roda. Não precisamos esperar parsing perfeito pra publicar.
+
+Implicações que decorrem disso (e estão em outras seções):
+- Token map (§4.2) é a única fonte de tipo — `<dispositivo>` é o único elemento de conteúdo.
+- Pipeline binário pra qualidade (§4.7): publica o que conseguir; lei totalmente ilegível fica só como raw.
+- Sem `<bloco-livre>`, sem `quality`, sem flag de "parse parcial" — texto cru é só texto.
+
 ---
 
 ## 1. Internet Archive — granularidade dos items
@@ -668,11 +696,31 @@ Display names longos (`Diário Oficial do Estado`) ficam em `display_name` / met
 
 LexML é representação reduzida, gerada sob demanda para gov interop. Não é round-trip.
 
-**Perdas conhecidas** (documentadas no XSLT):
-- `quality="raw"` (OCR ruim) → vira `<Texto>` cru sem marcação.
+### 6.1 Por que não adotamos LexML diretamente
+
+LexML/Akoma Ntoso são **document-centric** com vocabulário rico (~30 elementos prescritos com cardinalidades fixas). Funciona bem quando o produto final é "um documento jurídico canônico para tramitação". Nosso produto é "indexar tudo o que existe e melhorar com o tempo" — trade-off oposto.
+
+| Dimensão | LexML/Akoma Ntoso | Leizilla XML |
+|---|---|---|
+| **Filosofia** | Document-centric. `<Documento>` → `<ParteInicial>` → `<ParteNormativa>` → `<Articulacao>` → `<Artigo>` → `<Caput>` → ..., cada nível com cardinalidade prescrita. | Dispositivo-centric. Lei é árvore de `<dispositivo>` recursivos. Tipologia jurídica vive no `path` via token map. |
+| **Elementos** | ~30+ elementos distintos: `<Artigo>`, `<Paragrafo>`, `<Inciso>`, `<Alinea>`, `<Caput>`, `<Capitulo>`, `<Secao>`... | 6 elementos: `<lei>`, `<dispositivo>`, `<versao>`, `<inicio>`, `<texto>`, `<fonte>`, `<revogacao>`. |
+| **Validação parcial** | Tudo-ou-nada. Schema exige estrutura completa; lei mal-parseada falha XSD. | Spectrum contínuo (§0.6). Lei inteira em 1 dispositivo é XSD-válido + checker-válido. |
+| **Adicionar tipo novo** | Adiciona elemento → bump major → migra documentos existentes. Caro. | Adiciona entrada ao token map. XSD não muda. Documentos antigos seguem válidos. Barato. |
+| **Linha do tempo de redações** | Akoma Ntoso: `<TLCEvent>` + `<modifies>` + URI dimensions (`work@expression`). Pesado. | `<versao em="...">` filha de `<dispositivo>`. `em` é chave natural; `vigente-ate` é inferido. |
+| **Manutenção** | LexML brasileiro parado desde ~2010 (CGPID/Senado). Akoma Ntoso vivo mas focado em parlamento internacional. | Nós. ~235 linhas XSD + 14 invariantes — pequeno o suficiente pra evoluir rápido. |
+| **Interop gov** | É o padrão oficial — Senado/Câmara esperam LexML pra entrega formal. | XSLT export sob demanda (`leizilla-to-lexml.xsl`); validado em CI contra XSD oficial. |
+
+LexML ganha em **interop padronizada com governo** e **vocabulário canônico cross-projeto**. Perde em **tolerância a parse incompleto**, **velocidade de evolução**, e **simplicidade**.
+
+Nossa escolha alinha com o resto da arquitetura: Wayback como caminho primário (captar o que conseguir), audit por embeddings (refinamento contínuo, não gating prévio), IA OCR como verdade base (texto sempre disponível mesmo sem estrutura). LexML seria a escolha certa se o objetivo fosse produzir documentos para tramitação — não é.
+
+### 6.2 Perdas conhecidas no export
+
+Documentadas no XSLT:
 - `<fonte diverge="true">` → descartado (LexML não modela divergência multi-fonte).
 - Atributos `<inicio tipo>` e `<revogacao tipo>` → mapeados em LexML quando equivalente existe, descartados caso contrário.
 - Timeline `<versao>` colapsa para `<TextoArticulado>` da versão vigente em `vigente-em`; histórico mapeia para `<Alteracao>` LexML quando possível.
+- Texto cru de parse parcial (lei inteira em 1 dispositivo) → vira `<TextoArticulado>` com `<Caput>` único carregando o corpo.
 
 **CI gate**:
 - A cada PR, `pytest tests/test_lexml_export.py`:
