@@ -102,53 +102,6 @@ def test_xslt_emits_identificacao_urn() -> None:
         assert "URN=" in lexml_xml
 
 
-def test_xslt_drops_ocr_ruim_dispositivos(tmp_path: Path) -> None:
-    """XSLT pula <dispositivo path="ocr-ruim*"> — LexML não tem
-    equivalente. Documentado em SCHEMA.md §6.2 + XSLT header.
-
-    Constrói fixture inline com 1 dispositivo válido + 1 ocr-ruim e
-    confirma que o LexML resultante contém apenas o primeiro.
-    """
-    fixture = tmp_path / "with-ocr-ruim-inline.xml"
-    fixture.write_text(
-        """<?xml version="1.0" encoding="UTF-8"?>
-<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
-     urn-lex="urn:lex:br;estado:rondonia;lei:1990-03-20;500"
-     vigente-em="2026-05-20">
-  <dispositivo path="art-1">
-    <versao>
-      <texto>Texto parseado normal.</texto>
-      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00500"/>
-    </versao>
-  </dispositivo>
-  <dispositivo path="ocr-ruim-1">
-    <versao>
-      <texto>Tre|ho i||egí|el n0 OCR</texto>
-      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00500"/>
-    </versao>
-  </dispositivo>
-</lei>
-""",
-        encoding="utf-8",
-    )
-    lexml_xml = _xslt(fixture)
-
-    # XSLT deve produzir LexML com art-1 mas SEM ocr-ruim.
-    assert "Texto parseado normal." in lexml_xml, (
-        "dispositivo regular deveria estar no LexML"
-    )
-    assert "Tre|ho" not in lexml_xml, (
-        f"ocr-ruim NÃO deveria vazar pro LexML:\n{lexml_xml}"
-    )
-    assert "ocr-ruim" not in lexml_xml, (
-        f"id/path ocr-ruim NÃO deveria aparecer no LexML:\n{lexml_xml}"
-    )
-
-    # Sanity: validação contra XSD ainda passa.
-    code, stderr = _validate_lexml(lexml_xml)
-    assert code == 0, f"LexML inválido:\n{stderr}"
-
-
 def test_xslt_drops_anexos(tmp_path: Path) -> None:
     """Anexos no Leizilla XML (path="anexo-N") não viram <Articulacao>
     em LexML — LexML modela anexos via <ReferenciaAnexo> em documentos

@@ -17,10 +17,6 @@
   - <revogacao>: parcial vira `situacao="revogado"` no Artigo; total vira
     `situacao="revogado"` no <Norma>. Tipo (expressa/tacita/inconstitucionalidade)
     é descartado.
-  - <dispositivo path="ocr-ruim*">: DESCARTADO. LexML não tem fallback para
-    OCR não-estruturado. Lei só-ocr-ruim vira <Articulacao> vazia (XSD-inválido)
-    — política upstream (SCHEMA.md §4.7): leis assim não publicam parsed item.
-
   Limitações desta versão:
   - Apenas a versão vigente é exportada. Histórico, alterações e revogações
     parciais ficam como atributos `situacao` quando aplicável.
@@ -106,13 +102,12 @@
 
   <!-- ==================================================================
        Articulacao: ignora titulo-lei/ementa/preambulo (já em ParteInicial),
-       ignora ocr-ruim* (LexML não modela), emite o resto.
+       emite o resto.
        ================================================================== -->
 
   <xsl:template match="lz:dispositivo" mode="articulacao">
     <xsl:choose>
       <xsl:when test="@path='titulo-lei' or @path='ementa' or @path='preambulo'"/>
-      <xsl:when test="starts-with(@path, 'ocr-ruim')"/>
       <xsl:when test="starts-with(@path, 'art-')">
         <xsl:call-template name="emit-artigo"/>
       </xsl:when>
