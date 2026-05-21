@@ -11,11 +11,11 @@
 -->
 <lei xmlns="https://leizilla.org/lei/0.1"
      schema-version="0.1"
-     urn-lex="urn:lex:br;estado:rondonia;lei:1985-11-20;42"
+     urn-lex="urn:lex:br;rondonia:estadual:lei:1985-11-20;42"
      vigente-em="2026-05-20">
 
   <revogacao em="2018-12-30" tipo="expressa"
-             por="urn:lex:br;estado:rondonia;lei:2018-12-30;4500">
+             por="urn:lex:br;rondonia:estadual:lei:2018-12-30;4500">
     <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04500"/>
   </revogacao>
 

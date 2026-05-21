@@ -10,7 +10,8 @@
 |---|---|---|---|
 | **M0.1** — Documento vivo + SCHEMA.md design | 🟢 done | #6 | Aprovado em re-review; merged em main. |
 | **M0.2a** — Schema v1 (tentativa) | 🔴 superseded | #7 | XSD `header` + `rotulo` + `<bloco-livre>` + etc. Substituído pelo redesign first-principles. Fica como referência histórica. |
-| **M0.2b** — Redesign first-principles | 🟡 in-progress | #8 #9 #10 #11 | SCHEMA.md reescrito + XSD enxuto + 6 fixtures + consistency checker + CI wire + XSLT Leizilla→LexML validado contra XSD oficial bundled (PR #11). Pendente: resolver pendentes §8.2. |
+| **M0.2b** — Redesign first-principles | 🟢 done | #8 #9 #10 #12 | SCHEMA.md reescrito + XSD enxuto + 6 fixtures + consistency checker + CI wire + XSLT Leizilla→LexML validado contra XSD oficial bundled (PRs #8-#12 merged). |
+| **M0.3** — URN canônica + close pendentes §8 | 🟡 in-progress | TBD | URN LEX contra spec CGPID 2008 oficial; política re-scrape; robots.txt princípio. 3 outros pendentes deferidos para M2/M4 (bloqueados). |
 | M1 — Foundation (package + ADRs + deps) | ⚪ todo | — | Bloqueado por M0 |
 | M2 — Crawler real + Raw upload | ⚪ todo | — | Bloqueado por M1 |
 | M3 — OCR fetch + LLM parse + Leizilla XML | ⚪ todo | — | Bloqueado por M2 |
@@ -46,6 +47,7 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 7. **ZIP raw bulk (padrão ficha) + Parquet single-table denormalizado + IA item para distribuição.** Manifest CSV no IA como source of truth (padrão baliza). Uma única tabela `versoes` (grain: lei × dispositivo × versão) cobre tudo durante M0–M4; estrutura emerge via `SELECT DISTINCT`. Pode evoluir para tabelas separadas se DuckDB-WASM ficar gargalo (decisão em M5).
 8. **Vigente compilado é canônico, histórico via timeline.** Parsed item = "como deve estar vigente hoje" (best-effort). Versões anteriores acessíveis via date picker. Fontes (DO, Casa Civil, Assembleia) cross-verificam — não competem por autoridade.
 9. **Wayback Machine é caminho primário de fetch.** Crawler não bate na fonte original — dispara Wayback save de `fonte_url` + `pdf_url`, depois fetch o PDF do snapshot Wayback para upload na nossa coleção IA. Fail-open: se Wayback falha, fallback de download direto. Polite com sites .gov.br frágeis + testemunha externa automática. Detalhes em SCHEMA.md §0.5.
+10. **Crawler respeita robots.txt e rate-limita.** Robots.txt rejeição é **permanente** para aquela URL (sem retry); rate-limit baseline de **1 request/segundo por host** em fallback direto. Wayback bot (princípio 9) atua como buffer — bates diretas só no fail-open. ADR-0008 formal em M1.
 
 ---
 
@@ -71,6 +73,36 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-21 — Fecha M0: URN LEX canônica + política re-scrape + robots.txt princípio
+
+Resolve 3 dos 6 pendentes do SCHEMA.md §8.2. Os outros 3 (compressão Parquet, granularidade ZIP, custo LLM real) são genuinamente bloqueados por milestones futuros e ficaram deferidos com target explícito (M2, M4) em SCHEMA.md §8.3.
+
+**URN LEX dialect** (§8.2.1): Baixei e li a spec oficial CGPID 2008 (`https://projeto.lexml.gov.br/documentacao/Parte-2-LexML-URN.pdf`, 73 páginas). Forma canônica é:
+
+```
+urn:lex:br(;LOCAL)*:AUTORIDADE:TIPO:DESCRITOR(!PATH)*
+```
+
+Diferenças vs. uso provisório (PRs #6-#12):
+
+| Componente | Antes (errado) | Depois (canônico) |
+|---|---|---|
+| Local estado | `;estado:rondonia;` | `;rondonia:` (sem prefixo "estado:") |
+| Local federal | `;federal;` | `:federal:` (não há local; vai direto pra autoridade) |
+| Autoridade | implícita no tipo | `federal` / `estadual` / `municipal` explícito |
+| Separadores | `;` em vários lugares | `:` entre LOCAL/AUTORIDADE/TIPO; `;` só dentro de LOCAL e DESCRITOR |
+| Path-dispositivo | `!art-N` | `!artN` (formato LexML idArtigo, `_` interno) |
+
+Atualizado: SCHEMA.md §5.6 reescrito com tabela de exemplos; XSD regex `UrnLex`; checker regex `_RE_URN_LEX`; 6 fixtures; tests de checker (4 helpers); tests de export LexML (continuam validando porque XSLT só copia URN). 93 tests pass + 1 skipped.
+
+**Política re-scrape** (§8.2.4): PDF re-publicado pela fonte (hash diferente) NÃO vira novo raw item automaticamente. Só sob auditoria explícita (humana ou embeddings drift): novo raw vira `{chave}-r{N}`, raw anterior fica imutável. Implementação em M2.
+
+**Robots.txt + rate limiting** (§8.2.5): Novo princípio load-bearing #10 em IMPLEMENTATION.md. Robots rejeição = permanente (sem retry); rate-limit baseline = 1 req/s por host. Wayback bot (princípio 9) já atua como buffer. ADR-0008 formal em M1.
+
+**Deferred** (§8.3): compressão Parquet → M4 (precisa de Parquet writer e DuckDB-WASM real); granularidade ZIP → M2 (precisa de scrape real); custo LLM → M2/M3 (precisa de parse runs reais).
+
+Com isso, **M0 fecha pragmaticamente**. M1 abre em sequência: package restructure + ADRs 0004-0010 + `origem→ente` rename em CLI/storage.
 
 ### 2026-05-21 — XSLT Leizilla→LexML + XSD oficial bundled (PR #11)
 
@@ -318,17 +350,17 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 **M0.2a — superseded** 🔴 (PR #7). Design v1 do XSD foi abandonado após auditoria first-principles. Fica como referência histórica.
 
-**M0.2b — Redesign first-principles** (PR #8 merged):
-- [x] `docs/SCHEMA.md` reescrito do zero (princípio "dispositivo é a unidade").
-- [x] `docs/schemas/leizilla-v0.1.xsd` enxuto (~235 linhas; 6 elementos).
-- [x] 6 fixtures cobrindo: caso simples (herança pura), alterações + divergência multi-fonte + vacatio, blocos organizacionais (CF/88), revogações parciais (4 tipos), revogação total da lei, OCR ruim.
-- [x] `tests/fixtures/leizilla_xml/README.md` com matriz de cobertura.
-- [x] **`scripts/check_schema_consistency.py`** validando 13 das 14 invariantes do SCHEMA.md §7 + a §7.15 (root é `<lei>`). Invariantes 11 (markdown self-check) e 12 (Parquet schema_version cross-artifact) ficam deferidas para quando o Parquet writer existir (M4+). + `tests/test_schema_consistency.py` com 79 testes (1 skipped quando rodando como root), cobrindo positives (6 fixtures), negativos (1+ por invariante), exit codes (0/1/2), token map edge cases, e xs:boolean variants.
-- [x] `scripts/leizilla-to-lexml.xsl` + `tests/test_lexml_export.py` (10 testes pass) validando contra XSD oficial LexML brasileiro bundled em `tests/fixtures/lexml/` (lexml-br-rigido + lexml-base + xml + xlink-href + stub mathml2). Wired no workflow `schema-validate.yml`. Perdas conhecidas documentadas no XSLT header e em SCHEMA.md §6.2.
-- [x] Wire `check_schema_consistency.py` no CI: `.github/workflows/schema-validate.yml` roda xmllint (XSD + fixtures) + pytest + checker contra fixtures a cada PR que toca `docs/schemas/`, `tests/fixtures/leizilla_xml/`, `scripts/check_schema_consistency.py`, ou `tests/test_schema_consistency.py`.
-- [ ] Resolver pendentes §8.2: URN dialect contra CGPID spec, compressão Parquet (SNAPPY vs ZSTD em DuckDB-WASM), granularidade bundle ZIP, política de re-scrape, robots.txt rate-limit, custo LLM real.
+**M0.2b — Redesign first-principles** ✅ (PRs #8 #9 #10 #12 merged).
 
-**M0.3 — Inspirações concretas** (paralelo a M0.2):
-- [ ] Aprofundar `docs/SCHEMA.md` §8 com paths exatos em ficha/baliza/causaganha (manifest CSV columns, naming patterns, footer KV examples).
+**M0.3 — Fecha M0** (este PR):
+- [x] **URN LEX canônica** contra spec CGPID 2008 — SCHEMA.md §5.6 + XSD regex + checker regex + 6 fixtures + tests atualizados.
+- [x] **Política re-scrape** documentada (§8.2.4 resolvida): `{chave}-r{N}` sob auditoria explícita, nunca automático.
+- [x] **Robots.txt + rate-limit** como princípio load-bearing #10 em IMPLEMENTATION.md.
+- [x] **Deferred** pendentes bloqueados por milestones futuros (§8.3): compressão Parquet → M4, granularidade ZIP → M2, custo LLM → M2/M3.
 
-**M1 — Foundation** (após M0.2 fechar): package restructure `src/` → `src/leizilla/`, ADRs 0004–0010, deps, e a migração `origem` → `ente` em CLI + schema (storage.py:44, cli.py:29,69,169,199,260).
+**M1 — Foundation** (próximo):
+- [ ] Package restructure `src/` → `src/leizilla/`.
+- [ ] ADRs 0004 (Wayback como fetch path), 0005 (IA identifiers), 0006 (XSD + checker), 0007 (LexML export), 0008 (robots.txt + rate-limit), 0009 (LGPD ética).
+- [ ] Migração `origem` → `ente` em CLI + schema (storage.py:44, cli.py:29,69,169,199,260).
+- [ ] `src/leizilla/entes.py` com catálogo (federal + 27 UFs + DF).
+- [ ] `src/leizilla/fontes/{ente}.py` stubs.

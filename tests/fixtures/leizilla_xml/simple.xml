@@ -13,7 +13,7 @@
 -->
 <lei xmlns="https://leizilla.org/lei/0.1"
      schema-version="0.1"
-     urn-lex="urn:lex:br;estado:rondonia;lei:1999-06-15;9999"
+     urn-lex="urn:lex:br;rondonia:estadual:lei:1999-06-15;9999"
      vigente-em="2026-05-20">
 
   <dispositivo path="ementa">

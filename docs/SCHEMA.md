@@ -660,22 +660,56 @@ Esse é o mesmo princípio que eliminou `revisao-pendente` no XML (§0.5): o sis
 
 `v0` (pre-M5, schema_version "0.1") é válido e citável.
 
-### 5.6 URN LEX
+### 5.6 URN LEX (spec oficial CGPID 2008)
 
-**Lei**: `urn:lex:br;{jurisdicao};{tipo}:{YYYY-MM-DD};{numero}`
-- `{jurisdicao}` para estados: `estado:rondonia` / `estado:sao-paulo`
-- `{jurisdicao}` para federal: `federal`
-- `{jurisdicao}` para municípios: `municipio:rondonia;porto-velho`
+Resolvida em M0.3 contra a spec oficial **LexML Brasil Parte 2 — LexML URN v1.0 (Dezembro/2008)** (`https://projeto.lexml.gov.br/documentacao/Parte-2-LexML-URN.pdf`). Gramática canônica:
 
-**Dispositivo**: `{urn-lei}!{path}` — exemplo: `urn:lex:br;estado:rondonia;lei:2003-06-15;1234!art-5!par-2`.
+```
+urn:lex:br(;{local})*:{autoridade}:{tipo}:{descritor}(!{path-dispositivo})*
+```
 
-**Constituição** (sem número): `urn:lex:br;federal;constituicao:1988-10-05` (sem `;numero` final).
+**`<local>`** — começa com `br`, opcionalmente seguido de `;{estado}` e `;{municipio}`:
+- Federal: `br`
+- Estado de Rondônia: `br;rondonia`
+- Município de Porto Velho-RO: `br;rondonia;porto.velho`
+- Distrito Federal: `br;distrito.federal`
 
-**Lei sem numero** (fallback): omitir o `;{numero}` final OU registrar `urn_lex` como NULL no Parquet. Identifier IA usa pattern fallback (§5.4).
+Nomes em minúsculas, por extenso, sem hífen — espaços viram `.`. **Não há prefixo `estado:` ou `municipio:`**: a posição no `<local>` define a hierarquia.
 
-> Dialect provisório — pendente verificação contra spec CGPID atual. Ver §8.
+**`<autoridade>`** — para normas comuns (leis, decretos, etc.) usa-se uma das três strings convencionadas:
+- `federal` (esfera União)
+- `estadual` (esfera estado)
+- `municipal` (esfera município)
 
-### 5.7 Slug `{ente}`
+Outras normas (resoluções, portarias, instruções normativas) especificam autoridade emitente unívoca (ex: `ministerio.fazenda;secretaria.receita.federal`).
+
+**`<tipo-documento>`** — vocabulário fixo: `lei`, `decreto`, `lei.complementar`, `medida.provisoria`, `constituicao`, `emenda.constitucional`, `resolucao`, `portaria`...
+
+**`<descritor>`** — combina data e número:
+- Canônica: `{YYYY-MM-DD};{numero}` (ex: `2003-10-01;10741`).
+- Reduzida (URN de Referência): só ano permitido (`2003;10741`).
+- Sem número (raro): usa `lex-{N}` autogerado (`1999-12-21;lex-16`) ou apelido (`2003-10-01;estatuto.idoso`).
+
+**`<path-dispositivo>`** — separado por `!`. Sintaxe interna usa `_` entre tokens (formato LexML idArtigo): `!art1`, `!art5_par2`, `!art5_par2_inc3`, `!art12-2_inc3_alt1` (renumeração com letra → `-N`, alteração com `_alt{N}`).
+
+### Exemplos
+
+| Norma | URN canônica |
+|---|---|
+| Lei federal 14.133/2021 | `urn:lex:br:federal:lei:2021-04-01;14133` |
+| Lei RO 1234/2003 | `urn:lex:br;rondonia:estadual:lei:2003-06-15;1234` |
+| Lei municipal Porto Velho 123/2010 | `urn:lex:br;rondonia;porto.velho:municipal:lei:2010-05-15;123` |
+| CF/88 | `urn:lex:br:federal:constituicao:1988-10-05` |
+| EC 45/2004 | `urn:lex:br:federal:emenda.constitucional:2004-12-30;45` |
+| Art. 5º CF | `urn:lex:br:federal:constituicao:1988-10-05!art5` |
+| Art. 5º §2º inc. III CF | `urn:lex:br:federal:constituicao:1988-10-05!art5_par2_inc3` |
+| Anexo I lei RO 9999/1999 | `urn:lex:br;rondonia:estadual:lei:1999-06-15;9999!anexo.1` |
+
+### Fallback (Leizilla)
+
+Quando data ou número não são extraíveis do PDF (caso raro em leis antigas), o `urn-lex` da `<lei>` é **omitido** no XML. Identidade é recuperada do filename canônico ou fallback (§5.3/§5.4). Consistency checker §7.10 valida cross-check.
+
+### 5.7 Slug `{ente}` (interno Leizilla)
 
 - União: `federal`
 - Estados: ISO 3166-2:BR sem `BR-`, lowercase: `ro`, `sp`, `mg`...
@@ -785,16 +819,23 @@ XSD não consegue expressar tudo. `scripts/check_schema_consistency.py` (M0.2) v
 - ✅ **Token map** é fonte única de verdade para tipo de dispositivo.
 - ✅ **Auditoria por embeddings raw vs parseado** substitui flags manuais de "revisão pendente".
 
-### 8.2 Pendentes (resolver em M0.3 antes de fechar M0)
+### 8.2 Resolvidas em M0.3 (este PR, fecha M0)
 
-- [ ] **URN LEX dialect**: verificar contra spec CGPID atual se separadores são `;`/`,`/`:` em casos como `urn:lex:br;rondonia:estadual:lei,2003-06-15;1234`.
-- [ ] **Compressão Parquet**: SNAPPY vs ZSTD. Verificar suporte em DuckDB-WASM via benchmark real.
-- [ ] **Granularidade bundle ZIP**: semanal vs mensal — revisitar se tamanho ficar trivial em M2.
-- [ ] **Política de re-scrape**: PDF re-publicado pela fonte (hash diferente) vira `{chave}-r{N}`? Só sob auditoria, nunca automático.
-- [ ] **Robots.txt + rate limiting** como princípio explícito do crawler (ADR-0008 em M1).
-- [ ] **Estimativa real de custo LLM** após M2 expor casos reais.
+- ✅ **URN LEX dialect**: spec oficial CGPID 2008 ([Parte 2 — LexML URN v1.0](https://projeto.lexml.gov.br/documentacao/Parte-2-LexML-URN.pdf)) lida e adotada. Forma canônica documentada em §5.6 com exemplos para lei federal/estadual/municipal, CF, EC, e path-dispositivo. Regex XSD + checker + 6 fixtures + 4 helpers de teste atualizados para a forma correta. Substituídas formas erradas: `br;estado:rondonia;lei:` → `br;rondonia:estadual:lei:`, `br;federal;lei:` → `br:federal:lei:`, etc.
 
-### 8.3 Open questions (v0.2+)
+- ✅ **Política de re-scrape**: PDF re-publicado pela fonte (hash diferente do anterior) **NÃO** vira novo raw item automaticamente. Só sob **auditoria explícita** (humana ou via embeddings drift) — neste caso o novo raw vira `{chave}-r{N}` (sufixo `-r1`, `-r2`, ...) e o raw anterior permanece imutável. Implementação fica em M2 (crawler).
+
+- ✅ **Robots.txt + rate limiting**: novo princípio load-bearing #10 em `IMPLEMENTATION.md`. Crawler **obedece robots.txt** (rejeição = não rascpear, não retry) e impõe **rate-limit baseline** de 1 request/segundo por host. Wayback bot (princípio 9) já atua como buffer — bates diretas só acontecem no fail-open. ADR formal (ADR-0008) fica em M1 com o package restructure.
+
+### 8.3 Deferred (dependem de milestones futuros — não bloqueiam M0)
+
+| Item | Bloqueio | Decisão deferida para |
+|---|---|---|
+| **Compressão Parquet** (SNAPPY vs ZSTD) | Precisa de Parquet writer e DuckDB-WASM real pra benchmark. | M4 (dataset items) |
+| **Granularidade bundle ZIP** (semanal vs mensal) | Precisa de scrape real pra dimensionar arquivos. | M2 (crawler) |
+| **Custo LLM realista** | Precisa de parse runs reais sobre casos diversos. | M2/M3 (após primeiras leis parseadas) |
+
+### 8.4 Open questions (v0.2+)
 
 - **Catálogo de fontes federais** (Câmara, Senado, Planalto, DOU) — modelo acomoda, vocabulário concreto quando atacarmos `ente=federal`.
 - **Catálogo de fontes municipais** — 5.570 estruturas distintas; modelo escala, curadoria é desafio próprio.
