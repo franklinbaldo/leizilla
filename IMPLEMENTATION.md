@@ -10,7 +10,7 @@
 |---|---|---|---|
 | **M0.1** — Documento vivo + SCHEMA.md design | 🟢 done | #6 | Aprovado em re-review; merged em main. |
 | **M0.2a** — Schema v1 (tentativa) | 🔴 superseded | #7 | XSD `header` + `rotulo` + `<bloco-livre>` + etc. Substituído pelo redesign first-principles. Fica como referência histórica. |
-| **M0.2b** — Redesign first-principles | 🟡 in-progress | TBD | Pivô: dispositivo é unidade, vigência herda, fonte é única tag, `<revogacao>` evento estruturado. SCHEMA.md reescrito + XSD enxuto (~235 linhas) + 6 fixtures cobrindo todos os cenários. Pendente: consistency checker, leizilla-to-lexml.xsl, test_lexml_export.py, resolver 6 pendentes §10. |
+| **M0.2b** — Redesign first-principles | 🟡 in-progress | #8 #9 | SCHEMA.md reescrito + XSD enxuto (~235 linhas) + 6 fixtures + consistency checker (PR #9 merged). Pendente: `leizilla-to-lexml.xsl`, wire CI, resolver pendentes §8.2. |
 | M1 — Foundation (package + ADRs + deps) | ⚪ todo | — | Bloqueado por M0 |
 | M2 — Crawler real + Raw upload | ⚪ todo | — | Bloqueado por M1 |
 | M3 — OCR fetch + LLM parse + Leizilla XML | ⚪ todo | — | Bloqueado por M2 |
@@ -298,7 +298,7 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 - [x] `tests/fixtures/leizilla_xml/README.md` com matriz de cobertura.
 - [x] **`scripts/check_schema_consistency.py`** validando 13 das 14 invariantes do SCHEMA.md §7 + a §7.15 (root é `<lei>`). Invariantes 11 (markdown self-check) e 12 (Parquet schema_version cross-artifact) ficam deferidas para quando o Parquet writer existir (M4+). + `tests/test_schema_consistency.py` com 79 testes (1 skipped quando rodando como root), cobrindo positives (6 fixtures), negativos (1+ por invariante), exit codes (0/1/2), token map edge cases, e xs:boolean variants.
 - [ ] `scripts/leizilla-to-lexml.xsl` + teste CI `tests/test_lexml_export.py` validando contra `tests/fixtures/lexml.xsd` (bundle no repo).
-- [ ] Wire `check_schema_consistency.py` no CI (rodar contra `tests/fixtures/leizilla_xml/*.xml` a cada PR).
+- [x] Wire `check_schema_consistency.py` no CI: `.github/workflows/schema-validate.yml` roda xmllint (XSD + fixtures) + pytest + checker contra fixtures a cada PR que toca `docs/schemas/`, `tests/fixtures/leizilla_xml/`, `scripts/check_schema_consistency.py`, ou `tests/test_schema_consistency.py`.
 - [ ] Resolver pendentes §8.2: URN dialect contra CGPID spec, compressão Parquet (SNAPPY vs ZSTD em DuckDB-WASM), granularidade bundle ZIP, política de re-scrape, robots.txt rate-limit, custo LLM real.
 
 **M0.3 — Inspirações concretas** (paralelo a M0.2):

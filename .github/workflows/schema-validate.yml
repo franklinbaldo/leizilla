@@ -1,0 +1,50 @@
+name: Schema Validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/schemas/**"
+      - "tests/fixtures/leizilla_xml/**"
+      - "scripts/check_schema_consistency.py"
+      - "tests/test_schema_consistency.py"
+      - ".github/workflows/schema-validate.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install xmllint
+        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
+
+      - name: XSD bem-formado
+        run: xmllint --noout docs/schemas/leizilla-v0.1.xsd
+
+      - name: Fixtures validam contra XSD
+        run: |
+          set -e
+          for f in tests/fixtures/leizilla_xml/*.xml; do
+            xmllint --noout --schema docs/schemas/leizilla-v0.1.xsd "$f"
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Consistency checker (testes)
+        run: uv run pytest tests/test_schema_consistency.py -v
+
+      - name: Consistency checker contra fixtures
+        run: python3 scripts/check_schema_consistency.py tests/fixtures/leizilla_xml/*.xml
