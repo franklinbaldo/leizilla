@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Stub minimal de MathML2 para validação LexML offline.
+
+  O LexML brasileiro importa o schema oficial MathML2 da W3C (~50
+  arquivos) só para permitir <math> opcional dentro de algumas
+  estruturas. Leis brasileiras quase nunca usam MathML — bundlear
+  o schema completo seria absurdo para esse 1 elemento opcional.
+
+  Este stub declara o namespace MathML e o elemento <math> como
+  conteúdo livre (xsd:anyType). Se uma lei real usar MathML
+  estruturado, a validação aqui aceita tudo — sem garantir
+  conformidade MathML. Para validação rigorosa, substituir por
+  mathml2.xsd oficial e seus dependentes.
+-->
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+            targetNamespace="http://www.w3.org/1998/Math/MathML"
+            xmlns="http://www.w3.org/1998/Math/MathML"
+            elementFormDefault="qualified">
+  <xsd:element name="math" type="xsd:anyType"/>
+</xsd:schema>

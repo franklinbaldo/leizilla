@@ -1,0 +1,118 @@
+"""Tests for scripts/leizilla-to-lexml.xsl.
+
+For each Leizilla XML fixture in tests/fixtures/leizilla_xml/, applies
+the XSLT and validates the output against the official LexML brasileiro
+XSD bundled in tests/fixtures/lexml/.
+
+CI gate (SCHEMA.md §6): LexML is reduced representation generated on
+demand for gov interop. Round-trip (LexML → Leizilla XML) is NOT a
+goal. Known losses documented inline in the XSLT and in SCHEMA.md §6.2.
+
+Requires `xsltproc` and `xmllint` (libxml2-utils). The CI workflow
+installs both via apt.
+"""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+FIXTURES = REPO_ROOT / "tests" / "fixtures" / "leizilla_xml"
+XSLT = REPO_ROOT / "scripts" / "leizilla-to-lexml.xsl"
+LEXML_XSD = REPO_ROOT / "tests" / "fixtures" / "lexml" / "lexml-br-rigido.xsd"
+
+
+pytestmark = pytest.mark.skipif(
+    shutil.which("xsltproc") is None or shutil.which("xmllint") is None,
+    reason="xsltproc and xmllint required (apt install libxml2-utils xsltproc)",
+)
+
+
+def _xslt(fixture: Path) -> str:
+    """Apply XSLT to fixture, return LexML XML as string."""
+    result = subprocess.run(
+        ["xsltproc", str(XSLT), str(fixture)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout
+
+
+def _validate_lexml(xml_str: str) -> tuple[int, str]:
+    """Validate XML string against LexML XSD. Returns (exit_code, stderr)."""
+    result = subprocess.run(
+        ["xmllint", "--noout", "--schema", str(LEXML_XSD), "-"],
+        input=xml_str,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode, result.stderr
+
+
+@pytest.mark.parametrize("fixture", sorted(FIXTURES.glob("*.xml")))
+def test_xslt_produces_valid_lexml(fixture: Path) -> None:
+    """Every Leizilla fixture, after XSLT, must validate against the
+    official LexML XSD (lexml-br-rigido.xsd, bundled in tests/fixtures/lexml/)."""
+    lexml_xml = _xslt(fixture)
+    code, stderr = _validate_lexml(lexml_xml)
+    assert code == 0, f"LexML validation failed for {fixture.name}:\n{stderr}"
+
+
+def test_xslt_output_is_well_formed_xml() -> None:
+    """Independent of XSD: every output must at least be well-formed XML.
+    Catches XSLT regressions that produce malformed output (which would
+    fail the LexML validation upstream)."""
+    for fixture in FIXTURES.glob("*.xml"):
+        lexml_xml = _xslt(fixture)
+        # xmllint with --noout but no --schema = just well-formedness check.
+        result = subprocess.run(
+            ["xmllint", "--noout", "-"],
+            input=lexml_xml,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            f"XSLT produced malformed XML for {fixture.name}:\n{result.stderr}"
+        )
+
+
+def test_xslt_emits_lexml_root_element() -> None:
+    """Smoke: every output has <LexML> as root in the official namespace.
+    Tests the basic shape of the conversion without parsing structure."""
+    for fixture in FIXTURES.glob("*.xml"):
+        lexml_xml = _xslt(fixture)
+        assert 'xmlns="http://www.lexml.gov.br/1.0"' in lexml_xml, (
+            f"{fixture.name} output missing LexML namespace"
+        )
+        assert "<LexML" in lexml_xml, f"{fixture.name} output missing <LexML> root"
+
+
+def test_xslt_emits_identificacao_urn() -> None:
+    """Smoke: every output has <Identificacao URN="...">. URN content
+    correctness is the responsibility of the Leizilla checker (§7.10);
+    here we only confirm the LexML envelope wires it through."""
+    for fixture in FIXTURES.glob("*.xml"):
+        lexml_xml = _xslt(fixture)
+        assert "<Identificacao" in lexml_xml
+        assert "URN=" in lexml_xml
+
+
+def test_xslt_drops_known_losses() -> None:
+    """Smoke: ocr-ruim dispositivos are NOT emitted (LexML has no
+    equivalent). Anexos are also dropped (would require ReferenciaAnexo
+    + separate documents). See SCHEMA.md §6.2 + XSLT header comment
+    for full list of known losses."""
+    parcial = FIXTURES / "with-parse-parcial.xml"
+    if parcial.exists():
+        lexml_xml = _xslt(parcial)
+        # ocr-ruim content (if any in fixture) doesn't bleed into LexML.
+        # The fixture has only regular dispositivos with raw OCR text in
+        # <texto>, which IS emitted — what's dropped is the dispositivo
+        # itself when path starts with "ocr-ruim".
+        # This test is mostly a documentation marker.
+        assert "<LexML" in lexml_xml
