@@ -523,28 +523,4 @@
     </xsl:if>
   </xsl:template>
 
-  <!-- ==================================================================
-       Utility: string replace (XSLT 1.0 não tem builtin)
-       ================================================================== -->
-
-  <xsl:template name="replace-string">
-    <xsl:param name="text"/>
-    <xsl:param name="from"/>
-    <xsl:param name="to"/>
-    <xsl:choose>
-      <xsl:when test="contains($text, $from)">
-        <xsl:value-of select="substring-before($text, $from)"/>
-        <xsl:value-of select="$to"/>
-        <xsl:call-template name="replace-string">
-          <xsl:with-param name="text" select="substring-after($text, $from)"/>
-          <xsl:with-param name="from" select="$from"/>
-          <xsl:with-param name="to" select="$to"/>
-        </xsl:call-template>
-      </xsl:when>
-      <xsl:otherwise>
-        <xsl:value-of select="$text"/>
-      </xsl:otherwise>
-    </xsl:choose>
-  </xsl:template>
-
 </xsl:stylesheet>
