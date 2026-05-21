@@ -20,6 +20,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install xmllint
+        timeout-minutes: 3
         run: sudo apt-get update && sudo apt-get install -y libxml2-utils
 
       - name: XSD bem-formado

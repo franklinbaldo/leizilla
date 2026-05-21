@@ -10,7 +10,7 @@
 |---|---|---|---|
 | **M0.1** — Documento vivo + SCHEMA.md design | 🟢 done | #6 | Aprovado em re-review; merged em main. |
 | **M0.2a** — Schema v1 (tentativa) | 🔴 superseded | #7 | XSD `header` + `rotulo` + `<bloco-livre>` + etc. Substituído pelo redesign first-principles. Fica como referência histórica. |
-| **M0.2b** — Redesign first-principles | 🟡 in-progress | #8 #9 | SCHEMA.md reescrito + XSD enxuto (~235 linhas) + 6 fixtures + consistency checker (PR #9 merged). Pendente: `leizilla-to-lexml.xsl`, wire CI, resolver pendentes §8.2. |
+| **M0.2b** — Redesign first-principles | 🟡 in-progress | #8 #9 #10 | SCHEMA.md reescrito + XSD enxuto (~235 linhas) + 6 fixtures + consistency checker (PR #9 merged) + CI wire (PR #10). Pendente: `leizilla-to-lexml.xsl`, resolver pendentes §8.2. |
 | M1 — Foundation (package + ADRs + deps) | ⚪ todo | — | Bloqueado por M0 |
 | M2 — Crawler real + Raw upload | ⚪ todo | — | Bloqueado por M1 |
 | M3 — OCR fetch + LLM parse + Leizilla XML | ⚪ todo | — | Bloqueado por M2 |
