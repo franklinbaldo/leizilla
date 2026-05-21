@@ -16,7 +16,7 @@
 -->
 <lei xmlns="https://leizilla.org/lei/0.1"
      schema-version="0.1"
-     urn-lex="urn:lex:br;estado:rondonia;lei:1990-03-20;500"
+     urn-lex="urn:lex:br;rondonia:estadual:lei:1990-03-20;500"
      vigente-em="2026-05-20">
 
   <dispositivo path="ementa">
@@ -39,7 +39,7 @@
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00500"/>
     </versao>
     <revogacao em="2020-06-15" tipo="expressa"
-               por="urn:lex:br;estado:rondonia;lei:2020-06-15;9999">
+               por="urn:lex:br;rondonia:estadual:lei:2020-06-15;9999">
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
     </revogacao>
   </dispositivo>
@@ -50,7 +50,7 @@
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00500"/>
     </versao>
     <revogacao em="2015-08-12" tipo="inconstitucionalidade"
-               por="urn:lex:br;federal;adi:2015-08-12;5234">
+               por="urn:lex:br:federal:adi:2015-08-12;5234">
       <fonte ia-id="leizilla-raw-federal-stf-adi-5234-2015"/>
     </revogacao>
   </dispositivo>
@@ -71,7 +71,7 @@
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00500"/>
     </versao>
     <revogacao em="2021-04-01" tipo="tacita"
-               por="urn:lex:br;federal;lei:2021-04-01;14133">
+               por="urn:lex:br:federal:lei:2021-04-01;14133">
       <fonte ia-id="leizilla-raw-federal-planalto-lei-14133-2021"/>
     </revogacao>
   </dispositivo>

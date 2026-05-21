@@ -14,7 +14,7 @@
 -->
 <lei xmlns="https://leizilla.org/lei/0.1"
      schema-version="0.1"
-     urn-lex="urn:lex:br;federal;constituicao:1988-10-05"
+     urn-lex="urn:lex:br:federal:constituicao:1988-10-05"
      vigente-em="2026-05-20">
 
   <dispositivo path="titulo-lei">

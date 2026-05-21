@@ -145,13 +145,28 @@ _RE_IA_BUNDLE = re.compile(
     r"^leizilla-bundle-(?P<ente>[a-z][a-z0-9-]*)-(?P<fonte>[a-z]+)-"
     r"(?P<periodo>\d{4}-W\d{2})$"
 )
-# URN LEX: urn:lex:br;{jurisdicao};{tipo}:{data}[;{numero}][!{path}...]
-# Jurisdição pode ter ; interno (municipios).
+# URN LEX brasileira (CGPID, LexML Brasil Parte 2 v1.0, Dez/2008).
+#
+#   urn:lex:br(;LOCAL)*:AUTORIDADE:TIPO:DESCRITOR(!PATH)*
+#
+# LOCAL: minúsculas, sem hífen, `.` para espaços (`rondonia`,
+# `sao.paulo`, `porto.velho`). Múltiplos `;LOCAL` aceitos
+# (estado;municipio).
+# AUTORIDADE: `federal` / `estadual` / `municipal` (normas comuns)
+# ou órgão (`ministerio.fazenda`).
+# TIPO: `lei`, `decreto`, `constituicao`, `emenda.constitucional`...
+# DESCRITOR: `YYYY-MM-DD;NUMERO` ou `YYYY-MM-DD` (CF), ou
+# `YYYY;NUMERO` (forma reduzida).
+# PATH: formato LexML idArtigo/idAgregador (`art5`, `art5_par2`,
+# `anexo.1`).
 _RE_URN_LEX = re.compile(
-    r"^urn:lex:br;([^;]+;)?[^;]+;(?P<tipo>[^;]+):"
-    r"(?P<data>\d{4}-\d{2}-\d{2})"
-    r"(;(?P<numero>[^!;]+))?"
-    r"(?P<paths>(![a-z0-9-]+)*)$"
+    r"^urn:lex:br"
+    r"(?P<locais>(;[a-z][a-z0-9.]*)*)"
+    r":(?P<autoridade>[a-z][a-z0-9.]*)"
+    r":(?P<tipo>[a-z][a-z0-9.]*)"
+    r":(?P<data>\d{4}(-\d{2}-\d{2})?)"
+    r"(;(?P<numero>[a-z0-9.\-]+))?"
+    r"(?P<paths>(![a-z0-9._\-]+)*)$"
 )
 
 

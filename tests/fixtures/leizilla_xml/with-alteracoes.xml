@@ -16,7 +16,7 @@
 -->
 <lei xmlns="https://leizilla.org/lei/0.1"
      schema-version="0.1"
-     urn-lex="urn:lex:br;estado:rondonia;lei:2003-06-15;1234"
+     urn-lex="urn:lex:br;rondonia:estadual:lei:2003-06-15;1234"
      vigente-em="2026-05-20">
 
   <dispositivo path="ementa">
@@ -35,17 +35,17 @@
         <texto>O Estado adotará política administrativa orientada pela eficiência e moralidade.</texto>
       </fonte>
     </versao>
-    <versao em="2018-04-10" alterado-por="urn:lex:br;estado:rondonia;lei:2018-04-10;4321">
+    <versao em="2018-04-10" alterado-por="urn:lex:br;rondonia:estadual:lei:2018-04-10;4321">
       <texto>O Estado adotará política administrativa orientada pela eficiência, moralidade e transparência pública.</texto>
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04321"/>
     </versao>
-    <versao em="2024-07-30" alterado-por="urn:lex:br;estado:rondonia;lei:2024-07-30;5678">
+    <versao em="2024-07-30" alterado-por="urn:lex:br;rondonia:estadual:lei:2024-07-30;5678">
       <texto>O Estado adotará política administrativa orientada pela eficiência, moralidade, transparência e governança digital.</texto>
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-05678"/>
     </versao>
 
     <dispositivo path="art-3-par-1">
-      <versao em="2018-04-10" alterado-por="urn:lex:br;estado:rondonia;lei:2018-04-10;4321">
+      <versao em="2018-04-10" alterado-por="urn:lex:br;rondonia:estadual:lei:2018-04-10;4321">
         <texto>A transparência será assegurada por meio de portal eletrônico atualizado mensalmente.</texto>
         <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04321"/>
       </versao>

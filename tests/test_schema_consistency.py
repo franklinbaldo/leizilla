@@ -28,7 +28,7 @@ def _write(tmp_path: Path, content: str) -> Path:
 
 
 def _wrap(
-    body: str, urn_lex: str = "urn:lex:br;estado:rondonia;lei:2000-01-01;1234"
+    body: str, urn_lex: str = "urn:lex:br;rondonia:estadual:lei:2000-01-01;1234"
 ) -> str:
     """Wrap dispositivo body in a minimal <lei> envelope."""
     return f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -243,7 +243,7 @@ def test_inv01_diverge_one_without_texto_still_violation(tmp_path: Path) -> None
 
 def test_inv02_revogacao_total_excludes_partial(tmp_path: Path) -> None:
     xml = _wrap(
-        """  <revogacao em="2020-01-01" tipo="expressa" por="urn:lex:br;estado:rondonia;lei:2020-01-01;9999">
+        """  <revogacao em="2020-01-01" tipo="expressa" por="urn:lex:br;rondonia:estadual:lei:2020-01-01;9999">
     <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
   </revogacao>
   <dispositivo path="art-1">
@@ -251,7 +251,7 @@ def test_inv02_revogacao_total_excludes_partial(tmp_path: Path) -> None:
       <texto>X</texto>
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
     </versao>
-    <revogacao em="2019-01-01" tipo="expressa" por="urn:lex:br;estado:rondonia;lei:2019-01-01;8888">
+    <revogacao em="2019-01-01" tipo="expressa" por="urn:lex:br;rondonia:estadual:lei:2019-01-01;8888">
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-08888"/>
     </revogacao>
   </dispositivo>"""
@@ -267,7 +267,7 @@ def test_inv03_caducidade_with_por(tmp_path: Path) -> None:
       <texto>X</texto>
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
     </versao>
-    <revogacao em="2005-01-01" tipo="caducidade" por="urn:lex:br;estado:rondonia;lei:2005-01-01;5555">
+    <revogacao em="2005-01-01" tipo="caducidade" por="urn:lex:br;rondonia:estadual:lei:2005-01-01;5555">
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
     </revogacao>
   </dispositivo>"""
@@ -395,11 +395,11 @@ def test_inv06_inicio_required(tmp_path: Path) -> None:
 def test_inv07_versions_out_of_order(tmp_path: Path) -> None:
     xml = _wrap(
         """  <dispositivo path="art-1">
-    <versao em="2010-01-01" alterado-por="urn:lex:br;estado:rondonia;lei:2010-01-01;4321">
+    <versao em="2010-01-01" alterado-por="urn:lex:br;rondonia:estadual:lei:2010-01-01;4321">
       <texto>X1</texto>
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04321"/>
     </versao>
-    <versao em="2005-01-01" alterado-por="urn:lex:br;estado:rondonia;lei:2005-01-01;5555">
+    <versao em="2005-01-01" alterado-por="urn:lex:br;rondonia:estadual:lei:2005-01-01;5555">
       <texto>X2</texto>
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-05555"/>
     </versao>
@@ -495,7 +495,7 @@ def test_inv14_urn_zero_pad(tmp_path: Path) -> None:
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
     </versao>
   </dispositivo>""",
-        urn_lex="urn:lex:br;estado:rondonia;lei:1985-11-20;0042",
+        urn_lex="urn:lex:br;rondonia:estadual:lei:1985-11-20;0042",
     )
     v = csc.check_file(_write(tmp_path, xml))
     assert any(x.invariant == 14 for x in v)
@@ -510,7 +510,7 @@ def test_inv14_no_zero_pad_for_5plus_digits(tmp_path: Path) -> None:
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-12345"/>
     </versao>
   </dispositivo>""",
-        urn_lex="urn:lex:br;estado:rondonia;lei:2020-01-01;12345",
+        urn_lex="urn:lex:br;rondonia:estadual:lei:2020-01-01;12345",
     )
     v = csc.check_file(_write(tmp_path, xml))
     assert not any(x.invariant == 14 for x in v)
@@ -575,7 +575,7 @@ def test_invalid_calendar_date_in_urn_does_not_crash(tmp_path: Path) -> None:
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
     </versao>
   </dispositivo>""",
-        urn_lex="urn:lex:br;estado:rondonia;lei:2020-13-01;1234",
+        urn_lex="urn:lex:br;rondonia:estadual:lei:2020-13-01;1234",
     )
     # Should complete without raising.
     violations = csc.check_file(_write(tmp_path, xml))
@@ -612,14 +612,14 @@ def test_inherited_em_skips_invalid_dates(tmp_path: Path) -> None:
 
     xml = """<?xml version="1.0" encoding="UTF-8"?>
 <lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
-     urn-lex="urn:lex:br;estado:rondonia;lei:2000-01-01;1234"
+     urn-lex="urn:lex:br;rondonia:estadual:lei:2000-01-01;1234"
      vigente-em="2026-05-20">
   <dispositivo path="art-3">
     <versao em="2020-13-01">
       <texto>data invalida</texto>
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
     </versao>
-    <versao em="2018-04-10" alterado-por="urn:lex:br;estado:rondonia;lei:2018-04-10;4321">
+    <versao em="2018-04-10" alterado-por="urn:lex:br;rondonia:estadual:lei:2018-04-10;4321">
       <texto>data valida</texto>
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04321"/>
     </versao>
@@ -640,7 +640,7 @@ def test_inv07_inherited_em_catches_out_of_order(tmp_path: Path) -> None:
     antigo perdia (comparava com pub em vez de com o em herdado)."""
     xml = _wrap(
         """  <dispositivo path="art-3">
-    <versao em="2018-04-10" alterado-por="urn:lex:br;estado:rondonia;lei:2018-04-10;4321">
+    <versao em="2018-04-10" alterado-por="urn:lex:br;rondonia:estadual:lei:2018-04-10;4321">
       <texto>v1 art-3</texto>
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04321"/>
     </versao>
@@ -649,7 +649,7 @@ def test_inv07_inherited_em_catches_out_of_order(tmp_path: Path) -> None:
         <texto>v1 par-1 (herda em=2018-04-10 do parent)</texto>
         <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04321"/>
       </versao>
-      <versao em="2010-01-01" alterado-por="urn:lex:br;estado:rondonia;lei:2010-01-01;5555">
+      <versao em="2010-01-01" alterado-por="urn:lex:br;rondonia:estadual:lei:2010-01-01;5555">
         <texto>v2 par-1 — out of order! 2010 antes de 2018</texto>
         <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-05555"/>
       </versao>
@@ -750,7 +750,7 @@ def test_inv01_diverge_in_revogacao_rejected(tmp_path: Path) -> None:
       <texto>X</texto>
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
     </versao>
-    <revogacao em="2020-01-01" tipo="expressa" por="urn:lex:br;estado:rondonia;lei:2020-01-01;9999">
+    <revogacao em="2020-01-01" tipo="expressa" por="urn:lex:br;rondonia:estadual:lei:2020-01-01;9999">
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999" diverge="true">
         <texto>diverge numa revogacao</texto>
       </fonte>
@@ -780,7 +780,7 @@ def test_inv10_filename_matches_urn_canonical(tmp_path: Path) -> None:
     f = _write_named(
         tmp_path,
         "leizilla-ro-lei-09999-1999",
-        _wrap(body, urn_lex="urn:lex:br;estado:rondonia;lei:1999-06-15;9999"),
+        _wrap(body, urn_lex="urn:lex:br;rondonia:estadual:lei:1999-06-15;9999"),
     )
     assert csc.check_file(f) == []
 
@@ -796,7 +796,7 @@ def test_inv10_filename_numero_mismatch(tmp_path: Path) -> None:
     f = _write_named(
         tmp_path,
         "leizilla-ro-lei-09999-1999",
-        _wrap(body, urn_lex="urn:lex:br;estado:rondonia;lei:1999-06-15;7777"),
+        _wrap(body, urn_lex="urn:lex:br;rondonia:estadual:lei:1999-06-15;7777"),
     )
     v = csc.check_file(f)
     assert any(x.invariant == 10 and "numero" in x.message for x in v)
@@ -812,7 +812,7 @@ def test_inv10_filename_ano_mismatch(tmp_path: Path) -> None:
     f = _write_named(
         tmp_path,
         "leizilla-ro-lei-09999-1999",
-        _wrap(body, urn_lex="urn:lex:br;estado:rondonia;lei:2020-06-15;9999"),
+        _wrap(body, urn_lex="urn:lex:br;rondonia:estadual:lei:2020-06-15;9999"),
     )
     v = csc.check_file(f)
     assert any(x.invariant == 10 and "ano" in x.message for x in v)
@@ -828,7 +828,7 @@ def test_inv10_filename_tipo_mismatch(tmp_path: Path) -> None:
     f = _write_named(
         tmp_path,
         "leizilla-ro-decreto-09999-1999",
-        _wrap(body, urn_lex="urn:lex:br;estado:rondonia;lei:1999-06-15;9999"),
+        _wrap(body, urn_lex="urn:lex:br;rondonia:estadual:lei:1999-06-15;9999"),
     )
     v = csc.check_file(f)
     assert any(x.invariant == 10 and "tipo" in x.message for x in v)
@@ -845,7 +845,7 @@ def test_inv10_filename_canonical_but_urn_lacks_numero(tmp_path: Path) -> None:
     f = _write_named(
         tmp_path,
         "leizilla-federal-constituicao-00000-1988",
-        _wrap(body, urn_lex="urn:lex:br;federal;constituicao:1988-10-05"),
+        _wrap(body, urn_lex="urn:lex:br:federal:constituicao:1988-10-05"),
     )
     v = csc.check_file(f)
     assert any(x.invariant == 10 and "sem ;numero" in x.message for x in v)
@@ -864,7 +864,7 @@ def test_inv10_arbitrary_filename_skips_crosscheck(tmp_path: Path) -> None:
     f = _write_named(
         tmp_path,
         "simple",
-        _wrap(body, urn_lex="urn:lex:br;estado:rondonia;lei:1999-06-15;7777"),
+        _wrap(body, urn_lex="urn:lex:br;rondonia:estadual:lei:1999-06-15;7777"),
     )
     # urn-lex válido, filename não casa pattern → §7.10 silent.
     assert csc.check_file(f) == []

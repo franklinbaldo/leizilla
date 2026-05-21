@@ -37,7 +37,7 @@ uv run pytest tests/test_leizilla_xml.py -v
 
 ## Convenções nas fixtures
 
-- **URN LEX em forma completa**: `urn:lex:br;{jurisdicao};{tipo}:{YYYY-MM-DD};{numero}` para leis ordinárias; sem `;numero` final para constituições. Dialect provisório — ver `docs/SCHEMA.md` §5.6 e §8.
+- **URN LEX canônica** (CGPID 2008): `urn:lex:br(;{local})*:{autoridade}:{tipo}:{descritor}`. Exemplo lei estadual: `urn:lex:br;rondonia:estadual:lei:2003-06-15;1234`. CF/88 sem número: `urn:lex:br:federal:constituicao:1988-10-05`. Detalhes em `docs/SCHEMA.md` §5.6.
 - **Datas históricas plausíveis** (Rondônia: leis pós-1981 quando o estado foi criado; CF/88 datada de 1988-10-05).
 - **`<fonte ia-id>`** segue `leizilla-raw-{ente}-{fonte}-{chave}` (SCHEMA.md §5.1). IA identifiers são exemplos sintéticos — não existem em IA real.
 - **Conteúdo textual** é fictício ou trecho público notório (CF/88 art. 1º, par. único). Leis fictícias usam numeração improvável (Lei 9.999/1999, Lei 1.234/2003, Lei 500/1990) para evitar confusão com leis reais existentes.
