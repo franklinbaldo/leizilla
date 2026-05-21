@@ -13,8 +13,11 @@
   - A tag fonte é única em 4 contextos (versao, inicio, revogacao na
     lei, revogacao no dispositivo). Atributo diverge só faz sentido
     em versao; consistency checker valida.
-  - Atributo quality só faz sentido quando path=ocr-ruim;
-    consistency checker valida.
+  - Qualidade de parse (LLM falhou, OCR cru) NAO e modelada no XML.
+    Lei mal-parseada nao tem parsed item; lei parcialmente parseada
+    carrega o texto cru no proprio elemento texto. Audit por
+    embeddings (§0.5) + confianca_parse no parsed_meta.json sao as
+    fontes de verdade.
   - Processo de parse (método LLM, confiança, divergências detalhadas)
     vai para parsed_meta.json sidecar — não está no XML.
 
@@ -93,15 +96,6 @@
       <xs:enumeration value="caducidade"/>
       <xs:enumeration value="inconstitucionalidade"/>
       <xs:enumeration value="nao-recepcao"/>
-    </xs:restriction>
-  </xs:simpleType>
-
-  <xs:simpleType name="OcrQuality">
-    <xs:restriction base="xs:string">
-      <xs:enumeration value="low"/>
-      <xs:enumeration value="medium"/>
-      <xs:enumeration value="high"/>
-      <xs:enumeration value="raw"/>
     </xs:restriction>
   </xs:simpleType>
 
@@ -190,8 +184,11 @@
         - 0..1 revogacao (revogacao parcial deste dispositivo;
           cascateia para descendentes).
 
-        Atributo quality so e semanticamente valido quando
-        path=ocr-ruim (consistency checker valida).
+        Qualidade de parse (texto cru, OCR ruim) NAO e modelada no XML.
+        Lei mal-parseada nao tem parsed item (so raw); lei parcialmente
+        parseada carrega o texto cru no proprio elemento texto. Audit
+        por embeddings (SCHEMA.md §0.5) e confianca_parse no
+        parsed_meta.json sao as fontes de verdade pra qualidade.
       </xs:documentation>
     </xs:annotation>
     <xs:sequence>
@@ -200,7 +197,6 @@
       <xs:element name="revogacao" type="RevogacaoType" minOccurs="0"/>
     </xs:sequence>
     <xs:attribute name="path" type="DispositivoPath" use="required"/>
-    <xs:attribute name="quality" type="OcrQuality" use="optional"/>
   </xs:complexType>
 
   <!-- ==================================================================

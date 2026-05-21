@@ -24,7 +24,7 @@ Tudo o que não cabe nessa frase **não pertence ao XML**:
 - **Parent estrutural** é o nesting XML. Sem atributo `parent` duplicado.
 - **URN do dispositivo** é `lei.urn-lex + "!" + path`. Consumer compõe. Sem atributo `urn` no dispositivo.
 - **Bloco organizacional** (livro/capítulo/seção) não é categoria separada — é um dispositivo cujo `path` começa com token organizacional. Token map define semântica.
-- **OCR ruim** não é elemento separado (`<bloco-livre>`); é um dispositivo com `path="ocr-ruim"` e atributo `quality`. Render decide formato.
+- **Qualidade de parse não é caso de modelagem.** OCR ruim, LLM falhou parcialmente, etc. são **processo**, não conteúdo. Política: lei mal-parseada **não tem parsed item** (fica só como raw IA item público com OCR); lei parcialmente parseada carrega o texto cru no próprio `<texto>` do dispositivo afetado — sem flag, sem atributo, sem path mágico. Audit por embeddings (§0.5) e `confianca_parse_global` em `parsed_meta.json` são as fontes de verdade pra qualidade. Esse é o mesmo princípio aplicado a `revisao-pendente`: o sistema que produz o texto não é o sistema que sabe se errou.
 - **Texto é texto.** Não há distinção entre "texto normativo" e "nome de capítulo". Capítulo tem texto — o nome dele.
 
 ### 0.2 Vigência herda; proveniência é declarada quando importa
@@ -402,7 +402,6 @@ Path determina tipo. Token map é a fonte única de verdade.
 | `anexo-N` | anexo | "Anexo N" (romanos) |
 | `disp-transitoria-N` | disposicao-transitoria | "Art. N (Disposições Transitórias)" |
 | `disp-final-N` | disposicao-final | "Art. N (Disposições Finais)" |
-| `ocr-ruim` ou `ocr-ruim-N` | bloco-ocr-ruim | (sem rótulo; render mostra banner) |
 
 **Tokens organizacionais** (agrupadores; texto = nome do bloco):
 
@@ -584,28 +583,19 @@ Mesma tag em 4 contextos. Atributos:
 
 Caso comum (uma ou várias fontes que concordam): só `<fonte ia-id="..."/>`. Sem `canonica`. Texto canônico está no `<texto>` da versão.
 
-### 4.7 OCR ruim — sem elemento especial
+### 4.7 Qualidade de parse não vive no XML
 
-OCR irrecuperável vira dispositivo regular com `path="ocr-ruim"` e atributo `quality`. Render mostra banner; sem `<bloco-livre>` separado no XSD.
+Não há elemento, atributo, ou path mágico para "OCR ruim" / "LLM falhou". A política é binária:
 
-```xml
-<dispositivo path="ocr-ruim" quality="raw">
-  <versao>
-    <texto>LE| N° 42/8S - 20 DE NOVEMBR0 DE 19BS
+- **Parse confiável** (audit por embeddings passa) → publica parsed item normalmente.
+- **Parse parcial** (alguns dispositivos OK, outros saem com texto cru) → publica mesmo assim; texto cru entra no `<texto>` do dispositivo afetado, sem flag. Erros tipo `LE| N° 42/8S` ficam visíveis no render (usuário humano percebe) e disparáveis via similaridade no audit.
+- **Parse falhou inteiro** → **não publica parsed item**. Lei fica só como raw IA item (PDF + OCR público no IA); frontend mostra "em processamento" + link pro raw.
 
-O G0VERNAD0R D0 ESTAD0 DE R0NDONIA, faç0 saber que a A55embleia Legislativa decret@ e eu sancion0 a seguinte Lei:
+Onde a sinalização de qualidade vive:
+- Granular: `parsed_meta.json.confianca_parse_global` + `auditoria_embeddings.dispositivos_flagged[]` (por path).
+- Agregada: filtro Parquet em `confianca_parse < X` ou `min_similarity < Y`.
 
-Art. 1° Fica criad0 0 Conselh0 Estadual de Cultura...
-[trecho i|egível n0 OCR]
-Art. 4° Esta Lei entra em vigor na data de 5ua publicação.</texto>
-    <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
-  </versao>
-</dispositivo>
-```
-
-`quality` enum: `low` / `medium` / `high` / `raw`. Atributo só aparece quando `path` começa com `ocr-ruim` (consistency checker valida).
-
-**Múltiplos blocos OCR-ruim**: quando uma lei tem várias seções ilegíveis intercaladas com dispositivos parseados, usar `path="ocr-ruim-1"`, `path="ocr-ruim-2"`, ... — token `ocr-ruim-N` é parte do token map (§4.2). Path único na árvore continua sendo invariante (`xs:unique` no XSD).
+Esse é o mesmo princípio que eliminou `revisao-pendente` no XML (§0.5): o sistema que produz o texto não é o sistema que sabe se errou. Audit por embeddings dispara reprocessamento automaticamente.
 
 ---
 
@@ -707,7 +697,7 @@ XSD não consegue expressar tudo. `scripts/check_schema_consistency.py` (M0.2) v
 6. **`<inicio>` obrigatório** quando `<versao em="X">` com `X ≠ data-publicacao(<lei>)` e sem `alterado-por`.
 7. **Ordenação de versões** num dispositivo: `em` estritamente crescente.
 8. **`<fonte ia-id>`** casa com regex de IA identifier (§5.1).
-9. **`quality` atributo** só aparece em `<dispositivo>` com `path` começando por `ocr-ruim`.
+9. ~~`quality` atributo só em `path="ocr-ruim"`~~ — **removida**. Qualidade de parse não vive no XML (§4.7); audit por embeddings + `confianca_parse_global` no sidecar cobrem. Número 9 fica reservado pra preservar chaves estáveis no checker/testes.
 10. **`urn-lex` da `<lei>`** (se presente) decompõe corretamente: ente, tipo, data, numero recuperados batem com o `id` do parsed item. **`urn-lex` ausente**: ente e tipo recuperados via decomposição do `id` do parsed item (regex §5.3 ou §5.4), e a fonte canônica de identidade vira o IA identifier.
 11. **Exemplos no markdown** (`docs/SCHEMA.md`, `IMPLEMENTATION.md`) que aparentam ser IA identifiers casam com regex em §5.
 12. **`schema_version`** no XSD, no footer KV do Parquet, e no `schema-version` attribute do `<lei>` root concordam.
@@ -726,7 +716,7 @@ XSD não consegue expressar tudo. `scripts/check_schema_consistency.py` (M0.2) v
 - ✅ **`<inicio>` com `tipo` enum + `<fonte>` filha** documenta proveniência da vigência.
 - ✅ **`<revogacao>` rica**: `em`, `por`, `tipo` enum, `<fonte>` filha; posição estrutural = escopo (total vs parcial).
 - ✅ **`<fonte>` é uma só** em 4 contextos; sem `canonica`; `diverge="true"` carrega texto inline.
-- ✅ **`<bloco-livre>` desaparece**: OCR ruim vira `<dispositivo path="ocr-ruim" quality="...">`.
+- ✅ **`<bloco-livre>` desaparece** (PR #8) — e a tentativa subsequente de modelar OCR ruim como `<dispositivo path="ocr-ruim" quality="...">` (PRs #8/#9 iniciais) também foi descartada (PR #9): qualidade de parse é processo, não conteúdo (§4.7).
 - ✅ **Processo (parse method, confiança, divergências detalhadas)** vai 100% para `parsed_meta.json`; XML carrega só estrutura normativa.
 - ✅ **Token map** é fonte única de verdade para tipo de dispositivo.
 - ✅ **Auditoria por embeddings raw vs parseado** substitui flags manuais de "revisão pendente".
@@ -762,7 +752,7 @@ XSD não consegue expressar tudo. `scripts/check_schema_consistency.py` (M0.2) v
 | `<versao numero="N">` | `<versao em="...">` (data é chave natural) | Mais self-documenting |
 | `<fonte-canonica>` elemento separado + `<fonte>` lista | `<fonte>` única tag; texto canônico está em `<texto>` da versão | "Fonte canônica" não existe — texto canônico existe |
 | `<anotacoes>` no XML (`<divergencia>`, `<parse>`) | Vai para `parsed_meta.json` sidecar | Processo, não conteúdo |
-| `<bloco-livre>` elemento separado | `<dispositivo path="ocr-ruim" quality="...">` | Tudo é dispositivo |
+| `<bloco-livre>` elemento separado | Sem elemento de OCR ruim no XML. Lei mal-parseada não tem parsed item; parcial usa texto cru no `<texto>` regular. | Qualidade de parse é processo (§4.7), não conteúdo. Audit por embeddings + `confianca_parse_global` cobrem detecção. |
 | `<revogada>true/false</revogada>` | `<revogacao em="..." por="..." tipo="...">` com `<fonte>` filha | Revogação é evento estruturado |
 | `vigente-de` / `vigente-ate` em toda versão | Herança implícita; `em` só onde difere; `vigente-ate` é inferido | Caso comum não declara nada |
 | Flag manual de auditoria/revisão | Auditoria por embeddings (sistema externo) | LLM não sabe quando errou |

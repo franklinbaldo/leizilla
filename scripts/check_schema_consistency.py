@@ -49,7 +49,6 @@ _NORMATIVO_TOKENS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^anexo-\d+$"), "anexo"),
     (re.compile(r"^disp-transitoria-\d+$"), "disposicao-transitoria"),
     (re.compile(r"^disp-final-\d+$"), "disposicao-final"),
-    (re.compile(r"^ocr-ruim(-\d+)?$"), "bloco-ocr-ruim"),
 ]
 
 _ORGANIZACIONAL_TOKENS: list[tuple[re.Pattern[str], str]] = [
@@ -476,20 +475,6 @@ def _check_ia_id_format(ctx: _Ctx) -> None:
             ctx.add(8, f'ia-id="{ia}" não casa com regex de raw IA identifier (§5.1)')
 
 
-def _check_quality_only_ocr_ruim(ctx: _Ctx) -> None:
-    """§7.9 — `quality` attribute only on <dispositivo path="ocr-ruim..."`."""
-    for d, _ in _walk_all_dispositivos(ctx.root):
-        if d.get("quality") is None:
-            continue
-        path = d.get("path", "")
-        if not path.startswith("ocr-ruim"):
-            ctx.add(
-                9,
-                f'<dispositivo path="{path}" quality="{d.get("quality")}"> — '
-                f'quality só é válido em path começando por "ocr-ruim"',
-            )
-
-
 def _check_urn_decomposes(ctx: _Ctx) -> None:
     """§7.10 — urn-lex (if present) decomposes correctly AND its
     components match the parsed-item identifier in the filename.
@@ -642,7 +627,6 @@ def check_file(file: Path) -> list[Violation]:
     _check_inheritance_inicio(ctx)
     _check_versoes_ordem(ctx)
     _check_ia_id_format(ctx)
-    _check_quality_only_ocr_ruim(ctx)
     _check_urn_decomposes(ctx)
     _check_urn_no_zero_pad(ctx)
     return ctx.violations

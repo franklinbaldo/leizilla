@@ -72,6 +72,23 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-05-20 — Qualidade de parse não vive no XML (revisão em #9)
+
+Auditoria de premissas durante o review do consistency checker (#9): a modelagem de "OCR ruim" como `<dispositivo path="ocr-ruim" quality="raw|low|medium|high">` carregava um problema imaginário. Premissas que quebram:
+
+1. **OCR ruim é processo, não conteúdo.** Estado transiente do pipeline — modelo melhor + reprocessamento eventualmente resolve. Não é propriedade ontológica da lei.
+2. **Audit por embeddings (§0.5) já cobre detecção.** Similaridade baixa entre `embedding(raw_djvu)` e `embedding(texto)` dispara auditoria. Pedir o LLM cravar `quality=raw` antecipadamente é o mesmo erro que `revisao-pendente`: o sistema que produz o texto não é o sistema que sabe se errou.
+3. **`confianca_parse_global` no sidecar já é suficiente para filtros.** Flag duplicada no XML é redundância.
+4. **Frontend não precisa de banner especial.** Texto cru tipo `LE| N° 42/8S` é visualmente óbvio pro usuário; pra automação, similaridade < threshold no audit dispara alerta.
+5. **Path mágico `ocr-ruim` quebra o princípio "tipo deriva do path via token map".** OCR ruim não é tipo de dispositivo jurídico, é meta-status de parse. Mistura dimensões.
+
+Política binária resultante:
+- **Parse confiável**: publica parsed item normalmente.
+- **Parse parcial**: publica; texto cru entra no `<texto>` do dispositivo regular, sem flag.
+- **Parse falhou inteiro**: **não publica** parsed item. Fica só raw IA item.
+
+Removidos: `OcrQuality` simpleType + attribute `quality` no XSD; token `ocr-ruim` do token map; invariante §7.9 (número fica reservado pra preservar chaves do checker/testes); fixture `with-ocr-ruim.xml`. Adicionado: `with-parse-parcial.xml` exercitando texto cru em dispositivo regular.
+
 ### 2026-05-20 — Redesign first-principles do Leizilla XML (supersede #7)
 
 Auditoria a partir do princípio "dispositivo é a unidade básica" revelou que o XSD do PR #7 carregava ~10 conceitos derivados ou redundantes. Reescrita do zero. Diff radical:

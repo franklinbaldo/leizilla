@@ -468,19 +468,6 @@ def test_inv08_accepts_raw_variants(tmp_path: Path) -> None:
         )
 
 
-def test_inv09_quality_on_normal_path(tmp_path: Path) -> None:
-    xml = _wrap(
-        """  <dispositivo path="art-1" quality="raw">
-    <versao>
-      <texto>X</texto>
-      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
-    </versao>
-  </dispositivo>"""
-    )
-    v = csc.check_file(_write(tmp_path, xml))
-    assert any(x.invariant == 9 for x in v)
-
-
 def test_inv13_duplicate_path(tmp_path: Path) -> None:
     xml = _wrap(
         """  <dispositivo path="art-1">
@@ -549,8 +536,11 @@ def test_inv14_no_zero_pad_for_5plus_digits(tmp_path: Path) -> None:
         ("par-unico", "paragrafo"),
         ("art-1-par-unico", "paragrafo"),
         ("anexo-1", "anexo"),
-        ("ocr-ruim", "bloco-ocr-ruim"),
-        ("ocr-ruim-3", "bloco-ocr-ruim"),
+        # PR #9 follow-up: token "ocr-ruim" removido — qualidade de parse
+        # não vive no XML (§4.7). Paths antigos como "ocr-ruim" devem
+        # rejeitar (None) como qualquer token desconhecido.
+        ("ocr-ruim", None),
+        ("ocr-ruim-3", None),
         ("tit-1", "titulo"),
         ("tit-2-cap-1", "capitulo"),
         ("tit-2-cap-1-sec-3", "secao"),
@@ -805,14 +795,14 @@ def test_inv10_empty_urn_fires_violation(tmp_path: Path) -> None:
 
 
 def test_inv05_no_urn_is_exempt(tmp_path: Path) -> None:
-    """Lei sem urn-lex (caso fallback OCR-ruim): §7.5 NÃO reporta —
-    vigência genuinamente não tem âncora."""
+    """Lei sem urn-lex (caso fallback, data não-extraível): §7.5 NÃO
+    reporta — vigência genuinamente não tem âncora."""
     xml = """<?xml version="1.0" encoding="UTF-8"?>
 <lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
      vigente-em="2026-05-20">
-  <dispositivo path="ocr-ruim" quality="raw">
+  <dispositivo path="art-1">
     <versao>
-      <texto>texto ilegível</texto>
+      <texto>texto sem ancora de vigencia</texto>
       <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
     </versao>
   </dispositivo>
