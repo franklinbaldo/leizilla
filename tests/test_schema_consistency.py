@@ -668,6 +668,101 @@ def test_inv04_mixed_org_normative_rejected(tmp_path: Path) -> None:
         assert csc._path_tipo(bad) is None, f"mixed path '{bad}' should be rejected"
 
 
+def test_inv04_normative_parent_with_organizational_child_rejected(
+    tmp_path: Path,
+) -> None:
+    """Codex P2: organizational dentro de normative (e.g. capitulo dentro de
+    artigo) é inversão hierárquica — §4.2 só permite org → norm."""
+    xml = _wrap(
+        """  <dispositivo path="art-1">
+    <versao>
+      <texto>caput art-1</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+    </versao>
+    <dispositivo path="cap-1">
+      <versao>
+        <texto>capitulo dentro de artigo — inversão</texto>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+      </versao>
+    </dispositivo>
+  </dispositivo>"""
+    )
+    v = csc.check_file(_write(tmp_path, xml))
+    assert any(x.invariant == 4 and "inversão" in x.message for x in v), (
+        f"esperava §7.4 inversion violation; got: {[str(x) for x in v]}"
+    )
+
+
+def test_inv10_canonical_filename_without_urn(tmp_path: Path) -> None:
+    """Codex P2: filename canônico (§5.3) sem urn-lex é identity drift —
+    parsed item canônico requer URN. Fallback (§5.4) é exempto."""
+    body = """  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999"/>
+    </versao>
+  </dispositivo>"""
+    xml_no_urn = f"""<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
+     vigente-em="2026-05-20">
+{body}
+</lei>"""
+    f = _write_named(tmp_path, "leizilla-ro-lei-09999-1999", xml_no_urn)
+    v = csc.check_file(f)
+    assert any(x.invariant == 10 and "canônico" in x.message for x in v)
+
+    # Fallback filename: exempto.
+    f_fb = _write_named(tmp_path, "leizilla-ro-lei-fallback-casacivil-00042", xml_no_urn)
+    v_fb = csc.check_file(f_fb)
+    assert not any(x.invariant == 10 for x in v_fb), (
+        f"fallback filename sem urn-lex deveria passar; got: {[str(x) for x in v_fb]}"
+    )
+
+
+def test_inv01_diverge_in_inicio_rejected(tmp_path: Path) -> None:
+    """Codex P2: diverge é semanticamente válido apenas em <fonte> filha
+    de <versao>. Em <inicio>, reportar violação independente do valor."""
+    xml = _wrap(
+        """  <dispositivo path="art-1">
+    <versao em="2010-01-01">
+      <inicio tipo="vacatio-legis">
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001" diverge="true">
+          <texto>diverge num inicio — sem sentido</texto>
+        </fonte>
+      </inicio>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+    </versao>
+  </dispositivo>"""
+    )
+    v = csc.check_file(_write(tmp_path, xml))
+    assert any(
+        x.invariant == 1 and "<inicio>" in x.message for x in v
+    ), f"esperava §7.1 sobre diverge em <inicio>; got: {[str(x) for x in v]}"
+
+
+def test_inv01_diverge_in_revogacao_rejected(tmp_path: Path) -> None:
+    """Mesma regra que test_inv01_diverge_in_inicio_rejected, mas em
+    <revogacao>."""
+    xml = _wrap(
+        """  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+    </versao>
+    <revogacao em="2020-01-01" tipo="expressa" por="urn:lex:br;estado:rondonia;lei:2020-01-01;9999">
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-09999" diverge="true">
+        <texto>diverge numa revogacao</texto>
+      </fonte>
+    </revogacao>
+  </dispositivo>"""
+    )
+    v = csc.check_file(_write(tmp_path, xml))
+    assert any(
+        x.invariant == 1 and "<revogacao>" in x.message for x in v
+    ), f"esperava §7.1 sobre diverge em <revogacao>; got: {[str(x) for x in v]}"
+
+
 def _write_named(tmp_path: Path, stem: str, content: str) -> Path:
     f = tmp_path / f"{stem}.xml"
     f.write_text(content, encoding="utf-8")

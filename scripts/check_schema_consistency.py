@@ -280,15 +280,35 @@ def _check_fonte_diverge_texto(ctx: _Ctx) -> None:
     Accepts all xs:boolean lexical forms ("true", "1", "false", "0",
     whitespace-collapsed) — XSD defines `diverge` as xs:boolean, so a
     schema-valid `diverge="1"` must behave identically to `diverge="true"`.
+
+    Codex P2: `diverge` é semanticamente válido APENAS em <fonte> filha
+    de <versao>. Em <inicio> e <revogacao>, `diverge` não tem significado
+    (não há "texto canônico da versão" pra divergir) — reportamos
+    independente do valor de diverge.
     """
-    for fonte in ctx.root.iter(f"{{{NS}}}fonte"):
-        diverge = _parse_xs_boolean(fonte.get("diverge")) is True
-        has_texto = fonte.find(f"{{{NS}}}texto") is not None
-        ia = fonte.get("ia-id", "?")
-        if diverge and not has_texto:
-            ctx.add(1, f'<fonte ia-id="{ia}" diverge="true"> sem <texto> filho')
-        elif not diverge and has_texto:
-            ctx.add(1, f'<fonte ia-id="{ia}"> sem diverge="true" tem <texto> filho')
+    # Fontes em <versao>: aplica regra padrão diverge/texto.
+    for versao in ctx.root.iter(f"{{{NS}}}versao"):
+        for fonte in versao.findall(f"{{{NS}}}fonte"):
+            diverge = _parse_xs_boolean(fonte.get("diverge")) is True
+            has_texto = fonte.find(f"{{{NS}}}texto") is not None
+            ia = fonte.get("ia-id", "?")
+            if diverge and not has_texto:
+                ctx.add(1, f'<fonte ia-id="{ia}" diverge="true"> sem <texto> filho')
+            elif not diverge and has_texto:
+                ctx.add(1, f'<fonte ia-id="{ia}"> sem diverge="true" tem <texto> filho')
+
+    # Fontes em <inicio> ou <revogacao>: diverge não faz sentido. Reportamos
+    # uso indevido independentemente do valor de diverge.
+    for container_tag in ("inicio", "revogacao"):
+        for container in ctx.root.iter(f"{{{NS}}}{container_tag}"):
+            for fonte in container.findall(f"{{{NS}}}fonte"):
+                if fonte.get("diverge") is not None:
+                    ia = fonte.get("ia-id", "?")
+                    ctx.add(
+                        1,
+                        f'<fonte ia-id="{ia}" diverge="..."> em <{container_tag}> — '
+                        f"atributo diverge só é válido em <fonte> filha de <versao>",
+                    )
 
 
 def _check_revogacao_total_excludes_partial(ctx: _Ctx) -> None:
@@ -360,7 +380,22 @@ def _check_path_token_map(ctx: _Ctx) -> None:
         if not parent_path or _path_tipo(parent_path) is None:
             continue  # parent already flagged separately.
         if _path_class(path) != _path_class(parent_path):
-            continue  # mixed class (org → norm) — no composition required.
+            # Mixed classes: APENAS organizational → normative é
+            # permitido (§4.2: "Quando normativo está dentro de
+            # organizacional, path do normativo permanece global").
+            # Inversão (normativo → organizacional) é hierarquicamente
+            # inválida — capítulos não vivem dentro de artigos.
+            if (
+                _path_class(parent_path) == "normativo"
+                and _path_class(path) == "organizacional"
+            ):
+                ctx.add(
+                    4,
+                    f'<dispositivo path="{path}"> (organizacional) aninhado '
+                    f'em parent path="{parent_path}" (normativo) — inversão '
+                    f"hierárquica não permitida (§4.2)",
+                )
+            continue  # mixed but valid (org → norm) — no composition required.
         if not path.startswith(parent_path + "-"):
             ctx.add(
                 4,
@@ -494,8 +529,20 @@ def _check_urn_decomposes(ctx: _Ctx) -> None:
     and save it as `{id}.xml` before running the checker. Local fixtures
     use arbitrary names (simple.xml, with-revogacoes.xml, etc.) and
     therefore skip (b) — they only exercise (a).
+
+    (c) URN ausente: permitido para fallback parsed items (§5.4 pattern
+    `-fallback-` carrega lei sem data extraível), mas filename canônico
+    (§5.3) implica identidade recuperada → URN é esperada (Codex P2).
     """
     if ctx.urn_lex is None:
+        stem = ctx.file.stem
+        if _RE_IA_PARSED.match(stem):
+            ctx.add(
+                10,
+                f'filename "{stem}" é canônico (§5.3) mas urn-lex ausente — '
+                f"parsed item canônico requer URN (use pattern fallback "
+                f"§5.4 se identidade não foi recuperada)",
+            )
         return
     m = _RE_URN_LEX.match(ctx.urn_lex)
     if not m:
