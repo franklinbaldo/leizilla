@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture: parse parcial — alguns dispositivos saíram com OCR cru.
+
+  Cobre o caminho intermediário (SCHEMA.md §4.7):
+  - Lei parseada mas com 1 dispositivo cujo texto saiu com erros típicos
+    de OCR (0↔O, 1↔|, 5↔S). Nada disso no XML é flagged — é só `<texto>`
+    regular. Render mostra como está; auditoria por embeddings detecta a
+    discrepância vs raw_djvu.txt e dispara reprocessamento.
+  - Versão "lei ilegível inteira" não tem fixture aqui: política é não
+    publicar parsed item nesse caso (fica só raw IA item).
+-->
+<lei xmlns="https://leizilla.org/lei/0.1"
+     schema-version="0.1"
+     urn-lex="urn:lex:br;estado:rondonia;lei:1985-11-20;42"
+     vigente-em="2026-05-20">
+
+  <dispositivo path="ementa">
+    <versao>
+      <texto>Cria o Conselho Estadual de Cultura de Rondônia.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+    </versao>
+  </dispositivo>
+
+  <dispositivo path="art-1">
+    <versao>
+      <texto>Fica criado o Conselho Estadual de Cultura, vinculado à Secretaria de Educação e Cultura, com as seguintes atribuições.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+    </versao>
+  </dispositivo>
+
+  <dispositivo path="art-2">
+    <versao>
+      <texto>O C0nse|h0 será c0mp0sto p0r 9 (n0ve) membr0s n0mead0s pe|0 G0vernad0r, c0m mandat0 de 4 (quatr0) an0s. [trecho com OCR ruim no PDF original; audit dispara reprocessamento]</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+    </versao>
+  </dispositivo>
+
+  <dispositivo path="art-3">
+    <versao>
+      <texto>Esta Lei entra em vigor na data de sua publicação.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00042"/>
+    </versao>
+  </dispositivo>
+
+</lei>

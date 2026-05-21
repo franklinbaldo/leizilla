@@ -13,7 +13,7 @@ e exercita uma parte específica do design (ver `docs/SCHEMA.md`).
 | `with-blocos-organizacionais.xml` | CF/88 como exemplo pedagógico. | Path organizacional namespaceado (`tit-1`, `tit-2`, `tit-2-cap-1`) vs path normativo global (`art-1`, `art-5`) aninhado em blocos. URN LEX de constituição sem `;numero`. "Texto" do bloco organizacional é o nome do bloco. |
 | `with-revogacoes.xml` | Revogações parciais em todas as formas estruturadas. | 4 `<revogacao>` parciais: `expressa`, `inconstitucionalidade` (URN de ADI), `caducidade` (sem `por`), `tacita` (URN da lei posterior). |
 | `with-revogacao-total.xml` | Revogação total da lei. | `<revogacao>` no root, antes de `<dispositivo>`. Demonstra posição estrutural = escopo. |
-| `with-ocr-ruim.xml` | Fallback OCR irrecuperável. | `<dispositivo path="ocr-ruim" quality="raw">`. Lei sem `urn-lex` (data não-extraível). Convivência: ementa parseada + corpo ilegível na mesma lei. |
+| `with-parse-parcial.xml` | Parse parcial: alguns dispositivos saíram com OCR cru. | Texto cru entra no `<texto>` regular sem flag, sem atributo, sem path mágico. Audit por embeddings (SCHEMA.md §0.5) detecta drift. Política para lei totalmente ilegível: **não publicar parsed item** (fica só raw). |
 
 ## Como validar localmente
 
@@ -41,7 +41,7 @@ uv run pytest tests/test_leizilla_xml.py -v
 - **Datas históricas plausíveis** (Rondônia: leis pós-1981 quando o estado foi criado; CF/88 datada de 1988-10-05).
 - **`<fonte ia-id>`** segue `leizilla-raw-{ente}-{fonte}-{chave}` (SCHEMA.md §5.1). IA identifiers são exemplos sintéticos — não existem em IA real.
 - **Conteúdo textual** é fictício ou trecho público notório (CF/88 art. 1º, par. único). Leis fictícias usam numeração improvável (Lei 9.999/1999, Lei 1.234/2003, Lei 500/1990) para evitar confusão com leis reais existentes.
-- **OCR ruim** em `with-ocr-ruim.xml` simula erros comuns (0→0, 1→|, 5→5/S) presentes em PDFs digitalizados pré-2000.
+- **Texto com OCR cru** em `with-parse-parcial.xml` simula erros comuns (0→0, 1→|, 5→5/S) presentes em PDFs digitalizados pré-2000. Não há sinalização no XML — qualidade é tratada como processo, não conteúdo (SCHEMA.md §4.7).
 
 ## O que estes fixtures NÃO cobrem (M0.3+)
 
