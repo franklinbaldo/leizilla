@@ -17,6 +17,12 @@
   - <revogacao>: parcial vira `situacao="revogado"` no Artigo; total vira
     `situacao="revogado"` no <Norma>. Tipo (expressa/tacita/inconstitucionalidade)
     é descartado.
+  - <dispositivo path="anexo-N">: emite <ReferenciaAnexo AlvoURN="..."/> na
+    <Norma>/<Anexos> do documento principal E gera arquivo LexML separado
+    `{output-dir}/anexo-{N}.lexml.xml` (via EXSLT exsl:document). Cada anexo
+    fica como <LexML><Anexo><DocumentoGenerico><PartePrincipal><p>...
+    Conforme modelo LexML brasileiro: anexos são documentos linkados por URN,
+    não estruturas inline.
   Limitações desta versão:
   - Apenas a versão vigente é exportada. Histórico, alterações e revogações
     parciais ficam como atributos `situacao` quando aplicável.
@@ -28,32 +34,44 @@
 <xsl:stylesheet version="1.0"
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
                 xmlns:lz="https://leizilla.org/lei/0.1"
+                xmlns:exsl="http://exslt.org/common"
                 xmlns="http://www.lexml.gov.br/1.0"
-                exclude-result-prefixes="lz">
+                extension-element-prefixes="exsl"
+                exclude-result-prefixes="lz exsl">
 
   <xsl:output method="xml" encoding="UTF-8" indent="yes"/>
   <xsl:strip-space elements="*"/>
+
+  <!--
+    Parâmetro `output-dir`: onde escrever os documentos LexML dos anexos
+    (cada anexo vira arquivo separado, conforme modelo LexML). Default `.`.
+    Caller (CLI/ETL) deve passar a flag de parâmetro do xsltproc
+    (`param output-dir "'/path/dir'"`, escrita com double-dash) para
+    isolar outputs por lei.
+  -->
+  <xsl:param name="output-dir" select="'.'"/>
 
   <!-- ==================================================================
        Root: <lei> → <LexML><Metadado/><Norma/></LexML>
        ================================================================== -->
 
   <xsl:template match="/lz:lei">
+    <xsl:variable name="urn-lei">
+      <xsl:choose>
+        <xsl:when test="@urn-lex">
+          <xsl:value-of select="@urn-lex"/>
+        </xsl:when>
+        <!-- Fallback URN quando lei não tem urn-lex (caso parsed fallback). -->
+        <xsl:otherwise>
+          <xsl:text>urn:lex:br;leizilla;fallback:0000-00-00;0</xsl:text>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
+    <xsl:variable name="anexos" select="lz:dispositivo[starts-with(@path, 'anexo-')]"/>
+
     <LexML>
       <Metadado>
-        <Identificacao>
-          <xsl:attribute name="URN">
-            <xsl:choose>
-              <xsl:when test="@urn-lex">
-                <xsl:value-of select="@urn-lex"/>
-              </xsl:when>
-              <!-- Fallback URN quando lei não tem urn-lex (caso parsed fallback). -->
-              <xsl:otherwise>
-                <xsl:text>urn:lex:br;leizilla;fallback:0000-00-00;0</xsl:text>
-              </xsl:otherwise>
-            </xsl:choose>
-          </xsl:attribute>
-        </Identificacao>
+        <Identificacao URN="{$urn-lei}"/>
       </Metadado>
       <Norma>
         <!-- Revogação total da lei: LexML não tem atributo 'situacao' no
@@ -65,8 +83,37 @@
         <Articulacao>
           <xsl:apply-templates select="lz:dispositivo" mode="articulacao"/>
         </Articulacao>
+        <xsl:if test="$anexos">
+          <Anexos>
+            <xsl:for-each select="$anexos">
+              <ReferenciaAnexo AlvoURN="{concat($urn-lei, '!', @path)}"/>
+            </xsl:for-each>
+          </Anexos>
+        </xsl:if>
       </Norma>
     </LexML>
+
+    <!-- Gerar arquivo LexML separado para cada anexo (EXSLT exsl:document).
+         Caller controla output-dir via parâmetro do xsltproc. -->
+    <xsl:for-each select="$anexos">
+      <exsl:document href="{$output-dir}/{@path}.lexml.xml"
+                     method="xml" encoding="UTF-8" indent="yes">
+        <LexML xmlns="http://www.lexml.gov.br/1.0">
+          <Metadado>
+            <Identificacao URN="{concat($urn-lei, '!', @path)}"/>
+          </Metadado>
+          <Anexo>
+            <DocumentoGenerico id="doc-{@path}">
+              <PartePrincipal id="pp-{@path}">
+                <p id="p-{@path}">
+                  <xsl:value-of select="lz:versao[last()]/lz:texto"/>
+                </p>
+              </PartePrincipal>
+            </DocumentoGenerico>
+          </Anexo>
+        </LexML>
+      </exsl:document>
+    </xsl:for-each>
   </xsl:template>
 
   <!-- ==================================================================
@@ -145,9 +192,9 @@
         </xsl:call-template>
       </xsl:when>
       <xsl:when test="starts-with(@path, 'anexo-')">
-        <!-- LexML modela anexos como ReferenciaAnexo em <Anexos>, não dentro
-             de <Articulacao>. Suporte completo requer documento separado
-             linkado. DESCARTADO neste XSLT — perda documentada. -->
+        <!-- Anexos NÃO entram em <Articulacao>. São coletados no template
+             raiz e viram <ReferenciaAnexo> em <Anexos> + documento LexML
+             separado (via exsl:document). -->
       </xsl:when>
       <xsl:when test="starts-with(@path, 'disp-transitoria-')
                       or starts-with(@path, 'disp-final-')">

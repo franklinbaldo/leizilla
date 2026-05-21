@@ -59,11 +59,25 @@ jobs:
       - name: Smoke — XSLT produz LexML válido para cada fixture
         run: |
           set -e
+          # output-dir tmpdir isola arquivos de anexo (fixtures com
+          # <dispositivo path="anexo-N"> geram arquivos separados).
+          tmp=$(mktemp -d)
           for f in tests/fixtures/leizilla_xml/*.xml; do
             echo "Convertendo + validando: $f"
-            xsltproc scripts/leizilla-to-lexml.xsl "$f" \
-              | xmllint --noout --schema tests/fixtures/lexml/lexml-br-rigido.xsd -
+            xsltproc --param output-dir "'$tmp'" \
+              scripts/leizilla-to-lexml.xsl "$f" \
+              > "$tmp/main.xml"
+            xmllint --noout --schema tests/fixtures/lexml/lexml-br-rigido.xsd \
+              "$tmp/main.xml"
+            # Validar quaisquer arquivos de anexo gerados.
+            for a in "$tmp"/anexo-*.lexml.xml; do
+              [ -f "$a" ] || continue
+              echo "  + validando anexo: $(basename $a)"
+              xmllint --noout --schema tests/fixtures/lexml/lexml-br-rigido.xsd "$a"
+              rm "$a"  # cleanup entre fixtures
+            done
           done
+          rm -rf "$tmp"
 
       - name: Install pytest
         run: pip install pytest
