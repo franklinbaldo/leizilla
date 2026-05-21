@@ -379,6 +379,12 @@ def _check_inheritance_inicio(ctx: _Ctx) -> None:
     Verificação estrita de §7.5 fica suspensa nesse caso. Reportamos
     §7.5 apenas quando URN é presente porém não decodificável (caso em
     que §7.10 também reporta).
+
+    Escopo do §7.6: a regra só dispara em versões com `em` declarado.
+    Versões que herdam `em ≠ data-publicacao` do ancestral não disparam
+    §7.6 aqui — o ancestral é quem deveria ter `<inicio>` ou
+    `alterado-por`, e se ele não tem, §7.6 já reportou nele. Evita
+    duplicar a mesma violação em todos os descendentes que herdam.
     """
     pub = ctx.data_publicacao
     if ctx.urn_lex is not None and pub is None:
@@ -386,7 +392,7 @@ def _check_inheritance_inicio(ctx: _Ctx) -> None:
         # vigência fica irresolvível, registramos uma vez pela lei.
         ctx.add(
             5,
-            f'urn-lex="{ctx.urn_lex}" não decompõe → vigência inerdada '
+            f'urn-lex="{ctx.urn_lex}" não decompõe → vigência herdada '
             f"não consegue resolver pra nenhuma versão sem `em`",
         )
     for d, _ in _walk_all_dispositivos(ctx.root):
@@ -496,6 +502,13 @@ def _check_urn_decomposes(ctx: _Ctx) -> None:
         components. `ente` comparison is deferred until entes.py mapping
         (M1) — slug `ro` ↔ jurisdição `estado:rondonia` needs the table.
         Fallback identifiers (§5.4) and arbitrary filenames skip (b).
+
+    Workflow contract: the cross-check assumes the XML filename stem
+    IS the parsed item's IA identifier (`leizilla-{ente}-{tipo}-{numero:05d}-{ano}.xml`).
+    Production flow: download `law.xml` from `https://archive.org/download/{id}/`
+    and save it as `{id}.xml` before running the checker. Local fixtures
+    use arbitrary names (simple.xml, with-revogacoes.xml, etc.) and
+    therefore skip (b) — they only exercise (a).
     """
     if ctx.urn_lex is None:
         return

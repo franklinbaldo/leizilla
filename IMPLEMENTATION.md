@@ -279,7 +279,7 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 - [x] `docs/schemas/leizilla-v0.1.xsd` enxuto (~235 linhas; 6 elementos).
 - [x] 6 fixtures cobrindo: caso simples (herança pura), alterações + divergência multi-fonte + vacatio, blocos organizacionais (CF/88), revogações parciais (4 tipos), revogação total da lei, OCR ruim.
 - [x] `tests/fixtures/leizilla_xml/README.md` com matriz de cobertura.
-- [x] **`scripts/check_schema_consistency.py`** validando as 14 invariantes do SCHEMA.md §7. + `tests/test_schema_consistency.py` com 1 caso negativo por invariante (38 testes, todos passam).
+- [x] **`scripts/check_schema_consistency.py`** validando 13 das 14 invariantes do SCHEMA.md §7 + a §7.15 (root é `<lei>`). Invariantes 11 (markdown self-check) e 12 (Parquet schema_version cross-artifact) ficam deferidas para quando o Parquet writer existir (M4+). + `tests/test_schema_consistency.py` com 79 testes (1 skipped quando rodando como root), cobrindo positives (6 fixtures), negativos (1+ por invariante), exit codes (0/1/2), token map edge cases, e xs:boolean variants.
 - [ ] `scripts/leizilla-to-lexml.xsl` + teste CI `tests/test_lexml_export.py` validando contra `tests/fixtures/lexml.xsd` (bundle no repo).
 - [ ] Wire `check_schema_consistency.py` no CI (rodar contra `tests/fixtures/leizilla_xml/*.xml` a cada PR).
 - [ ] Resolver pendentes §8.2: URN dialect contra CGPID spec, compressão Parquet (SNAPPY vs ZSTD em DuckDB-WASM), granularidade bundle ZIP, política de re-scrape, robots.txt rate-limit, custo LLM real.
