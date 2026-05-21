@@ -722,6 +722,22 @@ Documentadas no XSLT:
 - Timeline `<versao>` colapsa para `<TextoArticulado>` da versão vigente em `vigente-em`; histórico mapeia para `<Alteracao>` LexML quando possível.
 - Texto cru de parse parcial (lei inteira em 1 dispositivo) → vira `<TextoArticulado>` com `<Caput>` único carregando o corpo.
 
+### 6.3 Suporte completo a Anexos (multi-document export)
+
+LexML modela anexos como documentos **separados** linkados via URN — não como conteúdo inline da `<Norma>`. Nosso XSLT respeita isso:
+
+- Documento principal: emite `<Anexos><ReferenciaAnexo AlvoURN="{lei.urn-lex}!anexo-N"/>...` dentro de `<Norma>`.
+- Cada anexo: gera arquivo separado `{output-dir}/anexo-N.lexml.xml` via EXSLT `exsl:document`. Contém `<LexML><Anexo><DocumentoGenerico><PartePrincipal><p>{texto}</p></PartePrincipal></DocumentoGenerico></Anexo></LexML>` com URN derivada `{lei.urn-lex}!anexo-N`.
+
+Invocação:
+```bash
+xsltproc --param output-dir "'/path/to/out'" \
+  scripts/leizilla-to-lexml.xsl law.xml > /path/to/out/main.xml
+# Produz: main.xml + anexo-1.lexml.xml + anexo-2.lexml.xml + ...
+```
+
+Param `output-dir` default `.` (cwd). Caller (CLI/ETL) deve isolar por lei.
+
 **CI gate**:
 - A cada PR, `pytest tests/test_lexml_export.py`:
   1. Lê fixtures `tests/fixtures/leizilla_xml/*.xml`.

@@ -8,8 +8,11 @@ on:
     paths:
       - "docs/schemas/**"
       - "tests/fixtures/leizilla_xml/**"
+      - "tests/fixtures/lexml/**"
       - "scripts/check_schema_consistency.py"
+      - "scripts/leizilla-to-lexml.xsl"
       - "tests/test_schema_consistency.py"
+      - "tests/test_lexml_export.py"
       - ".github/workflows/schema-validate.yml"
 
 jobs:
@@ -19,9 +22,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install xmllint
+      - name: Install xmllint + xsltproc
         timeout-minutes: 3
-        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
+        run: sudo apt-get update && sudo apt-get install -y libxml2-utils xsltproc
 
       - name: XSD bem-formado
         run: xmllint --noout docs/schemas/leizilla-v0.1.xsd
@@ -42,8 +45,45 @@ jobs:
       - name: Consistency checker contra fixtures
         run: python3 scripts/check_schema_consistency.py tests/fixtures/leizilla_xml/*.xml
 
+      - name: LexML XSD bundle bem-formado
+        run: |
+          set -e
+          for f in tests/fixtures/lexml/*.xsd; do
+            echo "Validando: $f"
+            xmllint --noout "$f"
+          done
+
+      - name: XSLT Leizilla→LexML bem-formado
+        run: xmllint --noout scripts/leizilla-to-lexml.xsl
+
+      - name: Smoke — XSLT produz LexML válido para cada fixture
+        run: |
+          set -e
+          # output-dir tmpdir isola arquivos de anexo (fixtures com
+          # <dispositivo path="anexo-N"> geram arquivos separados).
+          tmp=$(mktemp -d)
+          for f in tests/fixtures/leizilla_xml/*.xml; do
+            echo "Convertendo + validando: $f"
+            xsltproc --param output-dir "'$tmp'" \
+              scripts/leizilla-to-lexml.xsl "$f" \
+              > "$tmp/main.xml"
+            xmllint --noout --schema tests/fixtures/lexml/lexml-br-rigido.xsd \
+              "$tmp/main.xml"
+            # Validar quaisquer arquivos de anexo gerados.
+            for a in "$tmp"/anexo-*.lexml.xml; do
+              [ -f "$a" ] || continue
+              echo "  + validando anexo: $(basename $a)"
+              xmllint --noout --schema tests/fixtures/lexml/lexml-br-rigido.xsd "$a"
+              rm "$a"  # cleanup entre fixtures
+            done
+          done
+          rm -rf "$tmp"
+
       - name: Install pytest
         run: pip install pytest
 
       - name: Consistency checker (testes)
         run: pytest tests/test_schema_consistency.py -v
+
+      - name: LexML export (testes)
+        run: pytest tests/test_lexml_export.py -v
