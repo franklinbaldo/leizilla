@@ -73,7 +73,7 @@
       </xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
-      <xs:pattern value="urn:lex:br(;[a-z][a-z0-9.]*)*:[a-z][a-z0-9.]*:[a-z][a-z0-9.]*:\d{4}(-\d{2}-\d{2})?(;[a-z0-9.\-]+)?(![a-z0-9._\-]+)*"/>
+      <xs:pattern value="urn:lex:br(;[a-z][a-z0-9.]*)*:[a-z][a-z0-9.]*(;[a-z][a-z0-9.]*)*:[a-z][a-z0-9.]*:\d{4}(-\d{2}-\d{2})?(;[a-z0-9.\-]+)?(![a-z0-9._\-]+)*"/>
     </xs:restriction>
   </xs:simpleType>
 

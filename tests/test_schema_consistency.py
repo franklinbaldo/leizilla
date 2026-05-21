@@ -904,3 +904,51 @@ def test_inv05_no_urn_is_exempt(tmp_path: Path) -> None:
 </lei>"""
     v = csc.check_file(_write(tmp_path, xml))
     assert not any(x.invariant == 5 for x in v)
+
+
+def test_inv05_urn_year_only_is_exempt(tmp_path: Path) -> None:
+    """Codex P2: URN reduzida com `YYYY;NUMERO` (URN de Referência,
+    válida pela spec LexML §10.1) não tem ancoragem precisa de
+    dia/mês. §7.5 exempt — não há malformação a reportar."""
+    xml = _wrap(
+        """  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/>
+    </versao>
+  </dispositivo>""",
+        urn_lex="urn:lex:br;rondonia:estadual:lei:2003;1234",
+    )
+    v = csc.check_file(_write(tmp_path, xml))
+    assert not any(x.invariant == 5 for x in v), (
+        f"URN reduzida (year-only) NÃO deveria disparar §7.5; got: {[str(x) for x in v]}"
+    )
+
+
+def test_urn_regex_accepts_hierarchical_authority() -> None:
+    """Codex P1: URN com autoridade hierárquica via `;` interno
+    (`ministerio.fazenda;secretaria.receita.federal`) é forma canônica
+    válida da spec — comum em portarias federais."""
+    valid_urns = [
+        "urn:lex:br:ministerio.fazenda;secretaria.receita.federal:portaria:1997-06-20;782",
+        "urn:lex:br:ministerio.justica;departamento.policia.federal;diretor.geral:portaria:2020-01-15;42",
+        "urn:lex:br:universidade.brasilia;reitor:oficio:2019-03-01;100",
+    ]
+    for urn in valid_urns:
+        m = csc._RE_URN_LEX.match(urn)
+        assert m is not None, f"URN canônica com autoridade hierárquica rejeitada: {urn}"
+        assert ";" in m.group("autoridade"), (
+            f"autoridade não capturou o `;` interno: {m.group('autoridade')}"
+        )
+
+
+def test_urn_extract_data_publicacao_year_only_returns_none() -> None:
+    """`_extract_data_publicacao` retorna None para URN year-only
+    (sem ancoragem de dia/mês) — §7.5/§7.6 usam carve-out."""
+    urn = "urn:lex:br;rondonia:estadual:lei:2003;1234"
+    assert csc._extract_data_publicacao(urn) is None
+    assert csc._urn_is_reduced_year_only(urn) is True
+    # Forma canônica completa não dispara o carve-out.
+    urn_full = "urn:lex:br;rondonia:estadual:lei:2003-06-15;1234"
+    assert csc._extract_data_publicacao(urn_full) is not None
+    assert csc._urn_is_reduced_year_only(urn_full) is False

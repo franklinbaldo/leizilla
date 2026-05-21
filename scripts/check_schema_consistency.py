@@ -147,22 +147,23 @@ _RE_IA_BUNDLE = re.compile(
 )
 # URN LEX brasileira (CGPID, LexML Brasil Parte 2 v1.0, Dez/2008).
 #
-#   urn:lex:br(;LOCAL)*:AUTORIDADE:TIPO:DESCRITOR(!PATH)*
+#   urn:lex:br(;LOCAL)*:AUTORIDADE(;SUB-AUTORIDADE)*:TIPO:DESCRITOR(!PATH)*
 #
 # LOCAL: minúsculas, sem hífen, `.` para espaços (`rondonia`,
 # `sao.paulo`, `porto.velho`). Múltiplos `;LOCAL` aceitos
 # (estado;municipio).
 # AUTORIDADE: `federal` / `estadual` / `municipal` (normas comuns)
-# ou órgão (`ministerio.fazenda`).
+# ou órgão com hierarquia opcional separada por `;`
+# (`ministerio.fazenda;secretaria.receita.federal`).
 # TIPO: `lei`, `decreto`, `constituicao`, `emenda.constitucional`...
 # DESCRITOR: `YYYY-MM-DD;NUMERO` ou `YYYY-MM-DD` (CF), ou
-# `YYYY;NUMERO` (forma reduzida).
+# `YYYY;NUMERO` (forma reduzida — URN de Referência).
 # PATH: formato LexML idArtigo/idAgregador (`art5`, `art5_par2`,
 # `anexo.1`).
 _RE_URN_LEX = re.compile(
     r"^urn:lex:br"
     r"(?P<locais>(;[a-z][a-z0-9.]*)*)"
-    r":(?P<autoridade>[a-z][a-z0-9.]*)"
+    r":(?P<autoridade>[a-z][a-z0-9.]*(;[a-z][a-z0-9.]*)*)"
     r":(?P<tipo>[a-z][a-z0-9.]*)"
     r":(?P<data>\d{4}(-\d{2}-\d{2})?)"
     r"(;(?P<numero>[a-z0-9.\-]+))?"
@@ -173,21 +174,43 @@ _RE_URN_LEX = re.compile(
 def _extract_data_publicacao(urn_lex: str | None) -> datetime.date | None:
     """Decompose URN LEX → publication date.
 
-    Returns None when urn-lex is absent, fails the regex, or carries a
-    regex-valid but calendar-invalid date (e.g. `2020-13-01`). Calendar
-    validity is best-effort here; §7.10 reports the regex-level rejection
-    separately, and an invalid calendar slips through XSD too (the
-    pattern only enforces digit shape).
+    Returns None when urn-lex is absent, fails the regex, carries a
+    regex-valid but calendar-invalid date (e.g. `2020-13-01`), OR when
+    the URN uses the reduced form (year-only `YYYY`, valid per spec
+    §10.1 for URN de Referência / sistemas legados). Calendar validity
+    is best-effort here; §7.10 reports the regex-level rejection
+    separately. Year-only URNs are handled via carve-out in
+    `_check_inheritance_inicio` — sem ancoragem precisa, §7.5/§7.6
+    ficam exemptas (mesmo behavior que URN ausente).
     """
     if not urn_lex:
         return None
     m = _RE_URN_LEX.match(urn_lex)
     if not m:
         return None
+    data_str = m.group("data") or ""
+    # Reduced form `YYYY` (4 chars): no precise date anchor — return None.
+    if len(data_str) == 4:
+        return None
     try:
-        return datetime.date.fromisoformat(m.group("data"))
+        return datetime.date.fromisoformat(data_str)
     except ValueError:
         return None
+
+
+def _urn_is_reduced_year_only(urn_lex: str | None) -> bool:
+    """True when URN regex matches and `data` is year-only (`YYYY`).
+
+    Used by §7.5/§7.6 to distinguish:
+    (a) URN malformed → §7.5 reports.
+    (b) URN reduced (year-only, valid per spec) → §7.5 exempts.
+    """
+    if not urn_lex:
+        return False
+    m = _RE_URN_LEX.match(urn_lex)
+    if not m:
+        return False
+    return len(m.group("data") or "") == 4
 
 
 # ---------------------------------------------------------------------------
@@ -423,11 +446,14 @@ def _check_inheritance_inicio(ctx: _Ctx) -> None:
     """§7.5+§7.6 — Versão sem `em` herda; versão com `em ≠ data-publicacao`
     e sem `alterado-por` deve ter <inicio>.
 
-    Carve-out (§7.5): quando `urn-lex` é ausente, vigência não tem âncora
-    nenhuma (data-publicacao indisponível) — é o caso fallback OCR-ruim.
-    Verificação estrita de §7.5 fica suspensa nesse caso. Reportamos
-    §7.5 apenas quando URN é presente porém não decodificável (caso em
-    que §7.10 também reporta).
+    Carve-outs (§7.5):
+    1. `urn-lex` ausente: vigência não tem âncora nenhuma — caso
+       fallback (lei sem data extraível). §7.5 suspenso.
+    2. `urn-lex` presente mas regex falha: §7.10 reporta; §7.5
+       reporta uma vez pela lei (vigência irresolvível).
+    3. `urn-lex` em forma reduzida (year-only `YYYY`, válida pela spec
+       LexML URN §10.1 — URN de Referência): sem ancoragem precisa
+       de dia/mês, §7.5 suspenso (mesmo behavior que carve-out 1).
 
     Escopo do §7.6: a regra só dispara em versões com `em` declarado.
     Versões que herdam `em ≠ data-publicacao` do ancestral não disparam
@@ -437,13 +463,19 @@ def _check_inheritance_inicio(ctx: _Ctx) -> None:
     """
     pub = ctx.data_publicacao
     if ctx.urn_lex is not None and pub is None:
-        # urn-lex presente mas regex não casou — §7.10 já reporta;
-        # vigência fica irresolvível, registramos uma vez pela lei.
-        ctx.add(
-            5,
-            f'urn-lex="{ctx.urn_lex}" não decompõe → vigência herdada '
-            f"não consegue resolver pra nenhuma versão sem `em`",
-        )
+        # pub é None em 2 casos: regex falhou OU year-only. Distinguir:
+        if _urn_is_reduced_year_only(ctx.urn_lex):
+            # Carve-out: URN reduzida válida. Sem âncora precisa, mas
+            # também não há malformação a reportar.
+            pass
+        else:
+            # urn-lex presente mas regex não casou — §7.10 já reporta;
+            # registramos §7.5 uma vez pela lei (vigência irresolvível).
+            ctx.add(
+                5,
+                f'urn-lex="{ctx.urn_lex}" não decompõe → vigência herdada '
+                f"não consegue resolver pra nenhuma versão sem `em`",
+            )
     for d, _ in _walk_all_dispositivos(ctx.root):
         for v in d.findall(f"{{{NS}}}versao"):
             em = v.get("em")
