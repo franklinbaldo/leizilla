@@ -32,6 +32,7 @@ _SIMPLE = _load("simple.xml")
 _WITH_ALTERACOES = _load("with-alteracoes.xml")
 _WITH_REVOGACOES = _load("with-revogacoes.xml")
 _WITH_REVOGACAO_TOTAL = _load("with-revogacao-total.xml")
+_WITH_REVOGACAO_CASCATA = _load("with-revogacao-cascata.xml")
 _WITH_BLOCOS = _load("with-blocos-organizacionais.xml")
 _WITH_PARCIAL = _load("with-parse-parcial.xml")
 
@@ -456,3 +457,55 @@ class TestParseLeiFieldsFallbackId:
         assert rows[0]["tipo_lei"] == "desconhecido"
         assert rows[0]["numero_lei"] is None
         assert rows[0]["ano_lei"] == 0
+
+    def test_fallback_id_numeric_key_not_misclassified(self) -> None:
+        # P2 fix: fallback key ending in -N-YYYY must not be parsed as canonical.
+        # leizilla-ro-lei-fallback-casacivil-12345-1985: fallback check must
+        # fire before the canonical heuristic matches tipo='casacivil'.
+        rows = self._rows("leizilla-ro-lei-fallback-casacivil-12345-1985")
+        assert rows[0]["tipo_lei"] == "lei"
+        assert rows[0]["numero_lei"] is None
+        assert rows[0]["ano_lei"] == 0
+
+
+# ---------------------------------------------------------------------------
+# xml_to_rows — with-revogacao-cascata.xml (P1: cascade revogacao to descendants)
+# ---------------------------------------------------------------------------
+
+
+class TestXmlToRowsComRevogacaoCascata:
+    """§0.3 SCHEMA.md: revogação de dispositivo pai cascateia implicitamente para filhos."""
+
+    def setup_method(self) -> None:
+        self.rows = xml_to_rows(
+            _WITH_REVOGACAO_CASCATA, "leizilla-ro-lei-00700-2000", "ro"
+        )
+        self.by_path = {r["dispositivo_path"]: r for r in self.rows}
+
+    def test_art10_ate_equals_revogacao_em(self) -> None:
+        assert self.by_path["art-10"]["ate"] == datetime.date(2015, 3, 1)
+
+    def test_art10_par1_ate_cascateia_do_pai(self) -> None:
+        # Filho direto sem <revogacao> própria herda ate do pai revogado
+        assert self.by_path["art-10-par-1"]["ate"] == datetime.date(2015, 3, 1)
+
+    def test_art10_par2_ate_cascateia_do_pai(self) -> None:
+        assert self.by_path["art-10-par-2"]["ate"] == datetime.date(2015, 3, 1)
+
+    def test_art10_par1_inc1_ate_cascateia_do_avo(self) -> None:
+        # Neto (2 níveis) também herda ate do avô revogado
+        assert self.by_path["art-10-par-1-inc-1"]["ate"] == datetime.date(2015, 3, 1)
+
+    def test_art11_ate_is_none(self) -> None:
+        # Dispositivo irmão não afetado pela revogação do art-10
+        assert self.by_path["art-11"]["ate"] is None
+
+    def test_children_not_individually_revogados(self) -> None:
+        # Cascata fecha o ate mas não marca o filho como individualmente revogado
+        assert self.by_path["art-10-par-1"]["dispositivo_revogado"] is False
+        assert self.by_path["art-10-par-2"]["dispositivo_revogado"] is False
+        assert self.by_path["art-10-par-1-inc-1"]["dispositivo_revogado"] is False
+
+    def test_row_count(self) -> None:
+        # art-10, art-10-par-1, art-10-par-1-inc-1, art-10-par-2, art-11 = 5
+        assert len(self.rows) == 5

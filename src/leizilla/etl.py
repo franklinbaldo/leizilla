@@ -126,6 +126,11 @@ def _parse_lei_fields(
     # Heuristic fallback: try two documented lei_id patterns (SCHEMA.md §1.3)
     parts = lei_id.split("-")
     if len(parts) >= 5 and parts[0] == "leizilla":
+        # Fallback checked FIRST: leizilla-{ente}-{tipo}-fallback-{fonte}-{chave}
+        # Must precede canonical check — fallback keys can end with -N-YYYY which
+        # would pass the canonical heuristic and corrupt tipo/numero/ano.
+        if len(parts) >= 4 and parts[3] == "fallback":
+            return parts[2], None, 0
         # Canonical: leizilla-{ente}-{tipo}-{numero}-{ano}
         try:
             ano_s, num_s, tipo_s = parts[-1], parts[-2], parts[-3]
@@ -133,9 +138,6 @@ def _parse_lei_fields(
                 return tipo_s, num_s.lstrip("0") or "0", int(ano_s)
         except (IndexError, ValueError):
             pass
-        # Fallback: leizilla-{ente}-{tipo}-fallback-{fonte}-{chave}
-        if len(parts) >= 4 and parts[3] == "fallback":
-            return parts[2], None, 0
     return "desconhecido", None, 0
 
 
@@ -183,6 +185,7 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
         parent_elem: ET.Element,
         parent_path: Optional[str],
         ancestor_em: Optional[datetime.date],
+        ancestor_rev_em: Optional[datetime.date] = None,
     ) -> None:
         for idx, disp in enumerate(_iter_dispositivos(parent_elem)):
             path = disp.get("path", "")
@@ -218,11 +221,14 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                 alterado_por = versao.get("alterado-por")
 
                 # Infer `ate` — next versao start, dispositivo revogacao,
-                # lei-level revogacao total, or None (still vigente).
+                # ancestor revogacao (§0.3 cascata implícita), lei-level
+                # revogacao total, or None (still vigente).
                 if v_idx + 1 < len(versoes_elems):
                     ate: Optional[datetime.date] = versao_ems[v_idx + 1]
                 elif disp_rev_em is not None:
                     ate = disp_rev_em
+                elif ancestor_rev_em is not None:
+                    ate = ancestor_rev_em
                 elif lei_cols["lei_revogada_em"] is not None:
                     ate = lei_cols["lei_revogada_em"]
                 else:
@@ -274,9 +280,10 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                     }
                 )
 
-            # Pass first versao's resolved em to children as their ancestor_em
+            # Pass first versao's resolved em and cascade revogacao to children
             child_ancestor_em = versao_ems[0] if versao_ems else ancestor_em
-            _process(disp, path, child_ancestor_em)
+            child_rev_em = disp_rev_em or ancestor_rev_em
+            _process(disp, path, child_ancestor_em, child_rev_em)
 
     _process(root, None, data_publicacao)
     return rows
