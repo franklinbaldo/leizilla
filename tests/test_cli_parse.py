@@ -155,8 +155,12 @@ class TestCmdParseUpload:
         """--input-type html usa fetch_ia_html e passa input_type='html' ao parse_law."""
         raw_id = "leizilla-raw-federal-planalto-lei-09503"
         with (
-            patch("leizilla.parser.fetch_ia_html", return_value="<html>lei</html>") as mock_html,
-            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT) as mock_parse,
+            patch(
+                "leizilla.parser.fetch_ia_html", return_value="<html>lei</html>"
+            ) as mock_html,
+            patch(
+                "leizilla.parser.parse_law", return_value=_PARSE_RESULT
+            ) as mock_parse,
         ):
             result = runner.invoke(
                 app, ["parse", "--raw-id", raw_id, "--input-type", "html"]
@@ -171,7 +175,13 @@ class TestCmdParseUpload:
         with patch("leizilla.parser.fetch_ia_html", return_value=None):
             result = runner.invoke(
                 app,
-                ["parse", "--raw-id", "leizilla-raw-federal-planalto-lei-09503", "--input-type", "html"],
+                [
+                    "parse",
+                    "--raw-id",
+                    "leizilla-raw-federal-planalto-lei-09503",
+                    "--input-type",
+                    "html",
+                ],
             )
         assert result.exit_code == 1
         assert "HTML não disponível" in result.output
@@ -180,7 +190,13 @@ class TestCmdParseUpload:
         """Valor inválido para --input-type retorna exit 1 com mensagem clara."""
         result = runner.invoke(
             app,
-            ["parse", "--raw-id", "leizilla-raw-ro-assembleia-coddoc-00001", "--input-type", "pdf"],
+            [
+                "parse",
+                "--raw-id",
+                "leizilla-raw-ro-assembleia-coddoc-00001",
+                "--input-type",
+                "pdf",
+            ],
         )
         assert result.exit_code == 1
         assert "inválido" in result.output
@@ -392,6 +408,160 @@ class TestCmdParseAll:
         assert result.exit_code == 0
         assert "3 falhos" in result.output
         assert call_count["n"] == 3  # todos os itens tentados
+
+    def test_input_type_html_uses_fetch_ia_html(self):
+        """--input-type html usa fetch_ia_html em vez de fetch_ocr."""
+        fetched_html: list[str] = []
+
+        def track_html(raw_id: str) -> str:
+            fetched_html.append(raw_id)
+            return "<html>lei</html>"
+
+        with (
+            patch("leizilla.parser.fetch_ia_html", side_effect=track_html),
+            patch("leizilla.parser.fetch_ocr") as mock_ocr,
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "2",
+                    "--input-type",
+                    "html",
+                    "--no-upload",
+                ],
+            )
+        assert result.exit_code == 0
+        assert len(fetched_html) == 2
+        mock_ocr.assert_not_called()
+
+    def test_html_unavailable_skips_item(self):
+        """Items sem HTML no IA são pulados silenciosamente sem contar como falha."""
+        with (
+            patch("leizilla.parser.fetch_ia_html", return_value=None),
+            patch("leizilla.parser.parse_law") as mock_parse,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "3",
+                    "--input-type",
+                    "html",
+                    "--no-upload",
+                ],
+            )
+        assert result.exit_code == 0
+        assert "0 parseados" in result.output
+        mock_parse.assert_not_called()
+
+    def test_federal_planalto_uses_tipo_chave(self):
+        """Fonte federal/planalto gera chave tipo-NNNNN; outras fontes usam coddoc-NNNNN."""
+        fetched_ids: list[str] = []
+
+        def track_ocr(raw_id: str) -> str:
+            fetched_ids.append(raw_id)
+            return "ocr text"
+
+        with (
+            patch("leizilla.parser.fetch_ocr", side_effect=track_ocr),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+        ):
+            runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--ente",
+                    "federal",
+                    "--fonte",
+                    "planalto",
+                    "--tipo",
+                    "lcp",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "2",
+                    "--no-upload",
+                ],
+            )
+        assert fetched_ids == [
+            "leizilla-raw-federal-planalto-lcp-00001",
+            "leizilla-raw-federal-planalto-lcp-00002",
+        ]
+
+    def test_non_planalto_uses_coddoc_chave(self):
+        """Fontes não-planalto continuam a usar coddoc-NNNNN."""
+        fetched_ids: list[str] = []
+
+        def track_ocr(raw_id: str) -> str:
+            fetched_ids.append(raw_id)
+            return "ocr"
+
+        with (
+            patch("leizilla.parser.fetch_ocr", side_effect=track_ocr),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+        ):
+            runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--ente",
+                    "ro",
+                    "--fonte",
+                    "assembleia",
+                    "--start-coddoc",
+                    "5",
+                    "--end-coddoc",
+                    "6",
+                    "--no-upload",
+                ],
+            )
+        assert fetched_ids == [
+            "leizilla-raw-ro-assembleia-coddoc-00005",
+            "leizilla-raw-ro-assembleia-coddoc-00006",
+        ]
+
+    def test_invalid_input_type_exits_1(self):
+        """Valor inválido para --input-type retorna exit 1 antes de processar qualquer item."""
+        with patch("leizilla.parser.fetch_ocr") as mock_ocr:
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "5",
+                    "--input-type",
+                    "pdf",
+                    "--no-upload",
+                ],
+            )
+        assert result.exit_code == 1
+        assert "inválido" in result.output
+        mock_ocr.assert_not_called()
 
 
 class TestCmdParseXsdGateBlocking:

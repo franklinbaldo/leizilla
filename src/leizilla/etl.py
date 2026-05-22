@@ -74,7 +74,9 @@ def path_to_tipo(path: str) -> Optional[str]:
             for pat, tipo in _NORMATIVO_TOKENS + _ORGANIZACIONAL_TOKENS:
                 if pat.match(candidate):
                     this_class = (
-                        "organizacional" if tipo in _ORGANIZACIONAL_TIPOS else "normativo"
+                        "organizacional"
+                        if tipo in _ORGANIZACIONAL_TIPOS
+                        else "normativo"
                     )
                     if composite_class is not None and this_class != composite_class:
                         return None  # mixed-class composite — invalid
@@ -177,7 +179,9 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
         "urn_lex_lei": urn_lex,
         "vigente_em": vigente_em,
         "lei_revogada": rev_root is not None,
-        "lei_revogada_em": _parse_date(rev_root.get("em")) if rev_root is not None else None,
+        "lei_revogada_em": _parse_date(rev_root.get("em"))
+        if rev_root is not None
+        else None,
         "lei_revogada_por": rev_root.get("por") if rev_root is not None else None,
         "lei_revogada_tipo": rev_root.get("tipo") if rev_root is not None else None,
     }
@@ -205,7 +209,9 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                 "dispositivo_revogado": rev is not None,
                 "dispositivo_revogado_em": disp_rev_em,
                 "dispositivo_revogado_por": rev.get("por") if rev is not None else None,
-                "dispositivo_revogado_tipo": rev.get("tipo") if rev is not None else None,
+                "dispositivo_revogado_tipo": rev.get("tipo")
+                if rev is not None
+                else None,
                 "urn_dispositivo": f"{urn_lex}!{path}" if urn_lex else None,
             }
 
@@ -322,12 +328,16 @@ def write_parquet(rows: list[dict[str, Any]], output_path: Path) -> None:
     try:
         with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
             for row in rows:
-                f.write(json.dumps(row, default=_json_default, ensure_ascii=False) + "\n")
+                f.write(
+                    json.dumps(row, default=_json_default, ensure_ascii=False) + "\n"
+                )
 
         conn = duckdb.connect()
         try:
             # Use parameterized ? to avoid SQL string interpolation for file paths
-            conn.execute("CREATE TABLE _rows AS SELECT * FROM read_json_auto(?)", [tmp_path])
+            conn.execute(
+                "CREATE TABLE _rows AS SELECT * FROM read_json_auto(?)", [tmp_path]
+            )
             conn.table("_rows").write_parquet(str(output_path), compression="snappy")
         finally:
             conn.close()

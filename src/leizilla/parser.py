@@ -38,9 +38,7 @@ _ENTE_URN: Dict[str, str] = {
     "federal": "federal",
 }
 
-_SYSTEM_INTRO_OCR = (
-    "Parse Brazilian law OCR text into a JSON object."
-)
+_SYSTEM_INTRO_OCR = "Parse Brazilian law OCR text into a JSON object."
 _SYSTEM_INTRO_HTML = (
     "Parse Brazilian law HTML page into a JSON object. "
     "Ignore navigation bars, headers, footers, and script elements; "

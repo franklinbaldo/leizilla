@@ -138,7 +138,9 @@ class TestXmlToRowsSimple:
         assert tipo_map["art-3"] == "artigo"
 
     def test_nested_parent_path(self) -> None:
-        par_row = next(r for r in self.rows if r["dispositivo_path"] == "art-2-par-unico")
+        par_row = next(
+            r for r in self.rows if r["dispositivo_path"] == "art-2-par-unico"
+        )
         assert par_row["dispositivo_parent_path"] == "art-2"
 
     def test_top_level_parent_path_is_none(self) -> None:
@@ -146,12 +148,17 @@ class TestXmlToRowsSimple:
         assert ementa["dispositivo_parent_path"] is None
 
     def test_dispositivo_ordem(self) -> None:
-        par_row = next(r for r in self.rows if r["dispositivo_path"] == "art-2-par-unico")
+        par_row = next(
+            r for r in self.rows if r["dispositivo_path"] == "art-2-par-unico"
+        )
         assert par_row["dispositivo_ordem"] == 0  # first (and only) child of art-2
 
     def test_urn_dispositivo_composed(self) -> None:
         art1 = next(r for r in self.rows if r["dispositivo_path"] == "art-1")
-        assert art1["urn_dispositivo"] == "urn:lex:br;rondonia:estadual:lei:1999-06-15;9999!art-1"
+        assert (
+            art1["urn_dispositivo"]
+            == "urn:lex:br;rondonia:estadual:lei:1999-06-15;9999!art-1"
+        )
 
     def test_fontes_json_valid(self) -> None:
         for row in self.rows:
@@ -166,9 +173,10 @@ class TestXmlToRowsSimple:
 
     def test_hash_texto_sha256(self) -> None:
         art1 = next(r for r in self.rows if r["dispositivo_path"] == "art-1")
-        expected = "sha256:" + hashlib.sha256(
-            (art1["texto"] or "").encode("utf-8")
-        ).hexdigest()
+        expected = (
+            "sha256:"
+            + hashlib.sha256((art1["texto"] or "").encode("utf-8")).hexdigest()
+        )
         assert art1["hash_texto"] == expected
 
     def test_texto_normalizado_is_nfc(self) -> None:
@@ -185,9 +193,7 @@ class TestXmlToRowsSimple:
 
 class TestXmlToRowsComAlteracoes:
     def setup_method(self) -> None:
-        self.rows = xml_to_rows(
-            _WITH_ALTERACOES, "leizilla-ro-lei-01234-2003", "ro"
-        )
+        self.rows = xml_to_rows(_WITH_ALTERACOES, "leizilla-ro-lei-01234-2003", "ro")
 
     def test_art3_has_three_versoes(self) -> None:
         art3_rows = [r for r in self.rows if r["dispositivo_path"] == "art-3"]
@@ -217,7 +223,10 @@ class TestXmlToRowsComAlteracoes:
             key=lambda r: r["em"],
         )
         assert art3[0]["alterado_por"] is None
-        assert art3[1]["alterado_por"] == "urn:lex:br;rondonia:estadual:lei:2018-04-10;4321"
+        assert (
+            art3[1]["alterado_por"]
+            == "urn:lex:br;rondonia:estadual:lei:2018-04-10;4321"
+        )
 
     def test_inicio_tipo_texto_lei_alteradora(self) -> None:
         art3 = sorted(
@@ -254,9 +263,7 @@ class TestXmlToRowsComAlteracoes:
 
 class TestXmlToRowsComRevogacoes:
     def setup_method(self) -> None:
-        self.rows = xml_to_rows(
-            _WITH_REVOGACOES, "leizilla-ro-lei-00500-1990", "ro"
-        )
+        self.rows = xml_to_rows(_WITH_REVOGACOES, "leizilla-ro-lei-00500-1990", "ro")
 
     def test_art3_revogado(self) -> None:
         art3 = next(r for r in self.rows if r["dispositivo_path"] == "art-3")
@@ -288,7 +295,9 @@ class TestXmlToRowsComRevogacoes:
 
 class TestXmlToRowsComBlocos:
     def setup_method(self) -> None:
-        self.rows = xml_to_rows(_WITH_BLOCOS, "leizilla-federal-constituicao-1988", "federal")
+        self.rows = xml_to_rows(
+            _WITH_BLOCOS, "leizilla-federal-constituicao-1988", "federal"
+        )
 
     def test_tit1_tipo_titulo(self) -> None:
         tit1 = next(r for r in self.rows if r["dispositivo_path"] == "tit-1")
@@ -355,7 +364,9 @@ class TestWriteParquet:
         rows = xml_to_rows(_SIMPLE, "leizilla-ro-lei-09999-1999", "ro")
         out = tmp_path / "versoes.parquet"
         write_parquet(rows, out)
-        count = duckdb.execute("SELECT count(*) FROM read_parquet(?)", [str(out)]).fetchone()[0]  # type: ignore[index]
+        count = duckdb.execute(
+            "SELECT count(*) FROM read_parquet(?)", [str(out)]
+        ).fetchone()[0]  # type: ignore[index]
         assert count == len(rows)
 
     def test_roundtrip_columns_present(self, tmp_path: Path) -> None:
@@ -367,7 +378,8 @@ class TestWriteParquet:
         cols = {
             row[0]
             for row in duckdb.execute(
-                "SELECT column_name FROM (DESCRIBE SELECT * FROM read_parquet(?))", [str(out)]
+                "SELECT column_name FROM (DESCRIBE SELECT * FROM read_parquet(?))",
+                [str(out)],
             ).fetchall()
         }
         required = {"lei_id", "ente", "dispositivo_path", "em", "texto", "fontes"}
@@ -429,7 +441,7 @@ class TestParseLeiFieldsFallbackId:
         xml = (
             '<?xml version="1.0" encoding="UTF-8"?>'
             '<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1">'
-            "<dispositivo path=\"ementa\"><versao><texto>Texto.</texto></versao></dispositivo>"
+            '<dispositivo path="ementa"><versao><texto>Texto.</texto></versao></dispositivo>'
             "</lei>"
         )
         from leizilla.etl import xml_to_rows

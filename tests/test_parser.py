@@ -92,7 +92,10 @@ class TestFetchHtml:
             "urllib.request.urlopen",
             return_value=_make_urlopen_resp("<html>Lei texto</html>"),
         ):
-            assert parser.fetch_html("https://example.gov.br/lei/1") == "<html>Lei texto</html>"
+            assert (
+                parser.fetch_html("https://example.gov.br/lei/1")
+                == "<html>Lei texto</html>"
+            )
 
     def test_returns_none_on_network_error(self):
         with patch("urllib.request.urlopen", side_effect=OSError("timeout")):
@@ -100,7 +103,11 @@ class TestFetchHtml:
 
     def test_returns_none_on_url_error(self):
         import urllib.error
-        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("name not found")):
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("name not found"),
+        ):
             assert parser.fetch_html("https://example.gov.br/lei/1") is None
 
     def test_returns_none_on_malformed_url(self):
@@ -352,7 +359,12 @@ class TestParseLaw:
         client = _make_anthropic_client(_LLM_OK)
         with patch("anthropic.Anthropic", return_value=client):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                parser.parse_law(long_html, "https://example.gov.br/lei/1", "federal", input_type="html")
+                parser.parse_law(
+                    long_html,
+                    "https://example.gov.br/lei/1",
+                    "federal",
+                    input_type="html",
+                )
 
         _, kwargs = client.messages.create.call_args
         user_content = kwargs["messages"][0]["content"]
@@ -364,7 +376,10 @@ class TestParseLaw:
         with patch("anthropic.Anthropic", return_value=client):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 result = parser.parse_law(
-                    "html content", "https://example.gov.br/lei/1", "ro", input_type="html"
+                    "html content",
+                    "https://example.gov.br/lei/1",
+                    "ro",
+                    input_type="html",
                 )
 
         assert result is not None
