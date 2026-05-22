@@ -602,7 +602,7 @@ class TestCmdParseAll:
         assert len(xml_files) == 2
         assert "<lei" in xml_files[0].read_text()
 
-    def test_output_dir_no_files_on_parse_failure(self, tmp_path):
+    def test_output_dir_no_files_on_parse_abort(self, tmp_path):
         """Falhas de parse não criam arquivos no output_dir."""
         out = tmp_path / "xmls"
         with (
