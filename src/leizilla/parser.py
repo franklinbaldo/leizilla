@@ -221,6 +221,8 @@ def parse_law(
         "leizilla_meta_version": "0.1",
         "ia_id_raw": ia_id,
         "ia_id_parsed": ia_id_parsed,
+        "ente": ente,
+        "tipo": tipo,
         "parse_method": model,
         "confianca_parse_global": confidence,
         "parse_timestamp": datetime.now(tz=timezone.utc).isoformat(),

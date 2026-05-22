@@ -18,8 +18,8 @@
 | **M2.3** — CI workflow + `internetarchive` dep | 🟢 done | #20 | `rondonia_crawler.yml` atualizado para `uv run leizilla scrape`. `internetarchive` em pyproject.toml. |
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
-| **M3 restante** — `parse --upload` + XSD gate + `parse-all` batch | 🟡 in-progress | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 18 testes. |
-| **M2.4** — Rate-limit por host | 🟡 in-progress | TBD | `make_rate_limiter` por host: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
+| **M3 restante** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint; `parse-all` itera range coddoc. |
+| **M2.4** — Rate-limit por host | 🟡 in-progress | #23 | `make_rate_limiter` por host: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
 | M2 restante — casacivil discovery + outros entes | ⚪ todo | — | casacivil.ro.gov.br (padrão de URL a auditar); fontes/{sp,federal}.py. |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
@@ -97,6 +97,16 @@ comportamento correto automaticamente — a CLI cria o limiter e passa para `scr
 **Sem breaking change real**: nenhum código externo chamava `limiter()` diretamente
 (era criado e passado como opaque callable). Testes atualizados para verificar que
 `rate_mock` é chamado com `_PDF_URL`.
+
+### 2026-05-22 — M3 restante: `parse --upload` + XSD gate + `parse-all` batch (merged #21)
+
+Integra M3.1 (`parser.py`) e M3.2 (`publisher.upload_parsed`) via CLI, completando
+o pipeline Etapa 2 end-to-end: OCR fetch → LLM parse → XSD validate → IA upload.
+
+**`_xsd_gate(xml_content)`**: fail-open para ferramental ausente (xmllint/schema);
+bloqueia upload quando xmllint detecta XML inválido. **`parse --upload`**: integra
+gate + publisher; exit 1 em falha. **`parse-all`**: batch coddoc-range com per-item
+try/except, `parsed_meta` inclui ente/tipo, exit 1 se qualquer upload falhou.
 
 ### 2026-05-22 — M3.1: OCR fetch + LLM parse → Leizilla XML
 

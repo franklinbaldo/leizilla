@@ -2,6 +2,7 @@
 
 import asyncio
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -280,6 +281,36 @@ def cmd_stats() -> None:
         raise typer.Exit(1)
 
 
+def _xsd_gate(xml_content: str, warn_prefix: str = "") -> bool:
+    """Valida XML contra leizilla-v0.1.xsd via xmllint. Fail-open: só avisa, não aborta."""
+    schema = Path(__file__).parents[2] / "docs" / "schemas" / "leizilla-v0.1.xsd"
+    if not schema.exists():
+        echo(f"{warn_prefix}XSD schema não encontrado — skip validação")
+        return True
+    tmp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=".xml", mode="w", encoding="utf-8", delete=False
+        ) as tmp:
+            tmp.write(xml_content)
+            tmp_path = Path(tmp.name)
+        result = subprocess.run(
+            ["xmllint", "--schema", str(schema), "--noout", str(tmp_path)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            echo(f"{warn_prefix}XSD aviso: {result.stderr.strip()}")
+            return False
+        return True
+    except FileNotFoundError:
+        echo(f"{warn_prefix}xmllint não disponível — skip validação XSD")
+        return True
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+
+
 @app.command("parse")
 def cmd_parse(
     raw_id: str = typer.Option(..., help="IA raw item ID (leizilla-raw-...)"),
@@ -288,6 +319,7 @@ def cmd_parse(
     output: Optional[Path] = typer.Option(
         None, help="Salvar XML em arquivo (default: stdout)"
     ),
+    upload: bool = typer.Option(False, "--upload/--no-upload", help="Upload para IA após parse"),
 ) -> None:
     """Parsear OCR de raw IA item → Leizilla XML via LLM (Etapa 2)."""
     try:
@@ -318,8 +350,113 @@ def cmd_parse(
         if output:
             output.write_text(result.xml, encoding="utf-8")
             echo(f"XML salvo em {output}")
-        else:
+        elif not upload:
             echo(result.xml)
+
+        if upload:
+            if not _xsd_gate(result.xml):
+                echo("XSD inválido — upload bloqueado")
+                raise typer.Exit(1)
+            from leizilla.publisher import InternetArchivePublisher
+
+            pub = InternetArchivePublisher()
+            upload_result = pub.upload_parsed(
+                result.ia_id_parsed, result.xml, result.parsed_meta
+            )
+            if upload_result["success"]:
+                echo(f"Uploaded: {upload_result['ia_url']}")
+            else:
+                echo(f"Upload falhou: {upload_result.get('error', 'erro desconhecido')}")
+                raise typer.Exit(1)
+    except typer.Exit:
+        raise
+    except RuntimeError as e:
+        echo(f"Erro de configuração: {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        echo(f"Erro: {e}")
+        raise typer.Exit(1)
+
+
+@app.command("parse-all")
+def cmd_parse_all(
+    ente: str = typer.Option("ro", help="Ente federativo"),
+    fonte: str = typer.Option("assembleia", help="Fonte (assembleia, casacivil, ...)"),
+    start_coddoc: int = typer.Option(1, help="Primeiro coddoc"),
+    end_coddoc: int = typer.Option(100, help="Último coddoc"),
+    model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
+    upload: bool = typer.Option(True, "--upload/--no-upload", help="Upload para IA após parse"),
+    limit: Optional[int] = typer.Option(None, help="Máx de itens a processar"),
+) -> None:
+    """Batch parse: coddoc range → OCR → LLM → (upload para IA).
+
+    Itera leizilla-raw-{ente}-{fonte}-coddoc-NNNNN para cada coddoc no range.
+    Items sem OCR disponível são pulados silenciosamente (IA ainda processando).
+    Items com parse falho são contados como falha mas não abortam o batch.
+    """
+    try:
+        from leizilla.parser import fetch_ocr, parse_law
+        from leizilla.publisher import InternetArchivePublisher
+
+        pub = InternetArchivePublisher() if upload else None
+        coddocs = range(start_coddoc, end_coddoc + 1)
+        if limit is not None:
+            coddocs = coddocs[:limit]
+
+        parsed_ok = 0
+        parsed_fail = 0
+        uploaded_ok = 0
+        upload_fail = 0
+
+        for coddoc in coddocs:
+            raw_id = f"leizilla-raw-{ente}-{fonte}-coddoc-{coddoc:05d}"
+            echo(f"[{coddoc}] {raw_id}")
+
+            try:
+                ocr = fetch_ocr(raw_id)
+                if not ocr:
+                    echo("  OCR indisponível — skip")
+                    continue
+
+                result = parse_law(ocr, raw_id, ente, model=model)
+                if not result:
+                    echo("  Parse falhou — skip")
+                    parsed_fail += 1
+                    continue
+            except Exception as item_exc:
+                echo(f"  Erro inesperado: {item_exc} — skip")
+                parsed_fail += 1
+                continue
+
+            echo(
+                f"  OK confiança={result.confidence:.2f} → {result.ia_id_parsed}"
+            )
+            parsed_ok += 1
+
+            if pub:
+                if not _xsd_gate(result.xml, warn_prefix="  "):
+                    echo("  XSD inválido — skip upload")
+                    upload_fail += 1
+                else:
+                    upload_result = pub.upload_parsed(
+                        result.ia_id_parsed, result.xml, result.parsed_meta
+                    )
+                    if upload_result["success"]:
+                        echo(f"  ↑ {upload_result['ia_url']}")
+                        uploaded_ok += 1
+                    else:
+                        echo(
+                            f"  Upload falhou: {upload_result.get('error', 'erro desconhecido')}"
+                        )
+                        upload_fail += 1
+
+        echo(
+            f"\nBatch concluído: {parsed_ok} parseados, {parsed_fail} falhos"
+            + (f", {uploaded_ok} uploaded" if upload else "")
+            + (f", {upload_fail} erros de upload" if upload and upload_fail else "")
+        )
+        if upload_fail > 0:
+            raise typer.Exit(1)
     except typer.Exit:
         raise
     except RuntimeError as e:
