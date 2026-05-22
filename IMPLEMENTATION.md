@@ -19,13 +19,14 @@
 | **M2.4** — Rate-limit por host | 🟢 done | 66aa4ac | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
 | **M2.5** — casacivil discovery | 🟢 done | #27 | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. (PR #26 fechado por conflito; #27 merged.) |
 | **M2.6** — casacivil job no workflow | 🟢 done | #31 | `rondonia_crawler.yml` expandido com passos casacivil lei + lc; inputs `casacivil_start`/`casacivil_end`. |
-| **M2 restante** — fontes SP + federal (stubs) | 🟢 done | #30 | `fontes/sp.py` + `fontes/federal.py`. Scraping sp/federal bloqueado por M3.4 (HTML parser). |
+| **M2 restante** — fontes SP + federal (stubs) | 🟢 done | #30 | `fontes/sp.py` + `fontes/federal.py`. SP pendente de auditoria de URL. |
+| **M2.7** — Planalto federal HTML pipeline | 🟡 in-progress | — | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html`. 24 testes. CLI: `scrape --ente federal --fonte planalto --tipo lei\|lcp\|decreto`. |
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
 | **M3.3** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
-| **M3.4** — `parse_law` aceita HTML + `fetch_html` | 🟡 in-progress | — | `input_type="html"` em `parse_law`; `fetch_html(url)`; prompt adaptado; `_HTML_CHAR_LIMIT=32000`. Desbloqueia scraping federal (Planalto). 33 testes. |
-| **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟡 in-progress | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. Aguardando CI + merge. |
-| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟡 in-progress | #29 | Sobe dataset Parquet para IA; benchmark local §3.4. Aguardando merge de #28 primeiro. |
+| **M3.4** — `parse_law` aceita HTML + `fetch_html` | 🟢 done | #32 | `input_type="html"` em `parse_law`; `fetch_html(url)`; prompt adaptado; `_HTML_CHAR_LIMIT=32000`. Desbloqueou scraping federal (Planalto). 33 testes. |
+| **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟢 done | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. |
+| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟡 in-progress | #29 | Sobe dataset Parquet para IA; benchmark local §3.4. CI verde, aguardando decantação. |
 | **M4.3** — benchmark DuckDB-WASM real + gatilhos §3.4 | ⚪ todo | — | Bloqueado por M4.1+M4.2. |
 | **M5** — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4. |
 | **M6** — GitHub Actions produção | ⚪ todo | — | Depende de M2–M5. |
@@ -84,6 +85,33 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M2.7: Planalto federal HTML pipeline (desbloqueado pelo M3.4)
+
+M3.4 (`fetch_html` + `parse_law(input_type="html")`) desbloqueou o scraping de
+fontes que servem HTML em vez de PDF. Planalto é a fonte canônica federal (compilados
+vigentes) — equivalente federal da casacivil RO.
+
+**Decisão principal — raw HTML item no IA**: princípio #1 ("duas etapas no IA,
+sempre separadas") exige raw e parsed como IA items distintos. Para fontes HTML
+(sem PDF), o raw item armazena `{ia_id}.html` + `raw_meta.json` sidecar.
+IA não faz OCR em HTML (princípio #2 não se aplica — HTML já é texto).
+A Etapa 2 usa `fetch_html(fonte_url)` diretamente, não um `_djvu.txt` do IA.
+
+**Identificadores sem mudança**: `leizilla-raw-{ente}-{fonte}-{chave}` idêntico
+ao raw PDF. Tooling downstream não precisa saber o tipo de conteúdo.
+
+**`raw_meta_html`**: campo `content_type: "html"` + `hash_html` (vs `hash_pdf`).
+
+**URL patterns Planalto** (auditados no stub M2 restante / PR #30):
+- Leis ordinárias: `https://www.planalto.gov.br/ccivil_03/leis/L{N}.htm`
+- Leis complementares: `https://www.planalto.gov.br/ccivil_03/leis/lcp/Lcp{N}.htm`
+- Decretos: `https://www.planalto.gov.br/ccivil_03/decreto/D{N}.htm`
+
+**CLI `scrape`**: ramo `ente=federal, fonte=planalto` usa `scrape_one_html` em vez
+de `scrape_one`. Zero breaking change para ro/assembleia e ro/casacivil.
+
+24 testes em `tests/test_planalto_pipeline.py`.
 
 ### 2026-05-22 — M3.4: parse_law aceita HTML além de OCR
 
@@ -688,24 +716,26 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M3: todos concluídos** ✅
+**M0–M4.1 e M3.4: todos concluídos** ✅
 
 **PRs abertas agora** (em decantação — não auto-merge):
-- **#28** M4.1: ETL XML→Parquet. CI verde. Aguardando review humano.
-- **#29** M4.2: release-dataset CLI. CI verde. Depende do merge de #28 para smoke test end-to-end.
-- **#30** M2 restante: fontes/sp.py + federal.py. CI verde. Aguardando merge.
+- **#29** M4.2: release-dataset CLI. CI verde, aguardando decantação 1h.
+- **#33** M5.1: Frontend Astro+Svelte+DuckDB-WASM. Kilo in_progress → triagem próxima sessão.
+- **M2.7** (this branch): Planalto federal HTML pipeline. CI pendente → merge após CI verde.
 
-**M4.3** (próximo após #28 e #29 mergearem):
+**M2.7** (próximo a mergear):
+- `discover_planalto_laws(tipo, start_num, end_num)` — leis ordinárias, complementares, decretos.
+- `upload_raw_html` — raw item HTML no IA (princípio #1 preservado; sem OCR pois HTML é texto).
+- `scrape_one_html` — análogo ao `scrape_one` para fontes HTML.
+- CLI: `leizilla scrape --ente federal --fonte planalto --tipo lei --start-coddoc N --end-coddoc M`.
+
+**M4.3** (após #29 mergear):
 - Benchmark DuckDB-WASM real (não apenas local) contra §3.4 gatilhos.
 - Avisa se file_mb > 50, row_count > 500k, ou full-text latência > 500ms.
+- Pode aguardar M5.1 mergear (DuckDB-WASM disponível no frontend).
 
-**M5 — Frontend** (pode começar em paralelo a M4.3):
+**M5 — Frontend** (em andamento, PR #33):
 - Astro + Svelte + Pico CSS + DuckDB-WASM.
 - Carrega `versoes.parquet` do IA via HTTP.
 - Busca full-text com DuckDB-WASM no browser.
-- Deploy: GitHub Pages.
-
-**M3.4** (desbloqueia federal):
-- Adaptar `parse_law` para aceitar HTML além de OCR text.
-- Planalto serve compilados em HTML — pipeline M3 não se aplica diretamente sem essa adaptação.
-- Documentado em `fontes/federal.py` como bloqueador explícito.
+- Deploy: GitHub Pages via `deploy-web.yml`.

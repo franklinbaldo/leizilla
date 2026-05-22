@@ -1,40 +1,15 @@
 """Fontes de leis federais (slug: 'federal').
 
-Fontes mapeadas em 2026-05 para futura implementação:
-
+Fontes mapeadas:
 - planalto: Portal da Legislação — Presidência da República / Casa Civil
-  Portal: https://www.planalto.gov.br/ccivil_03/
-  Acesso: leis em formato HTML por tipo/número. PDFs de publicação original
-  via URL padrão (https://www.planalto.gov.br/ccivil_03/leis/LXXXX.htm).
-  Compilados vigentes disponíveis inline — FONTE_CANONICA para federal.
-  Obs: HTML, não PDF — scraping exige extração de texto via LLM a partir
-  do HTML (não OCR). Ajuste no pipeline M3 (parser.fetch_html vs fetch_ocr).
-
-- camara: Portal da Câmara dos Deputados
-  Portal: https://www.camara.leg.br/legislacao/
-  Acesso: API REST pública via https://dadosabertos.camara.leg.br/api/v2/
-  Inclui PDFs de proposições, texto compilado, metadados estruturados.
-  Útil para projetos de lei + texto consolidado.
-
-- senado: Portal do Senado Federal / LegisWeb
-  Portal: https://legis.senado.leg.br/norma/
-  Acesso: API REST via https://legis.senado.leg.br/dadosabertos/
-  Cobre legislação federal com metadados (autoria, situação, ementa).
-
-- dou: Diário Oficial da União — Imprensa Nacional
-  Portal: https://www.in.gov.br/
-  Acesso: API pública (https://queridodiario.ok.org.br/ para histórico).
-  Útil para publicação original e cross-verificação de data.
-
-Notas para implementação:
-- Planalto é o equivalente federal da casacivil RO (compilados vigentes).
-- A API da Câmara é a melhor entrada para metadados estruturados (JSON).
-- HTML no Planalto exige adaptação no pipeline: parse_law deve aceitar HTML
-  além de OCR text. Decisão de M3.4 (future milestone).
-- Camara API tem paginação e rate-limit explícito: 60 req/min.
-- Legislação pré-1988 (anterior à CF) disponível mas com cobertura parcial.
-- robots.txt do Planalto e Câmara: a auditar antes da implementação.
+  HTML compilado vigente. FONTE_CANONICA para federal.
+  Desbloqueado em M3.4 (parser.fetch_html).
+- camara: API REST pública (60 req/min). Útil para metadados estruturados.
+- senado: API REST pública. Cobre legislação federal.
+- dou: Diário Oficial da União. Cross-verificação de publicação original.
 """
+
+from typing import Any, Dict, List
 
 FONTES = ["planalto", "camara", "senado", "dou"]
 FONTE_CANONICA = "planalto"
@@ -50,3 +25,50 @@ APIS = {
     "camara": "https://dadosabertos.camara.leg.br/api/v2/",
     "senado": "https://legis.senado.leg.br/dadosabertos/",
 }
+
+# URL templates por tipo de ato normativo no Planalto
+_PLANALTO_BASE = "https://www.planalto.gov.br/ccivil_03"
+_PLANALTO_URLS: Dict[str, str] = {
+    "lei": f"{_PLANALTO_BASE}/leis/L{{num}}.htm",
+    "lcp": f"{_PLANALTO_BASE}/leis/lcp/Lcp{{num}}.htm",
+    "decreto": f"{_PLANALTO_BASE}/decreto/D{{num}}.htm",
+}
+
+
+def discover_planalto_laws(
+    tipo: str,
+    start_num: int,
+    end_num: int,
+) -> List[Dict[str, Any]]:
+    """Gera candidatos de URL do Planalto para o range de números.
+
+    Análogo a discover_casacivil_laws: retorna candidatos sem verificar
+    existência — scrape_one_html trata 404/timeout via robots+wayback.
+
+    Args:
+        tipo: "lei", "lcp", ou "decreto"
+        start_num: número inicial (inclusive)
+        end_num: número final (inclusive)
+
+    Returns:
+        Lista de lei_data dicts com url_original, ente, fonte, chave, tipo.
+    """
+    template = _PLANALTO_URLS.get(tipo)
+    if template is None:
+        raise ValueError(f"tipo deve ser {list(_PLANALTO_URLS)}, got {tipo!r}")
+
+    laws = []
+    for num in range(start_num, end_num + 1):
+        url = template.format(num=num)
+        chave = f"{tipo}-{num:05d}"
+        laws.append(
+            {
+                "ente": "federal",
+                "fonte": "planalto",
+                "chave": chave,
+                "tipo": tipo,
+                "numero": num,
+                "url_original": url,
+            }
+        )
+    return laws

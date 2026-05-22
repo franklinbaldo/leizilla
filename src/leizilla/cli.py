@@ -155,40 +155,77 @@ def cmd_upload(
 @app.command("scrape")
 def cmd_scrape(
     ente: str = typer.Option("ro", help="Ente federativo"),
-    fonte: str = typer.Option("assembleia", help="Fonte (assembleia, casacivil)"),
+    fonte: str = typer.Option("assembleia", help="Fonte (assembleia, casacivil, planalto)"),
     start_coddoc: int = typer.Option(
-        1, help="ID inicial (coddoc para assembleia; número de lei para casacivil)"
+        1, help="ID inicial (coddoc p/ assembleia; número de lei p/ casacivil/planalto)"
     ),
     end_coddoc: int = typer.Option(10, help="ID final"),
     tipo: str = typer.Option(
-        "lei", help="Tipo de lei para casacivil: lei (ordinária) ou lc (complementar)"
+        "lei", help="Tipo: lei (ordinária), lc (complementar, casacivil), decreto (planalto)"
     ),
 ) -> None:
-    """Scrape leis: discover → robots → wayback → upload_raw para IA."""
-    if tipo != "lei" and fonte != "casacivil":
-        echo(
-            f"--tipo só é válido com --fonte casacivil (recebido: --tipo {tipo} --fonte {fonte})"
-        )
+    """Scrape leis: discover → robots → wayback → upload_raw/upload_raw_html para IA."""
+    _TIPO_PDF_FONTES = {"casacivil"}
+    _TIPO_HTML_FONTES = {"planalto"}
+
+    if tipo not in ("lei", "lc", "decreto") and fonte not in _TIPO_PDF_FONTES | _TIPO_HTML_FONTES:
+        echo(f"--tipo inválido: {tipo!r}")
+        raise typer.Exit(1)
+    if tipo == "lc" and fonte != "casacivil":
+        echo(f"--tipo lc só é válido com --fonte casacivil (recebido: --fonte {fonte})")
+        raise typer.Exit(1)
+    if tipo == "decreto" and fonte != "planalto":
+        echo(f"--tipo decreto só é válido com --fonte planalto (recebido: --fonte {fonte})")
         raise typer.Exit(1)
 
-    echo(f"Scraping {ente}/{fonte} {start_coddoc}–{end_coddoc}")
+    echo(f"Scraping {ente}/{fonte} {start_coddoc}–{end_coddoc} (tipo={tipo})")
 
     try:
-        from leizilla.crawler import LeisCrawler, discover_casacivil_laws
         from leizilla.publisher import InternetArchivePublisher
-        from leizilla.scraper import make_rate_limiter, scrape_one
+        from leizilla.scraper import make_rate_limiter
 
         publisher = InternetArchivePublisher()
         rate_limiter = make_rate_limiter()
 
+        if ente == "federal" and fonte == "planalto":
+            from leizilla.fontes.federal import discover_planalto_laws
+            from leizilla.scraper import scrape_one_html
+
+            laws = discover_planalto_laws(
+                tipo=tipo,
+                start_num=start_coddoc,
+                end_num=end_coddoc,
+            )
+            ok = 0
+            for law in laws:
+                fonte_url = law.get("url_original")
+                if not fonte_url:
+                    echo(f"  Sem URL: {law.get('chave', 'N/A')}")
+                    continue
+                result = scrape_one_html(fonte_url, law, publisher, rate_limiter)
+                if result.get("success"):
+                    echo(f"  OK: {result.get('ia_id', '?')}")
+                    ok += 1
+                else:
+                    echo(
+                        f"  Falha [{result.get('reason', '?')}]: {law.get('chave', 'N/A')}"
+                    )
+            echo(f"Scraping concluído: {ok}/{len(laws)} com sucesso")
+            return
+
+        # Fontes PDF (ro/assembleia, ro/casacivil)
+        from leizilla.scraper import scrape_one
+
         async def run() -> None:
             if ente == "ro" and fonte == "assembleia":
+                from leizilla.crawler import LeisCrawler
                 crawler = LeisCrawler(crawler_type="playwright")
                 laws = await crawler.discover_rondonia_laws(
                     start_coddoc=start_coddoc,
                     end_coddoc=end_coddoc,
                 )
             elif ente == "ro" and fonte == "casacivil":
+                from leizilla.crawler import discover_casacivil_laws
                 laws = discover_casacivil_laws(
                     tipo=tipo,
                     start_num=start_coddoc,
