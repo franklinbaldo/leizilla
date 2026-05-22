@@ -23,10 +23,11 @@
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
 | **M3.3** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
-| **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟡 in-progress | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. Aguardando CI + merge. |
-| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟡 in-progress | #29 | Sobe dataset Parquet para IA; benchmark local §3.4. Aguardando merge de #28 primeiro. |
-| **M4.3** — benchmark DuckDB-WASM real + gatilhos §3.4 | ⚪ todo | — | Bloqueado por M4.1+M4.2. |
-| **M5** — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4. |
+| **M3.4** — parse_law aceita HTML + fetch_html | 🟡 in-progress | #32 | `fetch_html` + `input_type` em `parse_law`. 36 testes. Aguardando merge. |
+| **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟢 done | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. Merged d852fb0. |
+| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟡 in-progress | #29 | Sobe dataset Parquet para IA; benchmark local §3.4. Aguardando merge. |
+| **M4.3** — benchmark DuckDB-WASM real + gatilhos §3.4 | ⚪ todo | — | Bloqueado por M4.2. |
+| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM foundation | 🟡 in-progress | #33 | `web/` com Astro 4+Svelte 5+Pico 2+DuckDB-WASM 1.32. Busca full-text no browser via Parquet remoto. |
 | **M6** — GitHub Actions produção | ⚪ todo | — | Depende de M2–M5. |
 | **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
 
@@ -83,6 +84,32 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M5.1: Frontend foundation — Astro 4 + Svelte 5 + DuckDB-WASM 1.32
+
+**Stack efetiva** (vs. IMPLEMENTATION.md planning targets em parênteses):
+- Astro **4.16.19** (planejado 6.3 — Astro 6.x não disponível; 4.x é latest stable)
+- Svelte **5.55.9** (planejado 5.55 — exato match)
+- @picocss/pico **2.x** via CDN classless (planejado 2.1 — compatível)
+- DuckDB-WASM **1.32.0** (planejado 1.28 — versão mais recente, totalmente compatível)
+- @tanstack/svelte-query **5.x** (planejado 6.1 — v6 não disponível; v5 é latest stable)
+
+**Override `@sveltejs/vite-plugin-svelte@^4`**: Svelte 5.55 requer vite-plugin-svelte 4.x;
+o `@astrojs/svelte@5` ainda depende da v3. Override em `package.json` resolve o warning
+sem breaking change — `astro build` produz bundle limpo.
+
+**Arquitetura DuckDB-WASM**: Worker inline via `URL.createObjectURL` (Blob com `importScripts`)
+carrega o bundle do CDN jsDelivr em runtime. Evita bundling do WASM gigante (>20MB)
+e problemas de CORS em GitHub Pages. `INSTALL httpfs; LOAD httpfs` habilitam leitura
+remota de Parquet via HTTP. VIEW `versoes` aponta para IA — URL configurável via
+`PUBLIC_PARQUET_URL` (env var Astro/Vite).
+
+**Busca full-text**: `ILIKE '%term%'` no DuckDB-WASM. Suficiente para M5; índice
+FTS ou embeddings ficam para M5.2+.
+
+**Decisão adiada**: `@tanstack/svelte-query` instalado mas não usado no componente
+inicial — busca simples com `$state` é suficiente para MVP. Integrar TanStack Query
+em M5.2 quando cache/invalidação/retry ficarem relevantes.
 
 ### 2026-05-22 — M2 restante: fontes SP e federal — stubs com mapeamento de portais
 
