@@ -1,6 +1,6 @@
 """Testes para scraper.py — robots → wayback → fetch → upload_raw."""
 
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from leizilla.scraper import make_rate_limiter, scrape_one
@@ -35,7 +35,11 @@ class TestScrapeOne:
     @patch("leizilla.scraper.robots.is_allowed", return_value=False)
     def test_fonte_url_robots_blocked(self, _mock: Any) -> None:
         result = scrape_one(_FONTE_URL, _PDF_URL, _LEI, _make_publisher())
-        assert result == {"success": False, "reason": "robots-blocked", "url": _FONTE_URL}
+        assert result == {
+            "success": False,
+            "reason": "robots-blocked",
+            "url": _FONTE_URL,
+        }
 
     @patch("leizilla.scraper.robots.is_allowed", side_effect=[True, False])
     def test_pdf_url_robots_blocked(self, _mock: Any) -> None:
@@ -80,7 +84,9 @@ class TestScrapeOne:
     @patch("leizilla.scraper.wayback.fetch_bytes", return_value=_PDF_BYTES)
     @patch("leizilla.scraper.wayback.save_page", return_value=True)
     @patch("leizilla.scraper.robots.is_allowed", return_value=True)
-    def test_upload_failure_propagated(self, _r: Any, _s: Any, _f: Any, _c: Any) -> None:
+    def test_upload_failure_propagated(
+        self, _r: Any, _s: Any, _f: Any, _c: Any
+    ) -> None:
         pub = _make_publisher(success=False)
         result = scrape_one(_FONTE_URL, _PDF_URL, _LEI, pub)
         assert result["success"] is False
@@ -90,7 +96,9 @@ class TestScrapeOne:
     @patch("leizilla.scraper.wayback.fetch_bytes", side_effect=[None, _PDF_BYTES])
     @patch("leizilla.scraper.wayback.save_page", return_value=True)
     @patch("leizilla.scraper.robots.is_allowed", return_value=True)
-    def test_wayback_bytes_none_then_fallback(self, _r: Any, _s: Any, _f: Any, _c: Any) -> None:
+    def test_wayback_bytes_none_then_fallback(
+        self, _r: Any, _s: Any, _f: Any, _c: Any
+    ) -> None:
         """Wayback URL existe mas fetch retorna None → fallback direto."""
         pub = _make_publisher()
         result = scrape_one(_FONTE_URL, _PDF_URL, _LEI, pub)
@@ -130,7 +138,9 @@ class TestMakeRateLimiter:
         limiter("https://host-a.gov.br/doc.pdf")
         limiter("https://host-b.gov.br/doc.pdf")  # host diferente — não deve sleep
         elapsed = time.monotonic() - t0
-        assert elapsed < 5.0, f"Hosts distintos serializaram indevidamente ({elapsed:.2f}s)"
+        assert elapsed < 5.0, (
+            f"Hosts distintos serializaram indevidamente ({elapsed:.2f}s)"
+        )
 
     def test_same_host_respects_interval(self) -> None:
         """Mesmo host é rate-limitado corretamente."""

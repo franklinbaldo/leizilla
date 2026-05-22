@@ -12,7 +12,9 @@ from typing import Optional
 
 _AVAILABILITY_API = "https://archive.org/wayback/available"
 _SAVE_URL_TMPL = "https://web.archive.org/save/{}"
-_USER_AGENT = "leizilla-crawler/0.1 (legal-indexer; https://github.com/franklinbaldo/leizilla)"
+_USER_AGENT = (
+    "leizilla-crawler/0.1 (legal-indexer; https://github.com/franklinbaldo/leizilla)"
+)
 _MAX_AGE_SECONDS = 24 * 3600
 
 

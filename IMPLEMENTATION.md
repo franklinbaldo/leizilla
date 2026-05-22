@@ -18,8 +18,8 @@
 | **M2.3** — CI workflow + `internetarchive` dep | 🟢 done | #20 | `rondonia_crawler.yml` atualizado para `uv run leizilla scrape`. `internetarchive` em pyproject.toml. |
 | **M2.4** — Rate-limit por host | 🟢 done | 66aa4ac | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
 | **M2.5** — casacivil discovery | 🟢 done | #27 | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. (PR #26 fechado por conflito; #27 merged.) |
-| **M2.6** — casacivil job no workflow | 🟢 done | this PR | `rondonia_crawler.yml` expandido com passos casacivil lei + lc; inputs `casacivil_start`/`casacivil_end`. |
-| **M2 restante** — fontes SP + federal (stubs) | 🟡 in-progress | #30 | `fontes/sp.py` + `fontes/federal.py`. IMPLEMENTAÇÃO pronta, aguardando merge. |
+| **M2.6** — casacivil job no workflow | 🟢 done | #31 | `rondonia_crawler.yml` expandido com passos casacivil lei + lc; inputs `casacivil_start`/`casacivil_end`. |
+| **M2 restante** — fontes SP + federal (stubs) | 🟢 done | #30 | `fontes/sp.py` + `fontes/federal.py`. Scraping sp/federal bloqueado por M3.4 (HTML parser). |
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
 | **M3.3** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
@@ -83,6 +83,18 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M2 restante: fontes SP e federal — stubs com mapeamento de portais
+
+`fontes/sp.py` e `fontes/federal.py` criados como stubs declarativos (análogos a `fontes/ro.py`) com URLs de portais, notas de acesso, e `FONTE_CANONICA`.
+
+**SP**: LeisSP (legisp — compilados da Casa Civil SP) como fonte canônica, ALESP para acesso alternativo, DOE-SP para cross-verificação. URL padrão de PDFs no LeisSP ainda não auditada — discovery requer engenharia adicional (M2.6).
+
+**Federal**: Planalto como fonte canônica (compilados vigentes em HTML, não PDF). Câmara tem API REST pública bem documentada. Senado tem LegisWeb + dadosabertos. DOU via Imprensa Nacional para publicação original.
+
+**Decisão importante**: Planalto serve HTML, não PDF — o pipeline M3 atual (fetch_ocr de PDF via IA) não se aplica diretamente. Scraping federal vai precisar de adaptação: `parse_law` aceitar HTML como input além de OCR text. Registrado como M3.4 (milestone futuro não planejado ainda). Fontes federais ficam bloqueadas por M3.4.
+
+**Por que criar os stubs agora**: os portais foram pesquisados (conhecimento disponível sem acesso externo); registrar as URLs e notas de acesso no repositório evita repetir a pesquisa em sessões futuras. Stubs sem scraping são úteis como documentação de roadmap.
 
 ### 2026-05-22 — Sessão de triagem: correções P1/P2 em PRs #28 e #29 + M2.6
 

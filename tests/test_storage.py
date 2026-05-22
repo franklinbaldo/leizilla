@@ -1,7 +1,5 @@
 """Testes para leizilla.storage."""
 
-from pathlib import Path
-
 import pytest
 
 from leizilla import storage
@@ -18,8 +16,7 @@ def temp_db(tmp_path):
 def test_create_schema(temp_db):
     conn = temp_db.connect()
     result = conn.execute(
-        "SELECT table_name FROM information_schema.tables "
-        "WHERE table_name = 'leis'"
+        "SELECT table_name FROM information_schema.tables WHERE table_name = 'leis'"
     ).fetchone()
     assert result is not None
 
@@ -43,8 +40,20 @@ def test_insert_lei(temp_db):
 
 def test_search_leis(temp_db):
     leis = [
-        {"id": "ro-lei-2024-001", "titulo": "Lei Ambiental", "ente": "ro", "ano": 2024, "tipo_lei": "lei"},
-        {"id": "ro-decreto-2024-002", "titulo": "Decreto Educacional", "ente": "ro", "ano": 2024, "tipo_lei": "decreto"},
+        {
+            "id": "ro-lei-2024-001",
+            "titulo": "Lei Ambiental",
+            "ente": "ro",
+            "ano": 2024,
+            "tipo_lei": "lei",
+        },
+        {
+            "id": "ro-decreto-2024-002",
+            "titulo": "Decreto Educacional",
+            "ente": "ro",
+            "ano": 2024,
+            "tipo_lei": "decreto",
+        },
     ]
     for lei in leis:
         temp_db.insert_lei(lei)
@@ -61,8 +70,24 @@ def test_search_leis(temp_db):
 
 
 def test_get_stats(temp_db):
-    temp_db.insert_lei({"id": "ro-lei-2024-001", "titulo": "Lei 1", "ente": "ro", "ano": 2024, "tipo_lei": "lei"})
-    temp_db.insert_lei({"id": "federal-lei-2024-002", "titulo": "Lei 2", "ente": "federal", "ano": 2024, "tipo_lei": "lei"})
+    temp_db.insert_lei(
+        {
+            "id": "ro-lei-2024-001",
+            "titulo": "Lei 1",
+            "ente": "ro",
+            "ano": 2024,
+            "tipo_lei": "lei",
+        }
+    )
+    temp_db.insert_lei(
+        {
+            "id": "federal-lei-2024-002",
+            "titulo": "Lei 2",
+            "ente": "federal",
+            "ano": 2024,
+            "tipo_lei": "lei",
+        }
+    )
 
     stats = temp_db.get_stats()
     assert stats["total_leis"] == 2
