@@ -86,6 +86,31 @@ class TestFetchOcr:
         assert captured == [expected]
 
 
+class TestFetchHtml:
+    def test_returns_html_on_success(self):
+        with patch(
+            "urllib.request.urlopen",
+            return_value=_make_urlopen_resp("<html>Lei texto</html>"),
+        ):
+            assert parser.fetch_html("https://example.gov.br/lei/1") == "<html>Lei texto</html>"
+
+    def test_returns_none_on_network_error(self):
+        with patch("urllib.request.urlopen", side_effect=OSError("timeout")):
+            assert parser.fetch_html("https://example.gov.br/lei/1") is None
+
+    def test_sets_user_agent_header(self):
+        captured_req: list = []
+
+        def capture(req, **kw):  # type: ignore[no-untyped-def]
+            captured_req.append(req)
+            raise OSError("stop")
+
+        with patch("urllib.request.urlopen", side_effect=capture):
+            parser.fetch_html("https://example.gov.br/lei/1")
+
+        assert captured_req[0].get_header("User-agent") == parser._USER_AGENT
+
+
 class TestExtractJson:
     def test_direct_json(self):
         result = parser._extract_json('{"a": 1}')
@@ -143,7 +168,7 @@ class TestParseLaw:
         assert meta["ia_id_parsed"] == "leizilla-ro-lei-09999-1999"
         assert meta["ente"] == "ro"
         assert meta["tipo"] == "lei"
-        assert meta["parse_method"] == parser._HAIKU
+        assert meta["parse_method"] == f"{parser._HAIKU}+ocr"
         assert meta["tem_divergencia"] is False
         assert "parse_timestamp" in meta
 
@@ -287,3 +312,37 @@ class TestParseLaw:
         user_content = kwargs["messages"][0]["content"]
         assert len(user_content) < 20000 + 100  # headers + truncated body
         assert "x" * (parser._OCR_CHAR_LIMIT + 1) not in user_content
+
+    def test_html_input_type_uses_html_char_limit(self):
+        long_html = "<p>" + "x" * 40000 + "</p>"
+        client = _make_anthropic_client(_LLM_OK)
+        with patch("anthropic.Anthropic", return_value=client):
+            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
+                parser.parse_law(long_html, "https://example.gov.br/lei/1", "federal", input_type="html")
+
+        _, kwargs = client.messages.create.call_args
+        user_content = kwargs["messages"][0]["content"]
+        assert "x" * (parser._HTML_CHAR_LIMIT + 1) not in user_content
+        assert len(user_content) <= parser._HTML_CHAR_LIMIT + 200
+
+    def test_html_input_type_sets_parse_method(self):
+        client = _make_anthropic_client(_LLM_OK)
+        with patch("anthropic.Anthropic", return_value=client):
+            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
+                result = parser.parse_law(
+                    "html content", "https://example.gov.br/lei/1", "ro", input_type="html"
+                )
+
+        assert result is not None
+        assert result.parsed_meta["parse_method"] == f"{parser._HAIKU}+html"
+
+    def test_html_input_type_includes_url_in_user_message(self):
+        url = "https://example.gov.br/lei/9999"
+        client = _make_anthropic_client(_LLM_OK)
+        with patch("anthropic.Anthropic", return_value=client):
+            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
+                parser.parse_law("html content", url, "ro", input_type="html")
+
+        _, kwargs = client.messages.create.call_args
+        user_content = kwargs["messages"][0]["content"]
+        assert url in user_content

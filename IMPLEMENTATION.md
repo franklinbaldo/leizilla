@@ -23,6 +23,7 @@
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
 | **M3.3** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
+| **M3.4** — `parse_law` aceita HTML + `fetch_html` | 🟡 in-progress | — | `input_type="html"` em `parse_law`; `fetch_html(url)`; prompt adaptado; `_HTML_CHAR_LIMIT=32000`. Desbloqueia scraping federal (Planalto). 33 testes. |
 | **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟡 in-progress | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. Aguardando CI + merge. |
 | **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟡 in-progress | #29 | Sobe dataset Parquet para IA; benchmark local §3.4. Aguardando merge de #28 primeiro. |
 | **M4.3** — benchmark DuckDB-WASM real + gatilhos §3.4 | ⚪ todo | — | Bloqueado por M4.1+M4.2. |
@@ -83,6 +84,33 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M3.4: parse_law aceita HTML além de OCR
+
+`parse_law` recebe novo parâmetro `input_type: str = "ocr"` (padrão retrocompatível).
+`fetch_html(url)` adicionado — análogo a `fetch_ocr`, mas recebe URL direta em vez de ia_id.
+
+**Por que**: Planalto (fonte canônica federal) serve HTML, não PDF. Pipeline M3 existente
+(`fetch_ocr` → IA `_djvu.txt`) não se aplica a HTML. Solução mínima: aceitar HTML como
+texto de entrada em `parse_law` com prompt ligeiramente diferente e limite de caracteres maior.
+
+**Mudanças em parser.py**:
+- `_SYSTEM_INTRO_OCR` / `_SYSTEM_INTRO_HTML`: constantes de introdução de prompt distintas.
+  HTML version orienta o LLM a ignorar nav, header, footer, scripts — só extrair normativo.
+- `_SYSTEM` usa `{input_intro}` no primeiro parágrafo.
+- `_HTML_CHAR_LIMIT = 32000` (vs `_OCR_CHAR_LIMIT = 8000`): HTML tem overhead de markup;
+  mais caracteres necessários para cobrir o texto normativo completo. Estimativa conservadora
+  para Haiku (200K context window).
+- `parse_method` em `parsed_meta` agora é `f"{model}+{input_type}"` (ex: `claude-haiku-4-5+ocr`
+  ou `claude-haiku-4-5+html`). Breaking change no campo (era só `model`); nenhum consumidor
+  externo ainda — M4.1/4.2 não dependem desse campo.
+
+**Testes**: 33 testes em `tests/test_parser.py`. Adicionados:
+- `TestFetchHtml`: 3 testes (sucesso, erro de rede, user-agent header).
+- `TestParseLaw`: 3 testes HTML (`input_type="html"` — char limit, parse_method, url no user msg).
+
+**Não feito aqui**: integração na CLI `parse` com `--input-type html` fica para próxima sessão
+quando federal scraping for implementado (não há consumidor ainda).
 
 ### 2026-05-22 — M2 restante: fontes SP e federal — stubs com mapeamento de portais
 
