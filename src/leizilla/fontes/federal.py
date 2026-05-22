@@ -15,6 +15,17 @@ import urllib.request
 from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional
 
+
+class _CamaraApiState:
+    """Circuit breaker simples para a API da Câmara.
+
+    A primeira falha de rede desativa chamadas subsequentes nesta instância
+    de processo, limitando o stall máximo a 1 × timeout em vez de N × timeout.
+    O estado é resetado na próxima execução (novo processo).
+    """
+
+    available: bool = True
+
 FONTES = ["planalto", "camara", "senado", "dou"]
 FONTE_CANONICA = "planalto"
 
@@ -69,11 +80,20 @@ _CAMARA_SIGLA: Dict[str, str] = {
 
 
 def _ato_range_for_year(year: int) -> str:
-    """Retorna o segmento de path `_ato{start}-{end}` para o ano dado."""
+    """Retorna o segmento de path `_ato{start}-{end}` para o ano dado.
+
+    Ranges 2003-2026 são da tabela estática confirmada empiricamente.
+    Anos >= 2027 são calculados dinamicamente seguindo o padrão de quadriênios.
+    Anos < 2003 não têm URL year-scoped no Planalto — levanta ValueError.
+    """
     for start, end in _ATO_RANGES:
         if start <= year <= end:
             return f"_ato{start}-{end}"
-    raise ValueError(f"Ano {year} fora dos ranges Planalto conhecidos (2003-2026)")
+    if year < 2003:
+        raise ValueError(f"Ano {year} fora dos ranges Planalto year-scoped (requer >= 2003)")
+    # Quadriênio dinâmico: mantém o padrão de 4 anos partindo de 2003
+    start = 2003 + ((year - 2003) // 4) * 4
+    return f"_ato{start}-{start + 3}"
 
 
 def planalto_year_scoped_url(tipo: str, numero: int, year: int) -> str:
@@ -90,7 +110,12 @@ def _camara_year_lookup(tipo: str, numero: int) -> Optional[int]:
 
     Endpoint: dadosabertos.camara.leg.br/api/v2/legislacoes
     Rate limit: 60 req/min (Câmara). Cache via lru_cache por (tipo, numero).
+
+    Circuit breaker: primeira falha de rede desativa chamadas subsequentes
+    para este processo, evitando stall de N × timeout em batches grandes.
     """
+    if not _CamaraApiState.available:
+        return None
     sigla = _CAMARA_SIGLA.get(tipo)
     if sigla is None:
         return None
@@ -101,7 +126,7 @@ def _camara_year_lookup(tipo: str, numero: int) -> Optional[int]:
     try:
         # URL é construída com base fixa (dadosabertos.camara.leg.br) + int
         # controlado — sem input de usuário. S310 não se aplica aqui.
-        with urllib.request.urlopen(url, timeout=10) as resp:  # noqa: S310
+        with urllib.request.urlopen(url, timeout=3) as resp:  # noqa: S310
             data = json.loads(resp.read().decode())
             dados = data.get("dados", [])
             if dados:
@@ -112,7 +137,7 @@ def _camara_year_lookup(tipo: str, numero: int) -> Optional[int]:
                     except ValueError:
                         pass  # API retornou algo não-numérico em "ano"
     except (urllib.error.URLError, OSError, json.JSONDecodeError):
-        pass
+        _CamaraApiState.available = False
     return None
 
 

@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from leizilla.fontes.federal import (
+    _CamaraApiState,
+    _camara_year_lookup,
     discover_planalto_laws,
     planalto_year_scoped_url,
 )
@@ -93,6 +95,10 @@ class TestPlanaltoYearScopedUrl:
         assert "_ato2003-2006" in planalto_year_scoped_url("lei", 1, 2003)
         assert "_ato2003-2006" in planalto_year_scoped_url("lei", 1, 2006)
         assert "_ato2023-2026" in planalto_year_scoped_url("lei", 1, 2026)
+        # Anos futuros: quadriênio dinâmico além da tabela estática (P2 fix)
+        assert "_ato2027-2030" in planalto_year_scoped_url("lei", 1, 2027)
+        assert "_ato2027-2030" in planalto_year_scoped_url("lei", 1, 2030)
+        assert "_ato2031-2034" in planalto_year_scoped_url("lei", 1, 2031)
 
 
 class TestDiscoverPlanaltoLawsYearScoped:
@@ -134,6 +140,59 @@ class TestDiscoverPlanaltoLawsYearScoped:
         laws = discover_planalto_laws("lei", 9503, 12965, year_lookup_fn=lookup)
         assert "/leis/L9503.htm" in laws[0]["url_original"]
         assert "_ato2011-2014" in laws[-1]["url_original"]
+
+
+# ---------------------------------------------------------------------------
+# _camara_year_lookup — circuit breaker
+# ---------------------------------------------------------------------------
+
+
+class TestCamaraYearLookupCircuitBreaker:
+    def setup_method(self) -> None:
+        """Reseta estado do circuit breaker e cache entre testes."""
+        _CamaraApiState.available = True
+        _camara_year_lookup.cache_clear()
+
+    def test_returns_year_on_success(self) -> None:
+        payload = b'{"dados":[{"ano":2014}]}'
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.__enter__ = lambda s: mock_resp
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            mock_resp.read.return_value = payload
+            mock_open.return_value = mock_resp
+            result = _camara_year_lookup("lei", 12965)
+        assert result == 2014
+
+    def test_circuit_opens_on_network_failure(self) -> None:
+        import urllib.error
+
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("timeout")):
+            result = _camara_year_lookup("lei", 1)
+        assert result is None
+        assert _CamaraApiState.available is False
+
+    def test_skips_api_after_circuit_opens(self) -> None:
+        _CamaraApiState.available = False
+        with patch("urllib.request.urlopen") as mock_open:
+            result = _camara_year_lookup("lei", 99999)
+        mock_open.assert_not_called()
+        assert result is None
+
+    def test_timeout_is_3s(self) -> None:
+        """Verifica que o timeout configurado é 3s (não 10s)."""
+        payload = b'{"dados":[{"ano":2020}]}'
+        captured_timeout: list = []
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.__enter__ = lambda s: mock_resp
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            mock_resp.read.return_value = payload
+            mock_open.side_effect = lambda url, timeout=None: (
+                captured_timeout.append(timeout) or mock_resp
+            )
+            _camara_year_lookup("lei", 54321)
+        assert captured_timeout == [3]
 
 
 # ---------------------------------------------------------------------------
