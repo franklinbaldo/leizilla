@@ -78,18 +78,19 @@ export interface LeiRow {
 }
 
 export async function searchLeis(query: string, limit = 20): Promise<LeiRow[]> {
+  const safeLimit = Math.trunc(Math.max(1, Math.min(1000, Number.isFinite(limit) ? limit : 20)));
   const db = await getDb();
   const conn = await db.connect();
   try {
     const term = query.trim();
     if (!term) {
       const result = await conn.query(
-        `SELECT * FROM versoes WHERE ate IS NULL LIMIT ${limit}`,
+        `SELECT * FROM versoes WHERE ate IS NULL LIMIT ${safeLimit}`,
       );
       return result.toArray().map((r: unknown) => (r as { toJSON(): LeiRow }).toJSON());
     }
     const stmt = await conn.prepare(
-      `SELECT * FROM versoes WHERE ate IS NULL AND texto_normalizado ILIKE ? LIMIT ${limit}`,
+      `SELECT * FROM versoes WHERE ate IS NULL AND texto_normalizado ILIKE ? LIMIT ${safeLimit}`,
     );
     try {
       const result = await stmt.query(`%${term}%`);

@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@astrojs/svelte": "^5.0.0",
-    "@duckdb/duckdb-wasm": "^1.28.0",
+    "@duckdb/duckdb-wasm": "^1.32.0",
     "@picocss/pico": "^2.0.0",
     "@tanstack/svelte-query": "^5.0.0",
     "astro": "^4.0.0",
