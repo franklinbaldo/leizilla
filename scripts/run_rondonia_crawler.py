@@ -3,9 +3,9 @@ import os
 from pathlib import Path
 import logging
 
-from src.crawler import LeisCrawler
-from src.publisher import InternetArchivePublisher
-from src.config import TEMP_DIR, IA_ACCESS_KEY, IA_SECRET_KEY
+from leizilla.crawler import LeisCrawler
+from leizilla.publisher import InternetArchivePublisher
+from leizilla.config import TEMP_DIR, IA_ACCESS_KEY, IA_SECRET_KEY
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

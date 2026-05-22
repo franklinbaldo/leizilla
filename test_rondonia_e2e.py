@@ -5,16 +5,12 @@ Standalone end-to-end test for Leizilla using real Rondônia laws data from pge-
 This test validates the complete pipeline using the actual storage implementation.
 """
 
-import sys
 import os
 from pathlib import Path
 import tempfile
 import json
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-
-from storage import DuckDBStorage
+from leizilla.storage import DuckDBStorage
 
 def test_rondonia_laws_e2e():
     """End-to-end test with real Rondônia laws data."""
@@ -28,7 +24,7 @@ def test_rondonia_laws_e2e():
             "ano": 1981,
             "data_publicacao": "1981-12-31",
             "tipo_lei": "decreto-lei",
-            "origem": "rondonia",
+            "ente": "rondonia",
             "texto_completo": """DECRETO-LEI N° 2, DE 31 DE DEZEMBRO DE 1981
 
 Orça a Receita e fixa a Despesa do Orçamento-Programa do Estado para o exercício de 1982.
@@ -71,7 +67,7 @@ GOVERNADOR DO ESTADO""",
             "ano": 1982,
             "data_publicacao": "1982-01-01", 
             "tipo_lei": "lei",
-            "origem": "rondonia",
+            "ente": "rondonia",
             "texto_completo": "Texto de exemplo da Lei 3 de Rondônia para teste do sistema Leizilla.",
             "texto_normalizado": "lei 3 rondônia teste sistema leizilla",
             "url_original": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/detalhes.aspx?coddoc=3",
@@ -111,7 +107,7 @@ GOVERNADOR DO ESTADO""",
         print("✅ Law retrieval working correctly")
         
         # Test 4: Search functionality
-        search_orcamento = storage.search_leis(origem="rondonia", texto="orçamento")
+        search_orcamento = storage.search_leis(ente="rondonia", texto="orçamento")
         assert len(search_orcamento) >= 1, "Should find laws with 'orçamento'"
         assert any("DECRETO LEI n. 2" in result["titulo"] for result in search_orcamento)
         print("✅ Text search working correctly")
@@ -121,7 +117,7 @@ GOVERNADOR DO ESTADO""",
         print("✅ Additional search terms working")
         
         # Test 5: Filtering by origem and year
-        rondonia_laws = storage.search_leis(origem="rondonia")
+        rondonia_laws = storage.search_leis(ente="rondonia")
         assert len(rondonia_laws) == 2, "Should find both Rondônia laws"
         print("✅ Origin filtering working")
         
@@ -133,8 +129,8 @@ GOVERNADOR DO ESTADO""",
         # Test 6: Statistics
         stats = storage.get_stats()
         assert stats["total_leis"] == 2, "Should have 2 laws total"
-        assert "rondonia" in stats["por_origem"], "Should have rondonia in origins"
-        assert stats["por_origem"]["rondonia"] == 2, "Should have 2 laws from rondonia"
+        assert "rondonia" in stats["por_ente"], "Should have rondonia in origins"
+        assert stats["por_ente"]["rondonia"] == 2, "Should have 2 laws from rondonia"
         print("✅ Statistics working correctly")
         
         # Test 7: Export functionality (skip for now due to SQL parameter issue)
@@ -185,8 +181,7 @@ GOVERNADOR DO ESTADO""",
     print("- ✅ Data integrity validation")
     print("- ✅ Legal terminology search")
     print("- ✅ Performance validation")
-    
-    return True
+
 
 def test_cotel_scrap_compatibility():
     """Test compatibility with cotel_scrap data format."""
@@ -270,7 +265,7 @@ DECRETO-LEI N° 2, DE 31 DE DEZEMBRO DE 1981
         assert "COTEL/Livros" in url
     
     print("✅ cotel_scrap URL pattern compatibility validated")
-    return True
+
 
 if __name__ == "__main__":
     try:

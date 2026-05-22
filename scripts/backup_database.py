@@ -3,9 +3,9 @@ import os
 from pathlib import Path
 from datetime import datetime
 
-from src.publisher import InternetArchivePublisher
-from src.config import DUCKDB_PATH, IA_ACCESS_KEY, IA_SECRET_KEY
-from src.storage import storage as duckdb_storage # Import global storage instance
+from leizilla.publisher import InternetArchivePublisher
+from leizilla.config import DUCKDB_PATH, IA_ACCESS_KEY, IA_SECRET_KEY
+from leizilla.storage import storage as duckdb_storage
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

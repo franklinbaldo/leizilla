@@ -135,7 +135,8 @@ class DuckDBStorage:
         where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
         conn.execute(
             f"COPY (SELECT * FROM leis WHERE {where_sql}) "
-            f"TO '{output_path}' (FORMAT PARQUET, COMPRESSION SNAPPY)"
+            f"TO '{output_path}' (FORMAT PARQUET, COMPRESSION SNAPPY)",
+            params,
         )
 
     def get_stats(self) -> Dict[str, Any]:
