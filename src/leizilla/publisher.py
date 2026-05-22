@@ -153,7 +153,7 @@ class InternetArchivePublisher:
                         "--metadata", f"title:{lei_data.get('titulo', 'Lei')}",
                         "--metadata", "mediatype:texts",
                         "--metadata", f"subject:leis;leizilla;{ente}",
-                        "--metadata", f"creator:leizilla-crawler",
+                        "--metadata", "creator:leizilla-crawler",
                     ],
                     capture_output=True,
                     text=True,
@@ -230,6 +230,9 @@ class InternetArchivePublisher:
         """
         if not self.access_key or not self.secret_key:
             return {"success": False, "error": "IA credentials not configured"}
+
+        if version < 0:
+            raise ValueError(f"version must be >= 0 to satisfy _DATASET_IDENTIFIER_RE, got {version}")
 
         ia_id = f"leizilla-dataset-{ente}-v{version}"
         dataset_meta = build_dataset_meta(parquet_path, ente, version, row_count, git_sha)

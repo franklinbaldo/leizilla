@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -166,6 +165,13 @@ class TestUploadDataset:
         with patch("subprocess.run", return_value=mock_cp):
             result = pub.upload_dataset(p, "federal", 2, row_count=0, git_sha=None)
         assert result["ia_id"] == "leizilla-dataset-federal-v2"
+
+    def test_negative_version_raises(self, tmp_path: Path) -> None:
+        # P2 fix: upload_dataset API rejects negative versions before constructing ia_id
+        p = _make_parquet(tmp_path)
+        pub = _publisher()
+        with pytest.raises(ValueError, match="version must be >= 0"):
+            pub.upload_dataset(p, "ro", -1, row_count=1, git_sha=None)
 
     def test_subprocess_failure_returns_error(self, tmp_path: Path) -> None:
         p = _make_parquet(tmp_path)
