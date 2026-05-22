@@ -28,11 +28,11 @@
 | **M3.5** — CLI `parse --input-type html` + `fetch_ia_html` | 🟢 done | #35 | `fetch_ia_html(ia_id)` busca `{ia_id}.html` do IA; `--input-type ocr\|html` em `cmd_parse`. 314 testes. |
 | **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟢 done | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. |
 | **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟢 done | #36 | Sobe dataset Parquet para IA; benchmark local §3.4. 229 testes. |
-| **M4.3** — benchmark DuckDB-WASM real + gatilhos §3.4 | ⚪ todo | — | Bloqueado por M4.2 merge. |
-| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. CI verde; P1 httpfs fix pushed. |
+| **M4.3** — benchmark gatilhos §3.4 (testes) | 🟢 done | #39 | 6 testes para gatilhos file/rows/latência em `TestReleaseDatasetBenchmark`. Benchmark WASM real em M5.2. |
+| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. httpfs fix pushed; Kilo in_progress. |
 | **M5.2** — TanStack Query + paginação + filtros | ⚪ todo | — | Bloqueado por M5.1 merge. |
 | **M2.7** — Planalto federal HTML pipeline | 🟢 done | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 30 testes. URLs legadas (pré-2002); year-scoped em M2.8. Merged. |
-| **M2.8** — `parse-all --input-type html` + chave federal | 🟡 in-progress | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. CI verde (Kilo+GitGuardian ✅). Aguardando merge. |
+| **M2.8** — `parse-all --input-type html` + chave federal | 🟡 in-progress | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. CI verde (Kilo+GitGuardian ✅). |
 | **M6** — GitHub Actions produção | ⚪ todo | — | Depende de M2–M5. |
 | **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
 
@@ -89,6 +89,25 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M4.3: benchmark gatilhos §3.4 — local approximation é o deliverable M4
+
+**Auditoria pós-M4.2**: o benchmark já estava implementado em `cmd_release_dataset`
+(DuckDB Python local). O que faltava era cobertura de testes para os três gatilhos.
+
+**6 testes em `TestReleaseDatasetBenchmark`** cobrem:
+- `dry_run_reports_stats_line`: stats linha presente no output
+- `no_gatilho_warning_for_small_dataset`: sem warning abaixo dos limites
+- `row_count_threshold_warning`: 2_000_001 linhas → "rows > 2M" + "Gatilhos §3.4"
+- `search_latency_threshold_warning`: 1.5s → "search > 1s"
+- `file_size_threshold_warning`: 101 MB → "file > 100 MB"
+- `two_gatilhos_triggers_rfc_message`: 2+ gatilhos → "RFC sobre split"
+
+**"DuckDB-WASM real" em M5.2**: o benchmark in-browser requer frontend deployado
+(M5.1) e dataset com dados reais. A aproximação Python-local é suficiente para M4 —
+se thresholds forem excedidos, o CI em M5 sinalizará. Sem blocking para M5.1.
+
+**M4.3 encerra como done.** Próximos: M5.1 (#33) → M5.2 → benchmark WASM real.
 
 ### 2026-05-22 — M2.8: parse-all --input-type html + chave federal
 
@@ -749,15 +768,14 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M4.2, M2.7 concluídos** ✅ | **M4.3 (#39), M5.1 (#33), M2.8 (#38) em PRs abertas**
+**M0–M4.3, M2.7 concluídos** ✅ | **M5.1 (#33), M2.8 (#38) em PRs abertas**
 
 **PRs abertas agora** (em decantação — não auto-merge):
-- **#33** M5.1: Frontend foundation. P1 httpfs + P1/P2 Codex fixes. CI pendente.
-- **#38** M2.8: parse-all --input-type html + chave federal. CI verde. Aguarda decantação.
-- **#39** M4.3: testes gatilhos §3.4. CI pendente.
+- **#33** M5.1: Frontend foundation. httpfs fix pushed; Kilo in_progress.
+- **#38** M2.8: parse-all --input-type html. CI verde (Kilo+GitGuardian ✅).
 
 **M5.2** (após #33 mergear):
 - Integrar TanStack Query para cache + prefetch.
 - Paginação de resultados.
 - Filtro por ente/ano.
-- Benchmark DuckDB-WASM real com dataset publicado.
+- Benchmark DuckDB-WASM real com dataset publicado (continuação de M4.3 local).
