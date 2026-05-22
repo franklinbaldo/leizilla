@@ -55,7 +55,7 @@ def save_page(url: str, timeout: int = 60) -> bool:
 
     Fail-open: retorna False sem exceção se Wayback não responder.
     """
-    save_url = _SAVE_URL_TMPL.format(url)
+    save_url = _SAVE_URL_TMPL.format(urllib.parse.quote(url, safe=":/"))
     req = urllib.request.Request(save_url)
     req.add_header("User-Agent", _USER_AGENT)
     try:

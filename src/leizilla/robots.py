@@ -9,7 +9,7 @@ import urllib.robotparser
 from functools import lru_cache
 from typing import Optional
 
-_LEIZILLA_AGENT = "leizilla"
+_LEIZILLA_AGENT = "leizilla-crawler"
 
 
 @lru_cache(maxsize=512)
