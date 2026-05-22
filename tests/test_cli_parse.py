@@ -40,22 +40,16 @@ class TestXsdGate:
                 result = _xsd_gate("<lei/>")
         assert result is True
 
-    def test_returns_true_on_xmllint_success(self, tmp_path):
-        schema = tmp_path / "leizilla-v0.1.xsd"
-        schema.write_text("<xs:schema/>")
+    def test_returns_true_on_xmllint_success(self):
         with patch("subprocess.run") as mock_run, \
-             patch.object(Path, "exists", return_value=True), \
-             patch.object(Path, "write_text"), \
-             patch.object(Path, "unlink"):
+             patch.object(Path, "exists", return_value=True):
             mock_run.return_value = MagicMock(returncode=0, stderr="")
             result = _xsd_gate("<lei/>")
         assert result is True
 
-    def test_returns_false_on_xmllint_failure(self, tmp_path):
+    def test_returns_false_on_xmllint_failure(self):
         with patch("subprocess.run") as mock_run, \
-             patch.object(Path, "exists", return_value=True), \
-             patch.object(Path, "write_text"), \
-             patch.object(Path, "unlink"):
+             patch.object(Path, "exists", return_value=True):
             mock_run.return_value = MagicMock(returncode=1, stderr="validation error")
             result = _xsd_gate("<bad/>")
         assert result is False

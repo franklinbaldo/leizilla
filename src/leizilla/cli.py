@@ -2,6 +2,7 @@
 
 import asyncio
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -286,11 +287,15 @@ def _xsd_gate(xml_content: str, warn_prefix: str = "") -> bool:
     if not schema.exists():
         echo(f"{warn_prefix}XSD schema não encontrado — skip validação")
         return True
-    tmp = Path(schema.parent) / "_xsd_gate_tmp.xml"
+    tmp_path: Optional[Path] = None
     try:
-        tmp.write_text(xml_content, encoding="utf-8")
+        with tempfile.NamedTemporaryFile(
+            suffix=".xml", mode="w", encoding="utf-8", delete=False
+        ) as tmp:
+            tmp.write(xml_content)
+            tmp_path = Path(tmp.name)
         result = subprocess.run(
-            ["xmllint", "--schema", str(schema), "--noout", str(tmp)],
+            ["xmllint", "--schema", str(schema), "--noout", str(tmp_path)],
             capture_output=True,
             text=True,
         )
@@ -302,7 +307,8 @@ def _xsd_gate(xml_content: str, warn_prefix: str = "") -> bool:
         echo(f"{warn_prefix}xmllint não disponível — skip validação XSD")
         return True
     finally:
-        tmp.unlink(missing_ok=True)
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 
 @app.command("parse")
@@ -348,7 +354,8 @@ def cmd_parse(
             echo(result.xml)
 
         if upload:
-            _xsd_gate(result.xml)
+            if not _xsd_gate(result.xml):
+                echo("XSD inválido — upload prosseguindo (fail-open)")
             from leizilla.publisher import InternetArchivePublisher
 
             pub = InternetArchivePublisher()
@@ -420,7 +427,8 @@ def cmd_parse_all(
             parsed_ok += 1
 
             if pub:
-                _xsd_gate(result.xml, warn_prefix="  ")
+                if not _xsd_gate(result.xml, warn_prefix="  "):
+                    echo("  upload prosseguindo apesar de XSD inválido (fail-open)")
                 upload_result = pub.upload_parsed(
                     result.ia_id_parsed, result.xml, result.parsed_meta
                 )
