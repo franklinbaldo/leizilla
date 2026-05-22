@@ -5,8 +5,9 @@ Standalone end-to-end test for Leizilla using real Rondônia laws data from pge-
 This test validates the complete pipeline using the actual storage implementation.
 """
 
-from pathlib import Path
+import sys
 import tempfile
+from pathlib import Path
 
 from leizilla.storage import DuckDBStorage
 

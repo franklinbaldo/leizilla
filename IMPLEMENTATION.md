@@ -24,13 +24,14 @@
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
 | **M3.3** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
 | **M3.4** — `parse_law` aceita HTML + `fetch_html` | 🟢 done | cc00676 | `input_type="html"` em `parse_law`; `fetch_html(url)`; prompt adaptado; `_HTML_CHAR_LIMIT=32000`. 35 testes. |
-| **M3.5** — CLI `parse --input-type html` + `fetch_ia_html` | 🟡 in-progress | — | `fetch_ia_html(ia_id)` busca `{ia_id}.html` do IA; `--input-type ocr\|html` em `cmd_parse`; 3 testes novos (TestFetchIaHtml + TestCmdParseUpload). Desbloqueia pipeline federal após M2.7. |
+| **M3.5** — CLI `parse --input-type html` + `fetch_ia_html` | 🟢 done | #35 | `fetch_ia_html(ia_id)` busca `{ia_id}.html` do IA; `--input-type ocr\|html` em `cmd_parse`; 3 testes novos (TestFetchIaHtml + TestCmdParseUpload). Desbloqueia pipeline federal após M2.7. |
 | **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟢 done | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. |
-| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟡 in-progress | #29 | Sobe dataset Parquet para IA; benchmark local §3.4. CI verde; P2 Codex endereçado (ValueError capturado na CLI). Pronto para merge após CI rerun. |
+| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟡 in-progress | #36 | Sobe dataset Parquet para IA; benchmark local §3.4. CI verde; P2 Codex endereçado (ValueError capturado na CLI). Substitui #29 (conflito M3.5). Aguardando CI Kilo. |
 | **M4.3** — benchmark DuckDB-WASM real + gatilhos §3.4 | ⚪ todo | — | Bloqueado por M4.2 merge. |
 | **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. CI verde; P1+P2 Codex endereçados (retry DB init; stale search fix). Pronto para merge após CI rerun. |
 | **M5.2** — TanStack Query + paginação + filtros | ⚪ todo | — | Bloqueado por M5.1 merge. |
-| **M2.7** — Planalto federal HTML pipeline | 🟡 in-progress | #34 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 24 testes. CI Kilo in_progress. |
+| **M2.7** — Planalto federal HTML pipeline | 🟡 in-progress | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 24 testes. Substitui #34 (conflito M3.5). Aguardando CI Kilo. |
+| **M2.8** — `parse-all --input-type html` + chave federal | 🟡 in-progress | — | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. PR desta sessão. |
 | **M6** — GitHub Actions produção | ⚪ todo | — | Depende de M2–M5. |
 | **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
 
@@ -87,6 +88,20 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M2.8: parse-all --input-type html + chave federal
+
+`cmd_parse_all` em `cli.py` extendido para suportar fontes HTML (Planalto federal).
+
+**Mudanças em `cmd_parse_all`**:
+- `--input-type ocr|html` (default `ocr`): controla qual fetch usar por item.
+- Chave routing: `ente == "federal" and fonte == "planalto"` → `{tipo}-{N:05d}`; demais → `coddoc-{N:05d}`. Consistente com `discover_planalto_laws` (M2.7) que usa esse mesmo padrão.
+- `fetch_ia_html(raw_id)` para `input_type == "html"`, `fetch_ocr(raw_id)` para `input_type == "ocr"`. Skip silencioso quando conteúdo ausente em ambos os casos.
+- `parse_law(raw_text, raw_id, ente, model=model, input_type=input_type)` passa `input_type` adiante (M3.4 já suportava).
+- Validação de `input_type` antes do loop; exit 1 imediato se inválido.
+- Removido docstring duplicado (stale de M3.3) que ficou na refatoração M3.5.
+
+**Testes**: 5 novos em `TestCmdParseAll` (html fetch, html skip, federal chave, non-planalto chave, invalid input_type). 319 total (todos passando).
 
 ### 2026-05-22 — M3.5: CLI parse --input-type html + fetch_ia_html
 
@@ -730,15 +745,15 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M4.1 concluídos** ✅ | **M3.5, M4.2, M5.1, M2.7 em PRs abertas**
+**M0–M4.1 concluídos** ✅ | **M3.5 merged** ✅ | **M4.2, M5.1, M2.7, M2.8 em PRs abertas**
 
-**PRs abertas agora** (em decantação — não auto-merge):
-- **#29** M4.2: release-dataset CLI. CI verde (pós-fix P2 ValueError). Aguardando CI rerun + review.
-- **#33** M5.1: Frontend foundation. CI verde (pós-fix P1+P2 retry/stale). Aguardando CI rerun + review.
-- **#34** M2.7: Planalto federal HTML pipeline. Kilo in_progress na última sessão.
-- **M3.5** (branch `claude/cool-cerf-qPCfV`): CLI `parse --input-type html` + `fetch_ia_html`. 314 testes passando. PR desta sessão.
+**PRs abertas agora** (aguardando CI Kilo):
+- **#36** M4.2: release-dataset CLI. Substitui #29. Aguardando Kilo.
+- **#33** M5.1: Frontend foundation. Pós-fix P1+P2 key/workers. Aguardando Kilo.
+- **#37** M2.7: Planalto federal HTML pipeline. Substitui #34. Aguardando Kilo.
+- **M2.8** (branch `claude/cool-cerf-HClng`): `parse-all --input-type html` + chave federal. 319 testes passando. PR desta sessão.
 
-**M4.3** (próximo após #29 mergear):
+**M4.3** (próximo após #36 mergear):
 - Benchmark DuckDB-WASM real contra §3.4 gatilhos.
 - Avisa se file_mb > 100, row_count > 2M, ou full-text latência > 1s.
 
@@ -746,7 +761,3 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 - Integrar TanStack Query para cache + prefetch.
 - Paginação de resultados.
 - Filtro por ente/ano.
-
-**M2.8** (após #34 mergear):
-- `parse-all --input-type html --tipo lei|lcp|decreto` para iterar range federal.
-- Requer ajuste no padrão de chave (federal usa `lei-NNNNN`, não `coddoc-NNNNN`).
