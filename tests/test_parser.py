@@ -112,6 +112,11 @@ class TestIsWellFormed:
     def test_empty_string(self):
         assert parser._is_well_formed("") is False
 
+    def test_non_string_returns_false(self):
+        assert parser._is_well_formed({"key": "value"}) is False  # type: ignore[arg-type]
+        assert parser._is_well_formed(42) is False  # type: ignore[arg-type]
+        assert parser._is_well_formed(None) is False  # type: ignore[arg-type]
+
 
 class TestParseLaw:
     def test_returns_result_on_valid_response(self):

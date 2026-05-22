@@ -134,6 +134,8 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
 
 def _is_well_formed(xml_str: str) -> bool:
     """Check XML well-formedness using stdlib parser."""
+    if not isinstance(xml_str, str):
+        return False
     try:
         ET.fromstring(xml_str)
         return True

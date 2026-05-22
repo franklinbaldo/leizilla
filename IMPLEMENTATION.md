@@ -129,7 +129,6 @@ Implementa a primeira metade de M3 (Etapa 2 do pipeline) independentemente de M2
 - `ia_id_parsed = leizilla-{ente}-{tipo}-{numero:05d}-{ano}` conforme SCHEMA.md §1.3.
 - Prompt com `cache_control: ephemeral` no system prompt para caching do template.
 - `anthropic` adicionado como dep sem constraint de versão (consistente com demais deps).
->>>>>>> 6283031 (feat(M3.1): OCR fetch + LLM parse → Leizilla XML (parser.py))
 
 ### 2026-05-22 — M1: package `src/leizilla/`, rename origem→ente, ADRs, catálogo entes
 
