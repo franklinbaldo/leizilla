@@ -4,7 +4,6 @@ import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from leizilla import wayback
 
@@ -85,9 +84,15 @@ class TestCheckAvailable:
         }
         with patch("urllib.request.urlopen", return_value=_mock_urlopen(data)):
             # max_age de 1h → snapshot de 2h é expirado
-            assert wayback.check_available("https://example.gov.br", max_age_seconds=3600) is None
+            assert (
+                wayback.check_available("https://example.gov.br", max_age_seconds=3600)
+                is None
+            )
             # max_age de 3h → snapshot de 2h é fresco
-            assert wayback.check_available("https://example.gov.br", max_age_seconds=10800) is not None
+            assert (
+                wayback.check_available("https://example.gov.br", max_age_seconds=10800)
+                is not None
+            )
 
 
 class TestSavePage:
@@ -123,13 +128,21 @@ class TestFetchBytes:
         resp.__enter__ = lambda s: s
         resp.__exit__ = MagicMock(return_value=False)
         with patch("urllib.request.urlopen", return_value=resp):
-            result = wayback.fetch_bytes("https://web.archive.org/web/x/https://lei.pdf")
+            result = wayback.fetch_bytes(
+                "https://web.archive.org/web/x/https://lei.pdf"
+            )
         assert result == b"%PDF-1.4 binary content"
 
     def test_returns_none_on_error(self):
         with patch("urllib.request.urlopen", side_effect=OSError("404")):
-            assert wayback.fetch_bytes("https://web.archive.org/web/x/https://lei.pdf") is None
+            assert (
+                wayback.fetch_bytes("https://web.archive.org/web/x/https://lei.pdf")
+                is None
+            )
 
     def test_returns_none_on_timeout(self):
         with patch("urllib.request.urlopen", side_effect=TimeoutError()):
-            assert wayback.fetch_bytes("https://web.archive.org/web/x/https://lei.pdf") is None
+            assert (
+                wayback.fetch_bytes("https://web.archive.org/web/x/https://lei.pdf")
+                is None
+            )

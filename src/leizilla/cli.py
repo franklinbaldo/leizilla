@@ -166,7 +166,9 @@ def cmd_scrape(
 ) -> None:
     """Scrape leis: discover → robots → wayback → upload_raw para IA."""
     if tipo != "lei" and fonte != "casacivil":
-        echo(f"--tipo só é válido com --fonte casacivil (recebido: --tipo {tipo} --fonte {fonte})")
+        echo(
+            f"--tipo só é válido com --fonte casacivil (recebido: --tipo {tipo} --fonte {fonte})"
+        )
         raise typer.Exit(1)
 
     echo(f"Scraping {ente}/{fonte} {start_coddoc}–{end_coddoc}")
@@ -295,6 +297,44 @@ def cmd_release_dataset(
         echo(f"Dataset publicado: {result['ia_url']} ({result.get('row_count', '?')} linhas)")
     else:
         echo(f"Upload falhou: {result.get('error', 'erro desconhecido')}")
+
+
+@app.command("consolidate")
+def cmd_consolidate(
+    xml_dir: Path = typer.Argument(..., help="Diretório com arquivos {lei_id}.xml"),
+    output: Path = typer.Option(..., "--output", help="Arquivo Parquet de saída"),
+    ente: str = typer.Option("ro", "--ente", help="Ente federativo"),
+) -> None:
+    """Consolidar XMLs Leizilla em Parquet v0.1 (tabela versoes)."""
+    from leizilla.etl import consolidate_xmls, write_parquet
+
+    xml_files = sorted(xml_dir.glob("*.xml"))
+    if not xml_files:
+        echo(f"Nenhum arquivo .xml encontrado em {xml_dir}")
+        raise typer.Exit(1)
+
+    items = []
+    read_errors = 0
+    for f in xml_files:
+        lei_id = f.stem
+        try:
+            xml_content = f.read_text(encoding="utf-8")
+            items.append((lei_id, ente, xml_content))
+        except OSError as e:
+            echo(f"  Erro ao ler {f.name}: {e}")
+            read_errors += 1
+
+    if not items:
+        echo("Nenhum XML pôde ser lido.")
+        raise typer.Exit(1)
+
+    if read_errors:
+        echo(f"  Aviso: {read_errors}/{len(xml_files)} arquivo(s) ignorado(s) por erro de leitura.")
+    rows = consolidate_xmls(items)
+    echo(f"Convertidos {len(items)}/{len(xml_files)} XMLs → {len(rows)} linhas")
+    write_parquet(rows, output)
+    echo(f"Parquet escrito em {output}")
+    if read_errors:
         raise typer.Exit(1)
 
 
@@ -416,7 +456,9 @@ def cmd_parse(
     output: Optional[Path] = typer.Option(
         None, help="Salvar XML em arquivo (default: stdout)"
     ),
-    upload: bool = typer.Option(False, "--upload/--no-upload", help="Upload para IA após parse"),
+    upload: bool = typer.Option(
+        False, "--upload/--no-upload", help="Upload para IA após parse"
+    ),
 ) -> None:
     """Parsear OCR de raw IA item → Leizilla XML via LLM (Etapa 2)."""
     try:
@@ -463,7 +505,9 @@ def cmd_parse(
             if upload_result["success"]:
                 echo(f"Uploaded: {upload_result['ia_url']}")
             else:
-                echo(f"Upload falhou: {upload_result.get('error', 'erro desconhecido')}")
+                echo(
+                    f"Upload falhou: {upload_result.get('error', 'erro desconhecido')}"
+                )
                 raise typer.Exit(1)
     except typer.Exit:
         raise
@@ -482,7 +526,9 @@ def cmd_parse_all(
     start_coddoc: int = typer.Option(1, help="Primeiro coddoc"),
     end_coddoc: int = typer.Option(100, help="Último coddoc"),
     model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
-    upload: bool = typer.Option(True, "--upload/--no-upload", help="Upload para IA após parse"),
+    upload: bool = typer.Option(
+        True, "--upload/--no-upload", help="Upload para IA após parse"
+    ),
     limit: Optional[int] = typer.Option(None, help="Máx de itens a processar"),
 ) -> None:
     """Batch parse: coddoc range → OCR → LLM → (upload para IA).
@@ -525,9 +571,7 @@ def cmd_parse_all(
                 parsed_fail += 1
                 continue
 
-            echo(
-                f"  OK confiança={result.confidence:.2f} → {result.ia_id_parsed}"
-            )
+            echo(f"  OK confiança={result.confidence:.2f} → {result.ia_id_parsed}")
             parsed_ok += 1
 
             if pub:
