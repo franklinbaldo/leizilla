@@ -23,6 +23,7 @@
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
 | **M3.3** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
+| **M3.4** — `parse_law` aceita HTML + `fetch_html` | 🟡 in-progress | — | `input_type="html"` em `parse_law`; `fetch_html(url)`; prompt adaptado; `_HTML_CHAR_LIMIT=32000`. Desbloqueia scraping federal (Planalto). 33 testes. |
 | **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟡 in-progress | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. Aguardando CI + merge. |
 | **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟡 in-progress | #29 | Sobe dataset Parquet para IA; benchmark local §3.4. Aguardando merge de #28 primeiro. |
 | **M4.3** — benchmark DuckDB-WASM real + gatilhos §3.4 | ⚪ todo | — | Bloqueado por M4.1+M4.2. |
@@ -84,6 +85,29 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-05-22 — M3.4: parse_law aceita HTML além de OCR
+
+`parse_law` recebe novo parâmetro `input_type: str = "ocr"` (padrão retrocompatível).
+`fetch_html(url)` adicionado — análogo a `fetch_ocr`, mas recebe URL direta em vez de ia_id.
+
+**Por que**: Planalto (fonte canônica federal) serve HTML, não PDF. Pipeline M3 existente
+(`fetch_ocr` → IA `_djvu.txt`) não se aplica a HTML. Solução mínima: aceitar HTML como
+texto de entrada em `parse_law` com prompt ligeiramente diferente e limite de caracteres maior.
+
+**Mudanças em parser.py**:
+- `_SYSTEM_INTRO_OCR` / `_SYSTEM_INTRO_HTML`: constantes de introdução de prompt distintas.
+- `_HTML_CHAR_LIMIT = 32000` (vs `_OCR_CHAR_LIMIT = 8000`): HTML tem overhead de markup.
+- `parse_method` em `parsed_meta` agora é `f"{model}+{input_type}"`.
+- `ValueError` levantado para `input_type` desconhecido — evita `parse_method` corrompido
+  por typo (ex: `'haiku+htlm'`). Fix post-review (P2 codex).
+- `except Exception` → `(urllib.error.URLError, OSError)` em `fetch_html`. urllib levanta
+  `HTTPError` (subclasse de `URLError`) para 4xx/5xx; check explícito de status é redundante.
+
+**Testes**: 35 testes em `tests/test_parser.py` (33 iniciais + 2 do fix post-review).
+
+**Não feito aqui**: integração na CLI `parse` com `--input-type html` fica quando federal
+scraping for implementado (não há consumidor ainda).
+
 ### 2026-05-22 — M4.1: ETL XML→Parquet via DuckDB read_json_auto
 
 `etl.py` implementa a transformação Leizilla XML v0.1 → tabela `versoes` (§3.1 SCHEMA.md).
@@ -99,7 +123,7 @@ Toda decisão importante recebe entrada aqui com data. Não delete entradas — 
   preferível a acoplamento implícito agora.
 - `path_to_tipo` exportada públicamente — será usada por CLI `consolidate` e frontend.
 - `consolidate` CLI aceita diretório de `{lei_id}.xml` — padrão de saída do `parse --output`.
-- 58 testes cobrem todas as fixtures (simple, alterações, revogações, blocos, parcial).
+- 76 testes cobrem todas as fixtures + fixes P1/P2 (lei revogada, cascata, xs:date, fallback ID).
 
 ### 2026-05-22 — M2 restante: fontes SP e federal — stubs com mapeamento de portais
 

@@ -9,6 +9,7 @@ Princípio load-bearing #3: Etapa 2 pluggable; model é parâmetro.
 
 import json
 import math
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ _OCR_URL = "https://archive.org/download/{ia_id}/{ia_id}_djvu.txt"
 _USER_AGENT = "leizilla-crawler/0.1"
 _MIN_CONFIDENCE = 0.5
 _OCR_CHAR_LIMIT = 8000
+_HTML_CHAR_LIMIT = 32000  # HTML has markup overhead; more chars needed
 
 # URN local name per ente code (CGPID §5.6)
 _ENTE_URN: Dict[str, str] = {
@@ -35,8 +37,17 @@ _ENTE_URN: Dict[str, str] = {
     "federal": "federal",
 }
 
+_SYSTEM_INTRO_OCR = (
+    "Parse Brazilian law OCR text into a JSON object."
+)
+_SYSTEM_INTRO_HTML = (
+    "Parse Brazilian law HTML page into a JSON object. "
+    "Ignore navigation bars, headers, footers, and script elements; "
+    "extract only the normative text (ementa, artigos, parágrafos, incisos)."
+)
+
 _SYSTEM = """\
-Parse Brazilian law OCR text into a JSON object. Output ONLY valid JSON — no markdown fences, no explanation.
+{input_intro} Output ONLY valid JSON — no markdown fences, no explanation.
 
 Required fields:
 - "xml": complete Leizilla XML v0.1 string (see format below)
@@ -107,6 +118,23 @@ def fetch_ocr(ia_id: str, timeout: int = 30) -> Optional[str]:
         return None
 
 
+def fetch_html(url: str, timeout: int = 30) -> Optional[str]:
+    """Fetch HTML content from an official law portal. Returns None on failure.
+
+    Used for sources like Planalto that publish HTML, not PDF (M3.4).
+    Caller is responsible for rate-limiting and robots.txt (same as fetch_ocr).
+    urllib raises HTTPError (subclass of URLError) for non-2xx responses,
+    so no explicit status-code check is needed.
+    """
+    try:
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent", _USER_AGENT)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
 def _extract_json(text: str) -> Optional[Dict[str, Any]]:
     """Extract JSON from LLM response, handling wrapped or embedded JSON.
 
@@ -148,8 +176,16 @@ def parse_law(
     ia_id: str,
     ente: str,
     model: str = _HAIKU,
+    input_type: str = "ocr",
 ) -> Optional[ParseResult]:
-    """Parse OCR text → Leizilla XML via Claude.
+    """Parse law text → Leizilla XML via Claude.
+
+    Args:
+        ocr_text: Source text — OCR text from IA (_djvu.txt) or raw HTML.
+        ia_id: IA raw item ID (for ocr) or source identifier (for html).
+        ente: Federative entity code (ro, sp, federal, …).
+        model: Claude model ID.
+        input_type: "ocr" (default) or "html". Adjusts prompt and char limit.
 
     Returns None when confidence < _MIN_CONFIDENCE or output is malformed.
     Raises RuntimeError when ANTHROPIC_API_KEY is not configured.
@@ -158,9 +194,23 @@ def parse_law(
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not configured")
 
+    if input_type not in ("ocr", "html"):
+        raise ValueError(f"input_type deve ser 'ocr' ou 'html', got {input_type!r}")
+
+    if input_type == "html":
+        char_limit = _HTML_CHAR_LIMIT
+        input_intro = _SYSTEM_INTRO_HTML
+        user_prefix = f"Parse this law HTML page (ente={ente}, url={ia_id})"
+    else:
+        char_limit = _OCR_CHAR_LIMIT
+        input_intro = _SYSTEM_INTRO_OCR
+        user_prefix = f"Parse this law OCR text (ente={ente}, raw-id={ia_id})"
+
     today = date.today().isoformat()
     ente_name = _ENTE_URN.get(ente, ente)
-    system = _SYSTEM.format(today=today, ia_id=ia_id, ente_name=ente_name)
+    system = _SYSTEM.format(
+        input_intro=input_intro, today=today, ia_id=ia_id, ente_name=ente_name
+    )
 
     client = anthropic.Anthropic(api_key=api_key)
     message = client.messages.create(
@@ -176,10 +226,7 @@ def parse_law(
         messages=[
             {
                 "role": "user",
-                "content": (
-                    f"Parse this law OCR text (ente={ente}, raw-id={ia_id}):\n\n"
-                    f"{ocr_text[:_OCR_CHAR_LIMIT]}"
-                ),
+                "content": f"{user_prefix}:\n\n{ocr_text[:char_limit]}",
             }
         ],
     )
@@ -223,7 +270,7 @@ def parse_law(
         "ia_id_parsed": ia_id_parsed,
         "ente": ente,
         "tipo": tipo,
-        "parse_method": model,
+        "parse_method": f"{model}+{input_type}",
         "confianca_parse_global": confidence,
         "parse_timestamp": datetime.now(tz=timezone.utc).isoformat(),
         "fontes_consultadas": [ia_id],
