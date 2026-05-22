@@ -130,9 +130,10 @@ def cmd_upload(
                 pdf_path = Path(law["local_pdf_path"])
                 if not pdf_path.exists():
                     continue
-                result = publisher.upload_pdf(pdf_path, law)
+                pdf_bytes = pdf_path.read_bytes()
+                result = publisher.upload_raw(pdf_path, law, pdf_bytes, fetched_from="source-fallback")
                 if result.get("success"):
-                    db.update_lei(law["id"], {"url_pdf_ia": result["url"]})
+                    db.update_lei(law["id"], {"url_pdf_ia": result["ia_url"]})
                     uploaded += 1
                     echo(f"  Upload: {law.get('titulo', 'N/A')}")
                 else:

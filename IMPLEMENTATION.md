@@ -12,8 +12,9 @@
 | **M0.2a** — Schema v1 (tentativa) | 🔴 superseded | #7 | XSD `header` + `rotulo` + `<bloco-livre>` + etc. Substituído pelo redesign first-principles. Fica como referência histórica. |
 | **M0.2b** — Redesign first-principles | 🟢 done | #8 #9 #10 #12 | SCHEMA.md reescrito + XSD enxuto + 6 fixtures + consistency checker + CI wire + XSLT Leizilla→LexML validado contra XSD oficial bundled (PRs #8-#12 merged). |
 | **M0.3** — URN canônica + close pendentes §8 | 🟢 done | #13 | URN LEX contra spec CGPID 2008 oficial; política re-scrape; robots.txt princípio. 3 pendentes deferidos para M2/M4. |
-| **M1** — Foundation (package + ADRs + entes + fontes) | 🟡 in-progress | TBD | Package `src/leizilla/`; ADRs 0004–0009; rename `origem→ente`; `entes.py`; `fontes/ro.py`. |
-| M2 — Crawler real + Raw upload | ⚪ todo | — | Bloqueado por M1 |
+| **M1** — Foundation (package + ADRs + entes + fontes) | 🟡 in-progress | #14 | Package `src/leizilla/`; ADRs 0004–0009; rename `origem→ente`; `entes.py`; `fontes/ro.py`. |
+| **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟡 in-progress | TBD | `wayback.py` (check_available/save_page/fetch_bytes) + `robots.py` (is_allowed, lru_cache) + `publisher.build_raw_meta` + `raw_meta.json` sidecar. Stacked em cima de M1. |
+| M2 — Crawler real + Raw upload (restante) | ⚪ todo | — | Bloqueado por M1+M2.1. Próximo: `scrape` CLI, integração wayback→upload no pipeline. |
 | M3 — OCR fetch + LLM parse + Leizilla XML | ⚪ todo | — | Bloqueado por M2 |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
@@ -97,6 +98,31 @@ dados de teste atualizados para usar `ente` em vez de `origem`.
 
 PR #3 fechada com explicação: abordagem connector-based de 2025-07-01 superseded
 pelos pivôs arquiteturais de 2026-05 (PRs #6–#13).
+
+### 2026-05-22 — M2.1: Wayback client + robots.txt + publisher sidecar
+
+Primeira sub-tarefa de M2. Stacked em cima de M1 (PR #14, ainda não merged).
+
+**wayback.py**: três funções puras com stdlib só (sem deps novas):
+- `check_available(url)` → snapshot Wayback fresco (< 24h) ou None. Fail-open.
+- `save_page(url)` → dispara POST/GET para `web.archive.org/save/`. Fail-open.
+- `fetch_bytes(url)` → baixa bytes de qualquer URL (Wayback ou direto). Fail-open.
+
+**robots.py**: `is_allowed(url)` com `lru_cache` por `robots.txt` URL. Rejeição
+permanente conforme princípio #10 (callers NÃO devem retry URL bloqueada).
+Fail-open: sem robots.txt = acesso permitido.
+
+**publisher.py** atualizado: funções de construção de identifiers extraídas como
+`_raw_identifier(ente, fonte, chave)` e `_bundle_identifier(ente, fonte, dt)`.
+`build_raw_meta()` constrói `raw_meta.json` conforme SCHEMA.md §2.1 (hash_pdf,
+provenance_wayback, fetched_from, ia_id_bundle). `upload_raw()` substitui
+`upload_pdf()` — envia PDF + sidecar no mesmo IA item.
+
+**Decisão sobre deps**: stdlib apenas (urllib.request + urllib.robotparser).
+Evita depender de `httpx` ou `requests` enquanto M2 não define se o crawler
+é sync ou async (Playwright vs. simples). Revisitar em M2 restante.
+
+**Testes**: 34 novos (mock HTTP puro, sem rede). 132 total passam.
 
 ### 2026-05-21 — Fecha M0: URN LEX canônica + política re-scrape + robots.txt princípio
 
