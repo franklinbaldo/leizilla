@@ -16,15 +16,15 @@
 | **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟢 done | #15 | `wayback.py` + `robots.py` + `publisher.upload_raw` + PDF renomeado para {ia_id}.pdf. 34 testes. |
 | **M2.2** — scraper.py + `scrape` CLI + fix ids no crawler | 🟢 done | #18 | `scraper.scrape_one()` orquestra robots→wayback→fetch→upload_raw. CLI `scrape` para assembleia/RO. 10 testes. |
 | **M2.3** — CI workflow + `internetarchive` dep | 🟢 done | #20 | `rondonia_crawler.yml` atualizado para `uv run leizilla scrape`. `internetarchive` em pyproject.toml. |
-| **M2.4** — Rate-limit por host | 🟡 in-progress | #25 | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
-| **M2.5** — casacivil discovery | 🟡 in-progress | TBD | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. |
+| **M2.4** — Rate-limit por host | 🟢 done | 66aa4ac | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
+| **M2.5** — casacivil discovery | 🟢 done | #27 | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. |
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
-| **M3 restante** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
-| **M2.4** — Rate-limit por host | 🟢 done | 66aa4ac | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
-| **M2.5** — casacivil discovery | 🟡 in-progress | #26 | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. |
-| M2 restante — outros entes (sp, federal) | ⚪ todo | — | fontes/{sp,federal}.py. Depende de M2.4+M2.5. |
-| M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
+| **M3 restante** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint; `parse-all` itera range coddoc. 15 testes. |
+| **M4.1** — ETL XML→Parquet (`etl.py`) | 🟡 in-progress | #28 | `xml_to_rows` + `consolidate_xmls` + `write_parquet` + CLI `consolidate`. 64 testes (inclui fix P1 ate-inference lei revogada). |
+| **M4.2** — `release-dataset` + `upload_dataset` | 🟡 in-progress | TBD | `publisher.upload_dataset` + CLI `release-dataset` + benchmark gatilhos §3.4. 18 testes. |
+| M2 restante — outros entes (sp, federal) | ⚪ todo | — | fontes/{sp,federal}.py. Depende de M2.4+M2.5 (ambos done). |
+| M4 restante — benchmark DuckDB-WASM | ⚪ todo | — | Medição dos 5 gatilhos §3.4 com dados reais em M5. |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
 | M6 — GitHub Actions | ⚪ todo | — | Depende de M2–M5 |
 | M7 — Claude Code routines | ⚪ todo | — | Depende de M6 |
@@ -82,6 +82,34 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M4.2: release-dataset + upload_dataset (sem PyArrow)
+
+`publisher.upload_dataset(parquet_path, ente, version, row_count, git_sha)` + CLI
+`leizilla release-dataset <parquet> --ente ro --version 0 [--dry-run]`.
+
+**Identifier**: `leizilla-dataset-{ente}-v{version}` (SCHEMA.md §3.5). Para RO pré-M5:
+`leizilla-dataset-ro-v0`.
+
+**Sidecar JSON em vez de KV footer no Parquet**: `dataset_meta.json` carrega as
+colunas que §3.3 diz que deveriam ir no KV footer do Parquet (row_count, hash,
+schema_version, git_sha). PyArrow não é dep explícita (decisão de M4.1); DuckDB
+`COPY ... (KV_METADATA ...)` não existe na API pública até 1.3. Sidecar JSON tem
+custo zero e dados equivalentes — se o KV footer se tornar relevante em M5, migra
+com um script de reescrita.
+
+**Benchmark gatilhos §3.4** embutido no CLI `release-dataset`: mede file size,
+row_count e latência de busca full-text local com DuckDB Python (não DuckDB-WASM).
+É uma aproximação — o benchmark canônico (DuckDB-WASM no browser) vai em M5 com o
+frontend. Mas já avisa quando algum limiar é atingido para não chegar em M5 de surpresa.
+
+**`build_dataset_meta` é função pública** (análoga a `build_raw_meta`): permite testar
+a estrutura do JSON sem simular o upload inteiro.
+
+**`_get_git_sha()`**: subprocess fail-open (git ausente, timeout, repo vazio → None).
+Não aborta o upload por ausência de git.
+
+18 testes em `tests/test_publisher_dataset.py` (duckdb + mocks).
 
 ### 2026-05-22 — M2.5: casacivil discovery via enumeração direta (sem Playwright)
 
