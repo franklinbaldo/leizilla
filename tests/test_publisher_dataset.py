@@ -260,3 +260,80 @@ class TestReleaseDatasetCli:
             result = _runner.invoke(app, ["release-dataset", str(p), "--ente", "RO"])
         assert result.exit_code == 1
         assert "Upload falhou" in result.output
+
+
+class TestReleaseDatasetBenchmark:
+    """Testa benchmark gatilhos §3.4 no cmd_release_dataset (M4.3)."""
+
+    def test_dry_run_reports_stats_line(self, tmp_path: Path) -> None:
+        p = _make_parquet(tmp_path)
+        result = _runner.invoke(app, ["release-dataset", str(p), "--dry-run"])
+        assert result.exit_code == 0
+        assert "Stats:" in result.output
+        assert "linhas" in result.output
+        assert "MB" in result.output
+        assert "ms" in result.output
+
+    def test_no_gatilho_warning_for_small_dataset(self, tmp_path: Path) -> None:
+        p = _make_parquet(tmp_path)
+        result = _runner.invoke(app, ["release-dataset", str(p), "--dry-run"])
+        assert result.exit_code == 0
+        assert "Gatilhos" not in result.output
+
+    def _mock_conn(self, row_count: int) -> MagicMock:
+        """Mock duckdb.connect() para controlar row_count e retorno de search."""
+        mock_conn = MagicMock()
+        count_res = MagicMock()
+        count_res.fetchone.return_value = (row_count,)
+        search_res = MagicMock()
+        search_res.fetchall.return_value = []
+        mock_conn.execute.side_effect = [count_res, search_res]
+        return mock_conn
+
+    def test_row_count_threshold_warning(self, tmp_path: Path) -> None:
+        p = _make_parquet(tmp_path)
+        with patch("duckdb.connect", return_value=self._mock_conn(2_000_001)):
+            result = _runner.invoke(app, ["release-dataset", str(p), "--dry-run"])
+        assert "rows > 2M" in result.output
+        assert "Gatilhos §3.4" in result.output
+
+    def test_search_latency_threshold_warning(self, tmp_path: Path) -> None:
+        p = _make_parquet(tmp_path)
+        # perf_counter: t0=0.0, t1=1.5 → search_ms = 1500 > 1000
+        with patch("time.perf_counter", side_effect=[0.0, 1.5]):
+            result = _runner.invoke(app, ["release-dataset", str(p), "--dry-run"])
+        assert "search > 1s" in result.output
+        assert "Gatilhos §3.4" in result.output
+
+    def test_file_size_threshold_warning(self, tmp_path: Path) -> None:
+        p = _make_parquet(tmp_path)
+        mock_stat = MagicMock()
+        mock_stat.st_size = 101 * 1_048_576  # 101 MB
+        original_stat = Path.stat
+
+        def patched_stat(self: Path, *args: object, **kwargs: object) -> object:
+            if self == p:
+                return mock_stat
+            return original_stat(self, *args, **kwargs)
+
+        with patch.object(Path, "stat", patched_stat):
+            result = _runner.invoke(app, ["release-dataset", str(p), "--dry-run"])
+        assert "file > 100 MB" in result.output
+        assert "Gatilhos §3.4" in result.output
+
+    def test_two_gatilhos_triggers_rfc_message(self, tmp_path: Path) -> None:
+        p = _make_parquet(tmp_path)
+        mock_stat = MagicMock()
+        mock_stat.st_size = 101 * 1_048_576
+        original_stat = Path.stat
+
+        def patched_stat(self: Path, *args: object, **kwargs: object) -> object:
+            if self == p:
+                return mock_stat
+            return original_stat(self, *args, **kwargs)
+
+        with patch("duckdb.connect", return_value=self._mock_conn(2_000_001)), \
+             patch.object(Path, "stat", patched_stat):
+            result = _runner.invoke(app, ["release-dataset", str(p), "--dry-run"])
+        assert "RFC sobre split" in result.output
+        assert "2+" in result.output

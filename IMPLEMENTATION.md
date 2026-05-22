@@ -32,7 +32,7 @@
 | **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. httpfs fix pushed; Kilo in_progress. |
 | **M5.2** — TanStack Query + paginação + filtros | ⚪ todo | — | Bloqueado por M5.1 merge. |
 | **M2.7** — Planalto federal HTML pipeline | 🟢 done | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 30 testes. URLs legadas (pré-2002); year-scoped em M2.8. Merged. |
-| **M2.8** — `parse-all --input-type html` + chave federal | 🟡 in-progress | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto. 5 novos testes. CI queued. |
+| **M2.8** — `parse-all --input-type html` + chave federal | 🟡 in-progress | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. CI verde (Kilo+GitGuardian ✅). |
 | **M6** — GitHub Actions produção | ⚪ todo | — | Depende de M2–M5. |
 | **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
 
@@ -90,6 +90,25 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-05-22 — M4.3: benchmark gatilhos §3.4 — local approximation é o deliverable M4
+
+**Auditoria pós-M4.2**: o benchmark já estava implementado em `cmd_release_dataset`
+(DuckDB Python local). O que faltava era cobertura de testes para os três gatilhos.
+
+**6 testes em `TestReleaseDatasetBenchmark`** cobrem:
+- `dry_run_reports_stats_line`: stats linha presente no output
+- `no_gatilho_warning_for_small_dataset`: sem warning abaixo dos limites
+- `row_count_threshold_warning`: 2_000_001 linhas → "rows > 2M" + "Gatilhos §3.4"
+- `search_latency_threshold_warning`: 1.5s → "search > 1s"
+- `file_size_threshold_warning`: 101 MB → "file > 100 MB"
+- `two_gatilhos_triggers_rfc_message`: 2+ gatilhos → "RFC sobre split"
+
+**"DuckDB-WASM real" em M5.2**: o benchmark in-browser requer frontend deployado
+(M5.1) e dataset com dados reais. A aproximação Python-local é suficiente para M4 —
+se thresholds forem excedidos, o CI em M5 sinalizará. Sem blocking para M5.1.
+
+**M4.3 encerra como done.** Próximos: M5.1 (#33) → M5.2 → benchmark WASM real.
+
 ### 2026-05-22 — M5.1: Frontend foundation — Astro 4 + Svelte 5 + DuckDB-WASM 1.32
 
 **Stack efetiva** (vs. IMPLEMENTATION.md planning targets em parênteses):
@@ -115,7 +134,6 @@ FTS ou embeddings ficam para M5.2+.
 **Decisão adiada**: `@tanstack/svelte-query` instalado mas não usado no componente
 inicial — busca simples com `$state` é suficiente para MVP. Integrar TanStack Query
 em M5.2 quando cache/invalidação/retry ficarem relevantes.
-
 
 ### 2026-05-22 — M2.7: Planalto federal HTML pipeline (desbloqueado pelo M3.4)
 
