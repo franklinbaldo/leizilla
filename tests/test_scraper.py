@@ -102,11 +102,13 @@ class TestScrapeOne:
     @patch("leizilla.scraper.wayback.fetch_bytes", return_value=_PDF_BYTES)
     @patch("leizilla.scraper.wayback.save_page", return_value=False)
     @patch("leizilla.scraper.robots.is_allowed", return_value=True)
-    def test_rate_limiter_called_on_fallback(self, _r: Any, _s: Any, _f: Any, _c: Any) -> None:
+    def test_rate_limiter_called_with_pdf_url_on_fallback(
+        self, _r: Any, _s: Any, _f: Any, _c: Any
+    ) -> None:
         pub = _make_publisher()
         rate_mock = MagicMock()
         scrape_one(_FONTE_URL, _PDF_URL, _LEI, pub, rate_limiter=rate_mock)
-        rate_mock.assert_called_once()
+        rate_mock.assert_called_once_with(_PDF_URL)
 
 
 class TestMakeRateLimiter:
@@ -116,5 +118,27 @@ class TestMakeRateLimiter:
 
     def test_callable_runs_without_error(self) -> None:
         limiter = make_rate_limiter(0.0)
-        limiter()
-        limiter()
+        limiter("https://host-a.gov.br/doc.pdf")
+        limiter("https://host-a.gov.br/doc2.pdf")
+
+    def test_different_hosts_independent(self) -> None:
+        """Hosts distintos não bloqueiam uns aos outros."""
+        import time
+
+        limiter = make_rate_limiter(min_interval=60.0)  # intervalo longo
+        t0 = time.monotonic()
+        limiter("https://host-a.gov.br/doc.pdf")
+        limiter("https://host-b.gov.br/doc.pdf")  # host diferente — não deve sleep
+        elapsed = time.monotonic() - t0
+        assert elapsed < 5.0, f"Hosts distintos serializaram indevidamente ({elapsed:.2f}s)"
+
+    def test_same_host_respects_interval(self) -> None:
+        """Mesmo host é rate-limitado corretamente."""
+        import time
+
+        limiter = make_rate_limiter(min_interval=0.05)
+        t0 = time.monotonic()
+        limiter("https://host-a.gov.br/doc1.pdf")
+        limiter("https://host-a.gov.br/doc2.pdf")  # mesmo host → deve aguardar
+        elapsed = time.monotonic() - t0
+        assert elapsed >= 0.04, f"Rate limit não respeitado ({elapsed:.3f}s)"
