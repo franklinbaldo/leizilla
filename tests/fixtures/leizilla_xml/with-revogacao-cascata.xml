@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture: revogação de dispositivo pai com cascata implícita para filhos.
+
+  Cobre:
+  - <revogacao> no dispositivo pai sem <revogacao> explícita nos filhos.
+  - Filhos devem herdar ate = revogacao_em do pai (§0.3 SCHEMA.md).
+  - Dispositivo irmão não revogado deve manter ate=None.
+  - Revogação de avô cascateia para neto (aninhamento 2 níveis).
+
+  Ordem XSD: versao+ → dispositivo* → revogacao? (xs:sequence em DispositivoType).
+-->
+<lei xmlns="https://leizilla.org/lei/0.1"
+     schema-version="0.1"
+     urn-lex="urn:lex:br;rondonia:estadual:lei:2000-01-15;700"
+     vigente-em="2026-05-20">
+
+  <dispositivo path="art-10">
+    <versao>
+      <texto>O regime especial de que trata esta Lei aplica-se ao programa descrito nos parágrafos seguintes.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00700"/>
+    </versao>
+    <dispositivo path="art-10-par-1">
+      <versao>
+        <texto>Para efeitos deste artigo, entende-se por regime especial o conjunto de normas previstas nos incisos a seguir.</texto>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00700"/>
+      </versao>
+      <dispositivo path="art-10-par-1-inc-1">
+        <versao>
+          <texto>Inciso I do parágrafo primeiro.</texto>
+          <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00700"/>
+        </versao>
+      </dispositivo>
+    </dispositivo>
+    <dispositivo path="art-10-par-2">
+      <versao>
+        <texto>Aplica-se o regime especial nas hipóteses definidas em regulamento.</texto>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00700"/>
+      </versao>
+    </dispositivo>
+    <revogacao em="2015-03-01" tipo="expressa"
+               por="urn:lex:br;rondonia:estadual:lei:2015-03-01;3500">
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-03500"/>
+    </revogacao>
+  </dispositivo>
+
+  <dispositivo path="art-11">
+    <versao>
+      <texto>Este artigo permanece vigente e não é afetado pela revogação do art. 10.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00700"/>
+    </versao>
+  </dispositivo>
+
+</lei>

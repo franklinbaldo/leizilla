@@ -84,6 +84,23 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-05-22 — M4.1: ETL XML→Parquet via DuckDB read_json_auto
+
+`etl.py` implementa a transformação Leizilla XML v0.1 → tabela `versoes` (§3.1 SCHEMA.md).
+
+**Decisões de design**:
+- `xml_to_rows(xml_content, lei_id, ente)` é função pura (sem I/O). Parses Leizilla XML em
+  lista de dicts prontos para Parquet. `lei_id` vem do caller (nome do arquivo ou IA item ID).
+- `write_parquet` usa DuckDB `read_json_auto` via temp NDJSON file. PyArrow não é dependência
+  explícita; DuckDB 1.3.1 não expõe `from_dict` na connection API. NDJSON é simples e correto.
+- Datas serializam para ISO strings no JSON; DuckDB auto-infere `DATE` em `read_json_auto`.
+- Token map duplicado de `check_schema_consistency.py` — ambos apontam para §4.2 SCHEMA.md.
+  Candidato a extração futura para `leizilla.schema_tokens`, mas duplicação explícita é
+  preferível a acoplamento implícito agora.
+- `path_to_tipo` exportada públicamente — será usada por CLI `consolidate` e frontend.
+- `consolidate` CLI aceita diretório de `{lei_id}.xml` — padrão de saída do `parse --output`.
+- 58 testes cobrem todas as fixtures (simple, alterações, revogações, blocos, parcial).
+
 ### 2026-05-22 — M2 restante: fontes SP e federal — stubs com mapeamento de portais
 
 `fontes/sp.py` e `fontes/federal.py` criados como stubs declarativos (análogos a `fontes/ro.py`) com URLs de portais, notas de acesso, e `FONTE_CANONICA`.
