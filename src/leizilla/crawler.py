@@ -35,6 +35,13 @@ def discover_casacivil_laws(
     if tipo not in ("lei", "lc"):
         raise ValueError(f"tipo deve ser 'lei' ou 'lc', recebeu '{tipo}'")
 
+    if start_num > end_num:
+        logging.getLogger(__name__).warning(
+            "discover_casacivil_laws: start_num=%d > end_num=%d — range vazio",
+            start_num,
+            end_num,
+        )
+
     prefix = "L" if tipo == "lei" else "LC"
     nome = "Lei Complementar" if tipo == "lc" else "Lei"
     laws: List[Dict[str, Any]] = []
