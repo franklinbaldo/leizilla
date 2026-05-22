@@ -16,10 +16,11 @@
 | **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟢 done | #15 | `wayback.py` + `robots.py` + `publisher.upload_raw` + PDF renomeado para {ia_id}.pdf. 34 testes. |
 | **M2.2** — scraper.py + `scrape` CLI + fix ids no crawler | 🟢 done | #18 | `scraper.scrape_one()` orquestra robots→wayback→fetch→upload_raw. CLI `scrape` para assembleia/RO. 10 testes. |
 | **M2.3** — CI workflow + `internetarchive` dep | 🟢 done | #20 | `rondonia_crawler.yml` atualizado para `uv run leizilla scrape`. `internetarchive` em pyproject.toml. |
-| **M3.1** — OCR fetch + LLM parse → parser.py | 🟡 in-progress | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
-| **M3.2** — publisher.upload_parsed() | 🟡 in-progress | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
-| M3 restante — `parse --upload` + `parse-all` batch | ⚪ todo | — | Bloqueado por #17+#19. CLI `parse --upload` integra parser→publisher. `parse-all` itera raw items sem parsed_meta. |
-| M2 restante — casacivil discovery + outros entes | ⚪ todo | — | casacivil.ro.gov.br (padrão de URL a auditar); fontes/{sp,federal}.py. Rate-limit por host. |
+| **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
+| **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
+| **M3 restante** — `parse --upload` + XSD gate + `parse-all` batch | 🟡 in-progress | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 18 testes. |
+| **M2.4** — Rate-limit por host | 🟡 in-progress | TBD | `make_rate_limiter` por host: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
+| M2 restante — casacivil discovery + outros entes | ⚪ todo | — | casacivil.ro.gov.br (padrão de URL a auditar); fontes/{sp,federal}.py. |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
 | M6 — GitHub Actions | ⚪ todo | — | Depende de M2–M5 |
@@ -78,6 +79,24 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M2.4: Rate-limit por host (supersede M2.2 global limiter)
+
+`make_rate_limiter()` agora retorna `Callable[[str], None]` (recebe URL) em vez de
+`Callable[[], None]`. Closure mantém `Dict[str, float]` com `last[host]` por netloc.
+
+**Por que**: M2 restante inclui casacivil + assembleia scraping em paralelo. Rate-limit
+global serializaria as duas fontes mesmo quando são hosts distintos — cada fonte
+ficaria esperando o cooldown da outra. Com tracking por host, `al.ro.leg.br` e
+`casacivil.ro.gov.br` têm buckets independentes.
+
+**Interface**: `scrape_one(..., rate_limiter)` agora passa `pdf_url` para o limiter
+(era chamada sem args). Callers existentes que usam `make_rate_limiter()` recebem o
+comportamento correto automaticamente — a CLI cria o limiter e passa para `scrape_one`.
+
+**Sem breaking change real**: nenhum código externo chamava `limiter()` diretamente
+(era criado e passado como opaque callable). Testes atualizados para verificar que
+`rate_mock` é chamado com `_PDF_URL`.
 
 ### 2026-05-22 — M3.1: OCR fetch + LLM parse → Leizilla XML
 

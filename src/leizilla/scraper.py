@@ -2,13 +2,14 @@
 
 Princípio #9: Wayback como caminho primário; fallback direto se Wayback falhar.
 Princípio #10: robots.txt é permanente (sem retry em URL bloqueada); rate-limit
-               em fallback direto.
+               em fallback direto, por host (não global).
 """
 
 import tempfile
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
+from urllib.parse import urlparse
 
 from leizilla import robots, wayback
 from leizilla.publisher import InternetArchivePublisher
@@ -21,12 +22,13 @@ def scrape_one(
     pdf_url: str,
     lei_data: Dict[str, Any],
     publisher: InternetArchivePublisher,
-    rate_limiter: Optional[Callable[[], None]] = None,
+    rate_limiter: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """Scrape um PDF: robots check → wayback save → fetch → upload_raw.
 
     Retorna dict com 'success' + ('ia_id', 'ia_url') ou ('reason') em falha.
     Robots bloqueado é permanente — caller NÃO deve re-tentar a mesma URL.
+    rate_limiter recebe a URL do fallback para tracking por host.
     """
     if not robots.is_allowed(fonte_url):
         return {"success": False, "reason": "robots-blocked", "url": fonte_url}
@@ -55,9 +57,9 @@ def scrape_one(
         wb_url = None
 
     if pdf_bytes is None:
-        # Fallback direto com rate-limit (princípio #10)
+        # Fallback direto com rate-limit por host (princípio #10)
         if rate_limiter is not None:
-            rate_limiter()
+            rate_limiter(pdf_url)
         pdf_bytes = wayback.fetch_bytes(pdf_url)
         fetched_from = "source-fallback"
         wb_url = None
@@ -83,14 +85,19 @@ def scrape_one(
         tmp_path.unlink(missing_ok=True)
 
 
-def make_rate_limiter(min_interval: float = _RATE_LIMIT_S) -> Callable[[], None]:
-    """Cria rate limiter simples: garante >= min_interval entre chamadas."""
-    last: list[float] = [0.0]
+def make_rate_limiter(min_interval: float = _RATE_LIMIT_S) -> Callable[[str], None]:
+    """Rate limiter por host: garante >= min_interval entre baterias diretas no mesmo host.
 
-    def limiter() -> None:
-        elapsed = time.monotonic() - last[0]
+    Hosts diferentes não bloqueiam uns aos outros — permite scraping paralelo
+    de múltiplas fontes (assembleia + casacivil + ...) sem serializar por fonte.
+    """
+    last: Dict[str, float] = {}
+
+    def limiter(url: str) -> None:
+        host = urlparse(url).netloc
+        elapsed = time.monotonic() - last.get(host, 0.0)
         if elapsed < min_interval:
             time.sleep(min_interval - elapsed)
-        last[0] = time.monotonic()
+        last[host] = time.monotonic()
 
     return limiter
