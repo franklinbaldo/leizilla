@@ -34,8 +34,6 @@ async def main():
     publisher = InternetArchivePublisher()
 
     try:
-        await crawler.start() # Important if using Playwright, less so for 'simple'
-
         logger.info(f"Discovering laws for Rondônia with coddoc from {START_CODDOC} to {END_CODDOC}...")
         discovered_laws = await crawler.discover_rondonia_laws(
             start_coddoc=START_CODDOC,
@@ -73,7 +71,7 @@ async def main():
                 upload_result = publisher.upload_pdf(pdf_output_path, law_metadata)
 
                 if upload_result.get('success'):
-                    logger.info(f"Successfully uploaded {pdf_output_path.name} to IA: {upload_result.get('ia_detail_url')}")
+                    logger.info(f"Successfully uploaded {pdf_output_path.name} to IA: {upload_result.get('url')}")
                     successful_uploads += 1
                     # Optionally, update database or state file here with IA URL
                     # For example: law_metadata['url_pdf_ia'] = upload_result.get('ia_pdf_url')
@@ -94,8 +92,6 @@ async def main():
 
     except Exception as e:
         logger.error(f"An error occurred during the crawling/publishing process: {e}", exc_info=True)
-    finally:
-        await crawler.stop() # Important if using Playwright
 
 if __name__ == "__main__":
     # Ensure TEMP_DIR exists (config.py tries to create it, but good to double-check)
