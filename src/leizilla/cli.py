@@ -279,7 +279,7 @@ def cmd_release_dataset(
         echo("Dry-run: nenhum upload realizado.")
         return
 
-    from leizilla.publisher import InternetArchivePublisher, build_dataset_meta
+    from leizilla.publisher import InternetArchivePublisher
 
     git_sha = None
     try:
@@ -292,7 +292,11 @@ def cmd_release_dataset(
         pass
 
     publisher = InternetArchivePublisher()
-    result = publisher.upload_dataset(parquet, ente, version, row_count, git_sha)
+    try:
+        result = publisher.upload_dataset(parquet, ente, version, row_count, git_sha)
+    except ValueError as e:
+        echo(f"Upload falhou: {e}")
+        raise typer.Exit(1)
     if result.get("success"):
         echo(f"Dataset publicado: {result['ia_url']} ({result.get('row_count', '?')} linhas)")
     else:

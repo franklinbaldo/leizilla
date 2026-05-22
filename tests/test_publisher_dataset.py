@@ -249,3 +249,14 @@ class TestReleaseDatasetCli:
             result = _runner.invoke(app, ["release-dataset", str(p), "--version", "0"])
         assert result.exit_code == 1
         assert "Upload falhou" in result.output
+
+    def test_invalid_ente_exits_nonzero(self, tmp_path: Path) -> None:
+        """ValueError de ente inválido deve ser capturado e sair com exit 1."""
+        p = _make_parquet(tmp_path)
+        with patch(
+            "leizilla.publisher.InternetArchivePublisher.upload_dataset",
+            side_effect=ValueError("ente must match ^[a-z]"),
+        ):
+            result = _runner.invoke(app, ["release-dataset", str(p), "--ente", "RO"])
+        assert result.exit_code == 1
+        assert "Upload falhou" in result.output
