@@ -412,14 +412,19 @@ def cmd_parse_all(
             raw_id = f"leizilla-raw-{ente}-{fonte}-coddoc-{coddoc:05d}"
             echo(f"[{coddoc}] {raw_id}")
 
-            ocr = fetch_ocr(raw_id)
-            if not ocr:
-                echo("  OCR indisponível — skip")
-                continue
+            try:
+                ocr = fetch_ocr(raw_id)
+                if not ocr:
+                    echo("  OCR indisponível — skip")
+                    continue
 
-            result = parse_law(ocr, raw_id, ente, model=model)
-            if not result:
-                echo("  Parse falhou — skip")
+                result = parse_law(ocr, raw_id, ente, model=model)
+                if not result:
+                    echo("  Parse falhou — skip")
+                    parsed_fail += 1
+                    continue
+            except Exception as item_exc:
+                echo(f"  Erro inesperado: {item_exc} — skip")
                 parsed_fail += 1
                 continue
 

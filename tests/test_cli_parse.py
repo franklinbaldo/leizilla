@@ -218,6 +218,25 @@ class TestCmdParseAll:
         mock_upload.assert_not_called()
 
 
+    def test_api_exception_per_item_counted_not_abort(self):
+        """Exceção da API (timeout, rate-limit) em um item conta como falha sem abortar o batch."""
+        call_count = {"n": 0}
+
+        def flaky_parse(*args, **kwargs):
+            call_count["n"] += 1
+            raise ConnectionError("API timeout")
+
+        with patch("leizilla.parser.fetch_ocr", return_value="ocr"), \
+             patch("leizilla.parser.parse_law", side_effect=flaky_parse):
+            result = runner.invoke(
+                app,
+                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "3", "--no-upload"],
+            )
+        assert result.exit_code == 0
+        assert "3 falhos" in result.output
+        assert call_count["n"] == 3  # todos os itens tentados
+
+
 class TestCmdParseXsdGateBlocking:
     def test_parse_upload_blocked_when_xsd_fails(self):
         with patch("leizilla.parser.fetch_ocr", return_value="ocr text"), \
