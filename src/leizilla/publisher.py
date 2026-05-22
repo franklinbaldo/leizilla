@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import shutil
 import subprocess
 import tempfile
 from datetime import datetime, timezone
@@ -86,6 +87,10 @@ class InternetArchivePublisher:
         raw_meta = build_raw_meta(lei_data, pdf_bytes, fetched_from, wayback_url)
 
         with tempfile.TemporaryDirectory() as tmp:
+            # Rename PDF to {ia_id}.pdf so IA OCR output is {ia_id}_djvu.txt,
+            # matching the URL template used by parser.fetch_ocr().
+            pdf_dst = Path(tmp) / f"{ia_id}.pdf"
+            shutil.copy2(str(pdf_path), str(pdf_dst))
             meta_path = Path(tmp) / "raw_meta.json"
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
 
@@ -93,7 +98,7 @@ class InternetArchivePublisher:
                 subprocess.run(
                     [
                         "ia", "upload", ia_id,
-                        str(pdf_path), str(meta_path),
+                        str(pdf_dst), str(meta_path),
                         "--metadata", f"title:{lei_data.get('titulo', 'Lei')}",
                         "--metadata", "mediatype:texts",
                         "--metadata", f"subject:leis;leizilla;{ente}",
