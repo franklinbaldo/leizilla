@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict, Optional
 from urllib.parse import urlparse
 
 from leizilla import robots, wayback
+from leizilla.parser import fetch_html
 from leizilla.publisher import InternetArchivePublisher
 
 _RATE_LIMIT_S = 1.0
@@ -97,8 +98,6 @@ def scrape_one_html(
     Retorna dict com 'success' + ('ia_id', 'ia_url') ou ('reason') em falha.
     Robots bloqueado é permanente — caller NÃO deve re-tentar a mesma URL.
     """
-    from leizilla.parser import fetch_html
-
     if not robots.is_allowed(fonte_url):
         return {"success": False, "reason": "robots-blocked", "url": fonte_url}
 

@@ -192,7 +192,7 @@ class TestScrapeOneHtml:
         with patch("leizilla.robots.is_allowed", return_value=True), \
              patch("leizilla.wayback.save_page"), \
              patch("leizilla.wayback.check_available", return_value=None), \
-             patch("leizilla.parser.fetch_html", return_value=None):
+             patch("leizilla.scraper.fetch_html", return_value=None):
             result = scrape_one_html(self._url(), _lei_data_html(), pub)
         assert result["success"] is False
         assert result["reason"] == "fetch-failed"
@@ -205,7 +205,7 @@ class TestScrapeOneHtml:
         with patch("leizilla.robots.is_allowed", return_value=True), \
              patch("leizilla.wayback.save_page"), \
              patch("leizilla.wayback.check_available", return_value=wb_url), \
-             patch("leizilla.parser.fetch_html", return_value="<html>lei</html>"), \
+             patch("leizilla.scraper.fetch_html", return_value="<html>lei</html>"), \
              patch("subprocess.run", return_value=mock_run):
             result = scrape_one_html(self._url(), _lei_data_html(), pub)
         assert result["success"] is True
@@ -223,7 +223,7 @@ class TestScrapeOneHtml:
         with patch("leizilla.robots.is_allowed", return_value=True), \
              patch("leizilla.wayback.save_page"), \
              patch("leizilla.wayback.check_available", return_value=None), \
-             patch("leizilla.parser.fetch_html", side_effect=fake_fetch), \
+             patch("leizilla.scraper.fetch_html", side_effect=fake_fetch), \
              patch("subprocess.run", return_value=mock_run) as _mock:
             result = scrape_one_html(self._url(), _lei_data_html(), pub)
         assert result["success"] is True, result
@@ -237,7 +237,7 @@ class TestScrapeOneHtml:
         with patch("leizilla.robots.is_allowed", return_value=True), \
              patch("leizilla.wayback.save_page"), \
              patch("leizilla.wayback.check_available", return_value=None), \
-             patch("leizilla.parser.fetch_html", return_value="<html/>"), \
+             patch("leizilla.scraper.fetch_html", return_value="<html/>"), \
              patch("subprocess.run", return_value=mock_run):
             scrape_one_html(self._url(), _lei_data_html(), pub, rate_limiter=rate_mock)
         rate_mock.assert_called_once_with(self._url())
@@ -251,7 +251,55 @@ class TestScrapeOneHtml:
         with patch("leizilla.robots.is_allowed", return_value=True), \
              patch("leizilla.wayback.save_page"), \
              patch("leizilla.wayback.check_available", return_value=wb_url), \
-             patch("leizilla.parser.fetch_html", return_value="<html/>"), \
+             patch("leizilla.scraper.fetch_html", return_value="<html/>"), \
              patch("subprocess.run", return_value=mock_run):
             scrape_one_html(self._url(), _lei_data_html(), pub, rate_limiter=rate_mock)
         rate_mock.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# CLI --tipo validation
+# ---------------------------------------------------------------------------
+
+
+class TestCmdScrapeTipoValidation:
+    def _invoke(self, *args: str) -> "typer.testing.Result":  # type: ignore[name-defined]
+        from typer.testing import CliRunner
+        from leizilla.cli import app
+        runner = CliRunner()
+        return runner.invoke(app, ["scrape"] + list(args))
+
+    def test_invalid_tipo_rejected_immediately(self) -> None:
+        result = self._invoke("--tipo", "leii", "--fonte", "casacivil")
+        assert result.exit_code != 0
+        assert "leii" in result.output
+
+    def test_invalid_tipo_rejected_with_planalto(self) -> None:
+        result = self._invoke("--tipo", "poney", "--fonte", "planalto")
+        assert result.exit_code != 0
+        assert "poney" in result.output
+
+    def test_lc_blocked_for_planalto(self) -> None:
+        result = self._invoke("--tipo", "lc", "--fonte", "planalto")
+        assert result.exit_code != 0
+        assert "casacivil" in result.output
+
+    def test_lcp_blocked_for_casacivil(self) -> None:
+        result = self._invoke("--tipo", "lcp", "--fonte", "casacivil")
+        assert result.exit_code != 0
+        assert "planalto" in result.output
+
+    def test_decreto_blocked_for_casacivil(self) -> None:
+        result = self._invoke("--tipo", "decreto", "--fonte", "casacivil")
+        assert result.exit_code != 0
+        assert "planalto" in result.output
+
+    def test_lcp_accepted_for_planalto(self) -> None:
+        with patch("leizilla.robots.is_allowed", return_value=False), \
+             patch("leizilla.wayback.save_page"):
+            result = self._invoke(
+                "--ente", "federal", "--fonte", "planalto",
+                "--tipo", "lcp", "--start-coddoc", "1", "--end-coddoc", "1",
+            )
+        assert "lcp" not in result.output or "inválido" not in result.output
+        assert result.exit_code == 0
