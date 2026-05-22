@@ -136,6 +136,11 @@ def _camara_year_lookup(tipo: str, numero: int) -> Optional[int]:
                         return int(ano)
                     except ValueError:
                         pass  # API retornou algo não-numérico em "ano"
+    except urllib.error.HTTPError as e:
+        # 429 = rate-limit: transiente, não abre o circuit breaker.
+        # Outros HTTPErrors (4xx/5xx) indicam falha estrutural → abre.
+        if e.code != 429:
+            _CamaraApiState.available = False
     except (urllib.error.URLError, OSError, json.JSONDecodeError):
         _CamaraApiState.available = False
     return None

@@ -194,6 +194,26 @@ class TestCamaraYearLookupCircuitBreaker:
             _camara_year_lookup("lei", 54321)
         assert captured_timeout == [3]
 
+    def test_429_does_not_open_circuit(self) -> None:
+        """HTTP 429 (rate-limit) é transiente — não deve abrir o circuit breaker."""
+        import urllib.error
+
+        http_error = urllib.error.HTTPError(url="", code=429, msg="Too Many Requests", hdrs=None, fp=None)  # type: ignore[arg-type]
+        with patch("urllib.request.urlopen", side_effect=http_error):
+            result = _camara_year_lookup("lei", 2)
+        assert result is None
+        assert _CamaraApiState.available is True, "429 não deve abrir o circuit breaker"
+
+    def test_non_429_http_error_opens_circuit(self) -> None:
+        """HTTP 503 (server error) abre o circuit breaker."""
+        import urllib.error
+
+        http_error = urllib.error.HTTPError(url="", code=503, msg="Service Unavailable", hdrs=None, fp=None)  # type: ignore[arg-type]
+        with patch("urllib.request.urlopen", side_effect=http_error):
+            result = _camara_year_lookup("lei", 3)
+        assert result is None
+        assert _CamaraApiState.available is False, "503 deve abrir o circuit breaker"
+
 
 # ---------------------------------------------------------------------------
 # build_raw_meta_html
