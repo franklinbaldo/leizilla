@@ -39,6 +39,7 @@ class DuckDBStorage:
             texto_normalizado TEXT,
             metadados JSON,
             url_original VARCHAR,
+            local_pdf_path VARCHAR,
             url_pdf_ia VARCHAR,
             hash_conteudo VARCHAR,
             status VARCHAR DEFAULT 'ativo',
@@ -163,5 +164,3 @@ class DuckDBStorage:
 
 # Backward-compat alias
 DatabaseManager = DuckDBStorage
-
-storage = DuckDBStorage()

@@ -1,6 +1,7 @@
 """Crawler Playwright-based para portais oficiais de leis."""
 
 import asyncio
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
@@ -78,7 +79,8 @@ class LeisCrawler:
                     laws.append(law)
                     await asyncio.sleep(self.delay_ms / 1000)
 
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("coddoc %d skipped: %s", coddoc, exc)
                     continue
 
             await browser.close()
