@@ -96,21 +96,34 @@ texto de entrada em `parse_law` com prompt ligeiramente diferente e limite de ca
 
 **Mudanças em parser.py**:
 - `_SYSTEM_INTRO_OCR` / `_SYSTEM_INTRO_HTML`: constantes de introdução de prompt distintas.
-  HTML version orienta o LLM a ignorar nav, header, footer, scripts — só extrair normativo.
-- `_SYSTEM` usa `{input_intro}` no primeiro parágrafo.
-- `_HTML_CHAR_LIMIT = 32000` (vs `_OCR_CHAR_LIMIT = 8000`): HTML tem overhead de markup;
-  mais caracteres necessários para cobrir o texto normativo completo. Estimativa conservadora
-  para Haiku (200K context window).
-- `parse_method` em `parsed_meta` agora é `f"{model}+{input_type}"` (ex: `claude-haiku-4-5+ocr`
-  ou `claude-haiku-4-5+html`). Breaking change no campo (era só `model`); nenhum consumidor
-  externo ainda — M4.1/4.2 não dependem desse campo.
+- `_HTML_CHAR_LIMIT = 32000` (vs `_OCR_CHAR_LIMIT = 8000`): HTML tem overhead de markup.
+- `parse_method` em `parsed_meta` agora é `f"{model}+{input_type}"`.
+- `ValueError` levantado para `input_type` desconhecido — evita `parse_method` corrompido
+  por typo (ex: `'haiku+htlm'`). Fix post-review (P2 codex).
+- `except Exception` → `(urllib.error.URLError, OSError)` em `fetch_html`. urllib levanta
+  `HTTPError` (subclasse de `URLError`) para 4xx/5xx; check explícito de status é redundante.
 
-**Testes**: 33 testes em `tests/test_parser.py`. Adicionados:
-- `TestFetchHtml`: 3 testes (sucesso, erro de rede, user-agent header).
-- `TestParseLaw`: 3 testes HTML (`input_type="html"` — char limit, parse_method, url no user msg).
+**Testes**: 35 testes em `tests/test_parser.py` (33 iniciais + 2 do fix post-review).
 
-**Não feito aqui**: integração na CLI `parse` com `--input-type html` fica para próxima sessão
-quando federal scraping for implementado (não há consumidor ainda).
+**Não feito aqui**: integração na CLI `parse` com `--input-type html` fica quando federal
+scraping for implementado (não há consumidor ainda).
+
+### 2026-05-22 — M4.1: ETL XML→Parquet via DuckDB read_json_auto
+
+`etl.py` implementa a transformação Leizilla XML v0.1 → tabela `versoes` (§3.1 SCHEMA.md).
+
+**Decisões de design**:
+- `xml_to_rows(xml_content, lei_id, ente)` é função pura (sem I/O). Parses Leizilla XML em
+  lista de dicts prontos para Parquet. `lei_id` vem do caller (nome do arquivo ou IA item ID).
+- `write_parquet` usa DuckDB `read_json_auto` via temp NDJSON file. PyArrow não é dependência
+  explícita; DuckDB 1.3.1 não expõe `from_dict` na connection API. NDJSON é simples e correto.
+- Datas serializam para ISO strings no JSON; DuckDB auto-infere `DATE` em `read_json_auto`.
+- Token map duplicado de `check_schema_consistency.py` — ambos apontam para §4.2 SCHEMA.md.
+  Candidato a extração futura para `leizilla.schema_tokens`, mas duplicação explícita é
+  preferível a acoplamento implícito agora.
+- `path_to_tipo` exportada públicamente — será usada por CLI `consolidate` e frontend.
+- `consolidate` CLI aceita diretório de `{lei_id}.xml` — padrão de saída do `parse --output`.
+- 76 testes cobrem todas as fixtures + fixes P1/P2 (lei revogada, cascata, xs:date, fallback ID).
 
 ### 2026-05-22 — M2 restante: fontes SP e federal — stubs com mapeamento de portais
 
