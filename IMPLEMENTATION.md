@@ -16,16 +16,15 @@
 | **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟢 done | #15 | `wayback.py` + `robots.py` + `publisher.upload_raw` + PDF renomeado para {ia_id}.pdf. 34 testes. |
 | **M2.2** — scraper.py + `scrape` CLI + fix ids no crawler | 🟢 done | #18 | `scraper.scrape_one()` orquestra robots→wayback→fetch→upload_raw. CLI `scrape` para assembleia/RO. 10 testes. |
 | **M2.3** — CI workflow + `internetarchive` dep | 🟢 done | #20 | `rondonia_crawler.yml` atualizado para `uv run leizilla scrape`. `internetarchive` em pyproject.toml. |
-| **M2.4** — Rate-limit por host | 🟡 in-progress | #25 | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
-| **M2.5** — casacivil discovery | 🟡 in-progress | TBD | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. |
+| **M2.4** — Rate-limit por host | 🟢 done | 66aa4ac | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
+| **M2.5** — casacivil discovery | 🟢 done | #27 | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. |
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
 | **M3 restante** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
-| **M2.4** — Rate-limit por host | 🟢 done | 66aa4ac | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
-| **M2.5** — casacivil discovery | 🟡 in-progress | #26 | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. |
-| M2 restante — outros entes (sp, federal) | ⚪ todo | — | fontes/{sp,federal}.py. Depende de M2.4+M2.5. |
-| M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
-| M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
+| **M4.1** — ETL XML→Parquet + CLI `consolidate` | 🟡 in-progress | #28 | `etl.py`: `xml_to_rows`, `consolidate_xmls`, `write_parquet`. 68 testes. |
+| **M4.2** — `release-dataset` CLI + `publisher.upload_dataset` | 🟡 in-progress | #29 | Upload `versoes.parquet` + sidecar para IA; benchmark gatilhos DuckDB-WASM. 20 testes. |
+| M2 restante — outros entes (sp, federal) | 🟡 in-progress | — | `fontes/{sp,federal}.py` mapeados (esta PR). Scraping sp/federal é M2.6+. |
+| M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode iniciar após M4.2 mergear |
 | M6 — GitHub Actions | ⚪ todo | — | Depende de M2–M5 |
 | M7 — Claude Code routines | ⚪ todo | — | Depende de M6 |
 
@@ -82,6 +81,26 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M2 restante: fontes SP e federal — stubs com mapeamento de portais
+
+`fontes/sp.py` e `fontes/federal.py` criados como stubs declarativos (análogos a `fontes/ro.py`) com URLs de portais, notas de acesso, e `FONTE_CANONICA`.
+
+**SP**: LeisSP (legisp — compilados da Casa Civil SP) como fonte canônica, ALESP para acesso alternativo, DOE-SP para cross-verificação. URL padrão de PDFs no LeisSP ainda não auditada — discovery requer engenharia adicional (M2.6).
+
+**Federal**: Planalto como fonte canônica (compilados vigentes em HTML, não PDF). Câmara tem API REST pública bem documentada. Senado tem LegisWeb + dadosabertos. DOU via Imprensa Nacional para publicação original.
+
+**Decisão importante**: Planalto serve HTML, não PDF — o pipeline M3 atual (fetch_ocr de PDF via IA) não se aplica diretamente. Scraping federal vai precisar de adaptação: `parse_law` aceitar HTML como input além de OCR text. Registrado como M3.4 (milestone futuro não planejado ainda). Fontes federais ficam bloqueadas por M3.4.
+
+**Por que criar os stubs agora**: os portais foram pesquisados (conhecimento disponível sem acesso externo); registrar as URLs e notas de acesso no repositório evita repetir a pesquisa em sessões futuras. Stubs sem scraping são úteis como documentação de roadmap.
+
+### 2026-05-22 — M4.1/M4.2: ETL + release-dataset em PRs separados (#28, #29)
+
+M4 dividido em duas sub-tarefas coerentes por sessão anterior:
+- M4.1 (#28): `etl.py` + CLI `consolidate` — ETL XML→Parquet, puramente local.
+- M4.2 (#29): `publisher.upload_dataset` + CLI `release-dataset` — upload Parquet para IA.
+
+Cada PR é testável de forma independente. M4.2 aceita qualquer Parquet como input (não importa etl.py). Sequência de merge recomendada: #28 primeiro (sem dependências), depois #29.
 
 ### 2026-05-22 — M2.5: casacivil discovery via enumeração direta (sem Playwright)
 
