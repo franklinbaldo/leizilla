@@ -21,10 +21,13 @@ jobs:
         uses: astral-sh/setup-uv@v1
 
       - name: Install dependencies
-        run: uv sync --system # Install main dependencies globally
+        run: uv sync --system
 
       - name: Install Internet Archive CLI
-        run: pip install internetarchive # publisher.py uses this
+        run: pip install internetarchive
+
+      - name: Install Playwright browsers
+        run: playwright install chromium --with-deps
 
       - name: Run Rondônia Crawler
         env:

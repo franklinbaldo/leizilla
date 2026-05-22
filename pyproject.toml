@@ -22,7 +22,10 @@ classifiers = [
 ]
 dependencies = [
     "anyio",
+    "beautifulsoup4",
     "duckdb",
+    "playwright",
+    "requests",
     "typer",
 ]
 

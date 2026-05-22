@@ -30,7 +30,7 @@ async def main():
         logger.error("Please set them as environment variables (e.g., in GitHub secrets).")
         return
 
-    crawler = LeisCrawler(crawler_type="simple") # Using simple crawler for CI to avoid Playwright complexities unless necessary
+    crawler = LeisCrawler(crawler_type="playwright")
     publisher = InternetArchivePublisher()
 
     try:
@@ -48,13 +48,11 @@ async def main():
 
         successful_uploads = 0
         for law_metadata in discovered_laws:
-            pdf_url_found = law_metadata.get('metadados', {}).get('pdf_url_found')
+            pdf_url_found = law_metadata.get('url_pdf_original')
             if not pdf_url_found:
                 logger.warning(f"No PDF URL found for: {law_metadata.get('titulo', law_metadata.get('id'))}. Skipping.")
                 continue
 
-            # Define a unique filename for the PDF
-            # Example: rondonia-coddoc-123.pdf
             pdf_filename = f"{law_metadata['id']}.pdf"
             pdf_output_path = TEMP_DIR / pdf_filename
 

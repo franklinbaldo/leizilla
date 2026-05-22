@@ -28,7 +28,16 @@ class LeisCrawler:
         start_coddoc: int = 1,
         end_coddoc: int = 10,
     ) -> List[Dict[str, Any]]:
-        """Descobre leis no portal da Assembleia Legislativa de Rondônia."""
+        """Descobre leis no portal da Assembleia Legislativa de Rondônia.
+
+        Requer crawler_type="playwright" — o portal ALRO usa JavaScript para
+        renderizar o conteúdo. Modo "simple" (requests+BS4) não implementado.
+        """
+        if self.crawler_type != "playwright":
+            raise NotImplementedError(
+                f"discover_rondonia_laws requer crawler_type='playwright'; "
+                f"'{self.crawler_type}' não implementado para o portal ALRO."
+            )
         laws = []
         base_url = "https://www.al.ro.leg.br"
 
