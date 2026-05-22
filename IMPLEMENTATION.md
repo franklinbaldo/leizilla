@@ -11,8 +11,8 @@
 | **M0.1** — Documento vivo + SCHEMA.md design | 🟢 done | #6 | Aprovado em re-review; merged em main. |
 | **M0.2a** — Schema v1 (tentativa) | 🔴 superseded | #7 | XSD `header` + `rotulo` + `<bloco-livre>` + etc. Substituído pelo redesign first-principles. Fica como referência histórica. |
 | **M0.2b** — Redesign first-principles | 🟢 done | #8 #9 #10 #12 | SCHEMA.md reescrito + XSD enxuto + 6 fixtures + consistency checker + CI wire + XSLT Leizilla→LexML validado contra XSD oficial bundled (PRs #8-#12 merged). |
-| **M0.3** — URN canônica + close pendentes §8 | 🟡 in-progress | TBD | URN LEX contra spec CGPID 2008 oficial; política re-scrape; robots.txt princípio. 3 outros pendentes deferidos para M2/M4 (bloqueados). |
-| M1 — Foundation (package + ADRs + deps) | ⚪ todo | — | Bloqueado por M0 |
+| **M0.3** — URN canônica + close pendentes §8 | 🟢 done | #13 | URN LEX contra spec CGPID 2008 oficial; política re-scrape; robots.txt princípio. 3 pendentes deferidos para M2/M4. |
+| **M1** — Foundation (package + ADRs + entes + fontes) | 🟡 in-progress | TBD | Package `src/leizilla/`; ADRs 0004–0009; rename `origem→ente`; `entes.py`; `fontes/ro.py`. |
 | M2 — Crawler real + Raw upload | ⚪ todo | — | Bloqueado por M1 |
 | M3 — OCR fetch + LLM parse + Leizilla XML | ⚪ todo | — | Bloqueado por M2 |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
@@ -73,6 +73,30 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M1: package `src/leizilla/`, rename origem→ente, ADRs, catálogo entes
+
+Package restructure: todos os módulos movidos para `src/leizilla/` (layout src/ padrão);
+`pyproject.toml` atualizado com `[tool.setuptools.packages.find] where = ["src"]` e
+entry point `leizilla.cli:main`. Imports internos trocados para `from leizilla import X`.
+
+`origem` → `ente`: coluna DuckDB, params de método, opções CLI, variáveis, mensagens,
+testes. Sem migration script — sem dados de produção. `por_origem` → `por_ente` nas stats.
+`DatabaseManager = DuckDBStorage` alias mantido para compat com código externo eventual.
+
+`entes.py`: catálogo de 28 entes (federal + 26 UFs + DF) com dataclass `Ente`.
+`fontes/ro.py`: fontes `casacivil` + `assembleia` para Rondônia com URLs e fonte canônica.
+
+ADRs 0004–0009: formalizam decisões já tomadas em M0 (Wayback, IA identifiers,
+XSD+checker, LexML export, robots.txt, LGPD). Nenhuma decisão nova — apenas registro
+formal para rastreabilidade.
+
+`test_storage.py`: import atualizado para `from leizilla import storage`;
+`sqlite_master` → `information_schema.tables` (DuckDB não tem sqlite_master);
+dados de teste atualizados para usar `ente` em vez de `origem`.
+
+PR #3 fechada com explicação: abordagem connector-based de 2025-07-01 superseded
+pelos pivôs arquiteturais de 2026-05 (PRs #6–#13).
 
 ### 2026-05-21 — Fecha M0: URN LEX canônica + política re-scrape + robots.txt princípio
 
@@ -352,15 +376,21 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 **M0.2b — Redesign first-principles** ✅ (PRs #8 #9 #10 #12 merged).
 
-**M0.3 — Fecha M0** (este PR):
+**M0.3 — Fecha M0** ✅ (PR #13 merged):
 - [x] **URN LEX canônica** contra spec CGPID 2008 — SCHEMA.md §5.6 + XSD regex + checker regex + 6 fixtures + tests atualizados.
-- [x] **Política re-scrape** documentada (§8.2.4 resolvida): `{chave}-r{N}` sob auditoria explícita, nunca automático.
+- [x] **Política re-scrape** documentada (§8.2.4): `{chave}-r{N}` sob auditoria explícita, nunca automático.
 - [x] **Robots.txt + rate-limit** como princípio load-bearing #10 em IMPLEMENTATION.md.
-- [x] **Deferred** pendentes bloqueados por milestones futuros (§8.3): compressão Parquet → M4, granularidade ZIP → M2, custo LLM → M2/M3.
+- [x] **Deferred** pendentes (§8.3): compressão Parquet → M4, granularidade ZIP → M2, custo LLM → M2/M3.
 
-**M1 — Foundation** (próximo):
-- [ ] Package restructure `src/` → `src/leizilla/`.
-- [ ] ADRs 0004 (Wayback como fetch path), 0005 (IA identifiers), 0006 (XSD + checker), 0007 (LexML export), 0008 (robots.txt + rate-limit), 0009 (LGPD ética).
-- [ ] Migração `origem` → `ente` em CLI + schema (storage.py:44, cli.py:29,69,169,199,260).
-- [ ] `src/leizilla/entes.py` com catálogo (federal + 27 UFs + DF).
-- [ ] `src/leizilla/fontes/{ente}.py` stubs.
+**M1 — Foundation** (este PR):
+- [x] Package restructure `src/` → `src/leizilla/` + `pyproject.toml` com `packages.find`.
+- [x] ADRs 0004–0009 em `docs/adr/`.
+- [x] Migração `origem` → `ente` em `cli.py` + `storage.py` + `test_storage.py`.
+- [x] `src/leizilla/entes.py` com catálogo (federal + 26 UFs + DF).
+- [x] `src/leizilla/fontes/ro.py` stub com fontes de Rondônia declaradas.
+
+**M2 — Crawler real + Raw upload** (próximo):
+- [ ] `crawler.py`: robots.txt check + Wayback Machine fetch (ADR-0004).
+- [ ] `publisher.py`: IA identifiers conforme ADR-0005 + raw_meta.json sidecar.
+- [ ] CLI: comando `scrape` substitui `discover`; `parse` e `consolidate` adicionados.
+- [ ] Testes de integração com mock do Wayback e IA.

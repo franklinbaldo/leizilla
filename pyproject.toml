@@ -22,7 +22,10 @@ classifiers = [
 ]
 dependencies = [
     "anyio",
+    "beautifulsoup4",
     "duckdb",
+    "playwright",
+    "requests",
     "typer",
 ]
 
@@ -35,11 +38,14 @@ dev = [
 ]
 
 [project.scripts]
-leizilla = "cli:main"
+leizilla = "leizilla.cli:main"
 
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.ruff]
 line-length = 88

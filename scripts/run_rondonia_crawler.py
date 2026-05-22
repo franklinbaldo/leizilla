@@ -3,9 +3,9 @@ import os
 from pathlib import Path
 import logging
 
-from src.crawler import LeisCrawler
-from src.publisher import InternetArchivePublisher
-from src.config import TEMP_DIR, IA_ACCESS_KEY, IA_SECRET_KEY
+from leizilla.crawler import LeisCrawler
+from leizilla.publisher import InternetArchivePublisher
+from leizilla.config import TEMP_DIR, IA_ACCESS_KEY, IA_SECRET_KEY
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -30,12 +30,10 @@ async def main():
         logger.error("Please set them as environment variables (e.g., in GitHub secrets).")
         return
 
-    crawler = LeisCrawler(crawler_type="simple") # Using simple crawler for CI to avoid Playwright complexities unless necessary
+    crawler = LeisCrawler(crawler_type="playwright")
     publisher = InternetArchivePublisher()
 
     try:
-        await crawler.start() # Important if using Playwright, less so for 'simple'
-
         logger.info(f"Discovering laws for Rondônia with coddoc from {START_CODDOC} to {END_CODDOC}...")
         discovered_laws = await crawler.discover_rondonia_laws(
             start_coddoc=START_CODDOC,
@@ -50,13 +48,11 @@ async def main():
 
         successful_uploads = 0
         for law_metadata in discovered_laws:
-            pdf_url_found = law_metadata.get('metadados', {}).get('pdf_url_found')
+            pdf_url_found = law_metadata.get('url_pdf_original')
             if not pdf_url_found:
                 logger.warning(f"No PDF URL found for: {law_metadata.get('titulo', law_metadata.get('id'))}. Skipping.")
                 continue
 
-            # Define a unique filename for the PDF
-            # Example: rondonia-coddoc-123.pdf
             pdf_filename = f"{law_metadata['id']}.pdf"
             pdf_output_path = TEMP_DIR / pdf_filename
 
@@ -73,7 +69,7 @@ async def main():
                 upload_result = publisher.upload_pdf(pdf_output_path, law_metadata)
 
                 if upload_result.get('success'):
-                    logger.info(f"Successfully uploaded {pdf_output_path.name} to IA: {upload_result.get('ia_detail_url')}")
+                    logger.info(f"Successfully uploaded {pdf_output_path.name} to IA: {upload_result.get('url')}")
                     successful_uploads += 1
                     # Optionally, update database or state file here with IA URL
                     # For example: law_metadata['url_pdf_ia'] = upload_result.get('ia_pdf_url')
@@ -94,8 +90,6 @@ async def main():
 
     except Exception as e:
         logger.error(f"An error occurred during the crawling/publishing process: {e}", exc_info=True)
-    finally:
-        await crawler.stop() # Important if using Playwright
 
 if __name__ == "__main__":
     # Ensure TEMP_DIR exists (config.py tries to create it, but good to double-check)
