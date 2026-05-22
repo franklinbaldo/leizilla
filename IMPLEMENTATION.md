@@ -12,11 +12,11 @@
 | **M0.2a** — Schema v1 (tentativa) | 🔴 superseded | #7 | XSD `header` + `rotulo` + `<bloco-livre>` + etc. Substituído pelo redesign first-principles. Fica como referência histórica. |
 | **M0.2b** — Redesign first-principles | 🟢 done | #8 #9 #10 #12 | SCHEMA.md reescrito + XSD enxuto + 6 fixtures + consistency checker + CI wire + XSLT Leizilla→LexML validado contra XSD oficial bundled (PRs #8-#12 merged). |
 | **M0.3** — URN canônica + close pendentes §8 | 🟢 done | #13 | URN LEX contra spec CGPID 2008 oficial; política re-scrape; robots.txt princípio. 3 pendentes deferidos para M2/M4. |
-| **M1** — Foundation (package + ADRs + entes + fontes) | 🟡 in-progress | #14 | Package `src/leizilla/`; ADRs 0004–0009; rename `origem→ente`; `entes.py`; `fontes/ro.py`. |
-| **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟡 in-progress | #15 | `wayback.py` (check_available/save_page/fetch_bytes) + `robots.py` (is_allowed, lru_cache) + `publisher.build_raw_meta` + `raw_meta.json` sidecar. Stacked em cima de M1. |
-| **M2.2** — scraper.py + `scrape` CLI + fix ids no crawler | 🟡 in-progress | TBD | `scraper.scrape_one()` orquestra robots→wayback→fetch→upload_raw. CLI `scrape` para assembleia/RO. `crawler.py` adiciona `fonte`+`chave` no output. 10 testes. |
-| M2 restante — casacivil discovery + outros entes | ⚪ todo | — | Bloqueado por M2.2. Próximo: discovery casacivil.ro.gov.br; adicionar fontes/{sp,federal}.py. |
-| M3 — OCR fetch + LLM parse + Leizilla XML | ⚪ todo | — | Bloqueado por M2 |
+| **M1** — Foundation (package + ADRs + entes + fontes) | 🟢 done | #14 | Package `src/leizilla/`; ADRs 0004–0009; rename `origem→ente`; `entes.py`; `fontes/ro.py`. |
+| **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟢 done | #15 | `wayback.py` + `robots.py` + `publisher.upload_raw` + PDF renomeado para {ia_id}.pdf. 34 testes. |
+| **M2.2** — scraper.py + CLI `scrape` + ids corretos | 🟢 done | #18 | `scraper.scrape_one()` + `make_rate_limiter` + CLI `scrape`. 10 testes. |
+| **M3.1** — OCR fetch + LLM parse + Leizilla XML | 🟡 in-progress | #17 | `parser.py`: `fetch_ocr` (_djvu.txt) + `parse_law` (Claude Haiku, fail-closed em confidence/identidade). Fixes P1: numero digit-only, typer.Exit, _is_well_formed TypeError. 26 testes. |
+| M3.2 — Upload parsed item para IA | ⚪ todo | — | `upload_parsed` no publisher + XSD gate + CLI `parse --upload`. |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
 | M6 — GitHub Actions | ⚪ todo | — | Depende de M2–M5 |
@@ -101,6 +101,35 @@ Testes: 10 unitários em `tests/test_scraper.py`, HTTP 100% mockado.
 **Próximos M2**: discovery casacivil.ro.gov.br (padrão de URL a auditar);
 atualizar `rondonia_crawler.yml` para chamar `uv run leizilla scrape` em vez
 do script `run_rondonia_crawler.py`; rate-limit por host (não global).
+
+### 2026-05-22 — M3.1: OCR fetch + LLM parse → Leizilla XML
+
+Implementa a primeira metade de M3 (Etapa 2 do pipeline) independentemente de M2
+(M3 só precisa de `ia_id` como string — não chama funções de M2 diretamente).
+
+**parser.py** — três funções públicas:
+- `fetch_ocr(ia_id)` → baixa `{ia_id}_djvu.txt` do IA via HTTP stdlib (fail-open).
+- `parse_law(ocr_text, ia_id, ente, model)` → chama Claude Haiku com prompt em cache
+  (ephemeral `cache_control`); extrai JSON com `xml`, `confidence`, `tipo`, `numero`, `ano`;
+  valida well-formedness; retorna `ParseResult` ou `None` se `confidence < 0.5`.
+- `ParseResult` dataclass: `xml`, `parsed_meta`, `confidence`, `ia_id_parsed`, `input_tokens`, `output_tokens`.
+
+**config.py** — `ANTHROPIC_API_KEY` adicionado (env var).
+
+**CLI `parse`** — `leizilla parse --raw-id <ia_id> [--ente ro] [--model claude-haiku-4-5] [--output path]`
+
+**Testes** — 21 testes em `tests/test_parser.py` (HTTP + Anthropic API totalmente mockados).
+
+**Decisões**:
+- Modelo primário `claude-haiku-4-5` (custo baixo); `--model claude-opus-4-7` para fallback manual.
+- OCR truncado em 8000 chars para manter custo baixo no Haiku (200K ctx).
+- `confidence < 0.5` → sem parsed item (princípio: não publicar parse ruim).
+- XML bem-formado verificado via `xml.etree.ElementTree`; XSD validation fica para CI gate em M3.2.
+- Upload do parsed item para IA fica em M3.2 (separação de concerns, M3.1 já útil standalone).
+- `ia_id_parsed = leizilla-{ente}-{tipo}-{numero:05d}-{ano}` conforme SCHEMA.md §1.3.
+- Prompt com `cache_control: ephemeral` no system prompt para caching do template.
+- `anthropic` adicionado como dep sem constraint de versão (consistente com demais deps).
+>>>>>>> 6283031 (feat(M3.1): OCR fetch + LLM parse → Leizilla XML (parser.py))
 
 ### 2026-05-22 — M1: package `src/leizilla/`, rename origem→ente, ADRs, catálogo entes
 
