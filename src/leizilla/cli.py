@@ -165,6 +165,10 @@ def cmd_scrape(
     ),
 ) -> None:
     """Scrape leis: discover → robots → wayback → upload_raw para IA."""
+    if tipo != "lei" and fonte != "casacivil":
+        echo(f"--tipo só é válido com --fonte casacivil (recebido: --tipo {tipo} --fonte {fonte})")
+        raise typer.Exit(1)
+
     echo(f"Scraping {ente}/{fonte} {start_coddoc}–{end_coddoc}")
 
     try:
