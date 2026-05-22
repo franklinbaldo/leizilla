@@ -153,6 +153,36 @@ Testes: 10 unitários em `tests/test_scraper.py`, HTTP 100% mockado.
 atualizar `rondonia_crawler.yml` para chamar `uv run leizilla scrape` em vez
 do script `run_rondonia_crawler.py`; rate-limit por host (não global).
 
+### 2026-05-22 — M3.1: OCR fetch + LLM parse → Leizilla XML
+
+Implementa a primeira metade de M3 (Etapa 2 do pipeline) independentemente de M2
+(M3 só precisa de `ia_id` como string — não chama funções de M2 diretamente).
+
+**parser.py** — três funções públicas:
+- `fetch_ocr(ia_id)` → baixa `{ia_id}_djvu.txt` do IA via HTTP stdlib (fail-open).
+- `parse_law(ocr_text, ia_id, ente, model)` → chama Claude Haiku com prompt em cache
+  (ephemeral `cache_control`); extrai JSON com `xml`, `confidence`, `tipo`, `numero`, `ano`;
+  valida well-formedness; retorna `ParseResult` ou `None` se `confidence < 0.5`.
+- `ParseResult` dataclass: `xml`, `parsed_meta`, `confidence`, `ia_id_parsed`, `input_tokens`, `output_tokens`.
+
+**config.py** — `ANTHROPIC_API_KEY` adicionado (env var).
+
+**CLI `parse`** — `leizilla parse --raw-id <ia_id> [--ente ro] [--model claude-haiku-4-5] [--output path]`
+
+**Testes** — 27 testes em `tests/test_parser.py` (HTTP + Anthropic API totalmente mockados).
+Fixes P1 endereçados: `numero` digit-only validado; `typer.Exit` não capturado por `except Exception`; `_is_well_formed` com isinstance guard.
+
+**Decisões**:
+- Modelo primário `claude-haiku-4-5` (custo baixo); `--model claude-opus-4-7` para fallback manual.
+- OCR truncado em 8000 chars para manter custo baixo no Haiku (200K ctx).
+- `confidence < 0.5` ou `not math.isfinite(confidence)` → None (fail-closed).
+- `tipo`, `numero`, `ano` obrigatórios — ausência retorna None em vez de fabricar identifier.
+- XML bem-formado verificado via `xml.etree.ElementTree`; XSD validation fica para CI gate em M3.2.
+- Upload do parsed item para IA fica em M3.2 (separação de concerns, M3.1 já útil standalone).
+- `ia_id_parsed = leizilla-{ente}-{tipo}-{numero:05d}-{ano}` conforme SCHEMA.md §1.3.
+- Prompt com `cache_control: ephemeral` no system prompt para caching do template.
+- `anthropic` adicionado como dep sem constraint de versão (consistente com demais deps).
+
 ### 2026-05-22 — M2.3: CI workflow atualizado + internetarchive em deps
 
 `rondonia_crawler.yml` reescrito do zero. Versão antiga chamava

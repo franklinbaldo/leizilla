@@ -22,7 +22,9 @@ def cmd_discover(
     ente: str = typer.Option("ro", help="Ente federativo (ro, sp, federal, ...)"),
     start_coddoc: int = typer.Option(1, help="ID inicial do documento"),
     end_coddoc: int = typer.Option(10, help="ID final do documento"),
-    crawler_type: str = typer.Option("playwright", help="Tipo de crawler (playwright, simple)"),
+    crawler_type: str = typer.Option(
+        "playwright", help="Tipo de crawler (playwright, simple)"
+    ),
 ) -> None:
     """Descobrir leis nos portais oficiais."""
     echo(f"Descobrindo leis de {ente} (coddoc: {start_coddoc}-{end_coddoc})")
@@ -278,6 +280,56 @@ def cmd_stats() -> None:
         raise typer.Exit(1)
 
 
+@app.command("parse")
+def cmd_parse(
+    raw_id: str = typer.Option(..., help="IA raw item ID (leizilla-raw-...)"),
+    ente: str = typer.Option("ro", help="Ente federativo"),
+    model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
+    output: Optional[Path] = typer.Option(
+        None, help="Salvar XML em arquivo (default: stdout)"
+    ),
+) -> None:
+    """Parsear OCR de raw IA item → Leizilla XML via LLM (Etapa 2)."""
+    try:
+        from leizilla.parser import fetch_ocr, parse_law
+
+        echo(f"Buscando OCR para {raw_id}...")
+        ocr = fetch_ocr(raw_id)
+        if not ocr:
+            echo(
+                f"OCR não disponível para {raw_id} (IA ainda processando ou item inexistente)"
+            )
+            raise typer.Exit(1)
+
+        echo(f"Parseando com {model} ({len(ocr)} chars de OCR)...")
+        result = parse_law(ocr, raw_id, ente, model=model)
+        if not result:
+            echo(
+                "Parse falhou: confiança insuficiente ou OCR ilegível. Sem parsed item publicado."
+            )
+            raise typer.Exit(1)
+
+        echo(
+            f"Parse OK — confiança {result.confidence:.2f} | "
+            f"tokens {result.input_tokens}+{result.output_tokens} | "
+            f"item: {result.ia_id_parsed}"
+        )
+
+        if output:
+            output.write_text(result.xml, encoding="utf-8")
+            echo(f"XML salvo em {output}")
+        else:
+            echo(result.xml)
+    except typer.Exit:
+        raise
+    except RuntimeError as e:
+        echo(f"Erro de configuração: {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        echo(f"Erro: {e}")
+        raise typer.Exit(1)
+
+
 @app.command("pipeline")
 def cmd_pipeline(
     ente: str = typer.Option("ro", help="Ente federativo"),
@@ -291,7 +343,12 @@ def cmd_pipeline(
 
     try:
         echo("\nEtapa 1/4: Descobrir leis")
-        cmd_discover(ente=ente, start_coddoc=start_coddoc, end_coddoc=end_coddoc, crawler_type=crawler_type)
+        cmd_discover(
+            ente=ente,
+            start_coddoc=start_coddoc,
+            end_coddoc=end_coddoc,
+            crawler_type=crawler_type,
+        )
         echo("\nEtapa 2/4: Baixar PDFs")
         cmd_download(ente=ente, limit=limit)
         echo("\nEtapa 3/4: Upload para IA")
@@ -314,7 +371,11 @@ def dev_setup() -> None:
         result = subprocess.run(
             ["uv", "run", "pre-commit", "install"], capture_output=True, text=True
         )
-        echo("Pre-commit hooks instalados" if result.returncode == 0 else "pre-commit não disponível")
+        echo(
+            "Pre-commit hooks instalados"
+            if result.returncode == 0
+            else "pre-commit não disponível"
+        )
         echo("Setup concluído!")
     except subprocess.CalledProcessError as e:
         echo(f"Erro no setup: {e}")
