@@ -27,11 +27,11 @@
 | **M3.4** — `parse_law` aceita HTML + `fetch_html` | 🟢 done | cc00676 | `input_type="html"` em `parse_law`; `fetch_html(url)`; prompt adaptado; `_HTML_CHAR_LIMIT=32000`. 35 testes. |
 | **M3.5** — CLI `parse --input-type html` + `fetch_ia_html` | 🟢 done | #35 | `fetch_ia_html(ia_id)` busca `{ia_id}.html` do IA; `--input-type ocr\|html` em `cmd_parse`. 314 testes. |
 | **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟢 done | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. |
-| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟡 in-progress | #36 | Sobe dataset Parquet para IA; benchmark local §3.4. CI pendente. |
+| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟢 done | #36 | Sobe dataset Parquet para IA; benchmark local §3.4. 229 testes. |
 | **M4.3** — benchmark DuckDB-WASM real + gatilhos §3.4 | ⚪ todo | — | Bloqueado por M4.2 merge. |
-| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. Fixes P1/P2 pushed. CI pendente. |
+| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. CI verde; P1 httpfs fix pushed. |
 | **M5.2** — TanStack Query + paginação + filtros | ⚪ todo | — | Bloqueado por M5.1 merge. |
-| **M2.7** — Planalto federal HTML pipeline | 🟢 done | #34 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 24 testes. URLs legadas (pré-2002); year-scoped em M2.8. |
+| **M2.7** — Planalto federal HTML pipeline | 🟢 done | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 30 testes. URLs legadas (pré-2002); year-scoped em M2.8. |
 | **M2.8** — Planalto year-scoped URLs + `parse-all html` | ⚪ todo | — | URLs `_ato{Y}-{Y}/{ano}/lei/l{num}.htm` via API Câmara; `parse-all --input-type html --tipo lei`. Desbloqueia leis federais pós-2002. |
 | **M6** — GitHub Actions produção | ⚪ todo | — | Depende de M2–M5. |
 | **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
@@ -118,7 +118,31 @@ M2.8 cobrirá via API Câmara. Fail-open em 404 garante sem crash no pipeline.
 **CLI `scrape`**: ramo `ente=federal, fonte=planalto` usa `scrape_one_html` em vez
 de `scrape_one`. Zero breaking change para ro/assembleia e ro/casacivil.
 
-24 testes em `tests/test_planalto_pipeline.py`.
+30 testes em `tests/test_planalto_pipeline.py`.
+
+### 2026-05-22 — M4.2: release-dataset + upload_dataset (sem PyArrow)
+
+`publisher.upload_dataset(parquet_path, ente, version, row_count, git_sha)` + CLI
+`leizilla release-dataset <parquet> --ente ro --version 0 [--dry-run]`.
+
+**Identifier**: `leizilla-dataset-{ente}-v{version}` (SCHEMA.md §3.5).
+
+**Sidecar JSON em vez de KV footer no Parquet**: `dataset_meta.json` carrega as
+colunas que §3.3 diz que deveriam ir no KV footer do Parquet (row_count, hash,
+schema_version, git_sha). PyArrow não é dep explícita (decisão de M4.1); DuckDB
+`COPY ... (KV_METADATA ...)` não existe na API pública até 1.3. Sidecar JSON tem
+custo zero e dados equivalentes — se o KV footer se tornar relevante em M5, migra
+com um script de reescrita.
+
+**Validações**: `version >= 0` (ValueError se negativo); `ente` contra `^[a-z][a-z0-9-]*$`
+(ValueError se inválido). CLI captura `ValueError` da API e produz erro controlado (exit 1).
+`FileNotFoundError` capturado quando `ia` CLI não está instalado — retorna `{success: False}`
+em vez de traceback.
+
+**Benchmark gatilhos §3.4** embutido no CLI: mede file size, row_count e latência de
+busca full-text local (DuckDB Python, não WASM). Canônico em M5.
+
+18 testes em `tests/test_publisher_dataset.py`.
 
 ### 2026-05-22 — M3.5: CLI parse --input-type html + fetch_ia_html
 
@@ -181,38 +205,6 @@ scraping for implementado (não há consumidor ainda).
 - 76 testes cobrem todas as fixtures + fixes P1/P2 (lei revogada, cascata, xs:date, fallback ID).
 
 ### 2026-05-22 — M2 restante: fontes SP e federal — stubs com mapeamento de portais
-
-`fontes/sp.py` e `fontes/federal.py` criados como stubs declarativos (análogos a `fontes/ro.py`) com URLs de portais, notas de acesso, e `FONTE_CANONICA`.
-
-**SP**: LeisSP (legisp — compilados da Casa Civil SP) como fonte canônica, ALESP para acesso alternativo, DOE-SP para cross-verificação. URL padrão de PDFs no LeisSP ainda não auditada — discovery requer engenharia adicional (M2.6).
-
-**Federal**: Planalto como fonte canônica (compilados vigentes em HTML, não PDF). Câmara tem API REST pública bem documentada. Senado tem LegisWeb + dadosabertos. DOU via Imprensa Nacional para publicação original.
-
-**Decisão importante**: Planalto serve HTML, não PDF — o pipeline M3 atual (fetch_ocr de PDF via IA) não se aplica diretamente. Scraping federal vai precisar de adaptação: `parse_law` aceitar HTML como input além de OCR text. Registrado como M3.4 (milestone futuro não planejado ainda). Fontes federais ficam bloqueadas por M3.4.
-
-**Por que criar os stubs agora**: os portais foram pesquisados (conhecimento disponível sem acesso externo); registrar as URLs e notas de acesso no repositório evita repetir a pesquisa em sessões futuras. Stubs sem scraping são úteis como documentação de roadmap.
-
-### 2026-05-22 — Sessão de triagem: correções P1/P2 em PRs #28 e #29 + M2.6
-
-**M4.1 (#28) — P1 cascata revogação dispositivo→descendentes**: `_process` em `etl.py`
-não propagava `disp_rev_em` para filhos recursivos; descendentes de um dispositivo
-revogado ficavam com `ate=NULL`. SCHEMA.md §0.3 define cascata implícita. Fix: adicionar
-`ancestor_rev_em: Optional[date]` à recursão; pass `disp_rev_em or ancestor_rev_em`
-para filhos. Fixture `with-revogacao-cascata.xml` + 8 testes.
-
-**M4.1 (#28) — P2 fallback ID com chave numérica**: `_parse_lei_fields` rodava o
-heurístico canônico antes do check fallback; `leizilla-ro-lei-fallback-casacivil-12345-
-1985` era mal-classificado (`tipo_lei='casacivil'`). Fix: mover teste `parts[3]=='fallback'`
-para antes do heurístico canônico.
-
-**M4.2 (#29) — P2 version negativa na API**: `upload_dataset()` não validava `version>=0`
-antes de construir o `ia_id`, permitindo `leizilla-dataset-ro-v-1` (viola
-`_DATASET_IDENTIFIER_RE`). CLI já bloqueava; API agora also levanta `ValueError`.
-
-**M2.6 — casacivil job no workflow**: `rondonia_crawler.yml` expandido com dois passos
-casacivil (lei ordinária + complementar) com inputs independentes `casacivil_start`/
-`casacivil_end`. Default 1–100. Não precisa de Playwright (discovery é puro HTTP).
-Workflow_dispatch permite tunar range sem alterar YAML.
 
 ### 2026-05-22 — M2.5: casacivil discovery via enumeração direta (sem Playwright)
 

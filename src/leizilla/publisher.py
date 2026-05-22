@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -11,6 +12,8 @@ from typing import Any, Dict, Optional
 
 from leizilla import config
 from leizilla import storage as storage_module
+
+_DATASET_IDENTIFIER_RE = r"^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)$"
 
 _USER_AGENT = "leizilla-crawler/0.1"
 
@@ -85,6 +88,55 @@ def build_raw_meta_html(
             "wayback_blocked_robots": wayback_blocked_robots,
         },
     }
+
+
+def _get_git_sha() -> Optional[str]:
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True, timeout=5,
+        ).stdout.strip() or None
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+
+def build_dataset_meta(
+    parquet_path: Path,
+    ente: str,
+    version: int,
+    row_count: Optional[int] = None,
+    git_sha: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Constrói dataset_meta.json para IA dataset item (SCHEMA.md §3.3).
+
+    KV footer no Parquet (PyArrow) é deferido para M5; por agora o metadata
+    vai num sidecar JSON no mesmo IA item.
+    """
+    parquet_bytes = parquet_path.read_bytes()
+    if row_count is None:
+        import duckdb
+        conn = duckdb.connect()
+        try:
+            row_count = conn.execute(
+                "SELECT count(*) FROM read_parquet(?)", [str(parquet_path)]
+            ).fetchone()[0]  # type: ignore[index]
+        finally:
+            conn.close()
+    effective_git_sha = git_sha if git_sha is not None else _get_git_sha()
+    meta: Dict[str, Any] = {
+        "leizilla_meta_version": "0.1",
+        "schema_version": "0.1",
+        "ente": ente,
+        "version": version,
+        "table": "versoes",
+        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "row_count": row_count,
+        "file_size_bytes": parquet_path.stat().st_size,
+        "hash_parquet": f"sha256:{hashlib.sha256(parquet_bytes).hexdigest()}",
+    }
+    if effective_git_sha:
+        meta["git_sha"] = effective_git_sha
+    return meta
 
 
 class InternetArchivePublisher:
@@ -268,6 +320,67 @@ class InternetArchivePublisher:
                 }
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id_parsed}
+
+    def upload_dataset(
+        self,
+        parquet_path: Path,
+        ente: str,
+        version: int = 0,
+        row_count: Optional[int] = None,
+        git_sha: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Upload versoes.parquet + dataset_meta.json para IA.
+
+        Identifier: leizilla-dataset-{ente}-v{version} (SCHEMA.md §1.4, §3.5).
+        row_count e git_sha são opcionais — caller passa se já os computou.
+        """
+        if not self.access_key or not self.secret_key:
+            return {"success": False, "error": "IA credentials not configured"}
+
+        if version < 0:
+            raise ValueError(f"version must be >= 0 to satisfy _DATASET_IDENTIFIER_RE, got {version}")
+
+        if not re.match(r"^[a-z][a-z0-9-]*$", ente):
+            raise ValueError(
+                f"ente must match [a-z][a-z0-9-]* to satisfy _DATASET_IDENTIFIER_RE, got {ente!r}"
+            )
+
+        ia_id = f"leizilla-dataset-{ente}-v{version}"
+        dataset_meta = build_dataset_meta(parquet_path, ente, version, row_count, git_sha)
+        effective_row_count = dataset_meta["row_count"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            parquet_dst = Path(tmp) / "versoes.parquet"
+            shutil.copy2(str(parquet_path), str(parquet_dst))
+            meta_path = Path(tmp) / "dataset_meta.json"
+            meta_path.write_text(
+                json.dumps(dataset_meta, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+
+            try:
+                subprocess.run(
+                    [
+                        "ia", "upload", ia_id,
+                        str(parquet_dst), str(meta_path),
+                        "--metadata", f"title:Leizilla Dataset {ente.upper()} v{version}",
+                        "--metadata", "mediatype:data",
+                        "--metadata", f"subject:leis;leizilla;{ente};parquet;versoes",
+                        "--metadata", "creator:leizilla-etl",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                return {
+                    "success": True,
+                    "ia_id": ia_id,
+                    "ia_url": f"https://archive.org/details/{ia_id}",
+                    "row_count": effective_row_count,
+                }
+            except FileNotFoundError:
+                return {"success": False, "error": "ia CLI não encontrado — instale 'internetarchive'", "ia_id": ia_id}
+            except subprocess.CalledProcessError as e:
+                return {"success": False, "error": e.stderr, "ia_id": ia_id}
 
     def export_dataset_parquet(
         self,
