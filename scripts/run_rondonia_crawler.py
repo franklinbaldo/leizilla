@@ -44,7 +44,8 @@ async def main():
             f"Discovering laws for Rondônia with coddoc from {START_CODDOC} to {END_CODDOC}..."
         )
         discovered_laws = await crawler.discover_rondonia_laws(
-            start_coddoc=START_CODDOC, end_coddoc=END_CODDOC
+            start_coddoc=START_CODDOC,
+            end_coddoc=END_CODDOC
         )
 
         if not discovered_laws:
