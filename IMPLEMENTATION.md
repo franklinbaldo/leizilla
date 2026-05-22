@@ -16,9 +16,9 @@
 | **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟢 done | #15 | `wayback.py` + `robots.py` + `publisher.upload_raw` + PDF renomeado para {ia_id}.pdf. 34 testes. |
 | **M2.2** — scraper.py + `scrape` CLI + fix ids no crawler | 🟢 done | #18 | `scraper.scrape_one()` orquestra robots→wayback→fetch→upload_raw. CLI `scrape` para assembleia/RO. 10 testes. |
 | **M2.3** — CI workflow + `internetarchive` dep | 🟢 done | #20 | `rondonia_crawler.yml` atualizado para `uv run leizilla scrape`. `internetarchive` em pyproject.toml. |
-| **M3.1** — OCR fetch + LLM parse → parser.py | 🟡 in-progress | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
-| **M3.2** — publisher.upload_parsed() | 🟡 in-progress | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
-| M3 restante — `parse --upload` + `parse-all` batch | ⚪ todo | — | Bloqueado por #17+#19. CLI `parse --upload` integra parser→publisher. `parse-all` itera raw items sem parsed_meta. |
+| **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
+| **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
+| **M3 restante** — `parse --upload` + `parse-all` batch | 🟡 in-progress | TBD | CLI `parse --upload` integra parser→publisher. `parse-all` itera raw items sem parsed item. `storage.get_leis_pending_parse()`. 19 novos testes. |
 | M2 restante — casacivil discovery + outros entes | ⚪ todo | — | casacivil.ro.gov.br (padrão de URL a auditar); fontes/{sp,federal}.py. Rate-limit por host. |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
@@ -78,6 +78,31 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M3 restante: `parse --upload` + `parse-all` batch
+
+Fecha o ciclo Etapa 2 do pipeline: raw IA item → OCR → parse → upload parsed item.
+
+**`parse --upload`** flag adicionado ao comando existente `leizilla parse`. Quando presente,
+chama `publisher.upload_parsed(result.ia_id_parsed, result.xml, result.parsed_meta)` após
+parse bem-sucedido. Upload separado do parse (flag opt-in) permite inspeção do XML antes
+de publicar — útil para debugging em desenvolvimento.
+
+**`parse-all`** novo comando batch:
+- Opções: `--ente`, `--model`, `--limit` (default 10).
+- Consulta `db.get_leis_pending_parse(ente, limit)` — leis com `url_pdf_ia` mas sem `url_parsed_ia`.
+- Para cada: extrai `ia_id` da URL (`archive.org/details/{ia_id}`), chama `fetch_ocr`,
+  `parse_law`, `upload_parsed`, atualiza `url_parsed_ia` no DB.
+- Fail-safe: OCR indisponível ou parse falho são logados e pulados; RuntimeError
+  (API key ausente) aborta com exit 1.
+
+**`storage.get_leis_pending_parse(ente, limit)`** — nova query:
+- `WHERE url_pdf_ia IS NOT NULL AND url_parsed_ia IS NULL ORDER BY created_at ASC`.
+- `url_parsed_ia VARCHAR` adicionado ao schema. Migration automática via
+  `ALTER TABLE leis ADD COLUMN url_parsed_ia VARCHAR` com try/except para DBs existentes.
+
+**Testes**: 19 novos em `tests/test_cli_parse.py` (5 para `parse --upload`, 6 para `parse-all`)
+e `tests/test_storage.py` (5 para `get_leis_pending_parse` + coluna). Total: 190 passando.
 
 ### 2026-05-22 — M3.1: OCR fetch + LLM parse → Leizilla XML
 

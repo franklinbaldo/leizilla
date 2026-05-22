@@ -133,7 +133,9 @@ def cmd_upload(
                 if not pdf_path.exists():
                     continue
                 pdf_bytes = pdf_path.read_bytes()
-                result = publisher.upload_raw(pdf_path, law, pdf_bytes, fetched_from="source-fallback")
+                result = publisher.upload_raw(
+                    pdf_path, law, pdf_bytes, fetched_from="source-fallback"
+                )
                 if result.get("success"):
                     db.update_lei(law["id"], {"url_pdf_ia": result["ia_url"]})
                     uploaded += 1
@@ -190,7 +192,9 @@ def cmd_scrape(
                     echo(f"  OK: {result.get('ia_id', '?')}")
                     ok += 1
                 else:
-                    echo(f"  Falha [{result.get('reason', '?')}]: {law.get('id', 'N/A')}")
+                    echo(
+                        f"  Falha [{result.get('reason', '?')}]: {law.get('id', 'N/A')}"
+                    )
 
             echo(f"Scraping concluído: {ok}/{len(laws)} com sucesso")
 
@@ -285,6 +289,9 @@ def cmd_parse(
     raw_id: str = typer.Option(..., help="IA raw item ID (leizilla-raw-...)"),
     ente: str = typer.Option("ro", help="Ente federativo"),
     model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
+    upload: bool = typer.Option(
+        False, "--upload/--no-upload", help="Upload parsed result to Internet Archive"
+    ),
     output: Optional[Path] = typer.Option(
         None, help="Salvar XML em arquivo (default: stdout)"
     ),
@@ -315,6 +322,20 @@ def cmd_parse(
             f"item: {result.ia_id_parsed}"
         )
 
+        if upload:
+            from leizilla.publisher import InternetArchivePublisher
+
+            publisher = InternetArchivePublisher()
+            upload_result = publisher.upload_parsed(
+                result.ia_id_parsed, result.xml, result.parsed_meta
+            )
+            if upload_result.get("success"):
+                echo(f"Upload OK — {upload_result['ia_url']}")
+            else:
+                echo(
+                    f"Upload falhou: {upload_result.get('error', 'erro desconhecido')}"
+                )
+
         if output:
             output.write_text(result.xml, encoding="utf-8")
             echo(f"XML salvo em {output}")
@@ -325,6 +346,73 @@ def cmd_parse(
     except RuntimeError as e:
         echo(f"Erro de configuração: {e}")
         raise typer.Exit(1)
+    except Exception as e:
+        echo(f"Erro: {e}")
+        raise typer.Exit(1)
+
+
+@app.command("parse-all")
+def cmd_parse_all(
+    ente: str = typer.Option("ro", help="Ente federativo"),
+    model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
+    limit: int = typer.Option(10, help="Máximo de leis a parsear nesta execução"),
+) -> None:
+    """Parsear e publicar em lote leis com raw IA item sem parsed item (Etapa 2 batch)."""
+    echo(f"Buscando leis pendentes de parse para {ente}...")
+
+    try:
+        from leizilla.parser import fetch_ocr, parse_law
+        from leizilla.publisher import InternetArchivePublisher
+        from leizilla.storage import DuckDBStorage
+
+        db = DuckDBStorage()
+        publisher = InternetArchivePublisher()
+        pending = db.get_leis_pending_parse(ente=ente, limit=limit)
+
+        if not pending:
+            echo("Nenhuma lei pendente de parse")
+            return
+
+        echo(f"  {len(pending)} leis pendentes")
+        ok = 0
+        for lei in pending:
+            url_pdf_ia = lei.get("url_pdf_ia", "")
+            ia_id = url_pdf_ia.rstrip("/").rsplit("/", 1)[-1] if url_pdf_ia else ""
+            if not ia_id:
+                echo(f"  Sem ia_id para {lei.get('id')}")
+                continue
+
+            ocr = fetch_ocr(ia_id)
+            if not ocr:
+                echo(f"  OCR não disponível: {ia_id}")
+                continue
+
+            try:
+                result = parse_law(ocr, ia_id, lei.get("ente", ente), model=model)
+            except RuntimeError as e:
+                echo(f"Erro de configuração: {e}")
+                raise typer.Exit(1)
+
+            if not result:
+                echo(f"  Parse falhou: {ia_id}")
+                continue
+
+            upload_result = publisher.upload_parsed(
+                result.ia_id_parsed, result.xml, result.parsed_meta
+            )
+            if upload_result.get("success"):
+                db.update_lei(lei["id"], {"url_parsed_ia": upload_result["ia_url"]})
+                echo(f"  OK: {result.ia_id_parsed} (confiança {result.confidence:.2f})")
+                ok += 1
+            else:
+                echo(
+                    f"  Upload falhou [{result.ia_id_parsed}]: "
+                    f"{upload_result.get('error', '?')}"
+                )
+
+        echo(f"Parse-all concluído: {ok}/{len(pending)} com sucesso")
+    except typer.Exit:
+        raise
     except Exception as e:
         echo(f"Erro: {e}")
         raise typer.Exit(1)

@@ -41,6 +41,7 @@ class DuckDBStorage:
             url_original VARCHAR,
             local_pdf_path VARCHAR,
             url_pdf_ia VARCHAR,
+            url_parsed_ia VARCHAR,
             hash_conteudo VARCHAR,
             status VARCHAR DEFAULT 'ativo',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -49,8 +50,15 @@ class DuckDBStorage:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_ente ON leis(ente)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_ano ON leis(ano)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_data ON leis(data_publicacao)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_leis_data ON leis(data_publicacao)"
+        )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_tipo ON leis(tipo_lei)")
+        # Migrate existing DBs that predate url_parsed_ia column
+        try:
+            conn.execute("ALTER TABLE leis ADD COLUMN url_parsed_ia VARCHAR")
+        except Exception:
+            pass
 
     def insert_lei(self, lei_data: Dict[str, Any]) -> None:
         conn = self.connect()
@@ -111,6 +119,32 @@ class DuckDBStorage:
             FROM leis
             WHERE {where_sql}
             ORDER BY data_publicacao DESC
+            LIMIT ?
+            """,
+            params + [limit],
+        ).fetchall()
+        columns = [desc[0] for desc in conn.description]
+        return [dict(zip(columns, row)) for row in results]
+
+    def get_leis_pending_parse(
+        self,
+        ente: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Retorna leis com raw IA item mas sem parsed IA item."""
+        conn = self.connect()
+        where_clauses = ["url_pdf_ia IS NOT NULL", "url_parsed_ia IS NULL"]
+        params: List[Any] = []
+        if ente:
+            where_clauses.append("ente = ?")
+            params.append(ente)
+        where_sql = " AND ".join(where_clauses)
+        results = conn.execute(
+            f"""
+            SELECT id, titulo, ano, ente, url_pdf_ia
+            FROM leis
+            WHERE {where_sql}
+            ORDER BY created_at ASC
             LIMIT ?
             """,
             params + [limit],
