@@ -155,40 +155,79 @@ def cmd_upload(
 @app.command("scrape")
 def cmd_scrape(
     ente: str = typer.Option("ro", help="Ente federativo"),
-    fonte: str = typer.Option("assembleia", help="Fonte (assembleia, casacivil)"),
+    fonte: str = typer.Option("assembleia", help="Fonte (assembleia, casacivil, planalto)"),
     start_coddoc: int = typer.Option(
-        1, help="ID inicial (coddoc para assembleia; número de lei para casacivil)"
+        1, help="ID inicial (coddoc p/ assembleia; número de lei p/ casacivil/planalto)"
     ),
     end_coddoc: int = typer.Option(10, help="ID final"),
     tipo: str = typer.Option(
-        "lei", help="Tipo de lei para casacivil: lei (ordinária) ou lc (complementar)"
+        "lei", help="Tipo: lei (ordinária), lc (complementar, casacivil), decreto (planalto)"
     ),
 ) -> None:
-    """Scrape leis: discover → robots → wayback → upload_raw para IA."""
-    if tipo != "lei" and fonte != "casacivil":
-        echo(
-            f"--tipo só é válido com --fonte casacivil (recebido: --tipo {tipo} --fonte {fonte})"
-        )
+    """Scrape leis: discover → robots → wayback → upload_raw/upload_raw_html para IA."""
+    _VALID_TIPOS = {"lei", "lc", "lcp", "decreto"}
+
+    if tipo not in _VALID_TIPOS:
+        echo(f"--tipo inválido: {tipo!r}. Valores suportados: {sorted(_VALID_TIPOS)}")
+        raise typer.Exit(1)
+    if tipo == "lc" and fonte != "casacivil":
+        echo(f"--tipo lc só é válido com --fonte casacivil (recebido: --fonte {fonte})")
+        raise typer.Exit(1)
+    if tipo == "lcp" and fonte != "planalto":
+        echo(f"--tipo lcp só é válido com --fonte planalto (recebido: --fonte {fonte})")
+        raise typer.Exit(1)
+    if tipo == "decreto" and fonte != "planalto":
+        echo(f"--tipo decreto só é válido com --fonte planalto (recebido: --fonte {fonte})")
         raise typer.Exit(1)
 
-    echo(f"Scraping {ente}/{fonte} {start_coddoc}–{end_coddoc}")
+    echo(f"Scraping {ente}/{fonte} {start_coddoc}–{end_coddoc} (tipo={tipo})")
 
     try:
-        from leizilla.crawler import LeisCrawler, discover_casacivil_laws
         from leizilla.publisher import InternetArchivePublisher
-        from leizilla.scraper import make_rate_limiter, scrape_one
+        from leizilla.scraper import make_rate_limiter
 
         publisher = InternetArchivePublisher()
         rate_limiter = make_rate_limiter()
 
+        if ente == "federal" and fonte == "planalto":
+            from leizilla.fontes.federal import discover_planalto_laws
+            from leizilla.scraper import scrape_one_html
+
+            laws = discover_planalto_laws(
+                tipo=tipo,
+                start_num=start_coddoc,
+                end_num=end_coddoc,
+            )
+            ok = 0
+            for law in laws:
+                fonte_url = law.get("url_original")
+                if not fonte_url:
+                    echo(f"  Sem URL: {law.get('chave', 'N/A')}")
+                    continue
+                result = scrape_one_html(fonte_url, law, publisher, rate_limiter)
+                if result.get("success"):
+                    echo(f"  OK: {result.get('ia_id', '?')}")
+                    ok += 1
+                else:
+                    echo(
+                        f"  Falha [{result.get('reason', '?')}]: {law.get('chave', 'N/A')}"
+                    )
+            echo(f"Scraping concluído: {ok}/{len(laws)} com sucesso")
+            return
+
+        # Fontes PDF (ro/assembleia, ro/casacivil)
+        from leizilla.scraper import scrape_one
+
         async def run() -> None:
             if ente == "ro" and fonte == "assembleia":
+                from leizilla.crawler import LeisCrawler
                 crawler = LeisCrawler(crawler_type="playwright")
                 laws = await crawler.discover_rondonia_laws(
                     start_coddoc=start_coddoc,
                     end_coddoc=end_coddoc,
                 )
             elif ente == "ro" and fonte == "casacivil":
+                from leizilla.crawler import discover_casacivil_laws
                 laws = discover_casacivil_laws(
                     tipo=tipo,
                     start_num=start_coddoc,
@@ -219,6 +258,127 @@ def cmd_scrape(
         asyncio.run(run())
     except Exception as e:
         echo(f"Erro: {e}")
+        raise typer.Exit(1)
+
+
+@app.command("release-dataset")
+def cmd_release_dataset(
+    parquet: Path = typer.Argument(..., help="Arquivo versoes.parquet (saída de consolidate)"),
+    ente: str = typer.Option("ro", "--ente", help="Ente federativo"),
+    version: int = typer.Option(0, "--version", help="Versão do dataset (0 = pré-M5)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Reporta stats sem fazer upload"),
+) -> None:
+    """Publicar Parquet no IA como leizilla-dataset-{ente}-v{version} (M4 restante)."""
+    import time
+
+    import duckdb
+
+    if not parquet.exists():
+        echo(f"Arquivo não encontrado: {parquet}")
+        raise typer.Exit(1)
+
+    if version < 0:
+        echo(f"--version deve ser >= 0 (recebido: {version})")
+        raise typer.Exit(1)
+
+    conn = duckdb.connect()
+    try:
+        row_count: int = conn.execute(
+            "SELECT count(*) FROM read_parquet(?)", [str(parquet)]
+        ).fetchone()[0]  # type: ignore[index]
+
+        # Benchmark gatilhos §3.4 — aproximação local (DuckDB-WASM em M5)
+        t0 = time.perf_counter()
+        conn.execute(
+            "SELECT lei_id, dispositivo_path FROM read_parquet(?) "
+            "WHERE texto_normalizado LIKE '%transparência%' AND ate IS NULL LIMIT 10",
+            [str(parquet)],
+        ).fetchall()
+        search_ms = (time.perf_counter() - t0) * 1000
+    finally:
+        conn.close()
+
+    file_mb = parquet.stat().st_size / 1_048_576
+    echo(f"Stats: {row_count} linhas, {file_mb:.2f} MB, busca {search_ms:.0f}ms")
+
+    gatilhos: list[str] = []
+    if file_mb > 100:
+        gatilhos.append(f"file > 100 MB ({file_mb:.1f} MB)")
+    if row_count > 2_000_000:
+        gatilhos.append(f"rows > 2M ({row_count:,})")
+    if search_ms > 1000:
+        gatilhos.append(f"search > 1s P95 ({search_ms:.0f}ms)")
+
+    if gatilhos:
+        echo(f"  Gatilhos §3.4 atingidos: {'; '.join(gatilhos)}")
+        if len(gatilhos) >= 2:
+            echo("  2+ gatilhos → RFC sobre split de tabelas obrigatório antes de fechar M5")
+
+    if dry_run:
+        echo("Dry-run: nenhum upload realizado.")
+        return
+
+    from leizilla.publisher import InternetArchivePublisher
+
+    git_sha = None
+    try:
+        import subprocess as _sp
+        git_sha = _sp.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True, timeout=5,
+        ).stdout.strip() or None
+    except Exception:
+        pass
+
+    publisher = InternetArchivePublisher()
+    try:
+        result = publisher.upload_dataset(parquet, ente, version, row_count, git_sha)
+    except ValueError as e:
+        echo(f"Upload falhou: {e}")
+        raise typer.Exit(1)
+    if result.get("success"):
+        echo(f"Dataset publicado: {result['ia_url']} ({result.get('row_count', '?')} linhas)")
+    else:
+        echo(f"Upload falhou: {result.get('error', 'erro desconhecido')}")
+        raise typer.Exit(1)
+
+
+@app.command("consolidate")
+def cmd_consolidate(
+    xml_dir: Path = typer.Argument(..., help="Diretório com arquivos {lei_id}.xml"),
+    output: Path = typer.Option(..., "--output", help="Arquivo Parquet de saída"),
+    ente: str = typer.Option("ro", "--ente", help="Ente federativo"),
+) -> None:
+    """Consolidar XMLs Leizilla em Parquet v0.1 (tabela versoes)."""
+    from leizilla.etl import consolidate_xmls, write_parquet
+
+    xml_files = sorted(xml_dir.glob("*.xml"))
+    if not xml_files:
+        echo(f"Nenhum arquivo .xml encontrado em {xml_dir}")
+        raise typer.Exit(1)
+
+    items = []
+    read_errors = 0
+    for f in xml_files:
+        lei_id = f.stem
+        try:
+            xml_content = f.read_text(encoding="utf-8")
+            items.append((lei_id, ente, xml_content))
+        except OSError as e:
+            echo(f"  Erro ao ler {f.name}: {e}")
+            read_errors += 1
+
+    if not items:
+        echo("Nenhum XML pôde ser lido.")
+        raise typer.Exit(1)
+
+    if read_errors:
+        echo(f"  Aviso: {read_errors}/{len(xml_files)} arquivo(s) ignorado(s) por erro de leitura.")
+    rows = consolidate_xmls(items)
+    echo(f"Convertidos {len(items)}/{len(xml_files)} XMLs → {len(rows)} linhas")
+    write_parquet(rows, output)
+    echo(f"Parquet escrito em {output}")
+    if read_errors:
         raise typer.Exit(1)
 
 
@@ -343,21 +503,41 @@ def cmd_parse(
     upload: bool = typer.Option(
         False, "--upload/--no-upload", help="Upload para IA após parse"
     ),
+    input_type: str = typer.Option(
+        "ocr", "--input-type", help="Tipo de entrada do raw item: ocr (PDF via IA) ou html (HTML armazenado no IA)"
+    ),
 ) -> None:
-    """Parsear OCR de raw IA item → Leizilla XML via LLM (Etapa 2)."""
-    try:
-        from leizilla.parser import fetch_ocr, parse_law
+    """Parsear raw IA item → Leizilla XML via LLM (Etapa 2).
 
-        echo(f"Buscando OCR para {raw_id}...")
-        ocr = fetch_ocr(raw_id)
-        if not ocr:
-            echo(
-                f"OCR não disponível para {raw_id} (IA ainda processando ou item inexistente)"
-            )
+    Para fontes PDF (assembleia, casacivil): --input-type ocr (default).
+    Para fontes HTML (federal/planalto após M2.7): --input-type html.
+    """
+    try:
+        from leizilla.parser import fetch_ia_html, fetch_ocr, parse_law
+
+        if input_type == "html":
+            echo(f"Buscando HTML para {raw_id}...")
+            raw_text = fetch_ia_html(raw_id)
+            if not raw_text:
+                echo(
+                    f"HTML não disponível para {raw_id} (item inexistente ou upload pendente)"
+                )
+                raise typer.Exit(1)
+        elif input_type == "ocr":
+            echo(f"Buscando OCR para {raw_id}...")
+            raw_text = fetch_ocr(raw_id)
+            if not raw_text:
+                echo(
+                    f"OCR não disponível para {raw_id} (IA ainda processando ou item inexistente)"
+                )
+                raise typer.Exit(1)
+        else:
+            echo(f"--input-type inválido: {input_type!r}. Use 'ocr' ou 'html'.")
             raise typer.Exit(1)
 
-        echo(f"Parseando com {model} ({len(ocr)} chars de OCR)...")
-        result = parse_law(ocr, raw_id, ente, model=model)
+        label = "HTML" if input_type == "html" else "OCR"
+        echo(f"Parseando com {model} ({len(raw_text)} chars de {label})...")
+        result = parse_law(raw_text, raw_id, ente, model=model, input_type=input_type)
         if not result:
             echo(
                 "Parse falhou: confiança insuficiente ou OCR ilegível. Sem parsed item publicado."
