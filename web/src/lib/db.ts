@@ -30,17 +30,22 @@ async function _init(): Promise<duckdb.AsyncDuckDB> {
   const worker = new Worker(workerUrl);
   const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING);
   const db = new duckdb.AsyncDuckDB(logger, worker);
-  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-  URL.revokeObjectURL(workerUrl);
-
-  const conn = await db.connect();
   try {
-    await conn.query(`INSTALL httpfs; LOAD httpfs;`);
-    await conn.query(
-      `CREATE OR REPLACE VIEW versoes AS SELECT * FROM read_parquet('${PARQUET_URL}');`,
-    );
-  } finally {
-    await conn.close();
+    await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    URL.revokeObjectURL(workerUrl);
+
+    const conn = await db.connect();
+    try {
+      await conn.query(`INSTALL httpfs; LOAD httpfs;`);
+      await conn.query(
+        `CREATE OR REPLACE VIEW versoes AS SELECT * FROM read_parquet('${PARQUET_URL}');`,
+      );
+    } finally {
+      await conn.close();
+    }
+  } catch (e) {
+    await db.terminate().catch(() => {}); // cleanup orphaned worker; ignore secondary errors
+    throw e;
   }
 
   return db;
@@ -69,6 +74,7 @@ export interface LeiRow {
   dispositivo_path: string;
   dispositivo_tipo: string;
   texto_normalizado: string | null;
+  em: string | null;
   ate: Date | null;
 }
 
@@ -78,11 +84,13 @@ export async function searchLeis(query: string, limit = 20): Promise<LeiRow[]> {
   try {
     const term = query.trim();
     if (!term) {
-      const result = await conn.query(`SELECT * FROM versoes LIMIT ${limit}`);
+      const result = await conn.query(
+        `SELECT * FROM versoes WHERE ate IS NULL LIMIT ${limit}`,
+      );
       return result.toArray().map((r: unknown) => (r as { toJSON(): LeiRow }).toJSON());
     }
     const stmt = await conn.prepare(
-      `SELECT * FROM versoes WHERE texto_normalizado ILIKE ? LIMIT ${limit}`,
+      `SELECT * FROM versoes WHERE ate IS NULL AND texto_normalizado ILIKE ? LIMIT ${limit}`,
     );
     try {
       const result = await stmt.query(`%${term}%`);

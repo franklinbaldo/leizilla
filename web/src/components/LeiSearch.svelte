@@ -53,7 +53,7 @@
     <p>Nenhum resultado{query ? ` para "${query}"` : ''}.</p>
   {:else}
     <div class="results">
-      {#each results as row (row.lei_id + '|' + row.dispositivo_path)}
+      {#each results as row (row.lei_id + '|' + row.dispositivo_path + '|' + (row.em ?? ''))}
         <LeiCard {row} />
       {/each}
     </div>
