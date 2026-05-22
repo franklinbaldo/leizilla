@@ -18,8 +18,9 @@
 | **M2.3** — CI workflow + `internetarchive` dep | 🟢 done | #20 | `rondonia_crawler.yml` atualizado para `uv run leizilla scrape`. `internetarchive` em pyproject.toml. |
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
-| **M3 restante** — `parse --upload` + XSD gate + `parse-all` batch | 🟡 in-progress | TBD | CLI `parse --upload` integra parser→publisher; `_xsd_gate` via xmllint; `parse-all` itera range coddoc. 15 testes. |
-| M2 restante — casacivil discovery + outros entes | ⚪ todo | — | casacivil.ro.gov.br (padrão de URL a auditar); fontes/{sp,federal}.py. Rate-limit por host. |
+| **M3 restante** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
+| **M2.4** — Rate-limit por host | 🟢 done | #23 | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
+| M2 restante — casacivil discovery + outros entes | ⚪ todo | — | casacivil.ro.gov.br (padrão de URL a auditar); fontes/{sp,federal}.py. |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
 | M6 — GitHub Actions | ⚪ todo | — | Depende de M2–M5 |
@@ -79,6 +80,24 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-05-22 — M2.4: Rate-limit por host (supersede M2.2 global limiter)
+
+`make_rate_limiter()` agora retorna `Callable[[str], None]` (recebe URL) em vez de
+`Callable[[], None]`. Closure mantém `Dict[str, float]` com `last[host]` por `urlparse(url).hostname` (normalizado, sem port ou credenciais no key).
+
+**Por que**: M2 restante inclui casacivil + assembleia scraping em paralelo. Rate-limit
+global serializaria as duas fontes mesmo quando são hosts distintos — cada fonte
+ficaria esperando o cooldown da outra. Com tracking por host, `al.ro.leg.br` e
+`casacivil.ro.gov.br` têm buckets independentes.
+
+**Interface**: `scrape_one(..., rate_limiter)` agora passa `pdf_url` para o limiter
+(era chamada sem args). Callers existentes que usam `make_rate_limiter()` recebem o
+comportamento correto automaticamente — a CLI cria o limiter e passa para `scrape_one`.
+
+**Sem breaking change real**: nenhum código externo chamava `limiter()` diretamente
+(era criado e passado como opaque callable). Testes atualizados para verificar que
+`rate_mock` é chamado com `_PDF_URL`.
+
 ### 2026-05-22 — M3 restante: `parse --upload` + XSD gate + `parse-all` batch
 
 Integra M3.1 (`parser.py`) e M3.2 (`publisher.upload_parsed`) via CLI, completando
@@ -114,7 +133,7 @@ o pipeline Etapa 2 end-to-end: OCR fetch → LLM parse → XSD validate → IA u
   fail-open é para falta de ferramental, não para XML inválido detectado.
 - `parse-all` exit 1 se qualquer upload falhou (seja por XSD inválido ou por falha de rede/IA).
   Falhas de parse (LLM confiança baixa) não propagam exit 1 — são esperadas em batches parciais.
-- 18 testes em `tests/test_cli_parse.py` cobrem todos os branches.
+- 15 testes em `tests/test_cli_parse.py` cobrem todos os branches.
 
 ### 2026-05-22 — M3.1: OCR fetch + LLM parse → Leizilla XML
 
