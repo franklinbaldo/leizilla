@@ -16,11 +16,14 @@
 | **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟢 done | #15 | `wayback.py` + `robots.py` + `publisher.upload_raw` + PDF renomeado para {ia_id}.pdf. 34 testes. |
 | **M2.2** — scraper.py + `scrape` CLI + fix ids no crawler | 🟢 done | #18 | `scraper.scrape_one()` orquestra robots→wayback→fetch→upload_raw. CLI `scrape` para assembleia/RO. 10 testes. |
 | **M2.3** — CI workflow + `internetarchive` dep | 🟢 done | #20 | `rondonia_crawler.yml` atualizado para `uv run leizilla scrape`. `internetarchive` em pyproject.toml. |
+| **M2.4** — Rate-limit por host | 🟡 in-progress | #25 | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
+| **M2.5** — casacivil discovery | 🟡 in-progress | TBD | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. |
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
-| **M3 restante** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint; `parse-all` itera range coddoc. |
-| **M2.4** — Rate-limit por host | 🟡 in-progress | #23 | `make_rate_limiter` por host: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
-| M2 restante — casacivil discovery + outros entes | ⚪ todo | — | casacivil.ro.gov.br (padrão de URL a auditar); fontes/{sp,federal}.py. |
+| **M3 restante** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
+| **M2.4** — Rate-limit por host | 🟢 done | 66aa4ac | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
+| **M2.5** — casacivil discovery | 🟡 in-progress | #26 | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. |
+| M2 restante — outros entes (sp, federal) | ⚪ todo | — | fontes/{sp,federal}.py. Depende de M2.4+M2.5. |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
 | M6 — GitHub Actions | ⚪ todo | — | Depende de M2–M5 |
@@ -80,6 +83,38 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-05-22 — M2.5: casacivil discovery via enumeração direta (sem Playwright)
+
+**Auditoria do portal**: `www.casacivil.ro.gov.br/leis` → redireciona para
+`ditel.casacivil.ro.gov.br/COTEL/Livros/listleiord.aspx?ano=YYYY`, que retorna
+403 de ambientes externos. Porém, PDFs individuais são acessíveis diretamente:
+`HEAD http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L5120.pdf` → 200.
+
+**Padrão de URL descoberto** via Google cache + HEAD requests:
+- Leis ordinárias: `L{N}.pdf` (ex: `L5120.pdf`, `L3830 - COMPILADA.pdf`)
+- Leis complementares: `LC{N}.pdf` (ex: `LC1209 - COMPILADO.pdf`, `LC748.pdf`)
+- A versão `COMPILADA` (texto consolidado vigente) tem sufixo variável — não
+  tentamos enumerar variações; o Wayback Machine frequentemente tem a base `L{N}.pdf`
+  que é suficiente para OCR (compiladas são frequentemente scanned igualmente).
+
+**Decisão de design**: `discover_casacivil_laws` é função standalone (não método
+de `LeisCrawler`), pois não precisa de Playwright. Retorna URLs candidatas sem
+verificar existência — `scrape_one` trata 404/timeout via Wayback fail-open.
+
+**Chave**: `lei-{N:05d}` para ordinária, `lc-{N:05d}` para complementar.
+`IA id`: `leizilla-raw-ro-casacivil-lei-{N:05d}` ou `lc-{N:05d}`.
+
+**CLI**: `scrape --fonte casacivil --tipo lei|lc --start-coddoc N --end-coddoc M`
+(reuso semântico de `--start-coddoc` como "número inicial", sem breaking change
+para assembleia que continua usando coddoc).
+
+**Descobertas notáveis**:
+- Portal DITEL usa ASP.NET WebForms (`listleiord.aspx`) — script da década de 2000.
+- Leis Rondônia chegam a L6000+ (ordinárias); LC chega a ~1300+.
+- Alguns PDFs têm sufixos: `_compressed`, `- PL` (projetos), `- COMPILADA`.
+  Para o pipeline v0 aceitamos o URL base e deixamos Wayback/IA lidar com
+  disponibilidade.
+
 ### 2026-05-22 — M2.4: Rate-limit por host (supersede M2.2 global limiter)
 
 `make_rate_limiter()` agora retorna `Callable[[str], None]` (recebe URL) em vez de
@@ -98,15 +133,39 @@ comportamento correto automaticamente — a CLI cria o limiter e passa para `scr
 (era criado e passado como opaque callable). Testes atualizados para verificar que
 `rate_mock` é chamado com `_PDF_URL`.
 
-### 2026-05-22 — M3 restante: `parse --upload` + XSD gate + `parse-all` batch (merged #21)
+### 2026-05-22 — M3 restante: `parse --upload` + XSD gate + `parse-all` batch
 
 Integra M3.1 (`parser.py`) e M3.2 (`publisher.upload_parsed`) via CLI, completando
 o pipeline Etapa 2 end-to-end: OCR fetch → LLM parse → XSD validate → IA upload.
 
-**`_xsd_gate(xml_content)`**: fail-open para ferramental ausente (xmllint/schema);
-bloqueia upload quando xmllint detecta XML inválido. **`parse --upload`**: integra
-gate + publisher; exit 1 em falha. **`parse-all`**: batch coddoc-range com per-item
-try/except, `parsed_meta` inclui ente/tipo, exit 1 se qualquer upload falhou.
+**`_xsd_gate(xml_content)`** — helper em `cli.py`:
+- Localiza `docs/schemas/leizilla-v0.1.xsd` via `Path(__file__).parents[2]`.
+- Escreve XML em tmp file; roda `xmllint --schema ... --noout`; apaga tmp em `finally`.
+- Fail-open: schema ausente ou `xmllint` não instalado → avisa + retorna True.
+- Retorna False (e printa aviso) se xmllint retorna non-zero (validação falhou).
+
+**`parse --upload/--no-upload`** (default `--no-upload`):
+- Com `--upload`: chama `_xsd_gate`, depois `InternetArchivePublisher().upload_parsed()`.
+- Upload falhou → exit code 1 com mensagem "Upload falhou: {error}".
+- Sem `--upload`: comportamento existente (stdout XML) — zero breaking change.
+
+**`parse-all`** — novo comando batch:
+- `--start-coddoc / --end-coddoc / --ente / --fonte / --model / --upload/--no-upload / --limit`.
+- Itera `leizilla-raw-{ente}-{fonte}-coddoc-{N:05d}` no range; skip silencioso se OCR ausente.
+- Conta falhas de parse sem abortar; relatório final: "Batch concluído: N parseados, N falhos[, N uploaded]".
+- Default `--upload` (True) para uso batch; `--no-upload` para dry-run.
+
+**Decisões**:
+- `parse-all` usa range coddoc (não query DuckDB) porque `scraper.scrape_one()` não
+  insere `ia_id_raw` no DuckDB, e o schema atual não tem essa coluna. Range coddoc
+  é o mesmo mecanismo que o `scrape` CLI usa — consistente e sem dependência nova.
+- `_xsd_gate` é fail-open apenas para ferramentas ausentes: `xmllint` não instalado
+  ou schema não encontrado → retorna True (pipeline continua). Quando `xmllint`
+  está presente e encontra erros → retorna False e o upload é **bloqueado** (exit 1 em
+  `parse --upload`; skip + contagem de erro em `parse-all`).
+- `parse-all` exit 1 se qualquer upload falhou (seja por XSD inválido ou por falha de rede/IA).
+  Falhas de parse (LLM confiança baixa) não propagam exit 1 — são esperadas em batches parciais.
+- 15 testes em `tests/test_cli_parse.py` cobrem todos os branches.
 
 ### 2026-05-22 — M3.1: OCR fetch + LLM parse → Leizilla XML
 
