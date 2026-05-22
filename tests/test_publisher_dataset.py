@@ -173,6 +173,14 @@ class TestUploadDataset:
         with pytest.raises(ValueError, match="version must be >= 0"):
             pub.upload_dataset(p, "ro", -1, row_count=1, git_sha=None)
 
+    def test_invalid_ente_raises(self, tmp_path: Path) -> None:
+        # P2 fix: upload_dataset rejects ente values that would violate _DATASET_IDENTIFIER_RE
+        p = _make_parquet(tmp_path)
+        pub = _publisher()
+        for bad_ente in ("RO", "sp_", "ro ro", "", "1ro"):
+            with pytest.raises(ValueError, match="ente must match"):
+                pub.upload_dataset(p, bad_ente, 0, row_count=1, git_sha=None)
+
     def test_subprocess_failure_returns_error(self, tmp_path: Path) -> None:
         p = _make_parquet(tmp_path)
         pub = _publisher()

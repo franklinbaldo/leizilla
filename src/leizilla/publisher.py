@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -247,6 +248,11 @@ class InternetArchivePublisher:
 
         if version < 0:
             raise ValueError(f"version must be >= 0 to satisfy _DATASET_IDENTIFIER_RE, got {version}")
+
+        if not re.match(r"^[a-z][a-z0-9-]*$", ente):
+            raise ValueError(
+                f"ente must match [a-z][a-z0-9-]* to satisfy _DATASET_IDENTIFIER_RE, got {ente!r}"
+            )
 
         ia_id = f"leizilla-dataset-{ente}-v{version}"
         dataset_meta = build_dataset_meta(parquet_path, ente, version, row_count, git_sha)
