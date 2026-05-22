@@ -123,15 +123,19 @@ def _parse_lei_fields(
             data = m.group("data") or ""
             ano = int(data[:4]) if len(data) >= 4 else 0
             return tipo, numero, ano
-    # Heuristic fallback: leizilla-{ente}-{tipo}-{numero}-{ano}
+    # Heuristic fallback: try two documented lei_id patterns (SCHEMA.md §1.3)
     parts = lei_id.split("-")
     if len(parts) >= 5 and parts[0] == "leizilla":
+        # Canonical: leizilla-{ente}-{tipo}-{numero}-{ano}
         try:
             ano_s, num_s, tipo_s = parts[-1], parts[-2], parts[-3]
             if len(ano_s) == 4 and ano_s.isdigit() and num_s.isdigit():
                 return tipo_s, num_s.lstrip("0") or "0", int(ano_s)
         except (IndexError, ValueError):
             pass
+        # Fallback: leizilla-{ente}-{tipo}-fallback-{fonte}-{chave}
+        if len(parts) >= 4 and parts[3] == "fallback":
+            return parts[2], None, 0
     return "desconhecido", None, 0
 
 

@@ -230,12 +230,13 @@ def cmd_consolidate(
         echo("Nenhum XML pôde ser lido.")
         raise typer.Exit(1)
 
+    if read_errors:
+        echo(f"  Aviso: {read_errors}/{len(xml_files)} arquivo(s) ignorado(s) por erro de leitura.")
     rows = consolidate_xmls(items)
     echo(f"Convertidos {len(items)}/{len(xml_files)} XMLs → {len(rows)} linhas")
     write_parquet(rows, output)
     echo(f"Parquet escrito em {output}")
     if read_errors:
-        echo(f"  Aviso: {read_errors} arquivo(s) ignorado(s) por erro de leitura.")
         raise typer.Exit(1)
 
 

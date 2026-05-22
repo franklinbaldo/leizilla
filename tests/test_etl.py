@@ -419,3 +419,40 @@ class TestXmlToRowsComRevogacaoTotal:
     def test_row_count(self) -> None:
         # ementa + art-1 + art-2 = 3 dispositivos
         assert len(self.rows) == 3
+
+
+class TestParseLeiFieldsFallbackId:
+    """xml_to_rows should extract tipo from fallback IA-id format (SCHEMA.md §1.3)."""
+
+    def _rows(self, lei_id: str) -> list[dict]:  # type: ignore[type-arg]
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1">'
+            "<dispositivo path=\"ementa\"><versao><texto>Texto.</texto></versao></dispositivo>"
+            "</lei>"
+        )
+        from leizilla.etl import xml_to_rows
+
+        return xml_to_rows(xml, lei_id, "ro")
+
+    def test_canonical_id_parsed(self) -> None:
+        rows = self._rows("leizilla-ro-lei-01234-2003")
+        assert rows[0]["tipo_lei"] == "lei"
+        assert rows[0]["ano_lei"] == 2003
+
+    def test_fallback_id_extracts_tipo(self) -> None:
+        rows = self._rows("leizilla-ro-lei-fallback-casacivil-coddoc-00042")
+        assert rows[0]["tipo_lei"] == "lei"
+        assert rows[0]["numero_lei"] is None
+        assert rows[0]["ano_lei"] == 0
+
+    def test_fallback_id_lc_extracts_tipo(self) -> None:
+        rows = self._rows("leizilla-ro-lc-fallback-assembleia-coddoc-00099")
+        assert rows[0]["tipo_lei"] == "lc"
+        assert rows[0]["numero_lei"] is None
+
+    def test_unknown_id_returns_desconhecido(self) -> None:
+        rows = self._rows("item-sem-padrao-conhecido")
+        assert rows[0]["tipo_lei"] == "desconhecido"
+        assert rows[0]["numero_lei"] is None
+        assert rows[0]["ano_lei"] == 0
