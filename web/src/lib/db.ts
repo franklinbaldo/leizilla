@@ -76,12 +76,20 @@ export async function searchLeis(query: string, limit = 20): Promise<LeiRow[]> {
   const db = await getDb();
   const conn = await db.connect();
   try {
-    const term = query.trim().replace(/'/g, "''");
-    const sql = term
-      ? `SELECT * FROM versoes WHERE texto_normalizado ILIKE '%${term}%' LIMIT ${limit}`
-      : `SELECT * FROM versoes LIMIT ${limit}`;
-    const result = await conn.query(sql);
-    return result.toArray().map((r: unknown) => (r as { toJSON(): LeiRow }).toJSON());
+    const term = query.trim();
+    if (!term) {
+      const result = await conn.query(`SELECT * FROM versoes LIMIT ${limit}`);
+      return result.toArray().map((r: unknown) => (r as { toJSON(): LeiRow }).toJSON());
+    }
+    const stmt = await conn.prepare(
+      `SELECT * FROM versoes WHERE texto_normalizado ILIKE ? LIMIT ${limit}`,
+    );
+    try {
+      const result = await stmt.query(`%${term}%`);
+      return result.toArray().map((r: unknown) => (r as { toJSON(): LeiRow }).toJSON());
+    } finally {
+      await stmt.close();
+    }
   } finally {
     await conn.close();
   }
