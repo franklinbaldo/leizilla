@@ -6,10 +6,9 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import requests
-from bs4 import BeautifulSoup
 from playwright.async_api import Browser, Page, async_playwright
 
 from leizilla import config

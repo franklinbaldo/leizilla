@@ -1,9 +1,7 @@
 """Publicação no Internet Archive e exportação de datasets."""
 
 import hashlib
-import json
 import subprocess
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional

@@ -5,7 +5,7 @@ from datetime import datetime
 
 from leizilla.publisher import InternetArchivePublisher
 from leizilla.config import DUCKDB_PATH, IA_ACCESS_KEY, IA_SECRET_KEY
-from leizilla.storage import storage as duckdb_storage
+from leizilla.storage import DuckDBStorage
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -41,6 +41,7 @@ def backup_duckdb_to_ia():
         'tipo_lei': "database-backup",
         'ano': datetime.now().year,
         'numero': timestamp,
+        'id': f"duckdb-backup-{timestamp}",
     }
 
     logger.info(f"Preparing to upload {DB_FILE_PATH.name} to Internet Archive.")
@@ -68,10 +69,11 @@ if __name__ == "__main__":
 
     try:
         logger.info(f"Attempting to connect to DuckDB at {DB_FILE_PATH} and perform checkpoint.")
-        conn = duckdb_storage.connect()
+        _db = DuckDBStorage()
+        conn = _db.connect()
         conn.execute("CHECKPOINT;")
         logger.info("DuckDB CHECKPOINT command executed.")
-        duckdb_storage.close() # Closes the connection and flushes WAL
+        _db.close()
         logger.info("DuckDB connection closed, WAL flushed.")
     except Exception as e:
         logger.warning(f"Could not perform DuckDB checkpoint or close connection: {e}. Proceeding with backup anyway.")
