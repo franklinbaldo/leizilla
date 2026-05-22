@@ -130,8 +130,8 @@ class InternetArchivePublisher:
         if not self.access_key or not self.secret_key:
             return {"success": False, "error": "IA credentials not configured"}
 
-        ente = parsed_meta.get("ente", "unknown")
-        tipo = parsed_meta.get("tipo", "lei")
+        ente = str(parsed_meta.get("ente", "unknown"))
+        tipo = str(parsed_meta.get("tipo", "lei"))
         titulo = f"Leizilla parsed {ia_id_parsed}"
 
         with tempfile.TemporaryDirectory() as tmp:
