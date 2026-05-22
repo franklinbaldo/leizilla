@@ -33,9 +33,14 @@ def scrape_one(
     if not robots.is_allowed(pdf_url):
         return {"success": False, "reason": "robots-blocked", "url": pdf_url}
 
-    # Wayback save (fire-and-forget, fail-open)
-    wayback.save_page(fonte_url)
-    wayback.save_page(pdf_url)
+    # Wayback save — fire-and-forget; exceções swallowadas explicitamente
+    # para que falhas de rede (DNS, timeout) não abortem o scrape
+    # das URLs que importam (fetch + upload).
+    try:
+        wayback.save_page(fonte_url)
+        wayback.save_page(pdf_url)
+    except Exception:
+        pass
 
     # Wayback fetch (primário)
     wb_url = wayback.check_available(pdf_url)
