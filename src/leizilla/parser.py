@@ -126,12 +126,12 @@ def fetch_html(url: str, timeout: int = 30) -> Optional[str]:
     urllib raises HTTPError (subclass of URLError) for non-2xx responses,
     so no explicit status-code check is needed.
     """
-    req = urllib.request.Request(url)
-    req.add_header("User-Agent", _USER_AGENT)
     try:
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent", _USER_AGENT)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read().decode("utf-8", errors="replace")
-    except (urllib.error.URLError, OSError):
+    except (urllib.error.URLError, OSError, ValueError):
         return None
 
 

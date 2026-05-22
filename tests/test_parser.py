@@ -103,6 +103,9 @@ class TestFetchHtml:
         with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("name not found")):
             assert parser.fetch_html("https://example.gov.br/lei/1") is None
 
+    def test_returns_none_on_malformed_url(self):
+        assert parser.fetch_html("not-a-url-at-all") is None
+
     def test_sets_user_agent_header(self):
         captured_req: list = []
 
