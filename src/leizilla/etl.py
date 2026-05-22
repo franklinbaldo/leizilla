@@ -94,7 +94,10 @@ def _parse_date(s: Optional[str]) -> Optional[datetime.date]:
     if not s:
         return None
     try:
-        return datetime.date.fromisoformat(s)
+        # Strip xs:date timezone designator ('Z' or '+HH:MM'/'-HH:MM') before parsing.
+        # datetime.date.fromisoformat does not handle timezone suffixes.
+        clean = re.sub(r"([+-]\d{2}:\d{2}|Z)$", "", s)
+        return datetime.date.fromisoformat(clean)
     except ValueError:
         return None
 
