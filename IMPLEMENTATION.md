@@ -30,8 +30,8 @@
 | **M4.3** — benchmark DuckDB-WASM real + gatilhos §3.4 | ⚪ todo | — | Bloqueado por M4.2 merge. |
 | **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. CI verde; P1+P2 Codex endereçados (retry DB init; stale search fix). Pronto para merge após CI rerun. |
 | **M5.2** — TanStack Query + paginação + filtros | ⚪ todo | — | Bloqueado por M5.1 merge. |
-| **M2.7** — Planalto federal HTML pipeline | 🟡 in-progress | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 24 testes. Substitui #34 (conflito M3.5). Aguardando CI Kilo. |
-| **M2.8** — `parse-all --input-type html` + chave federal | 🟡 in-progress | — | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. PR desta sessão. |
+| **M2.7** — Planalto federal HTML pipeline | 🟢 done | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 24 testes. Merged. |
+| **M2.8** — `parse-all --input-type html` + chave federal | 🟡 in-progress | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. CI verde (Kilo+GitGuardian ✅). Aguardando merge. |
 | **M6** — GitHub Actions produção | ⚪ todo | — | Depende de M2–M5. |
 | **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
 
