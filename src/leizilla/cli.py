@@ -373,7 +373,9 @@ def cmd_consolidate(
         raise typer.Exit(1)
 
     if read_errors:
-        echo(f"  Aviso: {read_errors}/{len(xml_files)} arquivo(s) ignorado(s) por erro de leitura.")
+        echo(
+            f"  Aviso: {read_errors}/{len(xml_files)} arquivo(s) ignorado(s) por erro de leitura."
+        )
     rows = consolidate_xmls(items)
     echo(f"Convertidos {len(items)}/{len(xml_files)} XMLs → {len(rows)} linhas")
     write_parquet(rows, output)
@@ -504,7 +506,9 @@ def cmd_parse(
         False, "--upload/--no-upload", help="Upload para IA após parse"
     ),
     input_type: str = typer.Option(
-        "ocr", "--input-type", help="Tipo de entrada do raw item: ocr (PDF via IA) ou html (HTML armazenado no IA)"
+        "ocr",
+        "--input-type",
+        help="Tipo de entrada do raw item: ocr (PDF via IA) ou html (HTML armazenado no IA)",
     ),
 ) -> None:
     """Parsear raw IA item → Leizilla XML via LLM (Etapa 2).
@@ -586,46 +590,78 @@ def cmd_parse(
 @app.command("parse-all")
 def cmd_parse_all(
     ente: str = typer.Option("ro", help="Ente federativo"),
-    fonte: str = typer.Option("assembleia", help="Fonte (assembleia, casacivil, ...)"),
-    start_coddoc: int = typer.Option(1, help="Primeiro coddoc"),
-    end_coddoc: int = typer.Option(100, help="Último coddoc"),
+    fonte: str = typer.Option(
+        "assembleia", help="Fonte (assembleia, casacivil, planalto, ...)"
+    ),
+    start_coddoc: int = typer.Option(
+        1,
+        help="Primeiro número (coddoc para assembleia/casacivil; número de lei para federal)",
+    ),
+    end_coddoc: int = typer.Option(100, help="Último número"),
+    tipo: str = typer.Option(
+        "lei",
+        "--tipo",
+        help="Tipo de lei para fontes HTML (lei, lcp, decreto); ignorado para fontes OCR",
+    ),
     model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
     upload: bool = typer.Option(
         True, "--upload/--no-upload", help="Upload para IA após parse"
     ),
+    input_type: str = typer.Option(
+        "ocr",
+        "--input-type",
+        help="Tipo de entrada: ocr (PDF via IA _djvu.txt) ou html (HTML armazenado no IA)",
+    ),
     limit: Optional[int] = typer.Option(None, help="Máx de itens a processar"),
 ) -> None:
-    """Batch parse: coddoc range → OCR → LLM → (upload para IA).
+    """Batch parse: range de números → OCR/HTML → LLM → (upload para IA).
 
-    Itera leizilla-raw-{ente}-{fonte}-coddoc-NNNNN para cada coddoc no range.
-    Items sem OCR disponível são pulados silenciosamente (IA ainda processando).
+    Fontes OCR (assembleia, casacivil): itera leizilla-raw-{ente}-{fonte}-coddoc-NNNNN.
+    Fontes HTML (federal/planalto): itera leizilla-raw-{ente}-{fonte}-{tipo}-NNNNN.
+    Items sem conteúdo disponível são pulados silenciosamente.
     Items com parse falho são contados como falha mas não abortam o batch.
     """
     try:
-        from leizilla.parser import fetch_ocr, parse_law
+        if input_type not in ("ocr", "html"):
+            echo(f"--input-type inválido: {input_type!r}. Use 'ocr' ou 'html'.")
+            raise typer.Exit(1)
+
+        from leizilla.parser import fetch_ia_html, fetch_ocr, parse_law
         from leizilla.publisher import InternetArchivePublisher
 
         pub = InternetArchivePublisher() if upload else None
-        coddocs = range(start_coddoc, end_coddoc + 1)
+        coddoc_range = range(start_coddoc, end_coddoc + 1)
         if limit is not None:
-            coddocs = coddocs[:limit]
+            coddoc_range = coddoc_range[:limit]
 
         parsed_ok = 0
         parsed_fail = 0
         uploaded_ok = 0
         upload_fail = 0
 
-        for coddoc in coddocs:
-            raw_id = f"leizilla-raw-{ente}-{fonte}-coddoc-{coddoc:05d}"
-            echo(f"[{coddoc}] {raw_id}")
+        for num in coddoc_range:
+            if ente == "federal" and fonte == "planalto":
+                chave = f"{tipo}-{num:05d}"
+            else:
+                chave = f"coddoc-{num:05d}"
+            raw_id = f"leizilla-raw-{ente}-{fonte}-{chave}"
+            echo(f"[{num}] {raw_id}")
 
             try:
-                ocr = fetch_ocr(raw_id)
-                if not ocr:
-                    echo("  OCR indisponível — skip")
-                    continue
+                if input_type == "html":
+                    raw_text = fetch_ia_html(raw_id)
+                    if not raw_text:
+                        echo("  HTML indisponível — skip")
+                        continue
+                else:
+                    raw_text = fetch_ocr(raw_id)
+                    if not raw_text:
+                        echo("  OCR indisponível — skip")
+                        continue
 
-                result = parse_law(ocr, raw_id, ente, model=model)
+                result = parse_law(
+                    raw_text, raw_id, ente, model=model, input_type=input_type
+                )
                 if not result:
                     echo("  Parse falhou — skip")
                     parsed_fail += 1

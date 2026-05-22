@@ -32,7 +32,7 @@
 | **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. httpfs fix pushed; Kilo in_progress. |
 | **M5.2** — TanStack Query + paginação + filtros | ⚪ todo | — | Bloqueado por M5.1 merge. |
 | **M2.7** — Planalto federal HTML pipeline | 🟢 done | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 30 testes. URLs legadas (pré-2002); year-scoped em M2.8. Merged. |
-| **M2.8** — `parse-all --input-type html` + chave federal | 🟡 in-progress | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. CI verde (Kilo+GitGuardian ✅). |
+| **M2.8** — `parse-all --input-type html` + chave federal | 🟢 done | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. Merged. |
 | **M6** — GitHub Actions produção | ⚪ todo | — | Depende de M2–M5. |
 | **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
 
@@ -108,6 +108,20 @@ Toda decisão importante recebe entrada aqui com data. Não delete entradas — 
 se thresholds forem excedidos, o CI em M5 sinalizará. Sem blocking para M5.1.
 
 **M4.3 encerra como done.** Próximos: M5.1 (#33) → M5.2 → benchmark WASM real.
+
+### 2026-05-22 — M2.8: parse-all --input-type html + chave federal
+
+`cmd_parse_all` em `cli.py` extendido para suportar fontes HTML (Planalto federal).
+
+**Mudanças em `cmd_parse_all`**:
+- `--input-type ocr|html` (default `ocr`): controla qual fetch usar por item.
+- Chave routing: `ente == "federal" and fonte == "planalto"` → `{tipo}-{N:05d}`; demais → `coddoc-{N:05d}`. Consistente com `discover_planalto_laws` (M2.7) que usa esse mesmo padrão.
+- `fetch_ia_html(raw_id)` para `input_type == "html"`, `fetch_ocr(raw_id)` para `input_type == "ocr"`. Skip silencioso quando conteúdo ausente em ambos os casos.
+- `parse_law(raw_text, raw_id, ente, model=model, input_type=input_type)` passa `input_type` adiante (M3.4 já suportava).
+- Validação de `input_type` antes do loop; exit 1 imediato se inválido.
+- Removido docstring duplicado (stale de M3.3) que ficou na refatoração M3.5.
+
+**Testes**: 5 novos em `TestCmdParseAll` (html fetch, html skip, federal chave, non-planalto chave, invalid input_type). 319 total (todos passando).
 
 ### 2026-05-22 — M5.1: Frontend foundation — Astro 4 + Svelte 5 + DuckDB-WASM 1.32
 
@@ -779,12 +793,10 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M4.3, M2.7 concluídos** ✅ | **M5.1 (#33), M2.8 (#38), M4.3 (#39) em PRs abertas**
+**M0–M4.3, M2.7–M2.8 concluídos** ✅ | **M5.1 (#33) em PR aberta**
 
 **PRs abertas agora** (em decantação — não auto-merge):
-- **#33** M5.1: Frontend foundation. httpfs fix pushed; Kilo in_progress.
-- **#38** M2.8: parse-all --input-type html. CI queued (merge commit).
-- **#39** M4.3: testes gatilhos §3.4. Kilo queued; GitGuardian ✅.
+- **#33** M5.1: Frontend foundation. Todos P1/P2 Kilo+Codex resolvidos. CI verde (GitGuardian ✅); Kilo queued (merge commit).
 
 **M5.2** (após #33 mergear):
 - Integrar TanStack Query para cache + prefetch.
