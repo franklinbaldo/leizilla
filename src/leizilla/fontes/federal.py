@@ -99,14 +99,19 @@ def _camara_year_lookup(tipo: str, numero: int) -> Optional[int]:
         f"?siglaTipo={sigla}&numero={numero}&itens=1&formato=json"
     )
     try:
+        # URL é construída com base fixa (dadosabertos.camara.leg.br) + int
+        # controlado — sem input de usuário. S310 não se aplica aqui.
         with urllib.request.urlopen(url, timeout=10) as resp:  # noqa: S310
             data = json.loads(resp.read().decode())
             dados = data.get("dados", [])
             if dados:
                 ano = dados[0].get("ano")
                 if ano is not None:
-                    return int(ano)
-    except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError):
+                    try:
+                        return int(ano)
+                    except ValueError:
+                        pass  # API retornou algo não-numérico em "ano"
+    except (urllib.error.URLError, OSError, json.JSONDecodeError):
         pass
     return None
 

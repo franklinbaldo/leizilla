@@ -22,28 +22,30 @@ from leizilla.publisher import InternetArchivePublisher, build_raw_meta_html
 # ---------------------------------------------------------------------------
 
 
-_NO_YEAR = lambda t, n: None  # noqa: E731 — injeta "sem lookup" para testes offline
+def _no_year(t: str, n: int) -> None:
+    """Stub de year_lookup_fn para testes offline (sem chamada à Câmara API)."""
+    return None
 
 
 class TestDiscoverPlanaltoLaws:
     def test_generates_correct_lei_urls(self) -> None:
-        laws = discover_planalto_laws("lei", 9503, 9505, year_lookup_fn=_NO_YEAR)
+        laws = discover_planalto_laws("lei", 9503, 9505, year_lookup_fn=_no_year)
         assert len(laws) == 3
         assert laws[0]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/L9503.htm"
         assert laws[1]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/L9504.htm"
         assert laws[2]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/L9505.htm"
 
     def test_generates_correct_lcp_urls(self) -> None:
-        laws = discover_planalto_laws("lcp", 87, 88, year_lookup_fn=_NO_YEAR)
+        laws = discover_planalto_laws("lcp", 87, 88, year_lookup_fn=_no_year)
         assert laws[0]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/lcp/Lcp87.htm"
         assert laws[1]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/lcp/Lcp88.htm"
 
     def test_generates_correct_decreto_urls(self) -> None:
-        laws = discover_planalto_laws("decreto", 99, 101, year_lookup_fn=_NO_YEAR)
+        laws = discover_planalto_laws("decreto", 99, 101, year_lookup_fn=_no_year)
         assert laws[0]["url_original"] == "https://www.planalto.gov.br/ccivil_03/decreto/D99.htm"
 
     def test_sets_correct_metadata(self) -> None:
-        laws = discover_planalto_laws("lei", 9503, 9503, year_lookup_fn=_NO_YEAR)
+        laws = discover_planalto_laws("lei", 9503, 9503, year_lookup_fn=_no_year)
         law = laws[0]
         assert law["ente"] == "federal"
         assert law["fonte"] == "planalto"
@@ -52,7 +54,7 @@ class TestDiscoverPlanaltoLaws:
         assert law["numero"] == 9503
 
     def test_empty_range(self) -> None:
-        laws = discover_planalto_laws("lei", 5, 4, year_lookup_fn=_NO_YEAR)
+        laws = discover_planalto_laws("lei", 5, 4, year_lookup_fn=_no_year)
         assert laws == []
 
     def test_invalid_tipo_raises(self) -> None:
@@ -60,7 +62,7 @@ class TestDiscoverPlanaltoLaws:
             discover_planalto_laws("portaria", 1, 5)
 
     def test_single_item_range(self) -> None:
-        laws = discover_planalto_laws("lei", 1, 1, year_lookup_fn=_NO_YEAR)
+        laws = discover_planalto_laws("lei", 1, 1, year_lookup_fn=_no_year)
         assert len(laws) == 1
         assert laws[0]["chave"] == "lei-00001"
 
