@@ -222,7 +222,7 @@ class TestUploadDataset:
         assert "internetarchive" in result["error"]
 
 
-class TestRelaseDatasetCli:
+class TestReleaseDatasetCli:
     def test_negative_version_rejected(self, tmp_path: Path) -> None:
         """--version negativo deve ser rejeitado com exit 1."""
         p = _make_parquet(tmp_path)
