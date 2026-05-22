@@ -236,6 +236,10 @@ def cmd_release_dataset(
         echo(f"Arquivo não encontrado: {parquet}")
         raise typer.Exit(1)
 
+    if version < 0:
+        echo(f"--version deve ser >= 0 (recebido: {version})")
+        raise typer.Exit(1)
+
     conn = duckdb.connect()
     try:
         row_count: int = conn.execute(

@@ -10,11 +10,15 @@ from unittest.mock import MagicMock, patch
 
 import duckdb
 import pytest
+from typer.testing import CliRunner
 
+from leizilla.cli import app
 from leizilla.publisher import (
     InternetArchivePublisher,
     build_dataset_meta,
 )
+
+_runner = CliRunner()
 
 
 # ---------------------------------------------------------------------------
@@ -201,3 +205,21 @@ class TestUploadDataset:
 
         assert any("dataset_meta.json" in f for f in uploaded_files)
         assert any("versoes.parquet" in f for f in uploaded_files)
+
+    def test_ia_not_installed_returns_error(self, tmp_path: Path) -> None:
+        """FileNotFoundError (ia CLI ausente) deve retornar payload de erro, não raise."""
+        p = _make_parquet(tmp_path)
+        pub = _publisher()
+        with patch("subprocess.run", side_effect=FileNotFoundError("ia not found")):
+            result = pub.upload_dataset(p, "ro", 0, row_count=1, git_sha=None)
+        assert result["success"] is False
+        assert "internetarchive" in result["error"]
+
+
+class TestRelaseDatasetCli:
+    def test_negative_version_rejected(self, tmp_path: Path) -> None:
+        """--version negativo deve ser rejeitado com exit 1."""
+        p = _make_parquet(tmp_path)
+        result = _runner.invoke(app, ["release-dataset", str(p), "--version", "-1"])
+        assert result.exit_code == 1
+        assert ">= 0" in result.output

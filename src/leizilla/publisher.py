@@ -263,6 +263,8 @@ class InternetArchivePublisher:
                     "ia_url": f"https://archive.org/details/{ia_id}",
                     "row_count": effective_row_count,
                 }
+            except FileNotFoundError:
+                return {"success": False, "error": "ia CLI não encontrado — instale 'internetarchive'", "ia_id": ia_id}
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
 
