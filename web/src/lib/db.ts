@@ -32,7 +32,6 @@ async function _init(): Promise<duckdb.AsyncDuckDB> {
   const db = new duckdb.AsyncDuckDB(logger, worker);
   try {
     await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-    URL.revokeObjectURL(workerUrl);
 
     const conn = await db.connect();
     try {
@@ -45,6 +44,8 @@ async function _init(): Promise<duckdb.AsyncDuckDB> {
   } catch (e) {
     await db.terminate().catch(() => {}); // cleanup orphaned worker; ignore secondary errors
     throw e;
+  } finally {
+    URL.revokeObjectURL(workerUrl); // always revoke, even if instantiate fails
   }
 
   return db;
