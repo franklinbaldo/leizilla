@@ -17,7 +17,7 @@
 | **M2.2** — scraper.py + `scrape` CLI + fix ids no crawler | 🟢 done | #18 | `scraper.scrape_one()` orquestra robots→wayback→fetch→upload_raw. CLI `scrape` para assembleia/RO. 10 testes. |
 | **M2.3** — CI workflow + `internetarchive` dep | 🟢 done | #20 | `rondonia_crawler.yml` atualizado para `uv run leizilla scrape`. `internetarchive` em pyproject.toml. |
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟡 in-progress | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
-| **M3.2** — publisher.upload_parsed() | 🟡 in-progress | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. Aguardando merge. |
+| **M3.2** — publisher.upload_parsed() | 🟡 in-progress | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
 | M3 restante — `parse --upload` + `parse-all` batch | ⚪ todo | — | Bloqueado por #17+#19. CLI `parse --upload` integra parser→publisher. `parse-all` itera raw items sem parsed_meta. |
 | M2 restante — casacivil discovery + outros entes | ⚪ todo | — | casacivil.ro.gov.br (padrão de URL a auditar); fontes/{sp,federal}.py. Rate-limit por host. |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
@@ -78,6 +78,54 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M3.1: OCR fetch + LLM parse → Leizilla XML
+
+Implementa a primeira metade de M3 (Etapa 2 do pipeline) independentemente de M2
+(M3 só precisa de `ia_id` como string — não chama funções de M2 diretamente).
+
+**parser.py** — três funções públicas:
+- `fetch_ocr(ia_id)` → baixa `{ia_id}_djvu.txt` do IA via HTTP stdlib (fail-open).
+- `parse_law(ocr_text, ia_id, ente, model)` → chama Claude Haiku com prompt em cache
+  (ephemeral `cache_control`); extrai JSON com `xml`, `confidence`, `tipo`, `numero`, `ano`;
+  valida well-formedness; retorna `ParseResult` ou `None` se `confidence < 0.5`.
+- `ParseResult` dataclass: `xml`, `parsed_meta`, `confidence`, `ia_id_parsed`, `input_tokens`, `output_tokens`.
+
+**config.py** — `ANTHROPIC_API_KEY` adicionado (env var).
+
+**CLI `parse`** — `leizilla parse --raw-id <ia_id> [--ente ro] [--model claude-haiku-4-5] [--output path]`
+
+**Testes** — 27 testes em `tests/test_parser.py` (HTTP + Anthropic API totalmente mockados).
+Fixes P1 endereçados: `numero` digit-only validado; `typer.Exit` não capturado por `except Exception`; `_is_well_formed` com isinstance guard.
+
+**Decisões**:
+- Modelo primário `claude-haiku-4-5` (custo baixo); `--model claude-opus-4-7` para fallback manual.
+- OCR truncado em 8000 chars para manter custo baixo no Haiku (200K ctx).
+- `confidence < 0.5` ou `not math.isfinite(confidence)` → None (fail-closed).
+- `tipo`, `numero`, `ano` obrigatórios — ausência retorna None em vez de fabricar identifier.
+- XML bem-formado verificado via `xml.etree.ElementTree`; XSD validation fica para CI gate em M3.2.
+- Upload do parsed item para IA fica em M3.2 (separação de concerns, M3.1 já útil standalone).
+- `ia_id_parsed = leizilla-{ente}-{tipo}-{numero:05d}-{ano}` conforme SCHEMA.md §1.3.
+- Prompt com `cache_control: ephemeral` no system prompt para caching do template.
+- `anthropic` adicionado como dep sem constraint de versão (consistente com demais deps).
+
+### 2026-05-22 — M3.2: upload_parsed como método puro; CLI aguarda M3.1
+
+`InternetArchivePublisher.upload_parsed(ia_id_parsed, xml_content, parsed_meta)` aceita
+primitivos (strings + dict) em vez de `ParseResult` diretamente — evita dependência
+circular entre publisher e parser, e permite testar sem instanciar o parser.
+
+Decisão: CLI `parse --upload` adicionado nesta PR sem o comando `parse` (que vem em #17).
+Quando #17 mergear, a próxima sessão adiciona o flag `--upload` ao `parse` command.
+
+**Bugs encontrados e corrigidos na triagem desta sessão:**
+- PR #15: PDF enviado para IA com nome temporário → OCR em `tmpXXX_djvu.txt` em vez de
+  `{ia_id}_djvu.txt`. Fix: `shutil.copy2` para `{ia_id}.pdf` antes de `ia upload`.
+- PR #17: `float()` sem try/except (ValueError em LLM response não-numérica), NaN passa
+  gate (`nan < 0.5` = False), tipo/numero/ano com defaults fabricam identifier.
+  Fix: math.isfinite + try/except + campos obrigatórios → None se ausentes.
+- PR #16: `mergeable_state: dirty` após squash merge de #15. Cherry-pick limpo dos 3
+  commits M2.2 em nova branch #18; PR #16 fechado com explicação.
 
 ### 2026-05-22 — M2.2: scraper.py + `scrape` CLI + ids corretos no crawler
 

@@ -116,6 +116,54 @@ class InternetArchivePublisher:
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
 
+    def upload_parsed(
+        self,
+        ia_id_parsed: str,
+        xml_content: str,
+        parsed_meta: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Upload law.xml + parsed_meta.json para IA parsed item.
+
+        Identifier: leizilla-{ente}-{tipo}-{numero:05d}-{ano} (SCHEMA.md §1.3).
+        Retorna dict com 'success', 'ia_id', 'ia_url'.
+        """
+        if not self.access_key or not self.secret_key:
+            return {"success": False, "error": "IA credentials not configured"}
+
+        ente = str(parsed_meta.get("ente", "unknown"))
+        tipo = str(parsed_meta.get("tipo", "lei"))
+        titulo = f"Leizilla parsed {ia_id_parsed}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            xml_path = Path(tmp) / "law.xml"
+            xml_path.write_text(xml_content, encoding="utf-8")
+            meta_path = Path(tmp) / "parsed_meta.json"
+            meta_path.write_text(
+                json.dumps(parsed_meta, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+
+            try:
+                subprocess.run(
+                    [
+                        "ia", "upload", ia_id_parsed,
+                        str(xml_path), str(meta_path),
+                        "--metadata", f"title:{titulo}",
+                        "--metadata", "mediatype:texts",
+                        "--metadata", f"subject:leis;leizilla;{ente};{tipo}",
+                        "--metadata", "creator:leizilla-parser",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                return {
+                    "success": True,
+                    "ia_id": ia_id_parsed,
+                    "ia_url": f"https://archive.org/details/{ia_id_parsed}",
+                }
+            except subprocess.CalledProcessError as e:
+                return {"success": False, "error": e.stderr, "ia_id": ia_id_parsed}
+
     def export_dataset_parquet(
         self,
         ente: str,
