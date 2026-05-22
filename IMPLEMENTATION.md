@@ -19,7 +19,7 @@
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
 | **M3 restante** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
-| **M2.4** — Rate-limit por host | 🟢 done | #23 | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
+| **M2.4** — Rate-limit por host | 🟢 done | #25 | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
 | M2 restante — casacivil discovery + outros entes | ⚪ todo | — | casacivil.ro.gov.br (padrão de URL a auditar); fontes/{sp,federal}.py. |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |

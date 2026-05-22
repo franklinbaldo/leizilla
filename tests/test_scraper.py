@@ -130,7 +130,7 @@ class TestMakeRateLimiter:
         limiter("https://host-a.gov.br/doc.pdf")
         limiter("https://host-b.gov.br/doc.pdf")  # host diferente — não deve sleep
         elapsed = time.monotonic() - t0
-        assert elapsed < 5.0, f"Hosts distintos serializaram indevidamente ({elapsed:.2f}s)"
+        assert elapsed < 5.0, f"Hosts distintos serializaram indevidamente ({elapsed:.3f}s)"
 
     def test_same_host_respects_interval(self) -> None:
         """Mesmo host é rate-limitado corretamente."""
