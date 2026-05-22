@@ -712,7 +712,9 @@ def test_inv10_canonical_filename_without_urn(tmp_path: Path) -> None:
     assert any(x.invariant == 10 and "canônico" in x.message for x in v)
 
     # Fallback filename: exempto.
-    f_fb = _write_named(tmp_path, "leizilla-ro-lei-fallback-casacivil-00042", xml_no_urn)
+    f_fb = _write_named(
+        tmp_path, "leizilla-ro-lei-fallback-casacivil-00042", xml_no_urn
+    )
     v_fb = csc.check_file(f_fb)
     assert not any(x.invariant == 10 for x in v_fb), (
         f"fallback filename sem urn-lex deveria passar; got: {[str(x) for x in v_fb]}"
@@ -736,9 +738,9 @@ def test_inv01_diverge_in_inicio_rejected(tmp_path: Path) -> None:
   </dispositivo>"""
     )
     v = csc.check_file(_write(tmp_path, xml))
-    assert any(
-        x.invariant == 1 and "<inicio>" in x.message for x in v
-    ), f"esperava §7.1 sobre diverge em <inicio>; got: {[str(x) for x in v]}"
+    assert any(x.invariant == 1 and "<inicio>" in x.message for x in v), (
+        f"esperava §7.1 sobre diverge em <inicio>; got: {[str(x) for x in v]}"
+    )
 
 
 def test_inv01_diverge_in_revogacao_rejected(tmp_path: Path) -> None:
@@ -758,9 +760,9 @@ def test_inv01_diverge_in_revogacao_rejected(tmp_path: Path) -> None:
   </dispositivo>"""
     )
     v = csc.check_file(_write(tmp_path, xml))
-    assert any(
-        x.invariant == 1 and "<revogacao>" in x.message for x in v
-    ), f"esperava §7.1 sobre diverge em <revogacao>; got: {[str(x) for x in v]}"
+    assert any(x.invariant == 1 and "<revogacao>" in x.message for x in v), (
+        f"esperava §7.1 sobre diverge em <revogacao>; got: {[str(x) for x in v]}"
+    )
 
 
 def _write_named(tmp_path: Path, stem: str, content: str) -> Path:
@@ -936,7 +938,9 @@ def test_urn_regex_accepts_hierarchical_authority() -> None:
     ]
     for urn in valid_urns:
         m = csc._RE_URN_LEX.match(urn)
-        assert m is not None, f"URN canônica com autoridade hierárquica rejeitada: {urn}"
+        assert m is not None, (
+            f"URN canônica com autoridade hierárquica rejeitada: {urn}"
+        )
         assert ";" in m.group("autoridade"), (
             f"autoridade não capturou o `;` interno: {m.group('autoridade')}"
         )

@@ -49,7 +49,9 @@ class DuckDBStorage:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_ente ON leis(ente)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_ano ON leis(ano)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_data ON leis(data_publicacao)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_leis_data ON leis(data_publicacao)"
+        )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_tipo ON leis(tipo_lei)")
 
     def insert_lei(self, lei_data: Dict[str, Any]) -> None:

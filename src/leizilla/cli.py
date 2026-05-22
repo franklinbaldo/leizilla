@@ -166,7 +166,9 @@ def cmd_scrape(
 ) -> None:
     """Scrape leis: discover → robots → wayback → upload_raw para IA."""
     if tipo != "lei" and fonte != "casacivil":
-        echo(f"--tipo só é válido com --fonte casacivil (recebido: --tipo {tipo} --fonte {fonte})")
+        echo(
+            f"--tipo só é válido com --fonte casacivil (recebido: --tipo {tipo} --fonte {fonte})"
+        )
         raise typer.Exit(1)
 
     echo(f"Scraping {ente}/{fonte} {start_coddoc}–{end_coddoc}")
@@ -338,7 +340,9 @@ def cmd_parse(
     output: Optional[Path] = typer.Option(
         None, help="Salvar XML em arquivo (default: stdout)"
     ),
-    upload: bool = typer.Option(False, "--upload/--no-upload", help="Upload para IA após parse"),
+    upload: bool = typer.Option(
+        False, "--upload/--no-upload", help="Upload para IA após parse"
+    ),
 ) -> None:
     """Parsear OCR de raw IA item → Leizilla XML via LLM (Etapa 2)."""
     try:
@@ -385,7 +389,9 @@ def cmd_parse(
             if upload_result["success"]:
                 echo(f"Uploaded: {upload_result['ia_url']}")
             else:
-                echo(f"Upload falhou: {upload_result.get('error', 'erro desconhecido')}")
+                echo(
+                    f"Upload falhou: {upload_result.get('error', 'erro desconhecido')}"
+                )
                 raise typer.Exit(1)
     except typer.Exit:
         raise
@@ -404,7 +410,9 @@ def cmd_parse_all(
     start_coddoc: int = typer.Option(1, help="Primeiro coddoc"),
     end_coddoc: int = typer.Option(100, help="Último coddoc"),
     model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
-    upload: bool = typer.Option(True, "--upload/--no-upload", help="Upload para IA após parse"),
+    upload: bool = typer.Option(
+        True, "--upload/--no-upload", help="Upload para IA após parse"
+    ),
     limit: Optional[int] = typer.Option(None, help="Máx de itens a processar"),
 ) -> None:
     """Batch parse: coddoc range → OCR → LLM → (upload para IA).
@@ -447,9 +455,7 @@ def cmd_parse_all(
                 parsed_fail += 1
                 continue
 
-            echo(
-                f"  OK confiança={result.confidence:.2f} → {result.ia_id_parsed}"
-            )
+            echo(f"  OK confiança={result.confidence:.2f} → {result.ia_id_parsed}")
             parsed_ok += 1
 
             if pub:
