@@ -1,12 +1,19 @@
 """Testes unitários para leizilla.publisher — funções puras sem IA."""
 
 import hashlib
+import json
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 import pytest
 
-from leizilla.publisher import _raw_identifier, _bundle_identifier, build_raw_meta
+from leizilla.publisher import (
+    _raw_identifier,
+    _bundle_identifier,
+    build_raw_meta,
+    InternetArchivePublisher,
+)
 
 
 class TestRawIdentifier:
@@ -88,3 +95,114 @@ class TestBuildRawMeta:
         law = {"ente": "ro", "fonte": "casacivil", "id": "ro-casacivil-coddoc-00042"}
         meta = build_raw_meta(law, b"pdf", "wayback")
         assert meta["chave"] == "ro-casacivil-coddoc-00042"
+
+
+_PARSED_META = {
+    "leizilla_meta_version": "0.1",
+    "ente": "ro",
+    "tipo": "lei",
+    "ia_id_raw": "leizilla-raw-ro-casacivil-coddoc-00042",
+    "ia_id_parsed": "leizilla-ro-lei-00042-1990",
+    "parse_method": "claude-haiku-4-5",
+    "confianca_parse_global": 0.95,
+    "parse_timestamp": "2026-05-22T04:00:00+00:00",
+    "fontes_consultadas": ["leizilla-raw-ro-casacivil-coddoc-00042"],
+    "tem_divergencia": False,
+    "num_divergencias": 0,
+}
+
+_XML_CONTENT = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"'
+    ' urn-lex="urn:lex:br;rondonia:estadual:lei:1990-01-01;42"'
+    ' vigente-em="2026-05-22">'
+    '<dispositivo path="ementa">'
+    "<versao><texto>Ementa.</texto></versao>"
+    "</dispositivo>"
+    "</lei>"
+)
+
+
+class TestUploadParsed:
+    def _publisher(self) -> InternetArchivePublisher:
+        pub = InternetArchivePublisher()
+        pub.access_key = "test-key"
+        pub.secret_key = "test-secret"
+        return pub
+
+    def test_returns_success_on_valid_upload(self):
+        pub = self._publisher()
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = pub.upload_parsed(
+                "leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META
+            )
+        assert result["success"] is True
+        assert result["ia_id"] == "leizilla-ro-lei-00042-1990"
+        assert result["ia_url"] == "https://archive.org/details/leizilla-ro-lei-00042-1990"
+
+    def test_uploads_law_xml_and_parsed_meta(self):
+        pub = self._publisher()
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pub.upload_parsed("leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META)
+
+        call_args = mock_run.call_args[0][0]
+        assert "ia" in call_args
+        assert "upload" in call_args
+        assert "leizilla-ro-lei-00042-1990" in call_args
+        xml_arg = next((a for a in call_args if a.endswith("law.xml")), None)
+        assert xml_arg is not None
+        meta_arg = next((a for a in call_args if a.endswith("parsed_meta.json")), None)
+        assert meta_arg is not None
+
+    def test_xml_content_written_to_file(self):
+        pub = self._publisher()
+        captured_files: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            for arg in cmd:
+                if arg.endswith("law.xml"):
+                    captured_files.append(Path(arg).read_text())
+            return MagicMock(returncode=0)
+
+        with patch("subprocess.run", side_effect=capture_run):
+            pub.upload_parsed("leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META)
+
+        assert len(captured_files) == 1
+        assert captured_files[0] == _XML_CONTENT
+
+    def test_parsed_meta_json_written_correctly(self):
+        pub = self._publisher()
+        captured_metas: list[dict] = []
+
+        def capture_run(cmd, **kwargs):
+            for arg in cmd:
+                if arg.endswith("parsed_meta.json"):
+                    captured_metas.append(json.loads(Path(arg).read_text()))
+            return MagicMock(returncode=0)
+
+        with patch("subprocess.run", side_effect=capture_run):
+            pub.upload_parsed("leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META)
+
+        assert len(captured_metas) == 1
+        assert captured_metas[0]["ia_id_parsed"] == "leizilla-ro-lei-00042-1990"
+
+    def test_returns_failure_without_credentials(self):
+        pub = InternetArchivePublisher()
+        pub.access_key = None
+        pub.secret_key = None
+        result = pub.upload_parsed("leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META)
+        assert result["success"] is False
+        assert "credentials" in result["error"]
+
+    def test_returns_failure_on_subprocess_error(self):
+        import subprocess
+        pub = self._publisher()
+        err = subprocess.CalledProcessError(1, "ia", stderr="upload failed")
+        with patch("subprocess.run", side_effect=err):
+            result = pub.upload_parsed(
+                "leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META
+            )
+        assert result["success"] is False
+        assert "upload failed" in result["error"]

@@ -12,10 +12,11 @@
 | **M0.2a** — Schema v1 (tentativa) | 🔴 superseded | #7 | XSD `header` + `rotulo` + `<bloco-livre>` + etc. Substituído pelo redesign first-principles. Fica como referência histórica. |
 | **M0.2b** — Redesign first-principles | 🟢 done | #8 #9 #10 #12 | SCHEMA.md reescrito + XSD enxuto + 6 fixtures + consistency checker + CI wire + XSLT Leizilla→LexML validado contra XSD oficial bundled (PRs #8-#12 merged). |
 | **M0.3** — URN canônica + close pendentes §8 | 🟢 done | #13 | URN LEX contra spec CGPID 2008 oficial; política re-scrape; robots.txt princípio. 3 pendentes deferidos para M2/M4. |
-| **M1** — Foundation (package + ADRs + entes + fontes) | 🟡 in-progress | #14 | Package `src/leizilla/`; ADRs 0004–0009; rename `origem→ente`; `entes.py`; `fontes/ro.py`. |
-| **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟡 in-progress | TBD | `wayback.py` (check_available/save_page/fetch_bytes) + `robots.py` (is_allowed, lru_cache) + `publisher.build_raw_meta` + `raw_meta.json` sidecar. Stacked em cima de M1. |
-| M2 — Crawler real + Raw upload (restante) | ⚪ todo | — | Bloqueado por M1+M2.1. Próximo: `scrape` CLI, integração wayback→upload no pipeline. |
-| M3 — OCR fetch + LLM parse + Leizilla XML | ⚪ todo | — | Bloqueado por M2 |
+| **M1** — Foundation (package + ADRs + entes + fontes) | 🟢 done | #14 | Package `src/leizilla/`; ADRs 0004–0009; rename `origem→ente`; `entes.py`; `fontes/ro.py`. |
+| **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟢 done | #15 | `wayback.py` + `robots.py` + `publisher.upload_raw` + PDF renomeado `{ia_id}.pdf`. 34 testes. |
+| **M2.2** — scraper.py + CLI `scrape` + ids corretos | 🟡 in-progress | #18 | `scraper.scrape_one()` + `make_rate_limiter` + CLI `scrape`. Cherry-pick rebased pós squash M2.1. |
+| **M3.1** — OCR fetch + LLM parse + Leizilla XML | 🟡 in-progress | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed). 26 testes. Aguarda CI+merge. |
+| **M3.2** — Upload parsed item para IA | 🟡 in-progress | TBD | `publisher.upload_parsed()` implementado (6 testes). CLI `parse --upload` aguarda #17 mergear. |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
 | M6 — GitHub Actions | ⚪ todo | — | Depende de M2–M5 |
@@ -74,6 +75,24 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M3.2: upload_parsed como método puro; CLI aguarda M3.1
+
+`InternetArchivePublisher.upload_parsed(ia_id_parsed, xml_content, parsed_meta)` aceita
+primitivos (strings + dict) em vez de `ParseResult` diretamente — evita dependência
+circular entre publisher e parser, e permite testar sem instanciar o parser.
+
+Decisão: CLI `parse --upload` adicionado nesta PR sem o comando `parse` (que vem em #17).
+Quando #17 mergear, a próxima sessão adiciona o flag `--upload` ao `parse` command.
+
+**Bugs encontrados e corrigidos na triagem desta sessão:**
+- PR #15: PDF enviado para IA com nome temporário → OCR em `tmpXXX_djvu.txt` em vez de
+  `{ia_id}_djvu.txt`. Fix: `shutil.copy2` para `{ia_id}.pdf` antes de `ia upload`.
+- PR #17: `float()` sem try/except (ValueError em LLM response não-numérica), NaN passa
+  gate (`nan < 0.5` = False), tipo/numero/ano com defaults fabricam identifier.
+  Fix: math.isfinite + try/except + campos obrigatórios → None se ausentes.
+- PR #16: `mergeable_state: dirty` após squash merge de #15. Cherry-pick limpo dos 3
+  commits M2.2 em nova branch #18; PR #16 fechado com explicação.
 
 ### 2026-05-22 — M1: package `src/leizilla/`, rename origem→ente, ADRs, catálogo entes
 
