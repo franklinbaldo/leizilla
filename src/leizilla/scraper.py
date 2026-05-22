@@ -77,6 +77,8 @@ def scrape_one(
             fetched_from=fetched_from,
             wayback_url=wb_url,
         )
+    except Exception as exc:
+        return {"success": False, "reason": "upload-failed", "error": str(exc)}
     finally:
         tmp_path.unlink(missing_ok=True)
 
