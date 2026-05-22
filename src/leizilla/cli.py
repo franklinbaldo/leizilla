@@ -382,21 +382,41 @@ def cmd_parse(
     upload: bool = typer.Option(
         False, "--upload/--no-upload", help="Upload para IA após parse"
     ),
+    input_type: str = typer.Option(
+        "ocr", "--input-type", help="Tipo de entrada do raw item: ocr (PDF via IA) ou html (HTML armazenado no IA)"
+    ),
 ) -> None:
-    """Parsear OCR de raw IA item → Leizilla XML via LLM (Etapa 2)."""
-    try:
-        from leizilla.parser import fetch_ocr, parse_law
+    """Parsear raw IA item → Leizilla XML via LLM (Etapa 2).
 
-        echo(f"Buscando OCR para {raw_id}...")
-        ocr = fetch_ocr(raw_id)
-        if not ocr:
-            echo(
-                f"OCR não disponível para {raw_id} (IA ainda processando ou item inexistente)"
-            )
+    Para fontes PDF (assembleia, casacivil): --input-type ocr (default).
+    Para fontes HTML (federal/planalto após M2.7): --input-type html.
+    """
+    try:
+        from leizilla.parser import fetch_ia_html, fetch_ocr, parse_law
+
+        if input_type == "html":
+            echo(f"Buscando HTML para {raw_id}...")
+            raw_text = fetch_ia_html(raw_id)
+            if not raw_text:
+                echo(
+                    f"HTML não disponível para {raw_id} (item inexistente ou upload pendente)"
+                )
+                raise typer.Exit(1)
+        elif input_type == "ocr":
+            echo(f"Buscando OCR para {raw_id}...")
+            raw_text = fetch_ocr(raw_id)
+            if not raw_text:
+                echo(
+                    f"OCR não disponível para {raw_id} (IA ainda processando ou item inexistente)"
+                )
+                raise typer.Exit(1)
+        else:
+            echo(f"--input-type inválido: {input_type!r}. Use 'ocr' ou 'html'.")
             raise typer.Exit(1)
 
-        echo(f"Parseando com {model} ({len(ocr)} chars de OCR)...")
-        result = parse_law(ocr, raw_id, ente, model=model)
+        label = "HTML" if input_type == "html" else "OCR"
+        echo(f"Parseando com {model} ({len(raw_text)} chars de {label})...")
+        result = parse_law(raw_text, raw_id, ente, model=model, input_type=input_type)
         if not result:
             echo(
                 "Parse falhou: confiança insuficiente ou OCR ilegível. Sem parsed item publicado."

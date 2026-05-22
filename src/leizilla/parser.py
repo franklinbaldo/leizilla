@@ -22,6 +22,7 @@ from leizilla import config
 
 _HAIKU = "claude-haiku-4-5"
 _OCR_URL = "https://archive.org/download/{ia_id}/{ia_id}_djvu.txt"
+_IA_HTML_URL = "https://archive.org/download/{ia_id}/{ia_id}.html"
 _USER_AGENT = "leizilla-crawler/0.1"
 _MIN_CONFIDENCE = 0.5
 _OCR_CHAR_LIMIT = 8000
@@ -133,6 +134,16 @@ def fetch_html(url: str, timeout: int = 30) -> Optional[str]:
             return resp.read().decode("utf-8", errors="replace")
     except (urllib.error.URLError, OSError, ValueError):
         return None
+
+
+def fetch_ia_html(ia_id: str, timeout: int = 30) -> Optional[str]:
+    """Fetch HTML from IA raw item (for HTML sources like Planalto, M2.7+).
+
+    IA stores HTML as {ia_id}.html alongside raw_meta.json when uploaded via
+    upload_raw_html. Delegates to fetch_html for uniform error handling.
+    """
+    url = _IA_HTML_URL.format(ia_id=ia_id)
+    return fetch_html(url, timeout=timeout)
 
 
 def _extract_json(text: str) -> Optional[Dict[str, Any]]:

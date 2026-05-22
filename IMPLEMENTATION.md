@@ -23,11 +23,14 @@
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
 | **M3.3** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
-| **M3.4** — `parse_law` aceita HTML + `fetch_html` | 🟡 in-progress | — | `input_type="html"` em `parse_law`; `fetch_html(url)`; prompt adaptado; `_HTML_CHAR_LIMIT=32000`. Desbloqueia scraping federal (Planalto). 33 testes. |
-| **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟡 in-progress | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. Aguardando CI + merge. |
-| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟡 in-progress | #29 | Sobe dataset Parquet para IA; benchmark local §3.4. Aguardando merge de #28 primeiro. |
-| **M4.3** — benchmark DuckDB-WASM real + gatilhos §3.4 | ⚪ todo | — | Bloqueado por M4.1+M4.2. |
-| **M5** — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4. |
+| **M3.4** — `parse_law` aceita HTML + `fetch_html` | 🟢 done | cc00676 | `input_type="html"` em `parse_law`; `fetch_html(url)`; prompt adaptado; `_HTML_CHAR_LIMIT=32000`. 35 testes. |
+| **M3.5** — CLI `parse --input-type html` + `fetch_ia_html` | 🟡 in-progress | — | `fetch_ia_html(ia_id)` busca `{ia_id}.html` do IA; `--input-type ocr\|html` em `cmd_parse`; 3 testes novos (TestFetchIaHtml + TestCmdParseUpload). Desbloqueia pipeline federal após M2.7. |
+| **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟢 done | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. |
+| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟡 in-progress | #29 | Sobe dataset Parquet para IA; benchmark local §3.4. CI verde; P2 Codex endereçado (ValueError capturado na CLI). Pronto para merge após CI rerun. |
+| **M4.3** — benchmark DuckDB-WASM real + gatilhos §3.4 | ⚪ todo | — | Bloqueado por M4.2 merge. |
+| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. CI verde; P1+P2 Codex endereçados (retry DB init; stale search fix). Pronto para merge após CI rerun. |
+| **M5.2** — TanStack Query + paginação + filtros | ⚪ todo | — | Bloqueado por M5.1 merge. |
+| **M2.7** — Planalto federal HTML pipeline | 🟡 in-progress | #34 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 24 testes. CI Kilo in_progress. |
 | **M6** — GitHub Actions produção | ⚪ todo | — | Depende de M2–M5. |
 | **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
 
@@ -84,6 +87,45 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M3.5: CLI parse --input-type html + fetch_ia_html
+
+`fetch_ia_html(ia_id)` adicionada em `parser.py` — thin wrapper sobre `fetch_html`
+que constrói `https://archive.org/download/{ia_id}/{ia_id}.html`. Pattern simétrico
+a `fetch_ocr` que usa `{ia_id}_djvu.txt`.
+
+CLI `cmd_parse` recebe `--input-type` (valores: `ocr` | `html`; default: `ocr`).
+- `ocr`: comportamento existente — `fetch_ocr(raw_id)` → `parse_law(..., input_type="ocr")`
+- `html`: `fetch_ia_html(raw_id)` → `parse_law(..., input_type="html")`
+- Valor inválido: exit 1 com mensagem clara (não levanta `ValueError` não capturado).
+
+**Por que agora**: M3.4 (parser.py) já aceitava `input_type="html"` mas a CLI continuava
+hard-coded em `fetch_ocr`. M2.7 (#34) cria IA items com `.html` para Planalto federal.
+Sem esta mudança, `parse` e o pipeline Etapa 2 são inutilizáveis para fontes HTML.
+A M3.4 explicitou o deferimento; agora há consumidor real.
+
+**Não feito aqui**: `parse-all --input-type html` fica para M2.8 — requer também
+ajuste no padrão de chave (federal usa `lei-NNNNN`, não `coddoc-NNNNN`).
+
+**Testes**: 3 novos em `TestFetchIaHtml` (URL correta, sucesso, erro de rede) +
+3 novos em `TestCmdParseUpload` (html path, html 404, input_type inválido). 314 total.
+
+### 2026-05-22 — Triagem de PRs: fixes P1/P2 em #29 e #33
+
+**PR #29 (M4.2) — P2**: `cmd_release_dataset` não capturava `ValueError` de
+`upload_dataset` (ex: `--ente RO` causava traceback não controlado). Fix: `try/except
+ValueError` com mesmo fluxo de erro (`echo + typer.Exit(1)`). Teste
+`test_invalid_ente_exits_nonzero` adicionado a `TestReleaseDatasetCli`.
+
+**PR #33 (M5.1) — P1**: `_initPromise` ficava permanentemente rejected após falha
+transitória de CORS/WASM. Fix: rejection handler limpa `_initPromise = null` para
+permitir retry na próxima chamada.
+
+**PR #33 (M5.1) — P2**: resultados stale quando duas buscas concorrentes resolviam
+fora de ordem. Fix: `searchSeq` incrementa por chamada; updates de state só aplicados
+se o seq local ainda for o mais recente.
+
+**PR #34 (M2.7)**: Kilo in_progress na chegada desta sessão — skip, próxima sessão pega.
 
 ### 2026-05-22 — M3.4: parse_law aceita HTML além de OCR
 
@@ -688,24 +730,23 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M3: todos concluídos** ✅
+**M0–M4.1 concluídos** ✅ | **M3.5, M4.2, M5.1, M2.7 em PRs abertas**
 
 **PRs abertas agora** (em decantação — não auto-merge):
-- **#28** M4.1: ETL XML→Parquet. CI verde. Aguardando review humano.
-- **#29** M4.2: release-dataset CLI. CI verde. Depende do merge de #28 para smoke test end-to-end.
-- **#30** M2 restante: fontes/sp.py + federal.py. CI verde. Aguardando merge.
+- **#29** M4.2: release-dataset CLI. CI verde (pós-fix P2 ValueError). Aguardando CI rerun + review.
+- **#33** M5.1: Frontend foundation. CI verde (pós-fix P1+P2 retry/stale). Aguardando CI rerun + review.
+- **#34** M2.7: Planalto federal HTML pipeline. Kilo in_progress na última sessão.
+- **M3.5** (branch `claude/cool-cerf-qPCfV`): CLI `parse --input-type html` + `fetch_ia_html`. 314 testes passando. PR desta sessão.
 
-**M4.3** (próximo após #28 e #29 mergearem):
-- Benchmark DuckDB-WASM real (não apenas local) contra §3.4 gatilhos.
-- Avisa se file_mb > 50, row_count > 500k, ou full-text latência > 500ms.
+**M4.3** (próximo após #29 mergear):
+- Benchmark DuckDB-WASM real contra §3.4 gatilhos.
+- Avisa se file_mb > 100, row_count > 2M, ou full-text latência > 1s.
 
-**M5 — Frontend** (pode começar em paralelo a M4.3):
-- Astro + Svelte + Pico CSS + DuckDB-WASM.
-- Carrega `versoes.parquet` do IA via HTTP.
-- Busca full-text com DuckDB-WASM no browser.
-- Deploy: GitHub Pages.
+**M5.2** (após #33 mergear):
+- Integrar TanStack Query para cache + prefetch.
+- Paginação de resultados.
+- Filtro por ente/ano.
 
-**M3.4** (desbloqueia federal):
-- Adaptar `parse_law` para aceitar HTML além de OCR text.
-- Planalto serve compilados em HTML — pipeline M3 não se aplica diretamente sem essa adaptação.
-- Documentado em `fontes/federal.py` como bloqueador explícito.
+**M2.8** (após #34 mergear):
+- `parse-all --input-type html --tipo lei|lcp|decreto` para iterar range federal.
+- Requer ajuste no padrão de chave (federal usa `lei-NNNNN`, não `coddoc-NNNNN`).
