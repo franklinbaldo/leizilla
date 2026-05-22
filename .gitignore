@@ -1,4 +1,7 @@
 cotel_scrap-main/*
+web/node_modules/
+web/dist/
+web/.astro/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
