@@ -387,12 +387,7 @@ def cmd_parse_all(
                 echo(f"  OCR não disponível: {ia_id}")
                 continue
 
-            try:
-                result = parse_law(ocr, ia_id, lei.get("ente", ente), model=model)
-            except RuntimeError as e:
-                echo(f"Erro de configuração: {e}")
-                raise typer.Exit(1)
-
+            result = parse_law(ocr, ia_id, lei.get("ente", ente), model=model)
             if not result:
                 echo(f"  Parse falhou: {ia_id}")
                 continue
@@ -413,6 +408,9 @@ def cmd_parse_all(
         echo(f"Parse-all concluído: {ok}/{len(pending)} com sucesso")
     except typer.Exit:
         raise
+    except RuntimeError as e:
+        echo(f"Erro de configuração: {e}")
+        raise typer.Exit(1)
     except Exception as e:
         echo(f"Erro: {e}")
         raise typer.Exit(1)

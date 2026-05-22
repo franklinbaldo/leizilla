@@ -57,7 +57,7 @@ class DuckDBStorage:
         # Migrate existing DBs that predate url_parsed_ia column
         try:
             conn.execute("ALTER TABLE leis ADD COLUMN url_parsed_ia VARCHAR")
-        except Exception:
+        except duckdb.CatalogException:
             pass
 
     def insert_lei(self, lei_data: Dict[str, Any]) -> None:
@@ -133,12 +133,11 @@ class DuckDBStorage:
     ) -> List[Dict[str, Any]]:
         """Retorna leis com raw IA item mas sem parsed IA item."""
         conn = self.connect()
-        where_clauses = ["url_pdf_ia IS NOT NULL", "url_parsed_ia IS NULL"]
+        where_sql = "url_pdf_ia IS NOT NULL AND url_parsed_ia IS NULL"
         params: List[Any] = []
         if ente:
-            where_clauses.append("ente = ?")
+            where_sql += " AND ente = ?"
             params.append(ente)
-        where_sql = " AND ".join(where_clauses)
         results = conn.execute(
             f"""
             SELECT id, titulo, ano, ente, url_pdf_ia
