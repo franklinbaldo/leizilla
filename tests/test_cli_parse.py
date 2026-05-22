@@ -191,3 +191,43 @@ class TestCmdParseAll:
             )
         assert result.exit_code == 0
         assert "3 falhos" in result.output
+
+    def test_exits_1_on_upload_failure(self):
+        with patch("leizilla.parser.fetch_ocr", return_value="ocr text"), \
+             patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT), \
+             patch("leizilla.publisher.InternetArchivePublisher.upload_parsed", return_value=_UPLOAD_FAIL), \
+             patch("leizilla.cli._xsd_gate", return_value=True):
+            result = runner.invoke(
+                app,
+                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "2", "--ente", "ro"],
+            )
+        assert result.exit_code == 1
+        assert "erros de upload" in result.output
+
+    def test_exits_1_when_xsd_gate_blocks_upload(self):
+        with patch("leizilla.parser.fetch_ocr", return_value="ocr text"), \
+             patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT), \
+             patch("leizilla.publisher.InternetArchivePublisher.upload_parsed") as mock_upload, \
+             patch("leizilla.cli._xsd_gate", return_value=False):
+            result = runner.invoke(
+                app,
+                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "2", "--ente", "ro"],
+            )
+        assert result.exit_code == 1
+        assert "XSD inválido" in result.output
+        mock_upload.assert_not_called()
+
+
+class TestCmdParseXsdGateBlocking:
+    def test_parse_upload_blocked_when_xsd_fails(self):
+        with patch("leizilla.parser.fetch_ocr", return_value="ocr text"), \
+             patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT), \
+             patch("leizilla.publisher.InternetArchivePublisher.upload_parsed") as mock_upload, \
+             patch("leizilla.cli._xsd_gate", return_value=False):
+            result = runner.invoke(
+                app,
+                ["parse", "--raw-id", "leizilla-raw-ro-assembleia-coddoc-00042", "--upload"],
+            )
+        assert result.exit_code == 1
+        assert "XSD inválido" in result.output
+        mock_upload.assert_not_called()

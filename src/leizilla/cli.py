@@ -355,7 +355,8 @@ def cmd_parse(
 
         if upload:
             if not _xsd_gate(result.xml):
-                echo("XSD inválido — upload prosseguindo (fail-open)")
+                echo("XSD inválido — upload bloqueado")
+                raise typer.Exit(1)
             from leizilla.publisher import InternetArchivePublisher
 
             pub = InternetArchivePublisher()
@@ -405,6 +406,7 @@ def cmd_parse_all(
         parsed_ok = 0
         parsed_fail = 0
         uploaded_ok = 0
+        upload_fail = 0
 
         for coddoc in coddocs:
             raw_id = f"leizilla-raw-{ente}-{fonte}-coddoc-{coddoc:05d}"
@@ -428,22 +430,28 @@ def cmd_parse_all(
 
             if pub:
                 if not _xsd_gate(result.xml, warn_prefix="  "):
-                    echo("  upload prosseguindo apesar de XSD inválido (fail-open)")
-                upload_result = pub.upload_parsed(
-                    result.ia_id_parsed, result.xml, result.parsed_meta
-                )
-                if upload_result["success"]:
-                    echo(f"  ↑ {upload_result['ia_url']}")
-                    uploaded_ok += 1
+                    echo("  XSD inválido — skip upload")
+                    upload_fail += 1
                 else:
-                    echo(
-                        f"  Upload falhou: {upload_result.get('error', 'erro desconhecido')}"
+                    upload_result = pub.upload_parsed(
+                        result.ia_id_parsed, result.xml, result.parsed_meta
                     )
+                    if upload_result["success"]:
+                        echo(f"  ↑ {upload_result['ia_url']}")
+                        uploaded_ok += 1
+                    else:
+                        echo(
+                            f"  Upload falhou: {upload_result.get('error', 'erro desconhecido')}"
+                        )
+                        upload_fail += 1
 
         echo(
             f"\nBatch concluído: {parsed_ok} parseados, {parsed_fail} falhos"
             + (f", {uploaded_ok} uploaded" if upload else "")
+            + (f", {upload_fail} erros de upload" if upload and upload_fail else "")
         )
+        if upload_fail > 0:
+            raise typer.Exit(1)
     except typer.Exit:
         raise
     except RuntimeError as e:

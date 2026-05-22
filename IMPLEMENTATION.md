@@ -107,10 +107,14 @@ o pipeline Etapa 2 end-to-end: OCR fetch → LLM parse → XSD validate → IA u
   é o mesmo mecanismo que o `scrape` CLI usa — consistente e sem dependência nova.
   Limitação documentada: gaps no range (coddocs sem raw item) resultam em "OCR indisponível
   — skip" sem erro, o que é comportamento correto para um range parcialmente populado.
-- `_xsd_gate` é fail-open por design: xmllint não é dependência hard; CI/CD pode não
-  ter xmllint instalado e o pipeline deve continuar. Aviso no stderr é suficiente.
-- 15 testes em `tests/test_cli_parse.py` cobrem todos os branches de `_xsd_gate`,
-  `parse --upload`, e `parse-all` (skip OCR, limit, no-upload, failure counting).
+- `_xsd_gate` é fail-open apenas para ferramentas ausentes: `xmllint` não instalado
+  ou schema não encontrado → retorna True (pipeline continua). Quando `xmllint`
+  está presente e encontra erros → retorna False e o upload é **bloqueado** (exit 1 em
+  `parse --upload`; skip + contagem de erro em `parse-all`). Distinção importante:
+  fail-open é para falta de ferramental, não para XML inválido detectado.
+- `parse-all` exit 1 se qualquer upload falhou (seja por XSD inválido ou por falha de rede/IA).
+  Falhas de parse (LLM confiança baixa) não propagam exit 1 — são esperadas em batches parciais.
+- 18 testes em `tests/test_cli_parse.py` cobrem todos os branches.
 
 ### 2026-05-22 — M3.1: OCR fetch + LLM parse → Leizilla XML
 
