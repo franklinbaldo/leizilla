@@ -49,10 +49,16 @@ async function _init(): Promise<duckdb.AsyncDuckDB> {
 export function getDb(): Promise<duckdb.AsyncDuckDB> {
   if (_db) return Promise.resolve(_db);
   if (!_initPromise) {
-    _initPromise = _init().then((db) => {
-      _db = db;
-      return db;
-    });
+    _initPromise = _init().then(
+      (db) => {
+        _db = db;
+        return db;
+      },
+      (err) => {
+        _initPromise = null; // allow retry on next call after transient failure
+        throw err;
+      },
+    );
   }
   return _initPromise;
 }

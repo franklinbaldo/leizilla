@@ -9,18 +9,23 @@
   let initialized = $state(false);
 
   let debounceTimer: ReturnType<typeof setTimeout>;
+  let searchSeq = 0;
 
   async function doSearch(q: string) {
+    const seq = ++searchSeq;
     loading = true;
     error = null;
     try {
-      results = await searchLeis(q);
+      const rows = await searchLeis(q);
+      if (seq !== searchSeq) return;
+      results = rows;
       initialized = true;
     } catch (e) {
+      if (seq !== searchSeq) return;
       error = e instanceof Error ? e.message : String(e);
       results = [];
     } finally {
-      loading = false;
+      if (seq === searchSeq) loading = false;
     }
   }
 
