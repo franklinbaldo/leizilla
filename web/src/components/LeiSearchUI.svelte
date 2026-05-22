@@ -16,15 +16,19 @@
   let year = $state<number | null>(null);
   let page = $state(0);
 
-  // Debounce: update debouncedTerm 400ms after last keystroke
-  let debounceTimer: ReturnType<typeof setTimeout>;
-  function onTermInput(e: Event) {
-    rawTerm = (e.target as HTMLInputElement).value;
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      debouncedTerm = rawTerm;
+  // Debounce: update debouncedTerm 400ms after last keystroke.
+  // $effect cleanup cancels the pending timer on rawTerm change or unmount.
+  $effect(() => {
+    const _raw = rawTerm; // captured for closure
+    const timer = setTimeout(() => {
+      debouncedTerm = _raw;
       page = 0;
     }, 400);
+    return () => clearTimeout(timer);
+  });
+
+  function onTermInput(e: Event) {
+    rawTerm = (e.target as HTMLInputElement).value;
   }
   function onEnteChange(e: Event) {
     ente = (e.target as HTMLSelectElement).value;

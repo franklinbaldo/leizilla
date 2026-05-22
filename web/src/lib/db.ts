@@ -136,6 +136,8 @@ async function runSql<T>(
 
 export async function searchLeisFiltered(query: string, opts: SearchOptions = {}): Promise<LeiRow[]> {
   const { ente, year, page = 0, pageSize = PAGE_SIZE } = opts;
+  // Math.trunc + bounds enforce integer values — LIMIT/OFFSET cannot be injected.
+  // DuckDB prepared statements do not support ? placeholders in LIMIT/OFFSET clauses.
   const safeSize = Math.min(100, Math.max(1, Math.trunc(pageSize)));
   const offset = Math.max(0, Math.trunc(page)) * safeSize;
   const { where, params } = buildWhere(query, ente, year);
