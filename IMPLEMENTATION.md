@@ -26,7 +26,7 @@
 | **M3.4** — `parse_law` aceita HTML + `fetch_html` | 🟢 done | cc00676 | `input_type="html"` em `parse_law`; `fetch_html(url)`; prompt adaptado; `_HTML_CHAR_LIMIT=32000`. 35 testes. |
 | **M3.5** — CLI `parse --input-type html` + `fetch_ia_html` | 🟢 done | #35 | `fetch_ia_html(ia_id)` busca `{ia_id}.html` do IA; `--input-type ocr\|html` em `cmd_parse`; 3 testes novos (TestFetchIaHtml + TestCmdParseUpload). Desbloqueia pipeline federal após M2.7. |
 | **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟢 done | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. |
-| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟡 in-progress | #36 | Sobe dataset Parquet para IA; benchmark local §3.4. CI verde; P2 Codex endereçado (ValueError capturado na CLI). Substitui #29 (conflito M3.5). Aguardando CI Kilo. |
+| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟢 done | #36 | Sobe dataset Parquet para IA; benchmark local §3.4. Merged. |
 | **M4.3** — benchmark DuckDB-WASM real + gatilhos §3.4 | ⚪ todo | — | Bloqueado por M4.2 merge. |
 | **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. CI verde; P1+P2 Codex endereçados (retry DB init; stale search fix). Pronto para merge após CI rerun. |
 | **M5.2** — TanStack Query + paginação + filtros | ⚪ todo | — | Bloqueado por M5.1 merge. |
@@ -748,10 +748,11 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 **M0–M4.1 concluídos** ✅ | **M3.5 merged** ✅ | **M4.2, M5.1, M2.7, M2.8 em PRs abertas**
 
 **PRs abertas agora** (aguardando CI Kilo):
-- **#36** M4.2: release-dataset CLI. Substitui #29. Aguardando Kilo.
 - **#33** M5.1: Frontend foundation. Pós-fix P1+P2 key/workers. Aguardando Kilo.
 - **#37** M2.7: Planalto federal HTML pipeline. Substitui #34. Aguardando Kilo.
-- **M2.8** (branch `claude/cool-cerf-HClng`): `parse-all --input-type html` + chave federal. 319 testes passando. PR desta sessão.
+- **#38** M2.8 (branch `claude/cool-cerf-HClng`): `parse-all --input-type html` + chave federal. 319 testes passando. PR desta sessão.
+
+**Merged nesta sessão**: #36 M4.2 ✅
 
 **M4.3** (próximo após #36 mergear):
 - Benchmark DuckDB-WASM real contra §3.4 gatilhos.
