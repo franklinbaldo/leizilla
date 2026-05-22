@@ -1,6 +1,7 @@
-"""Testes para M2.7: Planalto federal HTML pipeline.
+"""Testes para M2.7 + M6.3: Planalto federal HTML pipeline.
 
-Cobre: discover_planalto_laws, build_raw_meta_html, upload_raw_html, scrape_one_html.
+Cobre: discover_planalto_laws (legacy + year-scoped), planalto_year_scoped_url,
+build_raw_meta_html, upload_raw_html, scrape_one_html.
 HTTP e IA CLI 100% mockados — sem rede.
 """
 
@@ -10,7 +11,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from leizilla.fontes.federal import discover_planalto_laws
+from leizilla.fontes.federal import (
+    discover_planalto_laws,
+    planalto_year_scoped_url,
+)
 from leizilla.publisher import InternetArchivePublisher, build_raw_meta_html
 
 # ---------------------------------------------------------------------------
@@ -18,25 +22,28 @@ from leizilla.publisher import InternetArchivePublisher, build_raw_meta_html
 # ---------------------------------------------------------------------------
 
 
+_NO_YEAR = lambda t, n: None  # noqa: E731 — injeta "sem lookup" para testes offline
+
+
 class TestDiscoverPlanaltoLaws:
     def test_generates_correct_lei_urls(self) -> None:
-        laws = discover_planalto_laws("lei", 9503, 9505)
+        laws = discover_planalto_laws("lei", 9503, 9505, year_lookup_fn=_NO_YEAR)
         assert len(laws) == 3
         assert laws[0]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/L9503.htm"
         assert laws[1]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/L9504.htm"
         assert laws[2]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/L9505.htm"
 
     def test_generates_correct_lcp_urls(self) -> None:
-        laws = discover_planalto_laws("lcp", 87, 88)
+        laws = discover_planalto_laws("lcp", 87, 88, year_lookup_fn=_NO_YEAR)
         assert laws[0]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/lcp/Lcp87.htm"
         assert laws[1]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/lcp/Lcp88.htm"
 
     def test_generates_correct_decreto_urls(self) -> None:
-        laws = discover_planalto_laws("decreto", 99, 101)
+        laws = discover_planalto_laws("decreto", 99, 101, year_lookup_fn=_NO_YEAR)
         assert laws[0]["url_original"] == "https://www.planalto.gov.br/ccivil_03/decreto/D99.htm"
 
     def test_sets_correct_metadata(self) -> None:
-        laws = discover_planalto_laws("lei", 9503, 9503)
+        laws = discover_planalto_laws("lei", 9503, 9503, year_lookup_fn=_NO_YEAR)
         law = laws[0]
         assert law["ente"] == "federal"
         assert law["fonte"] == "planalto"
@@ -45,7 +52,7 @@ class TestDiscoverPlanaltoLaws:
         assert law["numero"] == 9503
 
     def test_empty_range(self) -> None:
-        laws = discover_planalto_laws("lei", 5, 4)
+        laws = discover_planalto_laws("lei", 5, 4, year_lookup_fn=_NO_YEAR)
         assert laws == []
 
     def test_invalid_tipo_raises(self) -> None:
@@ -53,9 +60,78 @@ class TestDiscoverPlanaltoLaws:
             discover_planalto_laws("portaria", 1, 5)
 
     def test_single_item_range(self) -> None:
-        laws = discover_planalto_laws("lei", 1, 1)
+        laws = discover_planalto_laws("lei", 1, 1, year_lookup_fn=_NO_YEAR)
         assert len(laws) == 1
         assert laws[0]["chave"] == "lei-00001"
+
+
+# ---------------------------------------------------------------------------
+# M6.3: year-scoped URLs
+# ---------------------------------------------------------------------------
+
+
+class TestPlanaltoYearScopedUrl:
+    def test_lei_2014(self) -> None:
+        url = planalto_year_scoped_url("lei", 12965, 2014)
+        assert url == "https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2014/lei/l12965.htm"
+
+    def test_lcp_2006(self) -> None:
+        url = planalto_year_scoped_url("lcp", 123, 2006)
+        assert url == "https://www.planalto.gov.br/ccivil_03/_ato2003-2006/2006/lei/lcp123.htm"
+
+    def test_decreto_2012(self) -> None:
+        url = planalto_year_scoped_url("decreto", 7724, 2012)
+        assert url == "https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2012/decreto/d7724.htm"
+
+    def test_year_out_of_range_raises(self) -> None:
+        with pytest.raises(ValueError, match="fora dos ranges"):
+            planalto_year_scoped_url("lei", 1, 1900)
+
+    def test_ato_range_boundaries(self) -> None:
+        assert "_ato2003-2006" in planalto_year_scoped_url("lei", 1, 2003)
+        assert "_ato2003-2006" in planalto_year_scoped_url("lei", 1, 2006)
+        assert "_ato2023-2026" in planalto_year_scoped_url("lei", 1, 2026)
+
+
+class TestDiscoverPlanaltoLawsYearScoped:
+    def _lookup_2014(self, tipo: str, numero: int) -> int:
+        return 2014
+
+    def _lookup_none(self, tipo: str, numero: int) -> None:
+        return None
+
+    def test_post_2002_uses_year_scoped_url(self) -> None:
+        laws = discover_planalto_laws("lei", 12965, 12965, year_lookup_fn=self._lookup_2014)
+        assert laws[0]["url_original"] == (
+            "https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2014/lei/l12965.htm"
+        )
+
+    def test_year_lookup_fail_falls_back_to_legacy(self) -> None:
+        laws = discover_planalto_laws("lei", 12965, 12965, year_lookup_fn=self._lookup_none)
+        assert laws[0]["url_original"] == (
+            "https://www.planalto.gov.br/ccivil_03/leis/L12965.htm"
+        )
+
+    def test_year_2002_uses_legacy(self) -> None:
+        laws = discover_planalto_laws("lei", 10406, 10406, year_lookup_fn=lambda t, n: 2002)
+        assert "/leis/L10406.htm" in laws[0]["url_original"]
+
+    def test_lcp_post_2002(self) -> None:
+        laws = discover_planalto_laws("lcp", 123, 123, year_lookup_fn=lambda t, n: 2006)
+        assert "_ato2003-2006" in laws[0]["url_original"]
+        assert "lcp123.htm" in laws[0]["url_original"]
+
+    def test_chave_unchanged_by_year(self) -> None:
+        laws = discover_planalto_laws("lei", 12965, 12965, year_lookup_fn=self._lookup_2014)
+        assert laws[0]["chave"] == "lei-12965"
+
+    def test_mixed_range_with_year_lookup(self) -> None:
+        def lookup(tipo: str, num: int) -> int | None:
+            return 2014 if num > 12000 else None
+
+        laws = discover_planalto_laws("lei", 9503, 12965, year_lookup_fn=lookup)
+        assert "/leis/L9503.htm" in laws[0]["url_original"]
+        assert "_ato2011-2014" in laws[-1]["url_original"]
 
 
 # ---------------------------------------------------------------------------

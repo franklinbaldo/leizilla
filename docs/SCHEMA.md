@@ -123,7 +123,7 @@ Implicações que decorrem disso (e estão em outras seções):
 | `ro` | `casacivil` | `coddoc-{N:05d}` | `leizilla-raw-ro-casacivil-coddoc-00042` |
 | `ro` | `assembleia` | `coddoc-{N:05d}` | `leizilla-raw-ro-assembleia-coddoc-00042` |
 | `ro` | `diario` | `{YYYY-MM-DD}-p{pagina:04d}` | `leizilla-raw-ro-diario-2003-06-15-p0012` |
-| `federal` | `planalto` | `lei-{numero:05d}-{ano}` | `leizilla-raw-federal-planalto-lei-12345-2024` |
+| `federal` | `planalto` | `{tipo}-{numero:05d}` | `leizilla-raw-federal-planalto-lei-12345` |
 
 **Justificativa**: IA faz OCR **apenas** em PDFs individuais (não em PDFs dentro de ZIP). Permalink por PDF facilita citação. Manifest CSV escala para milhares de items.
 

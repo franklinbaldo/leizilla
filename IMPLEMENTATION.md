@@ -34,9 +34,9 @@
 | **M5.2** — TanStack Query + paginação + filtros | ⚪ todo | — | Bloqueado por M5.1 merge. |
 | **M2.7** — Planalto federal HTML pipeline | 🟢 done | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 30 testes. URLs legadas (pré-2002); year-scoped em M2.8. Merged. |
 | **M2.8** — `parse-all --input-type html` + chave federal | 🟢 done | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. Merged. |
-| **M6.1** — `parse-all --output-dir` + workflow parse-release | 🟡 in-progress | #40 | `--output-dir` em `parse-all` + `parse-release.yml` (parse→consolidate→release). 2 novos testes. |
+| **M6.1** — `parse-all --output-dir` + workflow parse-release | 🟢 done | #40 | `--output-dir` em `parse-all` + `parse-release.yml` (parse→consolidate→release). 2 novos testes. Merged. |
 | **M6.2** — Deploy-web workflow | ⚪ todo | — | `deploy-web.yml` — incluído em #33 (M5.1). Ativo após M5.1 merge. |
-| **M6.3** — Planalto year-scoped URLs (pós-2002) | ⚪ todo | — | URLs `_ato{start}-{end}/{ano}/lei/l{num}.htm`. Requer lookup ano←número via API Câmara ou tabela estática. |
+| **M6.3** — Planalto year-scoped URLs (pós-2002) | 🟡 in-progress | #41 | `planalto_year_scoped_url` + `_camara_year_lookup` (Câmara API, lru_cache, circuit breaker). `discover_planalto_laws` usa URL year-scoped se ano ≥ 2003. 47 novos testes. Fix SCHEMA.md: chave planalto sem `{ano}`. |
 | **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
@@ -116,6 +116,28 @@ segunda 06:00 UTC (dia após o scraping dominical de `rondonia_crawler.yml`). In
 
 **M6 decomposto**: M6.1 (parse+ETL+release), M6.2 (deploy-web — já em #33),
 M6.3 (Planalto pós-2002 year-scoped URLs — independente, desbloqueado).
+
+### 2026-05-22 — M6.3: Planalto year-scoped URLs + fix SCHEMA.md chave
+
+**Problema descoberto**: SCHEMA.md §1.1 mostrava `chave = lei-{numero:05d}-{ano}` para
+federal/planalto, mas o código gerava `lei-{num:05d}` (sem ano). Corrigi o SCHEMA.md:
+chave planalto é `{tipo}-{num:05d}`, sem ano — lei federal number é globalmente único
+no Brasil (não reseta por ano), então o ano é redundante na chave.
+
+**Design de URL year-scoped**: `_camara_year_lookup(tipo, numero)` chama
+`dadosabertos.camara.leg.br/api/v2/legislacoes?siglaTipo=LEI&numero=N` para obter o
+ano. Resultado em `lru_cache(maxsize=2048)` — N chamadas por batch, uma por número
+único. Fail-open: API indisponível → URL legada.
+
+**Circuit breaker + 429 handling**: `_CamaraApiState` desativa lookups após primeira
+falha de rede (limita stall a 1×3s). HTTP 429 (rate-limit) é tratado separadamente:
+retorna None sem abrir o circuit (erro transiente, não estrutural).
+
+**`year_lookup_fn` injetável**: `discover_planalto_laws(tipo, start, end, *, year_lookup_fn=...)`
+aceita lambda para testes offline sem rede.
+
+**Testes**: 47 em `TestCamaraYearLookupCircuitBreaker` + `TestPlanaltoYearScopedUrl` + `TestDiscoverPlanaltoLawsYearScoped`.
+Testes existentes atualizados para passar `year_lookup_fn=lambda t, n: None` (determinismo).
 
 ### 2026-05-22 — M4.3: benchmark gatilhos §3.4 — local approximation é o deliverable M4
 
