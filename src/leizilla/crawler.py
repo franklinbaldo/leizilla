@@ -5,13 +5,61 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from urllib.parse import urljoin
 
 import requests
 from playwright.async_api import Browser, Page, async_playwright
 
 from leizilla import config
+
+_CASACIVIL_FILES_BASE = "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files"
+_CASACIVIL_FONTE_URL = "http://ditel.casacivil.ro.gov.br/COTEL/Livros/"
+
+
+def discover_casacivil_laws(
+    tipo: str = "lei",
+    start_num: int = 1,
+    end_num: int = 100,
+) -> List[Dict[str, Any]]:
+    """Enumera leis da Casa Civil de Rondônia por número sequencial.
+
+    Não usa Playwright — PDFs disponíveis diretamente via HTTP sem JS.
+    URL pattern: ditel.casacivil.ro.gov.br/COTEL/Livros/Files/{prefix}{N}.pdf
+      tipo="lei" → prefix "L"  (leis ordinárias)
+      tipo="lc"  → prefix "LC" (leis complementares)
+
+    Não verifica existência aqui — scrape_one resolve via Wayback/direct e
+    falha graciosamente se o arquivo não existir.
+    """
+    if tipo not in ("lei", "lc"):
+        raise ValueError(f"tipo deve ser 'lei' ou 'lc', recebeu '{tipo}'")
+
+    if start_num > end_num:
+        logging.getLogger(__name__).warning(
+            "discover_casacivil_laws: start_num=%d > end_num=%d — range vazio",
+            start_num,
+            end_num,
+        )
+
+    prefix = "L" if tipo == "lei" else "LC"
+    nome = "Lei Complementar" if tipo == "lc" else "Lei"
+    laws: List[Dict[str, Any]] = []
+
+    for num in range(start_num, end_num + 1):
+        chave = f"{tipo}-{num:05d}"
+        law: Dict[str, Any] = {
+            "id": f"ro-casacivil-{chave}",
+            "ente": "ro",
+            "fonte": "casacivil",
+            "chave": chave,
+            "titulo": f"{nome} nº {num} (Rondônia)",
+            "url_original": _CASACIVIL_FONTE_URL,
+            "url_pdf_original": f"{_CASACIVIL_FILES_BASE}/{prefix}{num}.pdf",
+        }
+        laws.append(law)
+
+    return laws
 
 
 class LeisCrawler:
@@ -81,7 +129,9 @@ class LeisCrawler:
                     await asyncio.sleep(self.delay_ms / 1000)
 
                 except Exception as exc:
-                    logging.getLogger(__name__).debug("coddoc %d skipped: %s", coddoc, exc)
+                    logging.getLogger(__name__).debug(
+                        "coddoc %d skipped: %s", coddoc, exc
+                    )
                     continue
 
             await browser.close()
@@ -92,7 +142,9 @@ class LeisCrawler:
         """Baixa PDF da URL para destino local. Retorna True em sucesso."""
         for attempt in range(self.retries):
             try:
-                response = requests.get(url, timeout=self.timeout_ms / 1000, stream=True)
+                response = requests.get(
+                    url, timeout=self.timeout_ms / 1000, stream=True
+                )
                 response.raise_for_status()
                 with open(dest, "wb") as f:
                     for chunk in response.iter_content(chunk_size=8192):

@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-import pytest
 
 from leizilla.publisher import (
     _raw_identifier,
@@ -69,8 +68,10 @@ class TestBuildRawMeta:
 
     def test_fetched_from_wayback(self):
         meta = build_raw_meta(
-            self._law(), b"pdf", "wayback",
-            wayback_url="https://web.archive.org/web/20260522/https://example"
+            self._law(),
+            b"pdf",
+            "wayback",
+            wayback_url="https://web.archive.org/web/20260522/https://example",
         )
         assert meta["provenance_wayback"]["fetched_from"] == "wayback"
         assert meta["provenance_wayback"]["wayback_url"] == (
@@ -139,7 +140,9 @@ class TestUploadParsed:
             )
         assert result["success"] is True
         assert result["ia_id"] == "leizilla-ro-lei-00042-1990"
-        assert result["ia_url"] == "https://archive.org/details/leizilla-ro-lei-00042-1990"
+        assert (
+            result["ia_url"] == "https://archive.org/details/leizilla-ro-lei-00042-1990"
+        )
 
     def test_uploads_law_xml_and_parsed_meta(self):
         pub = self._publisher()
@@ -192,12 +195,15 @@ class TestUploadParsed:
         pub = InternetArchivePublisher()
         pub.access_key = None
         pub.secret_key = None
-        result = pub.upload_parsed("leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META)
+        result = pub.upload_parsed(
+            "leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META
+        )
         assert result["success"] is False
         assert "credentials" in result["error"]
 
     def test_returns_failure_on_subprocess_error(self):
         import subprocess
+
         pub = self._publisher()
         err = subprocess.CalledProcessError(1, "ia", stderr="upload failed")
         with patch("subprocess.run", side_effect=err):

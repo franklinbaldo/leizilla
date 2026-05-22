@@ -134,7 +134,9 @@ def cmd_upload(
                 if not pdf_path.exists():
                     continue
                 pdf_bytes = pdf_path.read_bytes()
-                result = publisher.upload_raw(pdf_path, law, pdf_bytes, fetched_from="source-fallback")
+                result = publisher.upload_raw(
+                    pdf_path, law, pdf_bytes, fetched_from="source-fallback"
+                )
                 if result.get("success"):
                     db.update_lei(law["id"], {"url_pdf_ia": result["ia_url"]})
                     uploaded += 1
@@ -154,14 +156,25 @@ def cmd_upload(
 def cmd_scrape(
     ente: str = typer.Option("ro", help="Ente federativo"),
     fonte: str = typer.Option("assembleia", help="Fonte (assembleia, casacivil)"),
-    start_coddoc: int = typer.Option(1, help="ID inicial"),
+    start_coddoc: int = typer.Option(
+        1, help="ID inicial (coddoc para assembleia; número de lei para casacivil)"
+    ),
     end_coddoc: int = typer.Option(10, help="ID final"),
+    tipo: str = typer.Option(
+        "lei", help="Tipo de lei para casacivil: lei (ordinária) ou lc (complementar)"
+    ),
 ) -> None:
     """Scrape leis: discover → robots → wayback → upload_raw para IA."""
-    echo(f"Scraping {ente}/{fonte} coddoc {start_coddoc}–{end_coddoc}")
+    if tipo != "lei" and fonte != "casacivil":
+        echo(
+            f"--tipo só é válido com --fonte casacivil (recebido: --tipo {tipo} --fonte {fonte})"
+        )
+        raise typer.Exit(1)
+
+    echo(f"Scraping {ente}/{fonte} {start_coddoc}–{end_coddoc}")
 
     try:
-        from leizilla.crawler import LeisCrawler
+        from leizilla.crawler import LeisCrawler, discover_casacivil_laws
         from leizilla.publisher import InternetArchivePublisher
         from leizilla.scraper import make_rate_limiter, scrape_one
 
@@ -174,6 +187,12 @@ def cmd_scrape(
                 laws = await crawler.discover_rondonia_laws(
                     start_coddoc=start_coddoc,
                     end_coddoc=end_coddoc,
+                )
+            elif ente == "ro" and fonte == "casacivil":
+                laws = discover_casacivil_laws(
+                    tipo=tipo,
+                    start_num=start_coddoc,
+                    end_num=end_coddoc,
                 )
             else:
                 echo(f"Fonte '{fonte}' para '{ente}' ainda não implementada")
@@ -191,7 +210,9 @@ def cmd_scrape(
                     echo(f"  OK: {result.get('ia_id', '?')}")
                     ok += 1
                 else:
-                    echo(f"  Falha [{result.get('reason', '?')}]: {law.get('id', 'N/A')}")
+                    echo(
+                        f"  Falha [{result.get('reason', '?')}]: {law.get('id', 'N/A')}"
+                    )
 
             echo(f"Scraping concluído: {ok}/{len(laws)} com sucesso")
 
@@ -358,7 +379,9 @@ def cmd_parse(
     output: Optional[Path] = typer.Option(
         None, help="Salvar XML em arquivo (default: stdout)"
     ),
-    upload: bool = typer.Option(False, "--upload/--no-upload", help="Upload para IA após parse"),
+    upload: bool = typer.Option(
+        False, "--upload/--no-upload", help="Upload para IA após parse"
+    ),
 ) -> None:
     """Parsear OCR de raw IA item → Leizilla XML via LLM (Etapa 2)."""
     try:
@@ -405,7 +428,9 @@ def cmd_parse(
             if upload_result["success"]:
                 echo(f"Uploaded: {upload_result['ia_url']}")
             else:
-                echo(f"Upload falhou: {upload_result.get('error', 'erro desconhecido')}")
+                echo(
+                    f"Upload falhou: {upload_result.get('error', 'erro desconhecido')}"
+                )
                 raise typer.Exit(1)
     except typer.Exit:
         raise
@@ -424,7 +449,9 @@ def cmd_parse_all(
     start_coddoc: int = typer.Option(1, help="Primeiro coddoc"),
     end_coddoc: int = typer.Option(100, help="Último coddoc"),
     model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
-    upload: bool = typer.Option(True, "--upload/--no-upload", help="Upload para IA após parse"),
+    upload: bool = typer.Option(
+        True, "--upload/--no-upload", help="Upload para IA após parse"
+    ),
     limit: Optional[int] = typer.Option(None, help="Máx de itens a processar"),
 ) -> None:
     """Batch parse: coddoc range → OCR → LLM → (upload para IA).
@@ -467,9 +494,7 @@ def cmd_parse_all(
                 parsed_fail += 1
                 continue
 
-            echo(
-                f"  OK confiança={result.confidence:.2f} → {result.ia_id_parsed}"
-            )
+            echo(f"  OK confiança={result.confidence:.2f} → {result.ia_id_parsed}")
             parsed_ok += 1
 
             if pub:

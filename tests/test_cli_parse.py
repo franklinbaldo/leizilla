@@ -18,8 +18,16 @@ _PARSE_RESULT = MagicMock(
     output_tokens=200,
 )
 
-_UPLOAD_OK = {"success": True, "ia_id": "leizilla-ro-lei-00042-1990", "ia_url": "https://archive.org/details/leizilla-ro-lei-00042-1990"}
-_UPLOAD_FAIL = {"success": False, "error": "network error", "ia_id": "leizilla-ro-lei-00042-1990"}
+_UPLOAD_OK = {
+    "success": True,
+    "ia_id": "leizilla-ro-lei-00042-1990",
+    "ia_url": "https://archive.org/details/leizilla-ro-lei-00042-1990",
+}
+_UPLOAD_FAIL = {
+    "success": False,
+    "error": "network error",
+    "ia_id": "leizilla-ro-lei-00042-1990",
+}
 
 
 class TestXsdGate:
@@ -41,15 +49,19 @@ class TestXsdGate:
         assert result is True
 
     def test_returns_true_on_xmllint_success(self):
-        with patch("subprocess.run") as mock_run, \
-             patch.object(Path, "exists", return_value=True):
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(Path, "exists", return_value=True),
+        ):
             mock_run.return_value = MagicMock(returncode=0, stderr="")
             result = _xsd_gate("<lei/>")
         assert result is True
 
     def test_returns_false_on_xmllint_failure(self):
-        with patch("subprocess.run") as mock_run, \
-             patch.object(Path, "exists", return_value=True):
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(Path, "exists", return_value=True),
+        ):
             mock_run.return_value = MagicMock(returncode=1, stderr="validation error")
             result = _xsd_gate("<bad/>")
         assert result is False
@@ -63,8 +75,10 @@ class TestCmdParseUpload:
         }
 
     def test_parse_without_upload_outputs_xml(self):
-        with patch("leizilla.parser.fetch_ocr", return_value="ocr text"), \
-             patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT):
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+        ):
             result = runner.invoke(
                 app, ["parse", "--raw-id", "leizilla-raw-ro-assembleia-coddoc-00042"]
             )
@@ -72,34 +86,58 @@ class TestCmdParseUpload:
         assert "<lei/>" in result.output
 
     def test_upload_flag_calls_upload_parsed(self):
-        with patch("leizilla.parser.fetch_ocr", return_value="ocr text"), \
-             patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT), \
-             patch("leizilla.publisher.InternetArchivePublisher.upload_parsed", return_value=_UPLOAD_OK), \
-             patch("leizilla.cli._xsd_gate", return_value=True):
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
             result = runner.invoke(
                 app,
-                ["parse", "--raw-id", "leizilla-raw-ro-assembleia-coddoc-00042", "--upload"],
+                [
+                    "parse",
+                    "--raw-id",
+                    "leizilla-raw-ro-assembleia-coddoc-00042",
+                    "--upload",
+                ],
             )
         assert result.exit_code == 0
         assert "Uploaded" in result.output
         assert "archive.org" in result.output
 
     def test_upload_flag_exits_1_on_upload_failure(self):
-        with patch("leizilla.parser.fetch_ocr", return_value="ocr text"), \
-             patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT), \
-             patch("leizilla.publisher.InternetArchivePublisher.upload_parsed", return_value=_UPLOAD_FAIL), \
-             patch("leizilla.cli._xsd_gate", return_value=True):
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_FAIL,
+            ),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
             result = runner.invoke(
                 app,
-                ["parse", "--raw-id", "leizilla-raw-ro-assembleia-coddoc-00042", "--upload"],
+                [
+                    "parse",
+                    "--raw-id",
+                    "leizilla-raw-ro-assembleia-coddoc-00042",
+                    "--upload",
+                ],
             )
         assert result.exit_code == 1
         assert "Upload falhou" in result.output
 
     def test_no_upload_without_flag(self):
-        with patch("leizilla.parser.fetch_ocr", return_value="ocr text"), \
-             patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT), \
-             patch("leizilla.publisher.InternetArchivePublisher.upload_parsed") as mock_upload:
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed"
+            ) as mock_upload,
+        ):
             runner.invoke(
                 app, ["parse", "--raw-id", "leizilla-raw-ro-assembleia-coddoc-00042"]
             )
@@ -114,8 +152,10 @@ class TestCmdParseUpload:
         assert "OCR não disponível" in result.output
 
     def test_exits_1_on_parse_failure(self):
-        with patch("leizilla.parser.fetch_ocr", return_value="ocr"), \
-             patch("leizilla.parser.parse_law", return_value=None):
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr"),
+            patch("leizilla.parser.parse_law", return_value=None),
+        ):
             result = runner.invoke(
                 app, ["parse", "--raw-id", "leizilla-raw-ro-assembleia-coddoc-00001"]
             )
@@ -125,13 +165,26 @@ class TestCmdParseUpload:
 
 class TestCmdParseAll:
     def test_processes_range_and_reports_summary(self):
-        with patch("leizilla.parser.fetch_ocr", return_value="ocr text"), \
-             patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT), \
-             patch("leizilla.publisher.InternetArchivePublisher.upload_parsed", return_value=_UPLOAD_OK), \
-             patch("leizilla.cli._xsd_gate", return_value=True):
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
             result = runner.invoke(
                 app,
-                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "3", "--ente", "ro"],
+                [
+                    "parse-all",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "3",
+                    "--ente",
+                    "ro",
+                ],
             )
         assert result.exit_code == 0
         assert "parseados" in result.output
@@ -143,8 +196,12 @@ class TestCmdParseAll:
             call_count["n"] += 1
             return None  # all items missing OCR
 
-        with patch("leizilla.parser.fetch_ocr", side_effect=ocr_side_effect), \
-             patch("leizilla.publisher.InternetArchivePublisher.upload_parsed") as mock_upload:
+        with (
+            patch("leizilla.parser.fetch_ocr", side_effect=ocr_side_effect),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed"
+            ) as mock_upload,
+        ):
             result = runner.invoke(
                 app,
                 ["parse-all", "--start-coddoc", "1", "--end-coddoc", "5"],
@@ -159,23 +216,47 @@ class TestCmdParseAll:
             fetched.append(raw_id)
             return "ocr"
 
-        with patch("leizilla.parser.fetch_ocr", side_effect=track_ocr), \
-             patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT), \
-             patch("leizilla.publisher.InternetArchivePublisher.upload_parsed", return_value=_UPLOAD_OK), \
-             patch("leizilla.cli._xsd_gate", return_value=True):
+        with (
+            patch("leizilla.parser.fetch_ocr", side_effect=track_ocr),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
             runner.invoke(
                 app,
-                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "100", "--limit", "3"],
+                [
+                    "parse-all",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "100",
+                    "--limit",
+                    "3",
+                ],
             )
         assert len(fetched) == 3
 
     def test_no_upload_with_no_upload_flag(self):
-        with patch("leizilla.parser.fetch_ocr", return_value="ocr"), \
-             patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT), \
-             patch("leizilla.publisher.InternetArchivePublisher.upload_parsed") as mock_upload:
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed"
+            ) as mock_upload,
+        ):
             runner.invoke(
                 app,
-                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "2", "--no-upload"],
+                [
+                    "parse-all",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "2",
+                    "--no-upload",
+                ],
             )
         mock_upload.assert_not_called()
 
@@ -183,40 +264,73 @@ class TestCmdParseAll:
         def flaky_parse(*args, **kwargs):
             return None  # always fails
 
-        with patch("leizilla.parser.fetch_ocr", return_value="ocr"), \
-             patch("leizilla.parser.parse_law", side_effect=flaky_parse):
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr"),
+            patch("leizilla.parser.parse_law", side_effect=flaky_parse),
+        ):
             result = runner.invoke(
                 app,
-                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "3", "--no-upload"],
+                [
+                    "parse-all",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "3",
+                    "--no-upload",
+                ],
             )
         assert result.exit_code == 0
         assert "3 falhos" in result.output
 
     def test_exits_1_on_upload_failure(self):
-        with patch("leizilla.parser.fetch_ocr", return_value="ocr text"), \
-             patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT), \
-             patch("leizilla.publisher.InternetArchivePublisher.upload_parsed", return_value=_UPLOAD_FAIL), \
-             patch("leizilla.cli._xsd_gate", return_value=True):
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_FAIL,
+            ),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
             result = runner.invoke(
                 app,
-                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "2", "--ente", "ro"],
+                [
+                    "parse-all",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "2",
+                    "--ente",
+                    "ro",
+                ],
             )
         assert result.exit_code == 1
         assert "erros de upload" in result.output
 
     def test_exits_1_when_xsd_gate_blocks_upload(self):
-        with patch("leizilla.parser.fetch_ocr", return_value="ocr text"), \
-             patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT), \
-             patch("leizilla.publisher.InternetArchivePublisher.upload_parsed") as mock_upload, \
-             patch("leizilla.cli._xsd_gate", return_value=False):
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed"
+            ) as mock_upload,
+            patch("leizilla.cli._xsd_gate", return_value=False),
+        ):
             result = runner.invoke(
                 app,
-                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "2", "--ente", "ro"],
+                [
+                    "parse-all",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "2",
+                    "--ente",
+                    "ro",
+                ],
             )
         assert result.exit_code == 1
         assert "XSD inválido" in result.output
         mock_upload.assert_not_called()
-
 
     def test_api_exception_per_item_counted_not_abort(self):
         """Exceção da API (timeout, rate-limit) em um item conta como falha sem abortar o batch."""
@@ -226,11 +340,20 @@ class TestCmdParseAll:
             call_count["n"] += 1
             raise ConnectionError("API timeout")
 
-        with patch("leizilla.parser.fetch_ocr", return_value="ocr"), \
-             patch("leizilla.parser.parse_law", side_effect=flaky_parse):
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr"),
+            patch("leizilla.parser.parse_law", side_effect=flaky_parse),
+        ):
             result = runner.invoke(
                 app,
-                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "3", "--no-upload"],
+                [
+                    "parse-all",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "3",
+                    "--no-upload",
+                ],
             )
         assert result.exit_code == 0
         assert "3 falhos" in result.output
@@ -239,13 +362,22 @@ class TestCmdParseAll:
 
 class TestCmdParseXsdGateBlocking:
     def test_parse_upload_blocked_when_xsd_fails(self):
-        with patch("leizilla.parser.fetch_ocr", return_value="ocr text"), \
-             patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT), \
-             patch("leizilla.publisher.InternetArchivePublisher.upload_parsed") as mock_upload, \
-             patch("leizilla.cli._xsd_gate", return_value=False):
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed"
+            ) as mock_upload,
+            patch("leizilla.cli._xsd_gate", return_value=False),
+        ):
             result = runner.invoke(
                 app,
-                ["parse", "--raw-id", "leizilla-raw-ro-assembleia-coddoc-00042", "--upload"],
+                [
+                    "parse",
+                    "--raw-id",
+                    "leizilla-raw-ro-assembleia-coddoc-00042",
+                    "--upload",
+                ],
             )
         assert result.exit_code == 1
         assert "XSD inválido" in result.output

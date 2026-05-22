@@ -16,17 +16,19 @@
 | **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟢 done | #15 | `wayback.py` + `robots.py` + `publisher.upload_raw` + PDF renomeado para {ia_id}.pdf. 34 testes. |
 | **M2.2** — scraper.py + `scrape` CLI + fix ids no crawler | 🟢 done | #18 | `scraper.scrape_one()` orquestra robots→wayback→fetch→upload_raw. CLI `scrape` para assembleia/RO. 10 testes. |
 | **M2.3** — CI workflow + `internetarchive` dep | 🟢 done | #20 | `rondonia_crawler.yml` atualizado para `uv run leizilla scrape`. `internetarchive` em pyproject.toml. |
+| **M2.4** — Rate-limit por host | 🟢 done | 66aa4ac | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
+| **M2.5** — casacivil discovery | 🟢 done | #27 | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. (PR #26 fechado por conflito; #27 merged.) |
+| **M2.6** — casacivil job no workflow | 🟢 done | #31 | `rondonia_crawler.yml` expandido com passos casacivil lei + lc; inputs `casacivil_start`/`casacivil_end`. |
+| **M2 restante** — fontes SP + federal (stubs) | 🟢 done | #30 | `fontes/sp.py` + `fontes/federal.py`. Scraping sp/federal bloqueado por M3.4 (HTML parser). |
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
-| **M3 restante** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint; `parse-all` itera range coddoc. |
-| **M2.4** — Rate-limit por host | 🟢 done | 66aa4ac | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
-| **M2.5** — casacivil discovery | 🟡 in-progress | #27 | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. |
-| M2 restante — outros entes (sp, federal) | ⚪ todo | — | fontes/{sp,federal}.py. Depende de M2.4+M2.5. |
-| **M4.1** — ETL XML→Parquet (`etl.py`) | 🟡 in-progress | TBD | `xml_to_rows` + `consolidate_xmls` + `write_parquet` + CLI `consolidate`. 58 testes. |
-| M4 restante — release dataset + benchmark | ⚪ todo | — | IA upload do dataset item; benchmark DuckDB-WASM per §3.4. |
-| M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
-| M6 — GitHub Actions | ⚪ todo | — | Depende de M2–M5 |
-| M7 — Claude Code routines | ⚪ todo | — | Depende de M6 |
+| **M3.3** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
+| **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟡 in-progress | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. Aguardando CI + merge. |
+| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟡 in-progress | #29 | Sobe dataset Parquet para IA; benchmark local §3.4. Aguardando merge de #28 primeiro. |
+| **M4.3** — benchmark DuckDB-WASM real + gatilhos §3.4 | ⚪ todo | — | Bloqueado por M4.1+M4.2. |
+| **M5** — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4. |
+| **M6** — GitHub Actions produção | ⚪ todo | — | Depende de M2–M5. |
+| **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -99,6 +101,72 @@ Toda decisão importante recebe entrada aqui com data. Não delete entradas — 
 - `consolidate` CLI aceita diretório de `{lei_id}.xml` — padrão de saída do `parse --output`.
 - 58 testes cobrem todas as fixtures (simple, alterações, revogações, blocos, parcial).
 
+### 2026-05-22 — M2 restante: fontes SP e federal — stubs com mapeamento de portais
+
+`fontes/sp.py` e `fontes/federal.py` criados como stubs declarativos (análogos a `fontes/ro.py`) com URLs de portais, notas de acesso, e `FONTE_CANONICA`.
+
+**SP**: LeisSP (legisp — compilados da Casa Civil SP) como fonte canônica, ALESP para acesso alternativo, DOE-SP para cross-verificação. URL padrão de PDFs no LeisSP ainda não auditada — discovery requer engenharia adicional (M2.6).
+
+**Federal**: Planalto como fonte canônica (compilados vigentes em HTML, não PDF). Câmara tem API REST pública bem documentada. Senado tem LegisWeb + dadosabertos. DOU via Imprensa Nacional para publicação original.
+
+**Decisão importante**: Planalto serve HTML, não PDF — o pipeline M3 atual (fetch_ocr de PDF via IA) não se aplica diretamente. Scraping federal vai precisar de adaptação: `parse_law` aceitar HTML como input além de OCR text. Registrado como M3.4 (milestone futuro não planejado ainda). Fontes federais ficam bloqueadas por M3.4.
+
+**Por que criar os stubs agora**: os portais foram pesquisados (conhecimento disponível sem acesso externo); registrar as URLs e notas de acesso no repositório evita repetir a pesquisa em sessões futuras. Stubs sem scraping são úteis como documentação de roadmap.
+
+### 2026-05-22 — Sessão de triagem: correções P1/P2 em PRs #28 e #29 + M2.6
+
+**M4.1 (#28) — P1 cascata revogação dispositivo→descendentes**: `_process` em `etl.py`
+não propagava `disp_rev_em` para filhos recursivos; descendentes de um dispositivo
+revogado ficavam com `ate=NULL`. SCHEMA.md §0.3 define cascata implícita. Fix: adicionar
+`ancestor_rev_em: Optional[date]` à recursão; pass `disp_rev_em or ancestor_rev_em`
+para filhos. Fixture `with-revogacao-cascata.xml` + 8 testes.
+
+**M4.1 (#28) — P2 fallback ID com chave numérica**: `_parse_lei_fields` rodava o
+heurístico canônico antes do check fallback; `leizilla-ro-lei-fallback-casacivil-12345-
+1985` era mal-classificado (`tipo_lei='casacivil'`). Fix: mover teste `parts[3]=='fallback'`
+para antes do heurístico canônico.
+
+**M4.2 (#29) — P2 version negativa na API**: `upload_dataset()` não validava `version>=0`
+antes de construir o `ia_id`, permitindo `leizilla-dataset-ro-v-1` (viola
+`_DATASET_IDENTIFIER_RE`). CLI já bloqueava; API agora also levanta `ValueError`.
+
+**M2.6 — casacivil job no workflow**: `rondonia_crawler.yml` expandido com dois passos
+casacivil (lei ordinária + complementar) com inputs independentes `casacivil_start`/
+`casacivil_end`. Default 1–100. Não precisa de Playwright (discovery é puro HTTP).
+Workflow_dispatch permite tunar range sem alterar YAML.
+
+### 2026-05-22 — M2.5: casacivil discovery via enumeração direta (sem Playwright)
+
+**Auditoria do portal**: `www.casacivil.ro.gov.br/leis` → redireciona para
+`ditel.casacivil.ro.gov.br/COTEL/Livros/listleiord.aspx?ano=YYYY`, que retorna
+403 de ambientes externos. Porém, PDFs individuais são acessíveis diretamente:
+`HEAD http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L5120.pdf` → 200.
+
+**Padrão de URL descoberto** via Google cache + HEAD requests:
+- Leis ordinárias: `L{N}.pdf` (ex: `L5120.pdf`, `L3830 - COMPILADA.pdf`)
+- Leis complementares: `LC{N}.pdf` (ex: `LC1209 - COMPILADO.pdf`, `LC748.pdf`)
+- A versão `COMPILADA` (texto consolidado vigente) tem sufixo variável — não
+  tentamos enumerar variações; o Wayback Machine frequentemente tem a base `L{N}.pdf`
+  que é suficiente para OCR (compiladas são frequentemente scanned igualmente).
+
+**Decisão de design**: `discover_casacivil_laws` é função standalone (não método
+de `LeisCrawler`), pois não precisa de Playwright. Retorna URLs candidatas sem
+verificar existência — `scrape_one` trata 404/timeout via Wayback fail-open.
+
+**Chave**: `lei-{N:05d}` para ordinária, `lc-{N:05d}` para complementar.
+`IA id`: `leizilla-raw-ro-casacivil-lei-{N:05d}` ou `lc-{N:05d}`.
+
+**CLI**: `scrape --fonte casacivil --tipo lei|lc --start-coddoc N --end-coddoc M`
+(reuso semântico de `--start-coddoc` como "número inicial", sem breaking change
+para assembleia que continua usando coddoc).
+
+**Descobertas notáveis**:
+- Portal DITEL usa ASP.NET WebForms (`listleiord.aspx`) — script da década de 2000.
+- Leis Rondônia chegam a L6000+ (ordinárias); LC chega a ~1300+.
+- Alguns PDFs têm sufixos: `_compressed`, `- PL` (projetos), `- COMPILADA`.
+  Para o pipeline v0 aceitamos o URL base e deixamos Wayback/IA lidar com
+  disponibilidade.
+
 ### 2026-05-22 — M2.4: Rate-limit por host (supersede M2.2 global limiter)
 
 `make_rate_limiter()` agora retorna `Callable[[str], None]` (recebe URL) em vez de
@@ -117,15 +185,39 @@ comportamento correto automaticamente — a CLI cria o limiter e passa para `scr
 (era criado e passado como opaque callable). Testes atualizados para verificar que
 `rate_mock` é chamado com `_PDF_URL`.
 
-### 2026-05-22 — M3 restante: `parse --upload` + XSD gate + `parse-all` batch (merged #21)
+### 2026-05-22 — M3 restante: `parse --upload` + XSD gate + `parse-all` batch
 
 Integra M3.1 (`parser.py`) e M3.2 (`publisher.upload_parsed`) via CLI, completando
 o pipeline Etapa 2 end-to-end: OCR fetch → LLM parse → XSD validate → IA upload.
 
-**`_xsd_gate(xml_content)`**: fail-open para ferramental ausente (xmllint/schema);
-bloqueia upload quando xmllint detecta XML inválido. **`parse --upload`**: integra
-gate + publisher; exit 1 em falha. **`parse-all`**: batch coddoc-range com per-item
-try/except, `parsed_meta` inclui ente/tipo, exit 1 se qualquer upload falhou.
+**`_xsd_gate(xml_content)`** — helper em `cli.py`:
+- Localiza `docs/schemas/leizilla-v0.1.xsd` via `Path(__file__).parents[2]`.
+- Escreve XML em tmp file; roda `xmllint --schema ... --noout`; apaga tmp em `finally`.
+- Fail-open: schema ausente ou `xmllint` não instalado → avisa + retorna True.
+- Retorna False (e printa aviso) se xmllint retorna non-zero (validação falhou).
+
+**`parse --upload/--no-upload`** (default `--no-upload`):
+- Com `--upload`: chama `_xsd_gate`, depois `InternetArchivePublisher().upload_parsed()`.
+- Upload falhou → exit code 1 com mensagem "Upload falhou: {error}".
+- Sem `--upload`: comportamento existente (stdout XML) — zero breaking change.
+
+**`parse-all`** — novo comando batch:
+- `--start-coddoc / --end-coddoc / --ente / --fonte / --model / --upload/--no-upload / --limit`.
+- Itera `leizilla-raw-{ente}-{fonte}-coddoc-{N:05d}` no range; skip silencioso se OCR ausente.
+- Conta falhas de parse sem abortar; relatório final: "Batch concluído: N parseados, N falhos[, N uploaded]".
+- Default `--upload` (True) para uso batch; `--no-upload` para dry-run.
+
+**Decisões**:
+- `parse-all` usa range coddoc (não query DuckDB) porque `scraper.scrape_one()` não
+  insere `ia_id_raw` no DuckDB, e o schema atual não tem essa coluna. Range coddoc
+  é o mesmo mecanismo que o `scrape` CLI usa — consistente e sem dependência nova.
+- `_xsd_gate` é fail-open apenas para ferramentas ausentes: `xmllint` não instalado
+  ou schema não encontrado → retorna True (pipeline continua). Quando `xmllint`
+  está presente e encontra erros → retorna False e o upload é **bloqueado** (exit 1 em
+  `parse --upload`; skip + contagem de erro em `parse-all`).
+- `parse-all` exit 1 se qualquer upload falhou (seja por XSD inválido ou por falha de rede/IA).
+  Falhas de parse (LLM confiança baixa) não propagam exit 1 — são esperadas em batches parciais.
+- 15 testes em `tests/test_cli_parse.py` cobrem todos os branches.
 
 ### 2026-05-22 — M3.1: OCR fetch + LLM parse → Leizilla XML
 
@@ -572,38 +664,24 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0.1 — fechado** ✅ (PR #6 merged).
+**M0–M3: todos concluídos** ✅
 
-**M0.2a — superseded** 🔴 (PR #7). Design v1 do XSD foi abandonado após auditoria first-principles. Fica como referência histórica.
+**PRs abertas agora** (em decantação — não auto-merge):
+- **#28** M4.1: ETL XML→Parquet. CI verde. Aguardando review humano.
+- **#29** M4.2: release-dataset CLI. CI verde. Depende do merge de #28 para smoke test end-to-end.
+- **#30** M2 restante: fontes/sp.py + federal.py. CI verde. Aguardando merge.
 
-**M0.2b — Redesign first-principles** ✅ (PRs #8 #9 #10 #12 merged).
+**M4.3** (próximo após #28 e #29 mergearem):
+- Benchmark DuckDB-WASM real (não apenas local) contra §3.4 gatilhos.
+- Avisa se file_mb > 50, row_count > 500k, ou full-text latência > 500ms.
 
-**M0.3 — Fecha M0** ✅ (PR #13 merged):
-- [x] **URN LEX canônica** contra spec CGPID 2008 — SCHEMA.md §5.6 + XSD regex + checker regex + 6 fixtures + tests atualizados.
-- [x] **Política re-scrape** documentada (§8.2.4): `{chave}-r{N}` sob auditoria explícita, nunca automático.
-- [x] **Robots.txt + rate-limit** como princípio load-bearing #10 em IMPLEMENTATION.md.
-- [x] **Deferred** pendentes (§8.3): compressão Parquet → M4, granularidade ZIP → M2, custo LLM → M2/M3.
+**M5 — Frontend** (pode começar em paralelo a M4.3):
+- Astro + Svelte + Pico CSS + DuckDB-WASM.
+- Carrega `versoes.parquet` do IA via HTTP.
+- Busca full-text com DuckDB-WASM no browser.
+- Deploy: GitHub Pages.
 
-**M1 — Foundation** ✅ (PR #14):
-- [x] Package restructure `src/` → `src/leizilla/` + `pyproject.toml` com `packages.find`.
-- [x] ADRs 0004–0009 em `docs/adr/`.
-- [x] Migração `origem` → `ente` em `cli.py` + `storage.py` + `test_storage.py`.
-- [x] `src/leizilla/entes.py` com catálogo (federal + 26 UFs + DF).
-- [x] `src/leizilla/fontes/ro.py` stub com fontes de Rondônia declaradas.
-
-**M2.1 — Wayback + robots + publisher sidecar** ✅ (PR #15):
-- [x] `wayback.py`: check_available + save_page + fetch_bytes.
-- [x] `robots.py`: is_allowed com lru_cache por host.
-- [x] `publisher.upload_raw()` + `build_raw_meta()` + `_raw_identifier()`.
-
-**M2.2 — scraper.py + `scrape` CLI** (este PR):
-- [x] `scraper.scrape_one()`: pipeline robots→wayback→fetch→upload_raw.
-- [x] `scraper.make_rate_limiter()`: 1 req/s entre fallbacks diretos.
-- [x] `crawler.discover_rondonia_laws()`: `fonte`+`chave` corretos no output.
-- [x] CLI `scrape --ente ro --fonte assembleia --start-coddoc N --end-coddoc M`.
-- [x] 10 testes unitários (HTTP mockado).
-
-**M2 restante** (próximo):
-- [ ] Discovery para `casacivil.ro.gov.br` (auditar padrão URL + campos).
-- [ ] Atualizar `rondonia_crawler.yml` para usar `uv run leizilla scrape`.
-- [ ] Rate-limit por host (não global) — preparação para múltiplas fontes em paralelo.
+**M3.4** (desbloqueia federal):
+- Adaptar `parse_law` para aceitar HTML além de OCR text.
+- Planalto serve compilados em HTML — pipeline M3 não se aplica diretamente sem essa adaptação.
+- Documentado em `fontes/federal.py` como bloqueador explícito.
