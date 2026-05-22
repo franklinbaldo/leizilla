@@ -222,6 +222,88 @@ def cmd_scrape(
         raise typer.Exit(1)
 
 
+@app.command("release-dataset")
+def cmd_release_dataset(
+    parquet: Path = typer.Argument(..., help="Arquivo versoes.parquet (saída de consolidate)"),
+    ente: str = typer.Option("ro", "--ente", help="Ente federativo"),
+    version: int = typer.Option(0, "--version", help="Versão do dataset (0 = pré-M5)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Reporta stats sem fazer upload"),
+) -> None:
+    """Publicar Parquet no IA como leizilla-dataset-{ente}-v{version} (M4 restante)."""
+    import time
+
+    import duckdb
+
+    if not parquet.exists():
+        echo(f"Arquivo não encontrado: {parquet}")
+        raise typer.Exit(1)
+
+    if version < 0:
+        echo(f"--version deve ser >= 0 (recebido: {version})")
+        raise typer.Exit(1)
+
+    conn = duckdb.connect()
+    try:
+        row_count: int = conn.execute(
+            "SELECT count(*) FROM read_parquet(?)", [str(parquet)]
+        ).fetchone()[0]  # type: ignore[index]
+
+        # Benchmark gatilhos §3.4 — aproximação local (DuckDB-WASM em M5)
+        t0 = time.perf_counter()
+        conn.execute(
+            "SELECT lei_id, dispositivo_path FROM read_parquet(?) "
+            "WHERE texto_normalizado LIKE '%transparência%' AND ate IS NULL LIMIT 10",
+            [str(parquet)],
+        ).fetchall()
+        search_ms = (time.perf_counter() - t0) * 1000
+    finally:
+        conn.close()
+
+    file_mb = parquet.stat().st_size / 1_048_576
+    echo(f"Stats: {row_count} linhas, {file_mb:.2f} MB, busca {search_ms:.0f}ms")
+
+    gatilhos: list[str] = []
+    if file_mb > 100:
+        gatilhos.append(f"file > 100 MB ({file_mb:.1f} MB)")
+    if row_count > 2_000_000:
+        gatilhos.append(f"rows > 2M ({row_count:,})")
+    if search_ms > 1000:
+        gatilhos.append(f"search > 1s P95 ({search_ms:.0f}ms)")
+
+    if gatilhos:
+        echo(f"  Gatilhos §3.4 atingidos: {'; '.join(gatilhos)}")
+        if len(gatilhos) >= 2:
+            echo("  2+ gatilhos → RFC sobre split de tabelas obrigatório antes de fechar M5")
+
+    if dry_run:
+        echo("Dry-run: nenhum upload realizado.")
+        return
+
+    from leizilla.publisher import InternetArchivePublisher
+
+    git_sha = None
+    try:
+        import subprocess as _sp
+        git_sha = _sp.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True, timeout=5,
+        ).stdout.strip() or None
+    except Exception:
+        pass
+
+    publisher = InternetArchivePublisher()
+    try:
+        result = publisher.upload_dataset(parquet, ente, version, row_count, git_sha)
+    except ValueError as e:
+        echo(f"Upload falhou: {e}")
+        raise typer.Exit(1)
+    if result.get("success"):
+        echo(f"Dataset publicado: {result['ia_url']} ({result.get('row_count', '?')} linhas)")
+    else:
+        echo(f"Upload falhou: {result.get('error', 'erro desconhecido')}")
+        raise typer.Exit(1)
+
+
 @app.command("consolidate")
 def cmd_consolidate(
     xml_dir: Path = typer.Argument(..., help="Diretório com arquivos {lei_id}.xml"),
