@@ -62,9 +62,11 @@ class LeisCrawler:
                             pdf_url = urljoin(base_url, pdf_url)
 
                     law: Dict[str, Any] = {
-                        "id": f"ro-casacivil-coddoc-{coddoc:05d}",
-                        "titulo": title.strip(),
+                        "id": f"ro-assembleia-coddoc-{coddoc:05d}",
                         "ente": "ro",
+                        "fonte": "assembleia",
+                        "chave": f"coddoc-{coddoc:05d}",
+                        "titulo": title.strip(),
                         "url_original": url,
                         "url_pdf_original": pdf_url,
                         "coddoc": coddoc,

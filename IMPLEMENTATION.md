@@ -13,8 +13,9 @@
 | **M0.2b** — Redesign first-principles | 🟢 done | #8 #9 #10 #12 | SCHEMA.md reescrito + XSD enxuto + 6 fixtures + consistency checker + CI wire + XSLT Leizilla→LexML validado contra XSD oficial bundled (PRs #8-#12 merged). |
 | **M0.3** — URN canônica + close pendentes §8 | 🟢 done | #13 | URN LEX contra spec CGPID 2008 oficial; política re-scrape; robots.txt princípio. 3 pendentes deferidos para M2/M4. |
 | **M1** — Foundation (package + ADRs + entes + fontes) | 🟡 in-progress | #14 | Package `src/leizilla/`; ADRs 0004–0009; rename `origem→ente`; `entes.py`; `fontes/ro.py`. |
-| **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟡 in-progress | TBD | `wayback.py` (check_available/save_page/fetch_bytes) + `robots.py` (is_allowed, lru_cache) + `publisher.build_raw_meta` + `raw_meta.json` sidecar. Stacked em cima de M1. |
-| M2 — Crawler real + Raw upload (restante) | ⚪ todo | — | Bloqueado por M1+M2.1. Próximo: `scrape` CLI, integração wayback→upload no pipeline. |
+| **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟡 in-progress | #15 | `wayback.py` (check_available/save_page/fetch_bytes) + `robots.py` (is_allowed, lru_cache) + `publisher.build_raw_meta` + `raw_meta.json` sidecar. Stacked em cima de M1. |
+| **M2.2** — scraper.py + `scrape` CLI + fix ids no crawler | 🟡 in-progress | TBD | `scraper.scrape_one()` orquestra robots→wayback→fetch→upload_raw. CLI `scrape` para assembleia/RO. `crawler.py` adiciona `fonte`+`chave` no output. 10 testes. |
+| M2 restante — casacivil discovery + outros entes | ⚪ todo | — | Bloqueado por M2.2. Próximo: discovery casacivil.ro.gov.br; adicionar fontes/{sp,federal}.py. |
 | M3 — OCR fetch + LLM parse + Leizilla XML | ⚪ todo | — | Bloqueado por M2 |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
@@ -74,6 +75,32 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M2.2: scraper.py + `scrape` CLI + ids corretos no crawler
+
+`scraper.scrape_one(fonte_url, pdf_url, lei_data, publisher, rate_limiter)`:
+implementa o pipeline M2 conforme princípios #9 e #10. robots check é permanente
+(caller não retenta URL bloqueada). Wayback como primário; fallback direto com
+rate_limiter() antes da chamada. Fail-open em todos os passos da rede. temp file
+para upload e cleanup garantido em finally.
+
+`make_rate_limiter(min_interval=1.0)` — closure com monotonic para garantir 1 req/s
+entre chamadas diretas (princípio #10). Passado pelo caller para permitir mock em testes.
+
+`crawler.discover_rondonia_laws()` — corrigido: id de `ro-casacivil-coddoc-N`
+para `ro-assembleia-coddoc-N` (estava scrapeando ALRO mas usando slug errado);
+adicionados campos `fonte: "assembleia"` e `chave: "coddoc-{N:05d}"` necessários
+para `publisher._raw_identifier()` construir IA id correto sem duplicar prefixos.
+
+CLI `scrape --ente ro --fonte assembleia --start-coddoc N --end-coddoc M`: 
+discovery async (Playwright) + scrape_one sync para cada lei. Fontes além de
+assembleia/ro delegam NotImplemented com mensagem clara.
+
+Testes: 10 unitários em `tests/test_scraper.py`, HTTP 100% mockado.
+
+**Próximos M2**: discovery casacivil.ro.gov.br (padrão de URL a auditar);
+atualizar `rondonia_crawler.yml` para chamar `uv run leizilla scrape` em vez
+do script `run_rondonia_crawler.py`; rate-limit por host (não global).
 
 ### 2026-05-22 — M1: package `src/leizilla/`, rename origem→ente, ADRs, catálogo entes
 
@@ -408,15 +435,26 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 - [x] **Robots.txt + rate-limit** como princípio load-bearing #10 em IMPLEMENTATION.md.
 - [x] **Deferred** pendentes (§8.3): compressão Parquet → M4, granularidade ZIP → M2, custo LLM → M2/M3.
 
-**M1 — Foundation** (este PR):
+**M1 — Foundation** ✅ (PR #14):
 - [x] Package restructure `src/` → `src/leizilla/` + `pyproject.toml` com `packages.find`.
 - [x] ADRs 0004–0009 em `docs/adr/`.
 - [x] Migração `origem` → `ente` em `cli.py` + `storage.py` + `test_storage.py`.
 - [x] `src/leizilla/entes.py` com catálogo (federal + 26 UFs + DF).
 - [x] `src/leizilla/fontes/ro.py` stub com fontes de Rondônia declaradas.
 
-**M2 — Crawler real + Raw upload** (próximo):
-- [ ] `crawler.py`: robots.txt check + Wayback Machine fetch (ADR-0004).
-- [ ] `publisher.py`: IA identifiers conforme ADR-0005 + raw_meta.json sidecar.
-- [ ] CLI: comando `scrape` substitui `discover`; `parse` e `consolidate` adicionados.
-- [ ] Testes de integração com mock do Wayback e IA.
+**M2.1 — Wayback + robots + publisher sidecar** ✅ (PR #15):
+- [x] `wayback.py`: check_available + save_page + fetch_bytes.
+- [x] `robots.py`: is_allowed com lru_cache por host.
+- [x] `publisher.upload_raw()` + `build_raw_meta()` + `_raw_identifier()`.
+
+**M2.2 — scraper.py + `scrape` CLI** (este PR):
+- [x] `scraper.scrape_one()`: pipeline robots→wayback→fetch→upload_raw.
+- [x] `scraper.make_rate_limiter()`: 1 req/s entre fallbacks diretos.
+- [x] `crawler.discover_rondonia_laws()`: `fonte`+`chave` corretos no output.
+- [x] CLI `scrape --ente ro --fonte assembleia --start-coddoc N --end-coddoc M`.
+- [x] 10 testes unitários (HTTP mockado).
+
+**M2 restante** (próximo):
+- [ ] Discovery para `casacivil.ro.gov.br` (auditar padrão URL + campos).
+- [ ] Atualizar `rondonia_crawler.yml` para usar `uv run leizilla scrape`.
+- [ ] Rate-limit por host (não global) — preparação para múltiplas fontes em paralelo.
