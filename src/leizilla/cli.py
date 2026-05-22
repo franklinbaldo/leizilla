@@ -401,7 +401,7 @@ def cmd_parse_all(
         pub = InternetArchivePublisher() if upload else None
         coddocs = range(start_coddoc, end_coddoc + 1)
         if limit is not None:
-            coddocs = list(coddocs)[:limit]
+            coddocs = coddocs[:limit]
 
         parsed_ok = 0
         parsed_fail = 0
