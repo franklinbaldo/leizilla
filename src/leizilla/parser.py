@@ -203,11 +203,14 @@ def parse_law(
     ano = result.get("ano")
     if not tipo or numero is None or not ano:
         return None
+    numero_str = str(numero).strip()
+    if not numero_str.isdigit():
+        return None
     try:
         ano = int(ano)
     except (TypeError, ValueError):
         return None
-    ia_id_parsed = f"leizilla-{ente}-{tipo}-{str(numero).zfill(5)}-{ano}"
+    ia_id_parsed = f"leizilla-{ente}-{tipo}-{numero_str.zfill(5)}-{ano}"
 
     input_tokens = getattr(message.usage, "input_tokens", 0)
     output_tokens = getattr(message.usage, "output_tokens", 0)

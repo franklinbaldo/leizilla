@@ -320,6 +320,8 @@ def cmd_parse(
             echo(f"XML salvo em {output}")
         else:
             echo(result.xml)
+    except typer.Exit:
+        raise
     except RuntimeError as e:
         echo(f"Erro de configuração: {e}")
         raise typer.Exit(1)
