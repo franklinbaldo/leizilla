@@ -1,0 +1,347 @@
+"""Leizilla CLI — interface de linha de comando."""
+
+import asyncio
+import subprocess
+from pathlib import Path
+from typing import Optional
+
+import typer
+from typer import echo
+
+app = typer.Typer(
+    name="leizilla",
+    help="O dinossauro que devora PDFs jurídicos e cospe dados abertos",
+    add_completion=False,
+)
+dev_app = typer.Typer(name="dev", help="Comandos de desenvolvimento")
+app.add_typer(dev_app, name="dev")
+
+
+@app.command("discover")
+def cmd_discover(
+    ente: str = typer.Option("ro", help="Ente federativo (ro, sp, federal, ...)"),
+    start_coddoc: int = typer.Option(1, help="ID inicial do documento"),
+    end_coddoc: int = typer.Option(10, help="ID final do documento"),
+    crawler_type: str = typer.Option("playwright", help="Tipo de crawler (playwright, simple)"),
+) -> None:
+    """Descobrir leis nos portais oficiais."""
+    echo(f"Descobrindo leis de {ente} (coddoc: {start_coddoc}-{end_coddoc})")
+
+    try:
+        from leizilla.crawler import LeisCrawler
+        from leizilla.storage import DuckDBStorage
+
+        async def run() -> None:
+            crawler = LeisCrawler(crawler_type=crawler_type)
+            db = DuckDBStorage()
+
+            if ente == "ro":
+                laws = await crawler.discover_rondonia_laws(
+                    start_coddoc=start_coddoc,
+                    end_coddoc=end_coddoc,
+                )
+                for law in laws:
+                    db.insert_lei(law)
+                    echo(f"  Salvou: {law.get('titulo', 'N/A')}")
+                echo(f"Descobriu {len(laws)} leis de {ente}")
+            else:
+                echo(f"Ente '{ente}' ainda não implementado")
+                raise typer.Exit(1)
+
+        asyncio.run(run())
+    except Exception as e:
+        echo(f"Erro: {e}")
+        raise typer.Exit(1)
+
+
+@app.command("download")
+def cmd_download(
+    ente: str = typer.Option("ro", help="Ente federativo"),
+    limit: int = typer.Option(10, help="Limite de downloads"),
+) -> None:
+    """Baixar PDFs das leis descobertas."""
+    echo(f"Baixando até {limit} PDFs de {ente}")
+
+    try:
+        from leizilla.crawler import LeisCrawler
+        from leizilla.storage import DuckDBStorage
+
+        async def run() -> None:
+            crawler = LeisCrawler(crawler_type="simple")
+            db = DuckDBStorage()
+            laws = db.search_leis(ente=ente, limit=limit)
+            to_download = [law for law in laws if not law.get("url_pdf_ia")]
+
+            if not to_download:
+                echo("Todos os PDFs já foram baixados")
+                return
+
+            downloaded = 0
+            for law in to_download[:limit]:
+                if not law.get("url_original"):
+                    continue
+                import tempfile as _tmp
+
+                with _tmp.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+                    dest = Path(f.name)
+                success = await crawler.download_pdf(law["url_original"], dest)
+                if success:
+                    db.update_lei(law["id"], {"local_pdf_path": str(dest)})
+                    downloaded += 1
+                    echo(f"  Baixou: {law.get('titulo', 'N/A')}")
+                else:
+                    echo(f"  Falha: {law.get('titulo', 'N/A')}")
+
+            echo(f"Baixou {downloaded} PDFs")
+
+        asyncio.run(run())
+    except Exception as e:
+        echo(f"Erro: {e}")
+        raise typer.Exit(1)
+
+
+@app.command("upload")
+def cmd_upload(
+    limit: int = typer.Option(5, help="Limite de uploads"),
+) -> None:
+    """Upload PDFs para Internet Archive."""
+    echo(f"Fazendo upload de até {limit} PDFs")
+
+    try:
+        from leizilla.publisher import InternetArchivePublisher
+        from leizilla.storage import DuckDBStorage
+
+        publisher = InternetArchivePublisher()
+        db = DuckDBStorage()
+        laws = db.search_leis(limit=limit * 2)
+        to_upload = [
+            law
+            for law in laws
+            if law.get("local_pdf_path") and not law.get("url_pdf_ia")
+        ]
+
+        if not to_upload:
+            echo("Todos os PDFs já foram enviados para IA")
+            return
+
+        uploaded = 0
+        for law in to_upload[:limit]:
+            try:
+                pdf_path = Path(law["local_pdf_path"])
+                if not pdf_path.exists():
+                    continue
+                result = publisher.upload_pdf(pdf_path, law)
+                if result.get("success"):
+                    db.update_lei(law["id"], {"url_pdf_ia": result["url"]})
+                    uploaded += 1
+                    echo(f"  Upload: {law.get('titulo', 'N/A')}")
+                else:
+                    echo(f"  Falha: {law.get('titulo', 'N/A')}")
+            except Exception as e:
+                echo(f"  Erro em {law.get('titulo', 'N/A')}: {e}")
+
+        echo(f"Fez upload de {uploaded} PDFs")
+    except Exception as e:
+        echo(f"Erro: {e}")
+        raise typer.Exit(1)
+
+
+@app.command("export")
+def cmd_export(
+    ente: str = typer.Option("ro", help="Ente federativo"),
+    year: Optional[int] = typer.Option(None, help="Ano específico"),
+    format: str = typer.Option("parquet", help="Formato (parquet)"),
+) -> None:
+    """Exportar dataset de leis."""
+    echo(f"Exportando dataset de {ente}" + (f" do ano {year}" if year else ""))
+
+    try:
+        from leizilla.publisher import InternetArchivePublisher
+
+        publisher = InternetArchivePublisher()
+        output_dir = Path("data/exports")
+        output_dir.mkdir(exist_ok=True)
+
+        if format == "parquet":
+            output_path = publisher.export_dataset_parquet(ente, output_dir, year)
+            echo(f"Dataset exportado: {output_path}")
+        else:
+            echo(f"Formato '{format}' não implementado")
+            raise typer.Exit(1)
+    except Exception as e:
+        echo(f"Erro: {e}")
+        raise typer.Exit(1)
+
+
+@app.command("search")
+def cmd_search(
+    text: Optional[str] = typer.Option(None, help="Buscar por texto"),
+    ente: Optional[str] = typer.Option(None, help="Filtrar por ente federativo"),
+    year: Optional[int] = typer.Option(None, help="Filtrar por ano"),
+    limit: int = typer.Option(20, help="Limite de resultados"),
+) -> None:
+    """Buscar leis no banco de dados."""
+    echo("Buscando leis...")
+
+    try:
+        from leizilla.storage import DuckDBStorage
+
+        db = DuckDBStorage()
+        laws = db.search_leis(ente=ente, ano=year, texto=text, limit=limit)
+
+        if not laws:
+            echo("Nenhuma lei encontrada")
+            return
+
+        echo(f"Encontradas {len(laws)} leis:")
+        for law in laws:
+            title = law.get("titulo", "N/A")
+            year_str = f"({law.get('ano', 'N/A')})" if law.get("ano") else ""
+            ente_str = law.get("ente", "N/A")
+            echo(f"  {title} {year_str} — {ente_str}")
+    except Exception as e:
+        echo(f"Erro: {e}")
+        raise typer.Exit(1)
+
+
+@app.command("stats")
+def cmd_stats() -> None:
+    """Mostrar estatísticas do banco de dados."""
+    echo("Estatísticas do banco:")
+
+    try:
+        from leizilla.storage import DuckDBStorage
+
+        db = DuckDBStorage()
+        stats = db.get_stats()
+        echo(f"  Total de leis: {stats.get('total_leis', 0)}")
+        echo("  Por ente:")
+        for ente, count in stats.get("por_ente", {}).items():
+            echo(f"    {ente}: {count}")
+        echo("  Por ano:")
+        for year, count in sorted(stats.get("por_ano", {}).items()):
+            echo(f"    {year}: {count}")
+    except Exception as e:
+        echo(f"Erro: {e}")
+        raise typer.Exit(1)
+
+
+@app.command("pipeline")
+def cmd_pipeline(
+    ente: str = typer.Option("ro", help="Ente federativo"),
+    start_coddoc: int = typer.Option(1, help="ID inicial"),
+    end_coddoc: int = typer.Option(10, help="ID final"),
+    crawler_type: str = typer.Option("playwright", help="Tipo de crawler"),
+    limit: int = typer.Option(5, help="Limite por etapa"),
+) -> None:
+    """Executar pipeline completo."""
+    echo(f"Pipeline completo para {ente}")
+
+    try:
+        echo("\nEtapa 1/4: Descobrir leis")
+        cmd_discover(ente=ente, start_coddoc=start_coddoc, end_coddoc=end_coddoc, crawler_type=crawler_type)
+        echo("\nEtapa 2/4: Baixar PDFs")
+        cmd_download(ente=ente, limit=limit)
+        echo("\nEtapa 3/4: Upload para IA")
+        cmd_upload(limit=limit)
+        echo("\nEtapa 4/4: Exportar dataset")
+        cmd_export(ente=ente, year=None)
+        echo("\nPipeline concluído!")
+    except Exception as e:
+        echo(f"Pipeline falhou: {e}")
+        raise typer.Exit(1)
+
+
+@dev_app.command("setup")
+def dev_setup() -> None:
+    """Configurar ambiente de desenvolvimento."""
+    echo("Configurando ambiente...")
+    try:
+        subprocess.run(["uv", "sync", "--dev"], check=True)
+        echo("Dependências instaladas")
+        result = subprocess.run(
+            ["uv", "run", "pre-commit", "install"], capture_output=True, text=True
+        )
+        echo("Pre-commit hooks instalados" if result.returncode == 0 else "pre-commit não disponível")
+        echo("Setup concluído!")
+    except subprocess.CalledProcessError as e:
+        echo(f"Erro no setup: {e}")
+        raise typer.Exit(1)
+
+
+@dev_app.command("lint")
+def dev_lint() -> None:
+    """Executar linting com ruff."""
+    try:
+        subprocess.run(["uv", "run", "ruff", "check", "."], check=True)
+        echo("Linting OK")
+    except subprocess.CalledProcessError:
+        echo("Problemas de linting encontrados")
+        raise typer.Exit(1)
+
+
+@dev_app.command("format")
+def dev_format() -> None:
+    """Formatar código com ruff."""
+    try:
+        subprocess.run(["uv", "run", "ruff", "format", "."], check=True)
+        echo("Código formatado")
+    except subprocess.CalledProcessError:
+        echo("Erro na formatação")
+        raise typer.Exit(1)
+
+
+@dev_app.command("test")
+def dev_test() -> None:
+    """Executar testes com pytest."""
+    try:
+        subprocess.run(["uv", "run", "pytest"], check=True)
+        echo("Testes passaram")
+    except subprocess.CalledProcessError:
+        echo("Testes falharam")
+        raise typer.Exit(1)
+
+
+@dev_app.command("check")
+def dev_check() -> None:
+    """Executar todas as verificações."""
+    failed = []
+    for name, cmd in [
+        ("lint", ["uv", "run", "ruff", "check", "."]),
+        ("format", ["uv", "run", "ruff", "format", ".", "--check"]),
+        ("test", ["uv", "run", "pytest"]),
+    ]:
+        result = subprocess.run(cmd)
+        if result.returncode != 0:
+            failed.append(name)
+    if failed:
+        echo(f"Verificações falharam: {', '.join(failed)}")
+        raise typer.Exit(1)
+    echo("Todas as verificações passaram!")
+
+
+@dev_app.command("fix")
+def dev_fix() -> None:
+    """Aplicar correções automáticas (ruff)."""
+    subprocess.run(["uv", "run", "ruff", "check", ".", "--fix"])
+    subprocess.run(["uv", "run", "ruff", "format", "."])
+    echo("Correções aplicadas")
+
+
+@dev_app.command("clean")
+def dev_clean() -> None:
+    """Limpar artefatos de build e caches."""
+    import shutil
+
+    for path in ["dist", "build", ".ruff_cache", "__pycache__"]:
+        if Path(path).exists():
+            shutil.rmtree(path)
+    echo("Limpo")
+
+
+def main() -> None:
+    app()
+
+
+if __name__ == "__main__":
+    main()
