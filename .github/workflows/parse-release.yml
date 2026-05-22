@@ -53,13 +53,13 @@ jobs:
         run: |
           mkdir -p /tmp/leizilla-xmls
           uv run leizilla parse-all \
-            --ente "${{ inputs.ente || 'ro' }}" \
-            --fonte "${{ inputs.fonte || 'casacivil' }}" \
-            --tipo "${{ inputs.tipo || 'lei' }}" \
-            --start-coddoc "${{ inputs.start_num || '1' }}" \
-            --end-coddoc "${{ inputs.end_num || '100' }}" \
-            --input-type "${{ inputs.input_type || 'ocr' }}" \
-            --limit "${{ inputs.limit || '50' }}" \
+            --ente ${{ inputs.ente || 'ro' }} \
+            --fonte ${{ inputs.fonte || 'casacivil' }} \
+            --tipo ${{ inputs.tipo || 'lei' }} \
+            --start-coddoc ${{ inputs.start_num || '1' }} \
+            --end-coddoc ${{ inputs.end_num || '100' }} \
+            --input-type ${{ inputs.input_type || 'ocr' }} \
+            --limit ${{ inputs.limit || '50' }} \
             --output-dir /tmp/leizilla-xmls \
             --upload
 
@@ -74,7 +74,7 @@ jobs:
           uv run leizilla consolidate \
             /tmp/leizilla-xmls \
             --output /tmp/leizilla-dataset.parquet \
-            --ente "${{ inputs.ente || 'ro' }}"
+            --ente ${{ inputs.ente || 'ro' }}
 
       - name: Release dataset → IA
         if: ${{ inputs.dry_run != 'true' }}
@@ -88,8 +88,8 @@ jobs:
           fi
           uv run leizilla release-dataset \
             /tmp/leizilla-dataset.parquet \
-            --ente "${{ inputs.ente || 'ro' }}" \
-            --version "${{ inputs.dataset_version || '0' }}"
+            --ente ${{ inputs.ente || 'ro' }} \
+            --version ${{ inputs.dataset_version || '0' }}
 
       - name: Dry-run stats (sem upload)
         if: ${{ inputs.dry_run == 'true' }}
@@ -100,6 +100,6 @@ jobs:
           fi
           uv run leizilla release-dataset \
             /tmp/leizilla-dataset.parquet \
-            --ente "${{ inputs.ente || 'ro' }}" \
-            --version "${{ inputs.dataset_version || '0' }}" \
+            --ente ${{ inputs.ente || 'ro' }} \
+            --version ${{ inputs.dataset_version || '0' }} \
             --dry-run

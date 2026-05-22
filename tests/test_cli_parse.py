@@ -620,7 +620,8 @@ class TestCmdParseAll:
                 ],
             )
         assert result.exit_code == 0
-        assert not out.exists() or list(out.glob("*.xml")) == []
+        # output_dir é criado pelo mkdir(parents=True), mas sem XMLs (parse falhou)
+        assert not any(out.glob("*.xml"))
 
 
 class TestCmdParseXsdGateBlocking:
