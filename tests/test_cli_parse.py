@@ -564,6 +564,65 @@ class TestCmdParseAll:
         mock_ocr.assert_not_called()
 
 
+    def test_output_dir_saves_xml_files(self, tmp_path):
+        """--output-dir cria arquivos {ia_id_parsed}.xml para cada parse bem-sucedido."""
+        call_n = {"n": 0}
+
+        def parse_side_effect(*args, **kwargs):
+            call_n["n"] += 1
+            return MagicMock(
+                xml=f"<lei n='{call_n['n']}'/>",
+                parsed_meta={},
+                confidence=0.9,
+                ia_id_parsed=f"leizilla-ro-lei-0000{call_n['n']}-2000",
+                input_tokens=10,
+                output_tokens=10,
+            )
+
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", side_effect=parse_side_effect),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "2",
+                    "--output-dir", str(tmp_path / "xmls"),
+                ],
+            )
+        assert result.exit_code == 0
+        xml_files = sorted((tmp_path / "xmls").glob("*.xml"))
+        assert len(xml_files) == 2
+        assert "<lei" in xml_files[0].read_text()
+
+    def test_output_dir_no_files_on_parse_failure(self, tmp_path):
+        """Falhas de parse não criam arquivos no output_dir."""
+        out = tmp_path / "xmls"
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr"),
+            patch("leizilla.parser.parse_law", return_value=None),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "3",
+                    "--output-dir", str(out),
+                    "--no-upload",
+                ],
+            )
+        assert result.exit_code == 0
+        assert not out.exists() or list(out.glob("*.xml")) == []
+
+
 class TestCmdParseXsdGateBlocking:
     def test_parse_upload_blocked_when_xsd_fails(self):
         with (
