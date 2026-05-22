@@ -98,6 +98,11 @@ class TestFetchHtml:
         with patch("urllib.request.urlopen", side_effect=OSError("timeout")):
             assert parser.fetch_html("https://example.gov.br/lei/1") is None
 
+    def test_returns_none_on_url_error(self):
+        import urllib.error
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("name not found")):
+            assert parser.fetch_html("https://example.gov.br/lei/1") is None
+
     def test_sets_user_agent_header(self):
         captured_req: list = []
 
@@ -346,3 +351,8 @@ class TestParseLaw:
         _, kwargs = client.messages.create.call_args
         user_content = kwargs["messages"][0]["content"]
         assert url in user_content
+
+    def test_invalid_input_type_raises(self):
+        with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
+            with pytest.raises(ValueError, match="input_type"):
+                parser.parse_law("content", "id", "ro", input_type="htlm")

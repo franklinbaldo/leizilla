@@ -9,6 +9,7 @@ Princípio load-bearing #3: Etapa 2 pluggable; model é parâmetro.
 
 import json
 import math
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -122,13 +123,15 @@ def fetch_html(url: str, timeout: int = 30) -> Optional[str]:
 
     Used for sources like Planalto that publish HTML, not PDF (M3.4).
     Caller is responsible for rate-limiting and robots.txt (same as fetch_ocr).
+    urllib raises HTTPError (subclass of URLError) for non-2xx responses,
+    so no explicit status-code check is needed.
     """
     req = urllib.request.Request(url)
     req.add_header("User-Agent", _USER_AGENT)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read().decode("utf-8", errors="replace")
-    except Exception:
+    except (urllib.error.URLError, OSError):
         return None
 
 
@@ -190,6 +193,9 @@ def parse_law(
     api_key = config.ANTHROPIC_API_KEY
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not configured")
+
+    if input_type not in ("ocr", "html"):
+        raise ValueError(f"input_type deve ser 'ocr' ou 'html', got {input_type!r}")
 
     if input_type == "html":
         char_limit = _HTML_CHAR_LIMIT
