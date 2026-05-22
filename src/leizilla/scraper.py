@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict, Optional
 from urllib.parse import urlparse
 
 from leizilla import robots, wayback
+from leizilla.parser import fetch_html
 from leizilla.publisher import InternetArchivePublisher
 
 _RATE_LIMIT_S = 1.0
@@ -83,6 +84,60 @@ def scrape_one(
         return {"success": False, "reason": "upload-failed", "error": str(exc)}
     finally:
         tmp_path.unlink(missing_ok=True)
+
+
+def scrape_one_html(
+    fonte_url: str,
+    lei_data: dict,
+    publisher: InternetArchivePublisher,
+    rate_limiter: Optional[Callable[[str], None]] = None,
+) -> dict:
+    """Scrape de uma página HTML: robots → wayback save → fetch → upload_raw_html.
+
+    Para fontes sem PDF (ex: Planalto federal) que servem HTML compilado vigente.
+    Retorna dict com 'success' + ('ia_id', 'ia_url') ou ('reason') em falha.
+    Robots bloqueado é permanente — caller NÃO deve re-tentar a mesma URL.
+    """
+    if not robots.is_allowed(fonte_url):
+        return {"success": False, "reason": "robots-blocked", "url": fonte_url}
+
+    try:
+        wayback.save_page(fonte_url)
+    except Exception:
+        pass
+
+    # Tenta primeiro Wayback (snapshot recente)
+    wb_url = wayback.check_available(fonte_url)
+    fetched_from: str
+    html_content: Optional[str]
+
+    if wb_url:
+        html_content = fetch_html(wb_url)
+        fetched_from = "wayback"
+    else:
+        html_content = None
+        wb_url = None
+
+    if html_content is None:
+        # Fallback direto com rate-limit por host (princípio #10)
+        if rate_limiter is not None:
+            rate_limiter(fonte_url)
+        html_content = fetch_html(fonte_url)
+        fetched_from = "source-fallback"
+        wb_url = None
+
+    if html_content is None:
+        return {"success": False, "reason": "fetch-failed", "url": fonte_url}
+
+    try:
+        return publisher.upload_raw_html(
+            html_content,
+            lei_data,
+            fetched_from=fetched_from,
+            wayback_url=wb_url,
+        )
+    except Exception as exc:
+        return {"success": False, "reason": "upload-failed", "error": str(exc)}
 
 
 def make_rate_limiter(min_interval: float = _RATE_LIMIT_S) -> Callable[[str], None]:
