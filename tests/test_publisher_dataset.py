@@ -229,3 +229,15 @@ class TestReleaseDatasetCli:
         result = _runner.invoke(app, ["release-dataset", str(p), "--version", "-1"])
         assert result.exit_code == 1
         assert ">= 0" in result.output
+
+    def test_upload_failure_exits_nonzero(self, tmp_path: Path) -> None:
+        """CLI deve sair com code 1 quando upload_dataset retorna success=False."""
+        p = _make_parquet(tmp_path)
+        fail_result = {"success": False, "error": "credenciais inválidas", "ia_id": "leizilla-dataset-ro-v0"}
+        with patch(
+            "leizilla.publisher.InternetArchivePublisher.upload_dataset",
+            return_value=fail_result,
+        ):
+            result = _runner.invoke(app, ["release-dataset", str(p), "--version", "0"])
+        assert result.exit_code == 1
+        assert "Upload falhou" in result.output

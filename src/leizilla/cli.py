@@ -297,6 +297,7 @@ def cmd_release_dataset(
         echo(f"Dataset publicado: {result['ia_url']} ({result.get('row_count', '?')} linhas)")
     else:
         echo(f"Upload falhou: {result.get('error', 'erro desconhecido')}")
+        raise typer.Exit(1)
 
 
 @app.command("consolidate")
