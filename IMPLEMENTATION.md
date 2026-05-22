@@ -20,7 +20,8 @@
 | **M2.5** — casacivil discovery | 🟢 done | #27 | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. (PR #26 fechado por conflito; #27 merged.) |
 | **M2.6** — casacivil job no workflow | 🟢 done | #31 | `rondonia_crawler.yml` expandido com passos casacivil lei + lc; inputs `casacivil_start`/`casacivil_end`. |
 | **M2 restante** — fontes SP + federal (stubs) | 🟢 done | #30 | `fontes/sp.py` + `fontes/federal.py`. SP pendente de auditoria de URL. |
-| **M2.7** — Planalto federal HTML pipeline | 🟡 in-progress | — | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html`. 24 testes. CLI: `scrape --ente federal --fonte planalto --tipo lei\|lcp\|decreto`. |
+| **M2.7** — Planalto federal HTML pipeline | 🟡 in-progress | — | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html`. 30 testes. CLI: `scrape --ente federal --fonte planalto --tipo lei\|lcp\|decreto`. |
+| **M2.8** — Year-scoped URLs Planalto (leis pós-2002) | ⚪ todo | — | Leis a partir de 2003 usam path `_ato{ano1}-{ano2}/{ano}/lei/l{num}.htm`. Requer API Câmara ou range-heuristic para mapear `lei_num → ano`. |
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
 | **M3.3** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
@@ -85,6 +86,25 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M2.8 registrado: year-scoped URLs Planalto para leis pós-2002
+
+`discover_planalto_laws` usa o padrão legado `L{num}.htm` (cobre leis pré-2002,
+aproximadamente até Lei nº 10.405/2002). Leis a partir de 2003 usam path year-scoped:
+`_ato{ano1}-{ano2}/{ano}/lei/l{num}.htm` (ex: `_ato2003-2006/2003/lei/l10.520.htm`).
+
+**Por que não foi fixado no M2.7**: o mapeamento `lei_num → ano_publicacao` requer
+ou (a) consulta à API Câmara (`dadosabertos.camara.leg.br/api/v2/legislacoes/{num}`)
+ou (b) range-heuristic por período de 4 anos (num em qual faixa → qual bloco `_ato`).
+Ambas mudam a interface de `discover_planalto_laws` de função puramente geométrica
+(sem I/O) para algo com dependência externa. Scope correto é M2.8+.
+
+**Comportamento atual**: `scrape_one_html` é fail-open — 404/timeout → `success: False`
+com `reason: fetch-failed`; batch continua. Nenhum dado incorreto é publicado.
+Leis ordinárias pré-2002 (Lei nº 1–~10.405) chegam ao IA neste pipeline.
+
+**M2.8** cobrirá: suporte a year-scoped URLs via API Câmara (para obter o ano de
+publicação dado o número da lei) ou geração de candidatos múltiplos por range de período.
 
 ### 2026-05-22 — M2.7: Planalto federal HTML pipeline (desbloqueado pelo M3.4)
 
@@ -728,6 +748,11 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 - `upload_raw_html` — raw item HTML no IA (princípio #1 preservado; sem OCR pois HTML é texto).
 - `scrape_one_html` — análogo ao `scrape_one` para fontes HTML.
 - CLI: `leizilla scrape --ente federal --fonte planalto --tipo lei --start-coddoc N --end-coddoc M`.
+
+**M2.8** (após M2.7 mergear):
+- Year-scoped URLs Planalto para leis publicadas a partir de 2003.
+- Consulta API Câmara para obter `ano_publicacao` dado `lei_num`, ou range-heuristic por período.
+- Desbloqueará scraping de leis federais modernas (ex: Lei 14.133/2021 — Nova Lei de Licitações).
 
 **M4.3** (após #29 mergear):
 - Benchmark DuckDB-WASM real (não apenas local) contra §3.4 gatilhos.
