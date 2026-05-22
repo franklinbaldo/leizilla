@@ -16,9 +16,9 @@
 | **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟢 done | #15 | `wayback.py` + `robots.py` + `publisher.upload_raw` + PDF renomeado para {ia_id}.pdf. 34 testes. |
 | **M2.2** — scraper.py + `scrape` CLI + fix ids no crawler | 🟢 done | #18 | `scraper.scrape_one()` orquestra robots→wayback→fetch→upload_raw. CLI `scrape` para assembleia/RO. 10 testes. |
 | **M2.3** — CI workflow + `internetarchive` dep | 🟢 done | #20 | `rondonia_crawler.yml` atualizado para `uv run leizilla scrape`. `internetarchive` em pyproject.toml. |
-| **M3.1** — OCR fetch + LLM parse → parser.py | 🟡 in-progress | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
-| **M3.2** — publisher.upload_parsed() | 🟡 in-progress | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
-| M3 restante — `parse --upload` + `parse-all` batch | ⚪ todo | — | Bloqueado por #17+#19. CLI `parse --upload` integra parser→publisher. `parse-all` itera raw items sem parsed_meta. |
+| **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
+| **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
+| **M3 restante** — `parse --upload` + XSD gate + `parse-all` batch | 🟡 in-progress | TBD | CLI `parse --upload` integra parser→publisher; `_xsd_gate` via xmllint; `parse-all` itera range coddoc. 15 testes. |
 | M2 restante — casacivil discovery + outros entes | ⚪ todo | — | casacivil.ro.gov.br (padrão de URL a auditar); fontes/{sp,federal}.py. Rate-limit por host. |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
@@ -78,6 +78,43 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M3 restante: `parse --upload` + XSD gate + `parse-all` batch
+
+Integra M3.1 (`parser.py`) e M3.2 (`publisher.upload_parsed`) via CLI, completando
+o pipeline Etapa 2 end-to-end: OCR fetch → LLM parse → XSD validate → IA upload.
+
+**`_xsd_gate(xml_content)`** — helper em `cli.py`:
+- Localiza `docs/schemas/leizilla-v0.1.xsd` via `Path(__file__).parents[2]`.
+- Escreve XML em tmp file; roda `xmllint --schema ... --noout`; apaga tmp em `finally`.
+- Fail-open: schema ausente ou `xmllint` não instalado → avisa + retorna True.
+- Retorna False (e printa aviso) se xmllint retorna non-zero (validação falhou).
+
+**`parse --upload/--no-upload`** (default `--no-upload`):
+- Com `--upload`: chama `_xsd_gate`, depois `InternetArchivePublisher().upload_parsed()`.
+- Upload falhou → exit code 1 com mensagem "Upload falhou: {error}".
+- Sem `--upload`: comportamento existente (stdout XML) — zero breaking change.
+
+**`parse-all`** — novo comando batch:
+- `--start-coddoc / --end-coddoc / --ente / --fonte / --model / --upload/--no-upload / --limit`.
+- Itera `leizilla-raw-{ente}-{fonte}-coddoc-{N:05d}` no range; skip silencioso se OCR ausente.
+- Conta falhas de parse sem abortar; relatório final: "Batch concluído: N parseados, N falhos[, N uploaded]".
+- Default `--upload` (True) para uso batch; `--no-upload` para dry-run.
+
+**Decisões**:
+- `parse-all` usa range coddoc (não query DuckDB) porque `scraper.scrape_one()` não
+  insere `ia_id_raw` no DuckDB, e o schema atual não tem essa coluna. Range coddoc
+  é o mesmo mecanismo que o `scrape` CLI usa — consistente e sem dependência nova.
+  Limitação documentada: gaps no range (coddocs sem raw item) resultam em "OCR indisponível
+  — skip" sem erro, o que é comportamento correto para um range parcialmente populado.
+- `_xsd_gate` é fail-open apenas para ferramentas ausentes: `xmllint` não instalado
+  ou schema não encontrado → retorna True (pipeline continua). Quando `xmllint`
+  está presente e encontra erros → retorna False e o upload é **bloqueado** (exit 1 em
+  `parse --upload`; skip + contagem de erro em `parse-all`). Distinção importante:
+  fail-open é para falta de ferramental, não para XML inválido detectado.
+- `parse-all` exit 1 se qualquer upload falhou (seja por XSD inválido ou por falha de rede/IA).
+  Falhas de parse (LLM confiança baixa) não propagam exit 1 — são esperadas em batches parciais.
+- 18 testes em `tests/test_cli_parse.py` cobrem todos os branches.
 
 ### 2026-05-22 — M3.1: OCR fetch + LLM parse → Leizilla XML
 

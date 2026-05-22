@@ -141,6 +141,8 @@ class TestParseLaw:
         assert meta["leizilla_meta_version"] == "0.1"
         assert meta["ia_id_raw"] == _IA_ID
         assert meta["ia_id_parsed"] == "leizilla-ro-lei-09999-1999"
+        assert meta["ente"] == "ro"
+        assert meta["tipo"] == "lei"
         assert meta["parse_method"] == parser._HAIKU
         assert meta["tem_divergencia"] is False
         assert "parse_timestamp" in meta
