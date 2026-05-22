@@ -1,6 +1,7 @@
 """Leizilla CLI — interface de linha de comando."""
 
 import asyncio
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -683,7 +684,11 @@ def cmd_parse_all(
             parsed_ok += 1
 
             if output_dir is not None:
-                xml_path = output_dir / f"{result.ia_id_parsed}.xml"
+                safe_id = re.sub(r"[^a-z0-9-]", "_", result.ia_id_parsed)
+                xml_path = (output_dir / f"{safe_id}.xml").resolve()
+                if not str(xml_path).startswith(str(output_dir.resolve())):
+                    echo(f"  ia_id_parsed suspeito, ignorando: {result.ia_id_parsed!r}")
+                    continue
                 xml_path.write_text(result.xml, encoding="utf-8")
                 echo(f"  → {xml_path}")
 
