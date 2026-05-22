@@ -94,7 +94,7 @@ def make_rate_limiter(min_interval: float = _RATE_LIMIT_S) -> Callable[[str], No
     last: Dict[str, float] = {}
 
     def limiter(url: str) -> None:
-        host = urlparse(url).netloc
+        host = urlparse(url).hostname or ""
         elapsed = time.monotonic() - last.get(host, 0.0)
         if elapsed < min_interval:
             time.sleep(min_interval - elapsed)
