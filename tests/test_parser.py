@@ -119,6 +119,32 @@ class TestFetchHtml:
         assert captured_req[0].get_header("User-agent") == parser._USER_AGENT
 
 
+class TestFetchIaHtml:
+    def test_constructs_ia_html_url(self):
+        captured: list[str] = []
+
+        def capture(req, **kw):  # type: ignore[no-untyped-def]
+            captured.append(req.get_full_url())
+            raise OSError("stop")
+
+        with patch("urllib.request.urlopen", side_effect=capture):
+            parser.fetch_ia_html(_IA_ID)
+
+        expected = f"https://archive.org/download/{_IA_ID}/{_IA_ID}.html"
+        assert captured == [expected]
+
+    def test_returns_html_on_success(self):
+        with patch(
+            "urllib.request.urlopen",
+            return_value=_make_urlopen_resp("<html>Lei federal</html>"),
+        ):
+            assert parser.fetch_ia_html(_IA_ID) == "<html>Lei federal</html>"
+
+    def test_returns_none_on_network_error(self):
+        with patch("urllib.request.urlopen", side_effect=OSError("timeout")):
+            assert parser.fetch_ia_html(_IA_ID) is None
+
+
 class TestExtractJson:
     def test_direct_json(self):
         result = parser._extract_json('{"a": 1}')

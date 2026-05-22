@@ -151,6 +151,40 @@ class TestCmdParseUpload:
         assert result.exit_code == 1
         assert "OCR não disponível" in result.output
 
+    def test_input_type_html_uses_fetch_ia_html(self):
+        """--input-type html usa fetch_ia_html e passa input_type='html' ao parse_law."""
+        raw_id = "leizilla-raw-federal-planalto-lei-09503"
+        with (
+            patch("leizilla.parser.fetch_ia_html", return_value="<html>lei</html>") as mock_html,
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT) as mock_parse,
+        ):
+            result = runner.invoke(
+                app, ["parse", "--raw-id", raw_id, "--input-type", "html"]
+            )
+        assert result.exit_code == 0
+        mock_html.assert_called_once_with(raw_id)
+        _, kwargs = mock_parse.call_args
+        assert kwargs.get("input_type") == "html"
+
+    def test_input_type_html_exits_1_when_html_unavailable(self):
+        """Exit 1 quando HTML não está disponível no IA."""
+        with patch("leizilla.parser.fetch_ia_html", return_value=None):
+            result = runner.invoke(
+                app,
+                ["parse", "--raw-id", "leizilla-raw-federal-planalto-lei-09503", "--input-type", "html"],
+            )
+        assert result.exit_code == 1
+        assert "HTML não disponível" in result.output
+
+    def test_invalid_input_type_exits_1(self):
+        """Valor inválido para --input-type retorna exit 1 com mensagem clara."""
+        result = runner.invoke(
+            app,
+            ["parse", "--raw-id", "leizilla-raw-ro-assembleia-coddoc-00001", "--input-type", "pdf"],
+        )
+        assert result.exit_code == 1
+        assert "inválido" in result.output
+
     def test_exits_1_on_parse_failure(self):
         with (
             patch("leizilla.parser.fetch_ocr", return_value="ocr"),
