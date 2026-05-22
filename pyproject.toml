@@ -25,6 +25,7 @@ dependencies = [
     "anyio",
     "beautifulsoup4",
     "duckdb",
+    "internetarchive",
     "playwright",
     "requests",
     "typer",

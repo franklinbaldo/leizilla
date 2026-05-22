@@ -14,9 +14,12 @@
 | **M0.3** — URN canônica + close pendentes §8 | 🟢 done | #13 | URN LEX contra spec CGPID 2008 oficial; política re-scrape; robots.txt princípio. 3 pendentes deferidos para M2/M4. |
 | **M1** — Foundation (package + ADRs + entes + fontes) | 🟢 done | #14 | Package `src/leizilla/`; ADRs 0004–0009; rename `origem→ente`; `entes.py`; `fontes/ro.py`. |
 | **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟢 done | #15 | `wayback.py` + `robots.py` + `publisher.upload_raw` + PDF renomeado para {ia_id}.pdf. 34 testes. |
-| **M2.2** — scraper.py + CLI `scrape` + ids corretos | 🟢 done | #18 | `scraper.scrape_one()` + `make_rate_limiter` + CLI `scrape`. 10 testes. |
-| **M3.1** — OCR fetch + LLM parse + Leizilla XML | 🟡 in-progress | #17 | `parser.py`: `fetch_ocr` (_djvu.txt) + `parse_law` (Claude Haiku, fail-closed em confidence/identidade). Fixes P1: numero digit-only, typer.Exit, _is_well_formed TypeError. 26 testes. |
-| M3.2 — Upload parsed item para IA | ⚪ todo | — | `upload_parsed` no publisher + XSD gate + CLI `parse --upload`. |
+| **M2.2** — scraper.py + `scrape` CLI + fix ids no crawler | 🟢 done | #18 | `scraper.scrape_one()` orquestra robots→wayback→fetch→upload_raw. CLI `scrape` para assembleia/RO. 10 testes. |
+| **M2.3** — CI workflow + `internetarchive` dep | 🟢 done | #20 | `rondonia_crawler.yml` atualizado para `uv run leizilla scrape`. `internetarchive` em pyproject.toml. |
+| **M3.1** — OCR fetch + LLM parse → parser.py | 🟡 in-progress | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
+| **M3.2** — publisher.upload_parsed() | 🟡 in-progress | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. Aguardando merge. |
+| M3 restante — `parse --upload` + `parse-all` batch | ⚪ todo | — | Bloqueado por #17+#19. CLI `parse --upload` integra parser→publisher. `parse-all` itera raw items sem parsed_meta. |
+| M2 restante — casacivil discovery + outros entes | ⚪ todo | — | casacivil.ro.gov.br (padrão de URL a auditar); fontes/{sp,federal}.py. Rate-limit por host. |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
 | M6 — GitHub Actions | ⚪ todo | — | Depende de M2–M5 |
@@ -118,17 +121,39 @@ Implementa a primeira metade de M3 (Etapa 2 do pipeline) independentemente de M2
 
 **CLI `parse`** — `leizilla parse --raw-id <ia_id> [--ente ro] [--model claude-haiku-4-5] [--output path]`
 
-**Testes** — 21 testes em `tests/test_parser.py` (HTTP + Anthropic API totalmente mockados).
+**Testes** — 27 testes em `tests/test_parser.py` (HTTP + Anthropic API totalmente mockados).
+Fixes P1 endereçados: `numero` digit-only validado; `typer.Exit` não capturado por `except Exception`; `_is_well_formed` com isinstance guard.
 
 **Decisões**:
 - Modelo primário `claude-haiku-4-5` (custo baixo); `--model claude-opus-4-7` para fallback manual.
 - OCR truncado em 8000 chars para manter custo baixo no Haiku (200K ctx).
-- `confidence < 0.5` → sem parsed item (princípio: não publicar parse ruim).
+- `confidence < 0.5` ou `not math.isfinite(confidence)` → None (fail-closed).
+- `tipo`, `numero`, `ano` obrigatórios — ausência retorna None em vez de fabricar identifier.
 - XML bem-formado verificado via `xml.etree.ElementTree`; XSD validation fica para CI gate em M3.2.
 - Upload do parsed item para IA fica em M3.2 (separação de concerns, M3.1 já útil standalone).
 - `ia_id_parsed = leizilla-{ente}-{tipo}-{numero:05d}-{ano}` conforme SCHEMA.md §1.3.
 - Prompt com `cache_control: ephemeral` no system prompt para caching do template.
 - `anthropic` adicionado como dep sem constraint de versão (consistente com demais deps).
+
+### 2026-05-22 — M2.3: CI workflow atualizado + internetarchive em deps
+
+`rondonia_crawler.yml` reescrito do zero. Versão antiga chamava
+`python scripts/run_rondonia_crawler.py` (script legado, usava `upload_pdf`
+e `download_pdf` — métodos que não existem mais) e `python scripts/backup_database.py`
+(backup de DuckDB que não é mais o storage primário).
+
+Nova versão: `uv run leizilla scrape --ente ro --fonte assembleia`. O comando
+`scrape` (M2.2) orquestra tudo: robots check → Wayback → fetch → upload_raw.
+Sem step de backup: DuckDB é staging local, não primary storage em CI.
+
+`internetarchive` adicionado como dependência explícita em `pyproject.toml`.
+Antes era instalado via `pip install internetarchive` no workflow — inconsistente
+com o modelo uv. Com a dep declarada, `uv sync` instala o pacote no venv e
+`ia` fica disponível para subprocess.run(["ia", "upload", ...]) dentro de
+`uv run leizilla scrape`.
+
+Adicionado `workflow_dispatch.inputs` (start_coddoc/end_coddoc) para trigger
+manual com range configurável — útil para re-scrapes parciais e debugging.
 
 ### 2026-05-22 — M1: package `src/leizilla/`, rename origem→ente, ADRs, catálogo entes
 
