@@ -630,16 +630,16 @@ def cmd_parse_all(
         from leizilla.publisher import InternetArchivePublisher
 
         pub = InternetArchivePublisher() if upload else None
-        nums = range(start_coddoc, end_coddoc + 1)
+        coddoc_range = range(start_coddoc, end_coddoc + 1)
         if limit is not None:
-            nums = nums[:limit]
+            coddoc_range = coddoc_range[:limit]
 
         parsed_ok = 0
         parsed_fail = 0
         uploaded_ok = 0
         upload_fail = 0
 
-        for num in nums:
+        for num in coddoc_range:
             if ente == "federal" and fonte == "planalto":
                 chave = f"{tipo}-{num:05d}"
             else:
