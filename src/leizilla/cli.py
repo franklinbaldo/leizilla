@@ -147,6 +147,57 @@ def cmd_upload(
         raise typer.Exit(1)
 
 
+@app.command("scrape")
+def cmd_scrape(
+    ente: str = typer.Option("ro", help="Ente federativo"),
+    fonte: str = typer.Option("assembleia", help="Fonte (assembleia, casacivil)"),
+    start_coddoc: int = typer.Option(1, help="ID inicial"),
+    end_coddoc: int = typer.Option(10, help="ID final"),
+) -> None:
+    """Scrape leis: discover → robots → wayback → upload_raw para IA."""
+    echo(f"Scraping {ente}/{fonte} coddoc {start_coddoc}–{end_coddoc}")
+
+    try:
+        from leizilla.crawler import LeisCrawler
+        from leizilla.publisher import InternetArchivePublisher
+        from leizilla.scraper import make_rate_limiter, scrape_one
+
+        publisher = InternetArchivePublisher()
+        rate_limiter = make_rate_limiter()
+
+        async def run() -> None:
+            if ente == "ro" and fonte == "assembleia":
+                crawler = LeisCrawler(crawler_type="playwright")
+                laws = await crawler.discover_rondonia_laws(
+                    start_coddoc=start_coddoc,
+                    end_coddoc=end_coddoc,
+                )
+            else:
+                echo(f"Fonte '{fonte}' para '{ente}' ainda não implementada")
+                raise typer.Exit(1)
+
+            ok = 0
+            for law in laws:
+                pdf_url = law.get("url_pdf_original")
+                fonte_url = law.get("url_original")
+                if not pdf_url or not fonte_url:
+                    echo(f"  Sem URL PDF: {law.get('id', 'N/A')}")
+                    continue
+                result = scrape_one(fonte_url, pdf_url, law, publisher, rate_limiter)
+                if result.get("success"):
+                    echo(f"  OK: {result.get('ia_id', '?')}")
+                    ok += 1
+                else:
+                    echo(f"  Falha [{result.get('reason', '?')}]: {law.get('id', 'N/A')}")
+
+            echo(f"Scraping concluído: {ok}/{len(laws)} com sucesso")
+
+        asyncio.run(run())
+    except Exception as e:
+        echo(f"Erro: {e}")
+        raise typer.Exit(1)
+
+
 @app.command("export")
 def cmd_export(
     ente: str = typer.Option("ro", help="Ente federativo"),
