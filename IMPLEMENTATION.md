@@ -32,7 +32,7 @@
 | **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. httpfs fix pushed; Kilo in_progress. |
 | **M5.2** — TanStack Query + paginação + filtros | ⚪ todo | — | Bloqueado por M5.1 merge. |
 | **M2.7** — Planalto federal HTML pipeline | 🟢 done | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 30 testes. URLs legadas (pré-2002); year-scoped em M2.8. Merged. |
-| **M2.8** — `parse-all --input-type html` + chave federal | 🟡 in-progress | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. CI verde (Kilo+GitGuardian ✅). |
+| **M2.8** — `parse-all --input-type html` + chave federal | 🟢 done | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. Merged. |
 | **M6** — GitHub Actions produção | ⚪ todo | — | Depende de M2–M5. |
 | **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
 
@@ -122,6 +122,32 @@ se thresholds forem excedidos, o CI em M5 sinalizará. Sem blocking para M5.1.
 - Removido docstring duplicado (stale de M3.3) que ficou na refatoração M3.5.
 
 **Testes**: 5 novos em `TestCmdParseAll` (html fetch, html skip, federal chave, non-planalto chave, invalid input_type). 319 total (todos passando).
+
+### 2026-05-22 — M5.1: Frontend foundation — Astro 4 + Svelte 5 + DuckDB-WASM 1.32
+
+**Stack efetiva** (vs. IMPLEMENTATION.md planning targets em parênteses):
+- Astro **4.16.19** (planejado 6.3 — Astro 6.x não disponível; 4.x é latest stable)
+- Svelte **5.55.9** (planejado 5.55 — exato match)
+- @picocss/pico **2.x** via CDN classless (planejado 2.1 — compatível)
+- DuckDB-WASM **1.32.0** (planejado 1.28 — versão mais recente, totalmente compatível)
+- @tanstack/svelte-query **5.x** (planejado 6.1 — v6 não disponível; v5 é latest stable)
+
+**Override `@sveltejs/vite-plugin-svelte@^4`**: Svelte 5.55 requer vite-plugin-svelte 4.x;
+o `@astrojs/svelte@5` ainda depende da v3. Override em `package.json` resolve o warning
+sem breaking change — `astro build` produz bundle limpo.
+
+**Arquitetura DuckDB-WASM**: Worker inline via `URL.createObjectURL` (Blob com `importScripts`)
+carrega o bundle do CDN jsDelivr em runtime. Evita bundling do WASM gigante (>20MB)
+e problemas de CORS em GitHub Pages. `INSTALL httpfs; LOAD httpfs` foram removidos —
+DuckDB-WASM não suporta INSTALL e usa path HTTP nativo para `read_parquet()`. VIEW
+`versoes` aponta para IA — URL configurável via `PUBLIC_PARQUET_URL` (env var Astro/Vite).
+
+**Busca full-text**: `ILIKE '%term%'` no DuckDB-WASM. Suficiente para M5; índice
+FTS ou embeddings ficam para M5.2+.
+
+**Decisão adiada**: `@tanstack/svelte-query` instalado mas não usado no componente
+inicial — busca simples com `$state` é suficiente para MVP. Integrar TanStack Query
+em M5.2 quando cache/invalidação/retry ficarem relevantes.
 
 ### 2026-05-22 — M2.7: Planalto federal HTML pipeline (desbloqueado pelo M3.4)
 
@@ -236,7 +262,6 @@ scraping for implementado (não há consumidor ainda).
 - `path_to_tipo` exportada públicamente — será usada por CLI `consolidate` e frontend.
 - `consolidate` CLI aceita diretório de `{lei_id}.xml` — padrão de saída do `parse --output`.
 - 76 testes cobrem todas as fixtures + fixes P1/P2 (lei revogada, cascata, xs:date, fallback ID).
-
 ### 2026-05-22 — M2 restante: fontes SP e federal — stubs com mapeamento de portais
 
 ### 2026-05-22 — M2.5: casacivil discovery via enumeração direta (sem Playwright)
@@ -768,11 +793,10 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M4.3, M2.7 concluídos** ✅ | **M5.1 (#33), M2.8 (#38) em PRs abertas**
+**M0–M4.3, M2.7–M2.8 concluídos** ✅ | **M5.1 (#33) em PR aberta**
 
 **PRs abertas agora** (em decantação — não auto-merge):
-- **#33** M5.1: Frontend foundation. httpfs fix pushed; Kilo in_progress.
-- **#38** M2.8: parse-all --input-type html. CI verde (Kilo+GitGuardian ✅).
+- **#33** M5.1: Frontend foundation. Todos P1/P2 Kilo+Codex resolvidos. CI verde (GitGuardian ✅); Kilo queued (merge commit).
 
 **M5.2** (após #33 mergear):
 - Integrar TanStack Query para cache + prefetch.
