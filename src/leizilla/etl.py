@@ -213,11 +213,14 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                 em = versao_ems[v_idx]
                 alterado_por = versao.get("alterado-por")
 
-                # Infer `ate` — start of next versao, or revogacao date, or None
+                # Infer `ate` — next versao start, dispositivo revogacao,
+                # lei-level revogacao total, or None (still vigente).
                 if v_idx + 1 < len(versoes_elems):
                     ate: Optional[datetime.date] = versao_ems[v_idx + 1]
                 elif disp_rev_em is not None:
                     ate = disp_rev_em
+                elif lei_cols["lei_revogada_em"] is not None:
+                    ate = lei_cols["lei_revogada_em"]
                 else:
                     ate = None
 
@@ -236,7 +239,7 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                 for fonte in versao.findall(f"{{{NS}}}fonte"):
                     ia_id = fonte.get("ia-id", "")
                     div_s = fonte.get("diverge")
-                    diverge = div_s in ("true", "1") if div_s else False
+                    diverge = (div_s or "").strip().lower() in ("true", "1")
                     td = fonte.find(f"{{{NS}}}texto") if diverge else None
                     fontes_list.append(
                         {

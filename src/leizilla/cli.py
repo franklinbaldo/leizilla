@@ -216,6 +216,7 @@ def cmd_consolidate(
         raise typer.Exit(1)
 
     items = []
+    read_errors = 0
     for f in xml_files:
         lei_id = f.stem
         try:
@@ -223,11 +224,19 @@ def cmd_consolidate(
             items.append((lei_id, ente, xml_content))
         except OSError as e:
             echo(f"  Erro ao ler {f.name}: {e}")
+            read_errors += 1
+
+    if not items:
+        echo("Nenhum XML pôde ser lido.")
+        raise typer.Exit(1)
 
     rows = consolidate_xmls(items)
-    echo(f"Convertidos {len(xml_files)} XMLs → {len(rows)} linhas")
+    echo(f"Convertidos {len(items)}/{len(xml_files)} XMLs → {len(rows)} linhas")
     write_parquet(rows, output)
     echo(f"Parquet escrito em {output}")
+    if read_errors:
+        echo(f"  Aviso: {read_errors} arquivo(s) ignorado(s) por erro de leitura.")
+        raise typer.Exit(1)
 
 
 @app.command("export")

@@ -31,6 +31,7 @@ def _load(name: str) -> str:
 _SIMPLE = _load("simple.xml")
 _WITH_ALTERACOES = _load("with-alteracoes.xml")
 _WITH_REVOGACOES = _load("with-revogacoes.xml")
+_WITH_REVOGACAO_TOTAL = _load("with-revogacao-total.xml")
 _WITH_BLOCOS = _load("with-blocos-organizacionais.xml")
 _WITH_PARCIAL = _load("with-parse-parcial.xml")
 
@@ -376,3 +377,45 @@ class TestWriteParquet:
         out = tmp_path / "nested" / "dir" / "versoes.parquet"
         write_parquet(rows, out)
         assert out.exists()
+
+
+# ---------------------------------------------------------------------------
+# xml_to_rows — with-revogacao-total.xml (P1: ate inference for lei-level revogacao)
+# ---------------------------------------------------------------------------
+
+
+class TestXmlToRowsComRevogacaoTotal:
+    """Lei-level <revogacao> must propagate to ate of all dispositivos (P1 fix)."""
+
+    def setup_method(self) -> None:
+        self.rows = xml_to_rows(
+            _WITH_REVOGACAO_TOTAL, "leizilla-ro-lei-00042-1985", "ro"
+        )
+
+    def test_lei_revogada_flag(self) -> None:
+        assert all(r["lei_revogada"] is True for r in self.rows)
+
+    def test_lei_revogada_em(self) -> None:
+        expected = datetime.date(2018, 12, 30)
+        assert all(r["lei_revogada_em"] == expected for r in self.rows)
+
+    def test_lei_revogada_por(self) -> None:
+        expected = "urn:lex:br;rondonia:estadual:lei:2018-12-30;4500"
+        assert all(r["lei_revogada_por"] == expected for r in self.rows)
+
+    def test_ate_equals_lei_revogada_em_for_all_dispositivos(self) -> None:
+        # P1 fix: dispositivos sem <revogacao> própria devem herdar lei_revogada_em
+        expected = datetime.date(2018, 12, 30)
+        for row in self.rows:
+            assert row["ate"] == expected, (
+                f"dispositivo {row['dispositivo_path']!r} tem ate={row['ate']!r}, "
+                f"esperado {expected}"
+            )
+
+    def test_dispositivos_not_individually_revogados(self) -> None:
+        # Revogação total é na lei; dispositivos não têm <revogacao> própria
+        assert all(r["dispositivo_revogado"] is False for r in self.rows)
+
+    def test_row_count(self) -> None:
+        # ementa + art-1 + art-2 = 3 dispositivos
+        assert len(self.rows) == 3
