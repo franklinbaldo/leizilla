@@ -19,9 +19,11 @@
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
 | **M3 restante** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint; `parse-all` itera range coddoc. |
-| **M2.4** — Rate-limit por host | 🟡 in-progress | #23 | `make_rate_limiter` por host: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
-| M2 restante — casacivil discovery + outros entes | ⚪ todo | — | casacivil.ro.gov.br (padrão de URL a auditar); fontes/{sp,federal}.py. |
-| M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
+| **M2.4** — Rate-limit por host | 🟢 done | 66aa4ac | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
+| **M2.5** — casacivil discovery | 🟡 in-progress | #27 | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. |
+| M2 restante — outros entes (sp, federal) | ⚪ todo | — | fontes/{sp,federal}.py. Depende de M2.4+M2.5. |
+| **M4.1** — ETL XML→Parquet (`etl.py`) | 🟡 in-progress | TBD | `xml_to_rows` + `consolidate_xmls` + `write_parquet` + CLI `consolidate`. 58 testes. |
+| M4 restante — release dataset + benchmark | ⚪ todo | — | IA upload do dataset item; benchmark DuckDB-WASM per §3.4. |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
 | M6 — GitHub Actions | ⚪ todo | — | Depende de M2–M5 |
 | M7 — Claude Code routines | ⚪ todo | — | Depende de M6 |
@@ -79,6 +81,23 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M4.1: ETL XML→Parquet via DuckDB read_json_auto
+
+`etl.py` implementa a transformação Leizilla XML v0.1 → tabela `versoes` (§3.1 SCHEMA.md).
+
+**Decisões de design**:
+- `xml_to_rows(xml_content, lei_id, ente)` é função pura (sem I/O). Parses Leizilla XML em
+  lista de dicts prontos para Parquet. `lei_id` vem do caller (nome do arquivo ou IA item ID).
+- `write_parquet` usa DuckDB `read_json_auto` via temp NDJSON file. PyArrow não é dependência
+  explícita; DuckDB 1.3.1 não expõe `from_dict` na connection API. NDJSON é simples e correto.
+- Datas serializam para ISO strings no JSON; DuckDB auto-infere `DATE` em `read_json_auto`.
+- Token map duplicado de `check_schema_consistency.py` — ambos apontam para §4.2 SCHEMA.md.
+  Candidato a extração futura para `leizilla.schema_tokens`, mas duplicação explícita é
+  preferível a acoplamento implícito agora.
+- `path_to_tipo` exportada públicamente — será usada por CLI `consolidate` e frontend.
+- `consolidate` CLI aceita diretório de `{lei_id}.xml` — padrão de saída do `parse --output`.
+- 58 testes cobrem todas as fixtures (simple, alterações, revogações, blocos, parcial).
 
 ### 2026-05-22 — M2.4: Rate-limit por host (supersede M2.2 global limiter)
 

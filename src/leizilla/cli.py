@@ -201,6 +201,35 @@ def cmd_scrape(
         raise typer.Exit(1)
 
 
+@app.command("consolidate")
+def cmd_consolidate(
+    xml_dir: Path = typer.Argument(..., help="Diretório com arquivos {lei_id}.xml"),
+    output: Path = typer.Option(..., "--output", help="Arquivo Parquet de saída"),
+    ente: str = typer.Option("ro", "--ente", help="Ente federativo"),
+) -> None:
+    """Consolidar XMLs Leizilla em Parquet v0.1 (tabela versoes)."""
+    from leizilla.etl import consolidate_xmls, write_parquet
+
+    xml_files = sorted(xml_dir.glob("*.xml"))
+    if not xml_files:
+        echo(f"Nenhum arquivo .xml encontrado em {xml_dir}")
+        raise typer.Exit(1)
+
+    items = []
+    for f in xml_files:
+        lei_id = f.stem
+        try:
+            xml_content = f.read_text(encoding="utf-8")
+            items.append((lei_id, ente, xml_content))
+        except OSError as e:
+            echo(f"  Erro ao ler {f.name}: {e}")
+
+    rows = consolidate_xmls(items)
+    echo(f"Convertidos {len(xml_files)} XMLs → {len(rows)} linhas")
+    write_parquet(rows, output)
+    echo(f"Parquet escrito em {output}")
+
+
 @app.command("export")
 def cmd_export(
     ente: str = typer.Option("ro", help="Ente federativo"),
