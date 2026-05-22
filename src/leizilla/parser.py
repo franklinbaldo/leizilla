@@ -8,6 +8,7 @@ Princípio load-bearing #3: Etapa 2 pluggable; model é parâmetro.
 """
 
 import json
+import math
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -186,18 +187,27 @@ def parse_law(
     if result is None:
         return None
 
-    confidence = float(result.get("confidence", 0.0))
-    if confidence < _MIN_CONFIDENCE:
+    try:
+        confidence = float(result.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(confidence) or confidence < _MIN_CONFIDENCE:
         return None
 
     xml = result.get("xml", "")
     if not xml or not _is_well_formed(xml):
         return None
 
-    tipo = str(result.get("tipo", "lei"))
-    numero = str(result.get("numero", "00000")).zfill(5)
-    ano = int(result.get("ano", date.today().year))
-    ia_id_parsed = f"leizilla-{ente}-{tipo}-{numero}-{ano}"
+    tipo = result.get("tipo")
+    numero = result.get("numero")
+    ano = result.get("ano")
+    if not tipo or numero is None or not ano:
+        return None
+    try:
+        ano = int(ano)
+    except (TypeError, ValueError):
+        return None
+    ia_id_parsed = f"leizilla-{ente}-{tipo}-{str(numero).zfill(5)}-{ano}"
 
     input_tokens = getattr(message.usage, "input_tokens", 0)
     output_tokens = getattr(message.usage, "output_tokens", 0)

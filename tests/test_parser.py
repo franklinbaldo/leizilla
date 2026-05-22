@@ -157,6 +157,47 @@ class TestParseLaw:
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
+    def test_returns_none_when_confidence_non_numeric(self):
+        bad_conf = json.dumps({"confidence": "high", "xml": _VALID_XML,
+                               "tipo": "lei", "numero": "1", "ano": 2000})
+        client = _make_anthropic_client(bad_conf)
+        with patch("anthropic.Anthropic", return_value=client):
+            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
+                assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+
+    def test_returns_none_when_confidence_nan(self):
+        import math
+        nan_conf = json.dumps({"confidence": math.nan, "xml": _VALID_XML,
+                               "tipo": "lei", "numero": "1", "ano": 2000})
+        client = _make_anthropic_client(nan_conf)
+        with patch("anthropic.Anthropic", return_value=client):
+            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
+                assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+
+    def test_returns_none_when_tipo_missing(self):
+        no_tipo = json.dumps({"xml": _VALID_XML, "confidence": 0.9,
+                              "numero": "1", "ano": 2000})
+        client = _make_anthropic_client(no_tipo)
+        with patch("anthropic.Anthropic", return_value=client):
+            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
+                assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+
+    def test_returns_none_when_numero_missing(self):
+        no_num = json.dumps({"xml": _VALID_XML, "confidence": 0.9,
+                             "tipo": "lei", "ano": 2000})
+        client = _make_anthropic_client(no_num)
+        with patch("anthropic.Anthropic", return_value=client):
+            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
+                assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+
+    def test_returns_none_when_ano_missing(self):
+        no_ano = json.dumps({"xml": _VALID_XML, "confidence": 0.9,
+                             "tipo": "lei", "numero": "1"})
+        client = _make_anthropic_client(no_ano)
+        with patch("anthropic.Anthropic", return_value=client):
+            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
+                assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+
     def test_returns_none_on_malformed_json(self):
         client = _make_anthropic_client("This is NOT json!!!")
         with patch("anthropic.Anthropic", return_value=client):
