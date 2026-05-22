@@ -16,10 +16,12 @@
 | **M2.1** — Wayback client + robots.txt + publisher sidecar | 🟢 done | #15 | `wayback.py` + `robots.py` + `publisher.upload_raw` + PDF renomeado para {ia_id}.pdf. 34 testes. |
 | **M2.2** — scraper.py + `scrape` CLI + fix ids no crawler | 🟢 done | #18 | `scraper.scrape_one()` orquestra robots→wayback→fetch→upload_raw. CLI `scrape` para assembleia/RO. 10 testes. |
 | **M2.3** — CI workflow + `internetarchive` dep | 🟢 done | #20 | `rondonia_crawler.yml` atualizado para `uv run leizilla scrape`. `internetarchive` em pyproject.toml. |
-| **M3.1** — OCR fetch + LLM parse → parser.py | 🟡 in-progress | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
-| **M3.2** — publisher.upload_parsed() | 🟡 in-progress | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
-| M3 restante — `parse --upload` + `parse-all` batch | ⚪ todo | — | Bloqueado por #17+#19. CLI `parse --upload` integra parser→publisher. `parse-all` itera raw items sem parsed_meta. |
-| M2 restante — casacivil discovery + outros entes | ⚪ todo | — | casacivil.ro.gov.br (padrão de URL a auditar); fontes/{sp,federal}.py. Rate-limit por host. |
+| **M2.4** — Rate-limit por host | 🟡 in-progress | #23 | `make_rate_limiter` retorna `Callable[[str], None]`; netloc→hostname. |
+| **M2.5** — casacivil discovery | 🟡 in-progress | #24 | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. |
+| **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #21 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed). 27 testes. Merged via #21. |
+| **M3.2** — publisher.upload_parsed() | 🟢 done | #21 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. Merged via #21. |
+| **M3.3** — `parse --upload` + `parse-all` batch | 🟡 in-progress | #21 | XSD gate + batch pipeline. Aguardando merge de #21. |
+| M2 restante — outros entes (sp, federal) | ⚪ todo | — | fontes/{sp,federal}.py. Depende de M2.4+M2.5. |
 | M4 — Parquet + release dataset | ⚪ todo | — | Bloqueado por M3 |
 | M5 — Frontend Astro+Svelte+Pico | ⚪ todo | — | Pode rodar em paralelo a M4 |
 | M6 — GitHub Actions | ⚪ todo | — | Depende de M2–M5 |
@@ -78,6 +80,38 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M2.5: casacivil discovery via enumeração direta (sem Playwright)
+
+**Auditoria do portal**: `www.casacivil.ro.gov.br/leis` → redireciona para
+`ditel.casacivil.ro.gov.br/COTEL/Livros/listleiord.aspx?ano=YYYY`, que retorna
+403 de ambientes externos. Porém, PDFs individuais são acessíveis diretamente:
+`HEAD http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L5120.pdf` → 200.
+
+**Padrão de URL descoberto** via Google cache + HEAD requests:
+- Leis ordinárias: `L{N}.pdf` (ex: `L5120.pdf`, `L3830 - COMPILADA.pdf`)
+- Leis complementares: `LC{N}.pdf` (ex: `LC1209 - COMPILADO.pdf`, `LC748.pdf`)
+- A versão `COMPILADA` (texto consolidado vigente) tem sufixo variável — não
+  tentamos enumerar variações; o Wayback Machine frequentemente tem a base `L{N}.pdf`
+  que é suficiente para OCR (compiladas são frequentemente scanned igualmente).
+
+**Decisão de design**: `discover_casacivil_laws` é função standalone (não método
+de `LeisCrawler`), pois não precisa de Playwright. Retorna URLs candidatas sem
+verificar existência — `scrape_one` trata 404/timeout via Wayback fail-open.
+
+**Chave**: `lei-{N:05d}` para ordinária, `lc-{N:05d}` para complementar.
+`IA id`: `leizilla-raw-ro-casacivil-lei-{N:05d}` ou `lc-{N:05d}`.
+
+**CLI**: `scrape --fonte casacivil --tipo lei|lc --start-coddoc N --end-coddoc M`
+(reuso semântico de `--start-coddoc` como "número inicial", sem breaking change
+para assembleia que continua usando coddoc).
+
+**Descobertas notáveis**:
+- Portal DITEL usa ASP.NET WebForms (`listleiord.aspx`) — script da década de 2000.
+- Leis Rondônia chegam a L6000+ (ordinárias); LC chega a ~1300+.
+- Alguns PDFs têm sufixos: `_compressed`, `- PL` (projetos), `- COMPILADA`.
+  Para o pipeline v0 aceitamos o URL base e deixamos Wayback/IA lidar com
+  disponibilidade.
 
 ### 2026-05-22 — M3.1: OCR fetch + LLM parse → Leizilla XML
 
