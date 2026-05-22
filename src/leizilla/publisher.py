@@ -59,6 +59,37 @@ def build_raw_meta(
     }
 
 
+def build_raw_meta_html(
+    html_content: str,
+    lei_data: Dict[str, Any],
+    fetched_from: str,
+    wayback_url: Optional[str] = None,
+    wayback_blocked_robots: bool = False,
+) -> Dict[str, Any]:
+    """Constrói raw_meta.json para item HTML (fontes sem PDF, ex: Planalto)."""
+    ente = str(lei_data.get("ente", "unknown"))
+    fonte = str(lei_data.get("fonte", "planalto"))
+    chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
+    html_bytes = html_content.encode("utf-8")
+    return {
+        "leizilla_meta_version": "0.1",
+        "content_type": "html",
+        "ente": ente,
+        "fonte": fonte,
+        "chave": chave,
+        "fonte_url": lei_data.get("url_original"),
+        "data_captura": datetime.now(tz=timezone.utc).isoformat(),
+        "hash_html": f"sha256:{hashlib.sha256(html_bytes).hexdigest()}",
+        "user_agent": _USER_AGENT,
+        "ia_id_bundle": _bundle_identifier(ente, fonte),
+        "provenance_wayback": {
+            "fetched_from": fetched_from,
+            "wayback_url": wayback_url,
+            "wayback_blocked_robots": wayback_blocked_robots,
+        },
+    }
+
+
 def _get_git_sha() -> Optional[str]:
     try:
         return subprocess.run(
@@ -172,6 +203,66 @@ class InternetArchivePublisher:
                     "ia_id": ia_id,
                     "ia_url": f"https://archive.org/details/{ia_id}",
                 }
+            except subprocess.CalledProcessError as e:
+                return {"success": False, "error": e.stderr, "ia_id": ia_id}
+
+    def upload_raw_html(
+        self,
+        html_content: str,
+        lei_data: Dict[str, Any],
+        fetched_from: str = "source-fallback",
+        wayback_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Upload raw HTML + raw_meta.json sidecar para IA.
+
+        Identifier: leizilla-raw-{ente}-{fonte}-{chave} (SCHEMA.md §1.2).
+        Análogo a upload_raw mas para fontes que servem HTML (ex: Planalto).
+        IA não faz OCR em HTML — Etapa 2 usa fetch_html direto da fonte_url.
+        """
+        if not self.access_key or not self.secret_key:
+            return {"success": False, "error": "IA credentials not configured"}
+
+        ente = str(lei_data.get("ente", "unknown"))
+        fonte = str(lei_data.get("fonte", "planalto"))
+        chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
+        ia_id = _raw_identifier(ente, fonte, chave)
+
+        raw_meta = build_raw_meta_html(html_content, lei_data, fetched_from, wayback_url)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            html_dst = Path(tmp) / f"{ia_id}.html"
+            html_dst.write_text(html_content, encoding="utf-8")
+            meta_path = Path(tmp) / "raw_meta.json"
+            meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
+
+            try:
+                subprocess.run(
+                    [
+                        "ia",
+                        "upload",
+                        ia_id,
+                        str(html_dst),
+                        str(meta_path),
+                        "--metadata",
+                        f"title:{lei_data.get('titulo', 'Lei')}",
+                        "--metadata",
+                        "mediatype:texts",
+                        "--metadata",
+                        f"subject:leis;leizilla;{ente}",
+                        "--metadata",
+                        "creator:leizilla-crawler",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                return {
+                    "success": True,
+                    "ia_id": ia_id,
+                    "ia_url": f"https://archive.org/details/{ia_id}",
+                }
+            except FileNotFoundError:
+                return {"success": False, "error": "ia CLI não encontrado — instale 'internetarchive'", "ia_id": ia_id}
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
 

@@ -19,18 +19,20 @@
 | **M2.4** — Rate-limit por host | 🟢 done | 66aa4ac | `make_rate_limiter` por `hostname`: scraping paralelo de múltiplas fontes sem serializar. 12 testes. |
 | **M2.5** — casacivil discovery | 🟢 done | #27 | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. (PR #26 fechado por conflito; #27 merged.) |
 | **M2.6** — casacivil job no workflow | 🟢 done | #31 | `rondonia_crawler.yml` expandido com passos casacivil lei + lc; inputs `casacivil_start`/`casacivil_end`. |
-| **M2 restante** — fontes SP + federal (stubs) | 🟢 done | #30 | `fontes/sp.py` + `fontes/federal.py`. Scraping sp/federal bloqueado por M3.4 (HTML parser). |
+| **M2 restante** — fontes SP + federal (stubs) | 🟢 done | #30 | `fontes/sp.py` + `fontes/federal.py`. SP pendente de auditoria de URL. |
+| **M2.7** — Planalto federal HTML pipeline | 🟡 in-progress | — | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html`. 24 testes. CLI: `scrape --ente federal --fonte planalto --tipo lei\|lcp\|decreto`. |
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
 | **M3.3** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
 | **M3.4** — `parse_law` aceita HTML + `fetch_html` | 🟢 done | cc00676 | `input_type="html"` em `parse_law`; `fetch_html(url)`; prompt adaptado; `_HTML_CHAR_LIMIT=32000`. 35 testes. |
 | **M3.5** — CLI `parse --input-type html` + `fetch_ia_html` | 🟢 done | #35 | `fetch_ia_html(ia_id)` busca `{ia_id}.html` do IA; `--input-type ocr\|html` em `cmd_parse`. 314 testes. |
 | **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟢 done | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. |
-| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟢 done | #29 | Sobe dataset Parquet para IA; benchmark local §3.4. 229 testes. |
+| **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟢 done | #36 | Sobe dataset Parquet para IA; benchmark local §3.4. 229 testes. |
 | **M4.3** — benchmark DuckDB-WASM real + gatilhos §3.4 | ⚪ todo | — | Bloqueado por M4.2 merge. |
-| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. CI verde; 3 issues abertas (key uniqueness, SQL injection, orphaned workers). |
+| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. CI verde; P1 httpfs fix pushed. |
 | **M5.2** — TanStack Query + paginação + filtros | ⚪ todo | — | Bloqueado por M5.1 merge. |
-| **M2.7** — Planalto federal HTML pipeline | 🟡 in-progress | #34 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 24 testes. P1 Planalto URLs pendente. |
+| **M2.7** — Planalto federal HTML pipeline | 🟢 done | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 30 testes. URLs legadas (pré-2002); year-scoped em M2.8. |
+| **M2.8** — Planalto year-scoped URLs + `parse-all html` | ⚪ todo | — | URLs `_ato{Y}-{Y}/{ano}/lei/l{num}.htm` via API Câmara; `parse-all --input-type html --tipo lei`. Desbloqueia leis federais pós-2002. |
 | **M6** — GitHub Actions produção | ⚪ todo | — | Depende de M2–M5. |
 | **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
 
@@ -87,6 +89,36 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M2.7: Planalto federal HTML pipeline (desbloqueado pelo M3.4)
+
+M3.4 (`fetch_html` + `parse_law(input_type="html")`) desbloqueou o scraping de
+fontes que servem HTML em vez de PDF. Planalto é a fonte canônica federal (compilados
+vigentes) — equivalente federal da casacivil RO.
+
+**Decisão principal — raw HTML item no IA**: princípio #1 ("duas etapas no IA,
+sempre separadas") exige raw e parsed como IA items distintos. Para fontes HTML
+(sem PDF), o raw item armazena `{ia_id}.html` + `raw_meta.json` sidecar.
+IA não faz OCR em HTML (princípio #2 não se aplica — HTML já é texto).
+A Etapa 2 usa `fetch_html(fonte_url)` diretamente, não um `_djvu.txt` do IA.
+
+**Identificadores sem mudança**: `leizilla-raw-{ente}-{fonte}-{chave}` idêntico
+ao raw PDF. Tooling downstream não precisa saber o tipo de conteúdo.
+
+**`raw_meta_html`**: campo `content_type: "html"` + `hash_html` (vs `hash_pdf`).
+
+**URL patterns Planalto (leis pré-2002)**:
+- Leis ordinárias: `https://www.planalto.gov.br/ccivil_03/leis/L{N}.htm`
+- Leis complementares: `https://www.planalto.gov.br/ccivil_03/leis/lcp/Lcp{N}.htm`
+- Decretos: `https://www.planalto.gov.br/ccivil_03/decreto/D{N}.htm`
+
+Leis pós-2002 usam year-scoped paths (`_ato{Y}-{Y}/{ano}/lei/l{num}.htm`) —
+M2.8 cobrirá via API Câmara. Fail-open em 404 garante sem crash no pipeline.
+
+**CLI `scrape`**: ramo `ente=federal, fonte=planalto` usa `scrape_one_html` em vez
+de `scrape_one`. Zero breaking change para ro/assembleia e ro/casacivil.
+
+30 testes em `tests/test_planalto_pipeline.py`.
 
 ### 2026-05-22 — M4.2: release-dataset + upload_dataset (sem PyArrow)
 
@@ -703,15 +735,13 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M4.1 concluídos** ✅ | **M3.5, M4.2, M5.1, M2.7 em PRs abertas**
+**M0–M4.1, M3.4, M3.5, M2.7 concluídos** ✅ | **M4.2, M5.1 em PRs abertas**
 
 **PRs abertas agora** (em decantação — não auto-merge):
-- **#29** M4.2: release-dataset CLI. CI verde (pós-fix P2 ValueError). Aguardando CI rerun + review.
-- **#33** M5.1: Frontend foundation. CI verde (pós-fix P1+P2 retry/stale). Aguardando CI rerun + review.
-- **#34** M2.7: Planalto federal HTML pipeline. Kilo in_progress na última sessão.
-- **M3.5** (branch `claude/cool-cerf-qPCfV`): CLI `parse --input-type html` + `fetch_ia_html`. 314 testes passando. PR desta sessão.
+- **#36** M4.2: release-dataset CLI. CI pendente.
+- **#33** M5.1: Frontend foundation. Fixes P1/P2/orphaned-workers pushed. CI pendente.
 
-**M4.3** (próximo após #29 mergear):
+**M4.3** (próximo após #36 mergear):
 - Benchmark DuckDB-WASM real contra §3.4 gatilhos.
 - Avisa se file_mb > 100, row_count > 2M, ou full-text latência > 1s.
 
@@ -720,6 +750,7 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 - Paginação de resultados.
 - Filtro por ente/ano.
 
-**M2.8** (após #34 mergear):
+**M2.8** (próximo após M2.7):
+- Year-scoped URLs Planalto via API Câmara (leis pós-2002).
 - `parse-all --input-type html --tipo lei|lcp|decreto` para iterar range federal.
 - Requer ajuste no padrão de chave (federal usa `lei-NNNNN`, não `coddoc-NNNNN`).
