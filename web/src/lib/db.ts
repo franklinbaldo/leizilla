@@ -36,7 +36,6 @@ async function _init(): Promise<duckdb.AsyncDuckDB> {
 
     const conn = await db.connect();
     try {
-      await conn.query(`INSTALL httpfs; LOAD httpfs;`);
       await conn.query(
         `CREATE OR REPLACE VIEW versoes AS SELECT * FROM read_parquet('${PARQUET_URL}');`,
       );
