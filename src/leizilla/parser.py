@@ -8,7 +8,6 @@ Princípio load-bearing #3: Etapa 2 pluggable; model é parâmetro.
 """
 
 import json
-import re
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -20,7 +19,6 @@ import anthropic
 from leizilla import config
 
 _HAIKU = "claude-haiku-4-5"
-_OPUS = "claude-opus-4-7"
 _OCR_URL = "https://archive.org/download/{ia_id}/{ia_id}_djvu.txt"
 _USER_AGENT = "leizilla-crawler/0.1"
 _MIN_CONFIDENCE = 0.5
@@ -109,7 +107,11 @@ def fetch_ocr(ia_id: str, timeout: int = 30) -> Optional[str]:
 
 
 def _extract_json(text: str) -> Optional[Dict[str, Any]]:
-    """Extract JSON from LLM response, handling wrapped or embedded JSON."""
+    """Extract JSON from LLM response, handling wrapped or embedded JSON.
+
+    Uses JSONDecoder.raw_decode to scan for object start positions — avoids
+    the ReDoS risk of greedy regex on untrusted LLM output with nested braces.
+    """
     text = text.strip()
     try:
         result = json.loads(text)
@@ -117,14 +119,15 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
             return result
     except json.JSONDecodeError:
         pass
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if match:
-        try:
-            result = json.loads(match.group())
-            if isinstance(result, dict):
-                return result
-        except json.JSONDecodeError:
-            pass
+    decoder = json.JSONDecoder()
+    for i, char in enumerate(text):
+        if char == "{":
+            try:
+                obj, _ = decoder.raw_decode(text, i)
+                if isinstance(obj, dict):
+                    return obj
+            except json.JSONDecodeError:
+                continue
     return None
 
 
