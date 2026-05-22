@@ -285,7 +285,7 @@ def consolidate_xmls(
     return rows
 
 
-def _json_default(obj: Any) -> Any:
+def _json_default(obj: object) -> str:
     if isinstance(obj, datetime.date):
         return obj.isoformat()
     raise TypeError(f"not serializable: {type(obj)}")
@@ -309,10 +309,9 @@ def write_parquet(rows: list[dict[str, Any]], output_path: Path) -> None:
 
         conn = duckdb.connect()
         try:
-            conn.execute(
-                f"COPY (SELECT * FROM read_json_auto('{tmp_path}')) "
-                f"TO '{output_path}' (FORMAT PARQUET, COMPRESSION SNAPPY)"
-            )
+            # Use parameterized ? to avoid SQL string interpolation for file paths
+            conn.execute("CREATE TABLE _rows AS SELECT * FROM read_json_auto(?)", [tmp_path])
+            conn.table("_rows").write_parquet(str(output_path), compression="snappy")
         finally:
             conn.close()
     finally:

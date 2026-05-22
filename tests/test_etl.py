@@ -353,7 +353,7 @@ class TestWriteParquet:
         rows = xml_to_rows(_SIMPLE, "leizilla-ro-lei-09999-1999", "ro")
         out = tmp_path / "versoes.parquet"
         write_parquet(rows, out)
-        count = duckdb.execute(f"SELECT count(*) FROM read_parquet('{out}')").fetchone()[0]  # type: ignore[index]
+        count = duckdb.execute("SELECT count(*) FROM read_parquet(?)", [str(out)]).fetchone()[0]  # type: ignore[index]
         assert count == len(rows)
 
     def test_roundtrip_columns_present(self, tmp_path: Path) -> None:
@@ -365,7 +365,7 @@ class TestWriteParquet:
         cols = {
             row[0]
             for row in duckdb.execute(
-                f"SELECT column_name FROM (DESCRIBE SELECT * FROM read_parquet('{out}'))"
+                "SELECT column_name FROM (DESCRIBE SELECT * FROM read_parquet(?))", [str(out)]
             ).fetchall()
         }
         required = {"lei_id", "ente", "dispositivo_path", "em", "texto", "fontes"}
