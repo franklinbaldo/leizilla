@@ -138,10 +138,13 @@ export async function searchLeisFiltered(query: string, opts: SearchOptions = {}
   const { ente, year, page = 0, pageSize = PAGE_SIZE } = opts;
   // Math.trunc + bounds enforce integer values — LIMIT/OFFSET cannot be injected.
   // DuckDB prepared statements do not support ? placeholders in LIMIT/OFFSET clauses.
-  const safeSize = Math.min(100, Math.max(1, Math.trunc(pageSize)));
-  const offset = Math.max(0, Math.trunc(page)) * safeSize;
+  // Number.isFinite guard prevents NaN from reaching the SQL string (e.g. if caller
+  // passes NaN explicitly; normal path always receives valid integers from PAGE_SIZE).
+  const safeSize = Math.min(100, Math.max(1, Math.trunc(Number.isFinite(pageSize) ? pageSize : PAGE_SIZE)));
+  const offset = Math.max(0, Math.trunc(Number.isFinite(page) ? page : 0)) * safeSize;
   const { where, params } = buildWhere(query, ente, year);
-  const sql = `SELECT * FROM versoes WHERE ${where} ORDER BY lei_id LIMIT ${safeSize} OFFSET ${offset}`;
+  // ORDER BY (lei_id, dispositivo_path) is globally unique → stable pagination across pages.
+  const sql = `SELECT * FROM versoes WHERE ${where} ORDER BY lei_id, dispositivo_path LIMIT ${safeSize} OFFSET ${offset}`;
   return runSql(sql, params, toJson);
 }
 
@@ -158,7 +161,7 @@ export async function countLeisFiltered(
   return Number(rows[0]?.cnt ?? 0);
 }
 
-/** @deprecated Use searchLeisFiltered instead */
+/** @deprecated Use searchLeisFiltered instead. Max 100 rows (capped by searchLeisFiltered). */
 export async function searchLeis(query: string, limit = 20): Promise<LeiRow[]> {
-  return searchLeisFiltered(query, { pageSize: Math.min(1000, Math.max(1, limit)) });
+  return searchLeisFiltered(query, { pageSize: limit });
 }
