@@ -836,6 +836,47 @@ def cmd_parse_all(
         raise typer.Exit(1)
 
 
+@app.command("fetch-all-parsed")
+def cmd_fetch_all_parsed(
+    ente: str = typer.Option("ro", help="Ente federativo"),
+    output_dir: Path = typer.Option(
+        ..., "--output-dir", help="Diretório de saída para os XMLs baixados"
+    ),
+) -> None:
+    """Baixar todos os XMLs parseados do IA para o diretório local.
+
+    Complementa parse-all: baixa os XMLs de todos os itens parsed existentes
+    no IA para que consolidate possa gerar um Parquet full-histórico acumulado
+    (não apenas os itens parsed na execução corrente).
+    """
+    from leizilla.publisher import fetch_parsed_xml, list_parsed_ia_ids
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    echo(f"Listando itens parsed de '{ente}' no IA...")
+    ia_ids = list_parsed_ia_ids(ente)
+
+    if not ia_ids:
+        echo("Nenhum item parsed encontrado (ou erro de conectividade com IA).")
+        return
+
+    echo(f"Encontrados {len(ia_ids)} itens. Baixando XMLs...")
+    ok = 0
+    fail = 0
+    for ia_id in ia_ids:
+        dest = output_dir / f"{ia_id}.xml"
+        if dest.exists():
+            ok += 1
+            continue
+        if fetch_parsed_xml(ia_id, dest):
+            ok += 1
+        else:
+            echo(f"  [ERRO] {ia_id} — law.xml não disponível, pulando")
+            fail += 1
+
+    echo(f"Baixados: {ok}, Erros: {fail}")
+
+
 @app.command("pipeline")
 def cmd_pipeline(
     ente: str = typer.Option("ro", help="Ente federativo"),
