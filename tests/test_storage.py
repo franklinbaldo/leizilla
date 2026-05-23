@@ -170,3 +170,22 @@ def test_get_downloaded_resources(temp_db):
     downloaded = temp_db.get_downloaded_resources("ro", "casacivil")
     assert len(downloaded) == 1
     assert downloaded[0]["url"] == res_data["url"]
+
+
+def test_get_leis_pending_ocr(temp_db):
+    lei_data = {
+        "id": "ro-casacivil-lei-05120",
+        "titulo": "Lei 5120",
+        "ente": "ro",
+        "texto_completo": None,
+    }
+    temp_db.insert_lei(lei_data)
+
+    pending = temp_db.get_leis_pending_ocr("ro")
+    assert len(pending) == 1
+    assert pending[0]["id"] == "ro-casacivil-lei-05120"
+
+    # Set texto_completo
+    temp_db.update_lei("ro-casacivil-lei-05120", {"texto_completo": "conteudo da lei"})
+    pending = temp_db.get_leis_pending_ocr("ro")
+    assert len(pending) == 0

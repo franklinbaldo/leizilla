@@ -142,6 +142,23 @@ class DuckDBStorage:
             return dict(zip(columns, result))
         return None
 
+    def get_leis_pending_ocr(
+        self, ente: Optional[str] = None, limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        conn = self.connect()
+        query = (
+            "SELECT * FROM leis WHERE (texto_completo IS NULL OR texto_completo = '')"
+        )
+        params = []
+        if ente:
+            query += " AND ente = ?"
+            params.append(ente)
+        query += " LIMIT ?"
+        params.append(limit)
+        results = conn.execute(query, params).fetchall()
+        columns = [desc[0] for desc in conn.description]
+        return [dict(zip(columns, row)) for row in results]
+
     def update_lei(self, lei_id: str, updates: Dict[str, Any]) -> None:
         conn = self.connect()
         updates["updated_at"] = datetime.now()
