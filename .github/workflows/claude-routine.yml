@@ -1,0 +1,45 @@
+name: Claude Routine Maintenance
+
+# Sessão automática de manutenção do repositório.
+# O prompt canônico vive em docs/routines/maintenance-prompt.md — edite lá para mudar o comportamento.
+#
+# Triggers:
+#   - schedule: segunda e quinta às 10:00 UTC (após scraping dominical e parse segunda)
+#   - workflow_dispatch: para rodar manualmente (útil para debug e sessões ad-hoc)
+
+on:
+  schedule:
+    # Segunda 10:00 UTC (após parse-release.yml de segunda 06:00)
+    - cron: '0 10 * * 1'
+    # Quinta 10:00 UTC (mid-week check)
+    - cron: '0 10 * * 4'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Motivo da execução manual (opcional)'
+        required: false
+        default: 'sessão ad-hoc'
+
+concurrency:
+  group: claude-routine
+  cancel-in-progress: false  # não cancela sessão em andamento; aguarda a conclusão
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  routine:
+    name: Sessão de manutenção
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Executar rotina de manutenção
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt_file: docs/routines/maintenance-prompt.md

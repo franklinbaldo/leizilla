@@ -30,14 +30,15 @@
 | **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟢 done | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. |
 | **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟢 done | #36 | Sobe dataset Parquet para IA; benchmark local §3.4. 229 testes. |
 | **M4.3** — benchmark gatilhos §3.4 (testes) | 🟢 done | #39 | 6 testes para gatilhos file/rows/latência em `TestReleaseDatasetBenchmark`. Benchmark WASM real em M5.2. |
-| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. safeLimit fix + pkg version pushed; aguardando CI rerun. |
-| **M5.2** — TanStack Query + paginação + filtros | ⚪ todo | — | Bloqueado por M5.1 merge. |
+| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟢 done | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. `deploy-web.yml` incluso. Merged em main. |
+| **M5.2** — TanStack Query + paginação + filtros | 🟡 in-progress | #43 | `LeiSearchUI.svelte` + `searchLeisFiltered` + `countLeisFiltered`. 3 fixes codex aplicados (ORDER BY estável, NaN guard, deprecated wrapper). Aguardando CI. |
 | **M2.7** — Planalto federal HTML pipeline | 🟢 done | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 30 testes. URLs legadas (pré-2002); year-scoped em M2.8. Merged. |
 | **M2.8** — `parse-all --input-type html` + chave federal | 🟢 done | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. Merged. |
 | **M6.1** — `parse-all --output-dir` + workflow parse-release | 🟢 done | #40 | `--output-dir` em `parse-all` + `parse-release.yml` (parse→consolidate→release). 2 novos testes. Merged. |
-| **M6.2** — Deploy-web workflow | ⚪ todo | — | `deploy-web.yml` — incluído em #33 (M5.1). Ativo após M5.1 merge. |
-| **M6.3** — Planalto year-scoped URLs (pós-2002) | 🟡 in-progress | #41 | `planalto_year_scoped_url` + `_camara_year_lookup` (Câmara API, lru_cache, circuit breaker). `discover_planalto_laws` usa URL year-scoped se ano ≥ 2003. 47 novos testes. Fix SCHEMA.md: chave planalto sem `{ano}`. |
-| **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
+| **M6.2** — Deploy-web workflow | 🟢 done | #33 | `deploy-web.yml` — incluído em M5.1 (#33). Ativo. |
+| **M6.3** — Planalto year-scoped URLs (pós-2002) | 🟢 done | #41 | `planalto_year_scoped_url` + `_camara_year_lookup` (Câmara API, lru_cache, circuit breaker). 47 novos testes. Merged. |
+| **M7.1** — Claude Code routines: infra de automação | 🟡 in-progress | — | `docs/routines/maintenance-prompt.md` + `claude-routine.yml` (schedule: seg+qui 10h UTC). Prompt canônico versionado no repo; workflow dispara sessões automáticas. |
+| **M7.2** — Incremental tracking (check IA antes de parsear) | ⚪ todo | — | Evitar re-parse de items já publicados. `parse-all --skip-existing` via query de IDs do IA. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -92,6 +93,29 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-23 — M7.1: Claude Code routine infra — prompt canônico + workflow
+
+M6 encerrado (M6.1 #40 + M6.2 em M5.1/#33 + M6.3 #41 todos merged). M7 desbloqueado.
+
+**Decomposição de M7**: o log de M6.1 mencionava "incremental tracking é M7" — mas M7
+também significa a infra de automação das sessões de rotina (que não existia formalmente).
+Separados em M7.1 (infra) e M7.2 (incremental tracking) para manter PRs coerentes.
+
+**`docs/routines/maintenance-prompt.md`**: prompt canônico extraído da sessão atual.
+Motivo de versioná-lo: drift entre sessões sem fonte-da-verdade central era inevitável.
+Com o arquivo no repo, o prompt evolui junto com o código (e o log aqui registra por quê).
+
+**`claude-routine.yml`** — schedule segunda + quinta 10:00 UTC:
+- Não diária — custo de sessão Opus + API GitHub tem overhead. 2×/semana é suficiente
+  para um repo que faz 1-2 sessões de código por dia via web.
+- `concurrency: cancel-in-progress: false` — sessões não devem se sobrepor; a segunda
+  aguarda (não cancela) para garantir idempotência.
+- `workflow_dispatch` sempre disponível para sessões ad-hoc e debugging.
+- Usa `anthropics/claude-code-action@beta` — mesmo mecanismo das sessões manuais via web.
+
+**M7.2 (incremental tracking)**: deferido para próxima PR. Requer consulta à API IA para
+listar `ia_id_parsed` existentes — envolve HTTP e lógica nova em `publisher.py`. Mantém M7.1 focado.
 
 ### 2026-05-22 — M6.1: parse-all --output-dir + parse-release workflow
 
@@ -842,20 +866,17 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M4.3, M2.7, M2.8, M5.2 concluídos** ✅ | **M6.1 (#40), M6.3 (#41), M5.2 (#43) em PRs abertas**
+**M0–M6.3 concluídos** ✅ | **M5.2 (#43) aguardando CI** | **M7.1 em aberto (esta sessão)**
 
 **PRs abertas agora**:
-- **#40** M6.1: `parse-all --output-dir` + `parse-release.yml`. CI verde — aguardando rebase+merge.
-- **#41** M6.3: Circuit breaker Câmara API + Planalto year-scoped URLs. CI em andamento.
-- **#43** M5.2: TanStack Query + paginação + filtros. Decantação (1h).
+- **#43** M5.2: TanStack Query + paginação + filtros. 3 fixes codex aplicados. Aguardando CI rerun (Kilo).
+- **M7.1** (esta sessão): `claude-routine.yml` + `docs/routines/maintenance-prompt.md`. Decantação (1h).
 
-**M5.2** (após #33 mergear):
-- Integrar TanStack Query para cache + prefetch.
-- Paginação de resultados.
-- Filtro por ente/ano.
-- Benchmark DuckDB-WASM real com dataset publicado.
+**M7.2** (próxima sub-tarefa após M7.1 merge):
+- `parse-all --skip-existing`: consultar IDs de parsed items no IA antes de re-parsear.
+- Evita custo LLM em items já publicados; permite batches incrementais.
+- Implementação: `publisher.list_parsed_ids(ente, fonte)` → set → skip se `ia_id_parsed in existing`.
 
-**M6.3** (independente — Planalto pós-2002):
-- Year-scoped URLs `_ato{start}-{end}/{ano}/lei/l{num}.htm`.
-- Requer lookup ano←número via API Câmara ou tabela estática de faixas.
-- Não bloqueia M6.1/M5.2 — pode ser feito em paralelo.
+**M5.3** (após M5.2 merge):
+- Benchmark DuckDB-WASM real com dataset publicado (M4.3 aproximação local aprovada).
+- Índice FTS ou embeddings se latência > threshold.
