@@ -456,25 +456,16 @@ def cmd_stats(
     if ia:
         echo("Internet Archive:")
         raw_count = count_ia_items(f"leizilla-raw-{ente}-")
+        # Prefix leizilla-{ente}- matches ONLY parsed items: raw/bundle/dataset
+        # all have an extra word before the ente slug (leizilla-raw-ro-, etc.)
         parsed_count = count_ia_items(f"leizilla-{ente}-")
         dataset_count = count_ia_items(f"leizilla-dataset-{ente}-")
 
-        raw_str = str(raw_count) if raw_count is not None else "erro de rede"
-        echo(f"  Raw items:     {raw_str}")
-
-        if parsed_count is not None:
-            # parsed prefix also matches raw/bundle/dataset; subtract them
-            raw_n = raw_count or 0
-            dataset_n = dataset_count or 0
-            bundle_count = count_ia_items(f"leizilla-bundle-{ente}-") or 0
-            parsed_net = max(0, parsed_count - raw_n - dataset_n - bundle_count)
-            echo(f"  Parsed items:  {parsed_net}")
-        else:
-            echo("  Parsed items:  erro de rede")
-
+        echo(f"  Raw items:     {raw_count if raw_count is not None else 'erro de rede'}")
+        echo(f"  Parsed items:  {parsed_count if parsed_count is not None else 'erro de rede'}")
         echo(f"  Dataset items: {dataset_count if dataset_count is not None else 'erro de rede'}")
     else:
-        echo("(--no-ia: consulta IA desabilitada)")
+        echo("Consulta IA desabilitada (use sem --no-ia para ver contagens).")
 
 
 def _xsd_gate(xml_content: str, warn_prefix: str = "") -> bool:
