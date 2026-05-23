@@ -44,7 +44,7 @@
 | **M9.1** — Melhoria do maintenance-prompt | 🟢 done | #51 | xsltproc na Phase 2E; instrução de conflito de sessões paralelas (Fase 1F); PRs range atualizado; princípio 7 mais preciso. Merged. |
 | **M9.2** — check-credentials informacional | 🟢 done | #53 | `exit 0` em `pull_request`/`push`; só bloqueia em `workflow_dispatch`. Triggers `claude/**` e `pull_request: main`. Merged. |
 | **M9.3** — `scrape --skip-existing` | 🟢 done | #54 | `list_raw_ids(ente, fonte)` + flag `--skip-existing/--no-skip-existing` em `cmd_scrape`. Evita re-scraping de itens já no IA. 10 novos testes. |
-| **M10.1** — Wire `--skip-existing` nos workflows CI | 🟡 in-progress | esta sessão | `rondonia_crawler.yml` e `parse-release.yml` passam `--skip-existing` por padrão. Runs idempotentes sem custo extra de bandwidth/LLM. |
+| **M10.1** — Wire `--skip-existing` nos workflows CI | ⚪ todo | — | `rondonia_crawler.yml` e `parse-release.yml` passam `--skip-existing` por padrão. PR #56 fechado sem merge. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -1044,7 +1044,7 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 **M0–M9.3 concluídos** ✅
 
-**PR aberta desta sessão**: M10.1 — wire `--skip-existing` em `rondonia_crawler.yml` e `parse-release.yml`. Aguardando CI e merge.
+**M10.1 pendente**: PR #56 foi fechado sem merge. Aguardando instrução do franklinbaldo para reabrir ou descartar.
 
 **M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais IA_ACCESS_KEY em CI). Revisitar após primeiro batch real.
 
