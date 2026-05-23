@@ -507,7 +507,7 @@ class TestCmdParseAll:
         ]
 
     def test_non_planalto_uses_coddoc_chave(self):
-        """Fontes não-planalto continuam a usar coddoc-NNNNN."""
+        """Assembleia usa coddoc-NNNNN (identificador de coddoc sequencial da ALRO)."""
         fetched_ids: list[str] = []
 
         def track_ocr(raw_id: str) -> str:
@@ -541,6 +541,36 @@ class TestCmdParseAll:
         assert fetched_ids == [
             "leizilla-raw-ro-assembleia-coddoc-00005",
             "leizilla-raw-ro-assembleia-coddoc-00006",
+        ]
+
+    def test_casacivil_uses_tipo_chave(self):
+        """Casacivil usa {tipo}-NNNNN para separar leis ordinárias de complementares.
+
+        Regression: cmd_parse_all usava coddoc-NNNNN para todos os fontes não-planalto,
+        tornando parse-all --fonte casacivil --tipo lc indistinguível de --tipo lei.
+        """
+        fetched_ids: list[str] = []
+
+        def track_ocr(raw_id: str) -> str:
+            fetched_ids.append(raw_id)
+            return None  # type: ignore[return-value]
+
+        with patch("leizilla.parser.fetch_ocr", side_effect=track_ocr):
+            runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--ente", "ro",
+                    "--fonte", "casacivil",
+                    "--tipo", "lc",
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "2",
+                    "--no-upload",
+                ],
+            )
+        assert fetched_ids == [
+            "leizilla-raw-ro-casacivil-lc-00001",
+            "leizilla-raw-ro-casacivil-lc-00002",
         ]
 
     def test_invalid_input_type_exits_1(self):
@@ -720,6 +750,45 @@ class TestCmdParseAllSkipExisting:
             )
         assert result.exit_code == 0
         assert "1 parseados" in result.output
+
+    def test_limit_counts_only_non_skipped_items(self):
+        """--limit with --skip-existing counts items to process, not items in range.
+
+        Regression for: pre-slicing range by limit before skip check caused schedules
+        to stall after first run (all items in limit window already parsed, 51+ never reached).
+        """
+        already_parsed = {
+            "leizilla-raw-ro-assembleia-coddoc-00001",
+            "leizilla-raw-ro-assembleia-coddoc-00002",
+            "leizilla-raw-ro-assembleia-coddoc-00003",
+        }
+        fetched: list[str] = []
+
+        def track_ocr(raw_id: str) -> str | None:
+            fetched.append(raw_id)
+            return None  # OCR unavailable, but attempt is tracked
+
+        with (
+            patch("leizilla.publisher.list_parsed_raw_ids", return_value=already_parsed),
+            patch("leizilla.parser.fetch_ocr", side_effect=track_ocr),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "100",
+                    "--limit", "2",
+                    "--skip-existing",
+                    "--no-upload",
+                ],
+            )
+        assert result.exit_code == 0
+        # items 1-3 skipped; items 4 and 5 are the first 2 non-skipped → fetched
+        assert fetched == [
+            "leizilla-raw-ro-assembleia-coddoc-00004",
+            "leizilla-raw-ro-assembleia-coddoc-00005",
+        ]
 
 
 class TestCmdParseXsdGateBlocking:
