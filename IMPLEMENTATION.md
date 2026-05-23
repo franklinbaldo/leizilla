@@ -39,8 +39,11 @@
 | **M7.2** — Incremental tracking (check IA antes de parsear) | 🟢 done | #46 | `parse-all --skip-existing` via `list_parsed_raw_ids` com paginação cursor. 9 novos testes. Merged. |
 | **M7.3** — Metadata IA enriquecida | 🟢 done | #48 | `_entity_coverage` helper + `language:pt`, `coverage:{ente}`, `description` nos 4 métodos de upload. Merged. |
 | **M8.1** — `leizilla stats` via IA | 🟢 done | #49 | `count_ia_items(prefix)` + `cmd_stats --ente --ia`: mostra raw/parsed/dataset counts do IA. 9 novos testes. Merged. |
+| **M8.2** — Observabilidade do pipeline (error rate) | 🟢 done | #50 | `--error-threshold` em `parse-all` + GitHub Step Summary + `check-credentials.yml`. Workflow `parse-release.yml` com `--error-threshold 20`. 5 novos testes. Merged. |
+| **M9.1** — Melhoria do maintenance-prompt | 🟡 in-progress | #51 | xsltproc na Phase 2E; protocolo Fase 1F (sessões paralelas); princípio 7 mais preciso. |
+| **M9.2** — check-credentials informacional | 🟢 done | #53 | `exit 0` em PR/push; só bloqueia em `workflow_dispatch`. Triggers auto-inclusas. |
+| **M9.3** — parse-release multi-fonte + skip-existing | 🟡 in-progress | esta sessão | Três steps scheduled (assembleia + casacivil-lei + casacivil-lc) com `--skip-existing`. Input `skip_existing` no dispatch. |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
-| **M8.2** — Observabilidade do pipeline (error rate) | 🟡 in-progress | #50 | `--error-threshold` em `parse-all` + GitHub Step Summary + `check-credentials.yml`. Workflow `parse-release.yml` com `--error-threshold 20`. 5 novos testes. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -95,6 +98,34 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-23 — M9.3: parse-release multi-fonte + skip-existing
+
+**Problema descoberto**: `parse-release.yml` não usava `--skip-existing` (M7.2 existe no CLI mas
+estava ausente do workflow). Sem esse flag, cada run semanal reparseia os mesmos itens do início
+do range — queimando budget LLM sem produzir novos dados. Com `--limit 50` e sem `--skip-existing`,
+todo Monday re-parseia os coddocs 1-50, nunca chegando em 51-100.
+
+**Segundo problema**: scheduled run cobria apenas uma fonte (casacivil-lei por default). assembleia
+e casacivil-lc não eram parseadas automaticamente — teriam que ser disparadas manualmente.
+
+**Fix**: dois modos no mesmo job.
+
+**Schedule (Monday 06:00 UTC)**: três steps sequenciais, cada um com `--skip-existing --limit 50`.
+- `ro/assembleia` coddocs 1-5000
+- `ro/casacivil lei` coddocs 1-6000
+- `ro/casacivil lc` coddocs 1-1300
+
+Cada step parseia at most 50 novos itens (ainda não parseados em IA). Total: ~150 LLM calls/semana
+até cobertura completa. Após cobertura completa: ~0 LLM calls (todos os itens são skipados).
+
+**Dispatch**: mantém parametrização por fonte/tipo + adiciona input `skip_existing` (default `true`).
+Útil para re-parse forçado de um range específico (`skip_existing=false`) ou dry-run de teste.
+
+**Limitação conhecida (M10.1)**: o dataset liberado a cada run contém apenas os XMLs gerados naquele
+run (≤150 itens). O Parquet não acumula com runs anteriores. Para o MVP isso é aceitável — o dataset
+cresce semana a semana. Quando precisarmos de um Parquet full-histórico, adicionar `fetch-all-parsed`
+que baixa todos os XMLs do IA antes do consolidate.
 
 ### 2026-05-23 — M8.2: observabilidade do pipeline — error-threshold + GitHub Step Summary
 
@@ -973,12 +1004,16 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M8.2 concluídos** ✅
+**M0–M8.2 + M9.2 concluídos** ✅
 
-**PR aberta**: #50 (M8.2) — `--error-threshold` + GitHub Step Summary em `parse-all` + `check-credentials.yml`. Aguardando CI e merge na próxima sessão.
+**PRs abertas**:
+- #51 (M9.1) — maintenance-prompt: xsltproc loop + Fase 1F + princípio 7. CI deve passar agora.
+- Esta sessão (M9.3) — parse-release multi-fonte + `--skip-existing`. Aguardando CI e merge.
 
-**M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais IA_ACCESS_KEY em CI). Revisitar após primeiro batch real.
+**M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais em CI).
 
-**Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar workflows de scraping e parsing.
+**Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar o pipeline.
 
-**Após desbloqueio M5.3**: benchmark DuckDB-WASM real com dataset publicado; índice FTS se search > 1s in-browser.
+**Após desbloqueio M5.3**: benchmark DuckDB-WASM real; FTS se search > 1s in-browser.
+
+**M10.1 (futuro)**: `fetch-all-parsed` — baixar todos os XMLs existentes do IA antes do consolidate para Parquet full-histórico acumulado.
