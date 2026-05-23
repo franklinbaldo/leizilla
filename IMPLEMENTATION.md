@@ -33,9 +33,11 @@
 | **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟢 done | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. Merged. |
 | **M5.2** — TanStack Query + paginação + filtros | 🟢 done | #43 | `LeiSearchUI.svelte` + filtros ente/ano + paginação. TanStack Query via bridge Svelte4 stores. Debounce cleanup + LIMIT/OFFSET safety. Merged. |
 | **M6.1** — `parse-all --output-dir` + workflow parse-release | 🟢 done | #40 | `--output-dir` em `parse-all` + `parse-release.yml` (parse→consolidate→release). 2 novos testes. Merged. |
-| **M6.2** — Deploy-web workflow | ⚪ todo | — | `deploy-web.yml` — incluído em #33 (M5.1). Ativo após M5.1 merge. |
+| **M6.2** — Deploy-web workflow | 🟢 done | #33 | `deploy-web.yml` — incluído em M5.1 (#33). Ativo. |
 | **M6.3** — Planalto year-scoped URLs (pós-2002) | 🟢 done | #41 | `planalto_year_scoped_url` + `_camara_year_lookup` (Câmara API, lru_cache, circuit breaker, 429 sem abrir circuit). 47 novos testes. Fix SCHEMA.md. Merged. |
-| **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
+| **M7.1** — Claude Code routines: infra de automação | 🟢 done | #44 | `docs/routines/maintenance-prompt.md` + `claude-routine.yml` (schedule: seg+qui 10h UTC). Merged. |
+| **M7.2** — `parse-all --skip-existing` | 🟡 in-progress | #46 | `list_parsed_raw_ids` + cursor paginação + 2 novos testes. Aguardando CI. |
+| **M7.3** — Metadata IA enriquecida (language + coverage + description) | 🟡 in-progress | — | `_entity_coverage` helper + 4 upload methods enriquecidos. Esta sessão. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -881,8 +883,11 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M4.3, M2.7, M2.8, M5.1, M5.2, M6.1, M6.3 concluídos** ✅
+**M0–M7.1 concluídos** ✅
 
-**Nenhuma PR aberta** — todos os milestones desta sessão mergeados.
+**PRs abertas**:
+- **#44** (M7.1): aguardando Kilo CI rerun após merge-conflict fix.
+- **#46** (M7.2): `parse-all --skip-existing` + fix paginação cursor. Aguardando CI.
+- **Esta sessão** (M7.3): metadata IA enriquecida — `language:pt`, `coverage`, `description` em todos os uploads.
 
-**Próximo milestone**: M6.2 deploy-web workflow (`deploy-web.yml`) — ativa o frontend no GitHub Pages após M5.1 merge (já feito). Ou M7 (Claude Code routines).
+**Próximo após M7.3**: M5.3 — benchmark DuckDB-WASM real com dataset publicado; índice FTS se latência > threshold.
