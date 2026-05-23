@@ -30,12 +30,13 @@
 | **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟢 done | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. |
 | **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟢 done | #36 | Sobe dataset Parquet para IA; benchmark local §3.4. 229 testes. |
 | **M4.3** — benchmark gatilhos §3.4 (testes) | 🟢 done | #39 | 6 testes para gatilhos file/rows/latência em `TestReleaseDatasetBenchmark`. Benchmark WASM real em M5.2. |
-| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟢 done | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. Merged. |
+| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟢 done | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. `deploy-web.yml` incluso. Merged. |
 | **M5.2** — TanStack Query + paginação + filtros | 🟢 done | #43 | `LeiSearchUI.svelte` + filtros ente/ano + paginação. TanStack Query via bridge Svelte4 stores. Debounce cleanup + LIMIT/OFFSET safety. Merged. |
 | **M6.1** — `parse-all --output-dir` + workflow parse-release | 🟢 done | #40 | `--output-dir` em `parse-all` + `parse-release.yml` (parse→consolidate→release). 2 novos testes. Merged. |
-| **M6.2** — Deploy-web workflow | ⚪ todo | — | `deploy-web.yml` — incluído em #33 (M5.1). Ativo após M5.1 merge. |
+| **M6.2** — Deploy-web workflow | 🟢 done | #33 | `deploy-web.yml` — incluído em M5.1 (#33). Ativo. |
 | **M6.3** — Planalto year-scoped URLs (pós-2002) | 🟢 done | #41 | `planalto_year_scoped_url` + `_camara_year_lookup` (Câmara API, lru_cache, circuit breaker, 429 sem abrir circuit). 47 novos testes. Fix SCHEMA.md. Merged. |
-| **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
+| **M7.1** — Claude Code routines: infra de automação | 🟢 done | #44 | `docs/routines/maintenance-prompt.md` + `claude-routine.yml` (schedule: seg+qui 10h UTC). Prompt canônico versionado no repo; workflow dispara sessões automáticas. |
+| **M7.2** — Incremental tracking (check IA antes de parsear) | 🟡 in-progress | #46 | `parse-all --skip-existing` via `list_parsed_raw_ids` consultando IA. Fix paginação (cursor) pendente nesta sessão. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -90,6 +91,29 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-23 — M7.1: Claude Code routine infra — prompt canônico + workflow
+
+M6 encerrado (M6.1 #40 + M6.2 em M5.1/#33 + M6.3 #41 todos merged). M7 desbloqueado.
+
+**Decomposição de M7**: o log de M6.1 mencionava "incremental tracking é M7" — mas M7
+também significa a infra de automação das sessões de rotina (que não existia formalmente).
+Separados em M7.1 (infra) e M7.2 (incremental tracking) para manter PRs coerentes.
+
+**`docs/routines/maintenance-prompt.md`**: prompt canônico extraído da sessão atual.
+Motivo de versioná-lo: drift entre sessões sem fonte-da-verdade central era inevitável.
+Com o arquivo no repo, o prompt evolui junto com o código (e o log aqui registra por quê).
+
+**`claude-routine.yml`** — schedule segunda + quinta 10:00 UTC:
+- Não diária — custo de sessão Opus + API GitHub tem overhead. 2×/semana é suficiente
+  para um repo que faz 1-2 sessões de código por dia via web.
+- `concurrency: cancel-in-progress: false` — sessões não devem se sobrepor; a segunda
+  aguarda (não cancela) para garantir idempotência.
+- `workflow_dispatch` sempre disponível para sessões ad-hoc e debugging.
+- Usa `anthropics/claude-code-action@beta` — mesmo mecanismo das sessões manuais via web.
+
+**M7.2 (incremental tracking)**: deferido para próxima PR. Requer consulta à API IA para
+listar `ia_id_parsed` existentes — envolve HTTP e lógica nova em `publisher.py`. Mantém M7.1 focado.
 
 ### 2026-05-22 — M6.1: parse-all --output-dir + parse-release workflow
 
@@ -881,8 +905,8 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M4.3, M2.7, M2.8, M5.1, M5.2, M6.1, M6.3 concluídos** ✅
+**M0–M7.1 concluídos** ✅
 
-**Nenhuma PR aberta** — todos os milestones desta sessão mergeados.
+**PR aberta**: #46 (M7.2) — `parse-all --skip-existing` via `list_parsed_raw_ids`. Fix de paginação (cursor IA scrape API) em andamento nesta sessão.
 
-**Próximo milestone**: M6.2 deploy-web workflow (`deploy-web.yml`) — ativa o frontend no GitHub Pages após M5.1 merge (já feito). Ou M7 (Claude Code routines).
+**Próximo após M7.2**: M5.3 — benchmark DuckDB-WASM real com dataset publicado; índice FTS se latência > threshold.
