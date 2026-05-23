@@ -619,6 +619,11 @@ def cmd_parse_all(
         "--output-dir",
         help="Salvar XMLs parseados em {output_dir}/{ia_id_parsed}.xml (além do upload IA)",
     ),
+    skip_existing: bool = typer.Option(
+        False,
+        "--skip-existing/--no-skip-existing",
+        help="Consultar IA e pular raw_ids que já têm parsed item publicado",
+    ),
 ) -> None:
     """Batch parse: range de números → OCR/HTML → LLM → (upload para IA).
 
@@ -636,7 +641,13 @@ def cmd_parse_all(
             output_dir.mkdir(parents=True, exist_ok=True)
 
         from leizilla.parser import fetch_ia_html, fetch_ocr, parse_law
-        from leizilla.publisher import InternetArchivePublisher
+        from leizilla.publisher import InternetArchivePublisher, list_parsed_raw_ids
+
+        already_parsed: set[str] = set()
+        if skip_existing:
+            echo(f"Verificando items já parseados em IA para {ente}/{fonte}...")
+            already_parsed = list_parsed_raw_ids(ente, fonte)
+            echo(f"  {len(already_parsed)} raw_ids já publicados — serão pulados")
 
         pub = InternetArchivePublisher() if upload else None
         coddoc_range = range(start_coddoc, end_coddoc + 1)
@@ -647,6 +658,7 @@ def cmd_parse_all(
         parsed_fail = 0
         uploaded_ok = 0
         upload_fail = 0
+        skipped_ok = 0
 
         for num in coddoc_range:
             if ente == "federal" and fonte == "planalto":
@@ -654,6 +666,12 @@ def cmd_parse_all(
             else:
                 chave = f"coddoc-{num:05d}"
             raw_id = f"leizilla-raw-{ente}-{fonte}-{chave}"
+
+            if skip_existing and raw_id in already_parsed:
+                echo(f"[{num}] {raw_id} — já publicado, skip")
+                skipped_ok += 1
+                continue
+
             echo(f"[{num}] {raw_id}")
 
             try:
@@ -711,6 +729,7 @@ def cmd_parse_all(
 
         echo(
             f"\nBatch concluído: {parsed_ok} parseados, {parsed_fail} falhos"
+            + (f", {skipped_ok} pulados (já publicados)" if skip_existing else "")
             + (f", {uploaded_ok} uploaded" if upload else "")
             + (f", {upload_fail} erros de upload" if upload and upload_fail else "")
         )
