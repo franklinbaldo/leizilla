@@ -160,6 +160,16 @@ class InternetArchivePublisher:
         self.secret_key = config.IA_SECRET_KEY
         self.collection = config.IA_COLLECTION
 
+    def _ia_env(self) -> Dict[str, str]:
+        import os
+
+        env = os.environ.copy()
+        if self.access_key:
+            env["IA_ACCESS_KEY_ID"] = self.access_key
+        if self.secret_key:
+            env["IA_SECRET_ACCESS_KEY"] = self.secret_key
+        return env
+
     def upload_raw(
         self,
         pdf_path: Path,
@@ -236,6 +246,7 @@ class InternetArchivePublisher:
             try:
                 subprocess.run(
                     ia_args,
+                    env=self._ia_env(),
                     capture_output=True,
                     text=True,
                     check=True,
@@ -324,6 +335,7 @@ class InternetArchivePublisher:
             try:
                 subprocess.run(
                     ia_args,
+                    env=self._ia_env(),
                     capture_output=True,
                     text=True,
                     check=True,
@@ -417,6 +429,7 @@ class InternetArchivePublisher:
             try:
                 subprocess.run(
                     ia_args,
+                    env=self._ia_env(),
                     capture_output=True,
                     text=True,
                     check=True,
@@ -510,6 +523,7 @@ class InternetArchivePublisher:
             try:
                 subprocess.run(
                     ia_args,
+                    env=self._ia_env(),
                     capture_output=True,
                     text=True,
                     check=True,
