@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any, Dict, Optional
 
-import anthropic
+from litellm import completion
 
 from leizilla import config
 
@@ -221,26 +221,19 @@ def parse_law(
         input_intro=input_intro, today=today, ia_id=ia_id, ente_name=ente_name
     )
 
-    client = anthropic.Anthropic(api_key=api_key)
-    message = client.messages.create(
+    messages = [
+        {"role": "system", "content": system, "cache_control": {"type": "ephemeral"}},
+        {"role": "user", "content": f"{user_prefix}:\n\n{ocr_text[:char_limit]}"}
+    ]
+
+    response = completion(
         model=model,
+        messages=messages,
         max_tokens=4096,
-        system=[
-            {
-                "type": "text",
-                "text": system,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
-        messages=[
-            {
-                "role": "user",
-                "content": f"{user_prefix}:\n\n{ocr_text[:char_limit]}",
-            }
-        ],
+        api_key=api_key
     )
 
-    raw = message.content[0].text if message.content else ""
+    raw = response.choices[0].message.content if response.choices else ""
     result = _extract_json(raw)
     if result is None:
         return None
@@ -270,8 +263,8 @@ def parse_law(
         return None
     ia_id_parsed = f"leizilla-{ente}-{tipo}-{numero_str.zfill(5)}-{ano}"
 
-    input_tokens = getattr(message.usage, "input_tokens", 0)
-    output_tokens = getattr(message.usage, "output_tokens", 0)
+    input_tokens = getattr(response.usage, "prompt_tokens", 0)
+    output_tokens = getattr(response.usage, "completion_tokens", 0)
 
     parsed_meta: Dict[str, Any] = {
         "leizilla_meta_version": "0.1",

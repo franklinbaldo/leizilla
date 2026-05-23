@@ -21,11 +21,11 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "anthropic",
     "anyio",
     "beautifulsoup4",
     "duckdb",
     "internetarchive",
+    "litellm>=1.85.1",
     "playwright",
     "requests",
     "typer",
