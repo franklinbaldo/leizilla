@@ -507,7 +507,7 @@ class TestCmdParseAll:
         ]
 
     def test_non_planalto_uses_coddoc_chave(self):
-        """Fontes não-planalto continuam a usar coddoc-NNNNN."""
+        """Assembleia usa coddoc-NNNNN (identificador de coddoc sequencial da ALRO)."""
         fetched_ids: list[str] = []
 
         def track_ocr(raw_id: str) -> str:
@@ -541,6 +541,36 @@ class TestCmdParseAll:
         assert fetched_ids == [
             "leizilla-raw-ro-assembleia-coddoc-00005",
             "leizilla-raw-ro-assembleia-coddoc-00006",
+        ]
+
+    def test_casacivil_uses_tipo_chave(self):
+        """Casacivil usa {tipo}-NNNNN para separar leis ordinárias de complementares.
+
+        Regression: cmd_parse_all usava coddoc-NNNNN para todos os fontes não-planalto,
+        tornando parse-all --fonte casacivil --tipo lc indistinguível de --tipo lei.
+        """
+        fetched_ids: list[str] = []
+
+        def track_ocr(raw_id: str) -> str:
+            fetched_ids.append(raw_id)
+            return None  # type: ignore[return-value]
+
+        with patch("leizilla.parser.fetch_ocr", side_effect=track_ocr):
+            runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--ente", "ro",
+                    "--fonte", "casacivil",
+                    "--tipo", "lc",
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "2",
+                    "--no-upload",
+                ],
+            )
+        assert fetched_ids == [
+            "leizilla-raw-ro-casacivil-lc-00001",
+            "leizilla-raw-ro-casacivil-lc-00002",
         ]
 
     def test_invalid_input_type_exits_1(self):
