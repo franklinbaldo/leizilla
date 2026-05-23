@@ -95,3 +95,58 @@ def test_get_stats(temp_db):
     assert "federal" in stats["por_ente"]
     assert stats["por_ente"]["ro"] == 1
     assert stats["por_ente"]["federal"] == 1
+
+
+def test_create_schema_discovered_resources(temp_db):
+    conn = temp_db.connect()
+    result = conn.execute(
+        "SELECT table_name FROM information_schema.tables WHERE table_name = 'discovered_resources'"
+    ).fetchone()
+    assert result is not None
+
+
+def test_insert_and_get_pending_resources(temp_db):
+    res_data = {
+        "url": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L5120.pdf",
+        "ente": "ro",
+        "fonte": "casacivil",
+        "tipo_documento": "lei",
+        "chave": "L5120",
+    }
+    temp_db.insert_resource(res_data)
+    pending = temp_db.get_pending_resources()
+    assert len(pending) == 1
+    assert (
+        pending[0]["url"]
+        == "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L5120.pdf"
+    )
+    assert pending[0]["status"] == "pending"
+
+
+def test_update_resource_status(temp_db):
+    res_data = {
+        "url": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L5120.pdf",
+        "ente": "ro",
+        "fonte": "casacivil",
+        "tipo_documento": "lei",
+        "chave": "L5120",
+    }
+    temp_db.insert_resource(res_data)
+    temp_db.update_resource_status(
+        "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L5120.pdf",
+        "downloaded",
+        "https://web.archive.org/web/20260523/http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L5120.pdf",
+    )
+    pending = temp_db.get_pending_resources()
+    assert len(pending) == 0
+
+    conn = temp_db.connect()
+    row = conn.execute(
+        "SELECT * FROM discovered_resources WHERE url = ?", [res_data["url"]]
+    ).fetchone()
+    assert row is not None
+    assert row[5] == "downloaded"  # status
+    assert (
+        row[8]
+        == "https://web.archive.org/web/20260523/http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L5120.pdf"
+    )  # wayback_snapshot

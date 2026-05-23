@@ -560,11 +560,16 @@ class TestCmdParseAll:
                 app,
                 [
                     "parse-all",
-                    "--ente", "ro",
-                    "--fonte", "casacivil",
-                    "--tipo", "lc",
-                    "--start-coddoc", "1",
-                    "--end-coddoc", "2",
+                    "--ente",
+                    "ro",
+                    "--fonte",
+                    "casacivil",
+                    "--tipo",
+                    "lc",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "2",
                     "--no-upload",
                 ],
             )
@@ -592,7 +597,6 @@ class TestCmdParseAll:
         assert result.exit_code == 1
         assert "inválido" in result.output
         mock_ocr.assert_not_called()
-
 
     def test_output_dir_saves_xml_files(self, tmp_path):
         """--output-dir cria arquivos {ia_id_parsed}.xml para cada parse bem-sucedido."""
@@ -622,9 +626,12 @@ class TestCmdParseAll:
                 app,
                 [
                     "parse-all",
-                    "--start-coddoc", "1",
-                    "--end-coddoc", "2",
-                    "--output-dir", str(tmp_path / "xmls"),
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "2",
+                    "--output-dir",
+                    str(tmp_path / "xmls"),
                 ],
             )
         assert result.exit_code == 0
@@ -643,9 +650,12 @@ class TestCmdParseAll:
                 app,
                 [
                     "parse-all",
-                    "--start-coddoc", "1",
-                    "--end-coddoc", "3",
-                    "--output-dir", str(out),
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "3",
+                    "--output-dir",
+                    str(out),
                     "--no-upload",
                 ],
             )
@@ -672,8 +682,10 @@ class TestCmdParseAllSkipExisting:
                 app,
                 [
                     "parse-all",
-                    "--start-coddoc", "1",
-                    "--end-coddoc", "1",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "1",
                     "--skip-existing",
                     "--no-upload",
                 ],
@@ -696,8 +708,10 @@ class TestCmdParseAllSkipExisting:
                 app,
                 [
                     "parse-all",
-                    "--start-coddoc", "1",
-                    "--end-coddoc", "2",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "2",
                     "--skip-existing",
                     "--no-upload",
                 ],
@@ -715,8 +729,10 @@ class TestCmdParseAllSkipExisting:
                 app,
                 [
                     "parse-all",
-                    "--start-coddoc", "1",
-                    "--end-coddoc", "2",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "2",
                     "--no-skip-existing",
                     "--no-upload",
                 ],
@@ -743,8 +759,10 @@ class TestCmdParseAllSkipExisting:
                 app,
                 [
                     "parse-all",
-                    "--start-coddoc", "1",
-                    "--end-coddoc", "1",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "1",
                     "--skip-existing",
                 ],
             )
@@ -769,16 +787,21 @@ class TestCmdParseAllSkipExisting:
             return None  # OCR unavailable, but attempt is tracked
 
         with (
-            patch("leizilla.publisher.list_parsed_raw_ids", return_value=already_parsed),
+            patch(
+                "leizilla.publisher.list_parsed_raw_ids", return_value=already_parsed
+            ),
             patch("leizilla.parser.fetch_ocr", side_effect=track_ocr),
         ):
             result = runner.invoke(
                 app,
                 [
                     "parse-all",
-                    "--start-coddoc", "1",
-                    "--end-coddoc", "100",
-                    "--limit", "2",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "100",
+                    "--limit",
+                    "2",
                     "--skip-existing",
                     "--no-upload",
                 ],
@@ -826,7 +849,14 @@ class TestCmdParseAllErrorThreshold:
         ):
             result = runner.invoke(
                 app,
-                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "3", "--no-upload"],
+                [
+                    "parse-all",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "3",
+                    "--no-upload",
+                ],
             )
         assert result.exit_code == 0
         assert "3 falhos" in result.output
@@ -846,9 +876,12 @@ class TestCmdParseAllErrorThreshold:
                 app,
                 [
                     "parse-all",
-                    "--start-coddoc", "1",
-                    "--end-coddoc", "2",
-                    "--error-threshold", "60",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "2",
+                    "--error-threshold",
+                    "60",
                 ],
             )
         assert result.exit_code == 0
@@ -870,9 +903,12 @@ class TestCmdParseAllErrorThreshold:
                 app,
                 [
                     "parse-all",
-                    "--start-coddoc", "1",
-                    "--end-coddoc", "5",
-                    "--error-threshold", "50",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "5",
+                    "--error-threshold",
+                    "50",
                 ],
             )
         assert result.exit_code == 1
@@ -915,10 +951,13 @@ class TestCmdParseAllErrorThreshold:
                 app,
                 [
                     "parse-all",
-                    "--start-coddoc", "1",
-                    "--end-coddoc", "2",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "2",
                     "--no-upload",
-                    "--error-threshold", "30",
+                    "--error-threshold",
+                    "30",
                 ],
             )
         content = summary_file.read_text()

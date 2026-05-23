@@ -47,27 +47,52 @@ class TestCmdScrapeSkipExisting:
     @patch("leizilla.publisher.list_raw_ids", return_value=set())
     def test_no_skip_when_flag_absent(self, mock_list, mock_asyncio):
         """Sem --skip-existing, list_raw_ids não é chamado."""
-        result = runner.invoke(
+        runner.invoke(
             app,
-            ["scrape", "--ente", "ro", "--fonte", "casacivil",
-             "--start-coddoc", "1", "--end-coddoc", "1"],
+            [
+                "scrape",
+                "--ente",
+                "ro",
+                "--fonte",
+                "casacivil",
+                "--start-coddoc",
+                "1",
+                "--end-coddoc",
+                "1",
+            ],
         )
         mock_list.assert_not_called()
 
     @patch("leizilla.cli.asyncio.run")
-    @patch("leizilla.publisher.list_raw_ids", return_value={"leizilla-raw-ro-casacivil-lei-00001"})
+    @patch(
+        "leizilla.publisher.list_raw_ids",
+        return_value={"leizilla-raw-ro-casacivil-lei-00001"},
+    )
     def test_skip_existing_flag_calls_list_raw_ids(self, mock_list, mock_asyncio):
         """Com --skip-existing, list_raw_ids é chamado com ente/fonte corretos."""
         runner.invoke(
             app,
-            ["scrape", "--ente", "ro", "--fonte", "casacivil",
-             "--start-coddoc", "1", "--end-coddoc", "1", "--skip-existing"],
+            [
+                "scrape",
+                "--ente",
+                "ro",
+                "--fonte",
+                "casacivil",
+                "--start-coddoc",
+                "1",
+                "--end-coddoc",
+                "1",
+                "--skip-existing",
+            ],
         )
         mock_list.assert_called_once_with("ro", "casacivil")
 
     @patch("leizilla.scraper.scrape_one_html")
     @patch("leizilla.publisher.InternetArchivePublisher")
-    @patch("leizilla.publisher.list_raw_ids", return_value={"leizilla-raw-federal-planalto-lei-00001"})
+    @patch(
+        "leizilla.publisher.list_raw_ids",
+        return_value={"leizilla-raw-federal-planalto-lei-00001"},
+    )
     @patch("leizilla.fontes.federal.discover_planalto_laws")
     def test_planalto_skips_existing_item(
         self, mock_discover, mock_list, mock_pub_cls, mock_scrape
@@ -85,8 +110,18 @@ class TestCmdScrapeSkipExisting:
 
         result = runner.invoke(
             app,
-            ["scrape", "--ente", "federal", "--fonte", "planalto",
-             "--start-coddoc", "1", "--end-coddoc", "1", "--skip-existing"],
+            [
+                "scrape",
+                "--ente",
+                "federal",
+                "--fonte",
+                "planalto",
+                "--start-coddoc",
+                "1",
+                "--end-coddoc",
+                "1",
+                "--skip-existing",
+            ],
         )
         mock_scrape.assert_not_called()
         assert "pulados (já existem)" in result.output
@@ -110,10 +145,20 @@ class TestCmdScrapeSkipExisting:
         mock_pub_cls.return_value = MagicMock()
         mock_scrape.return_value = _UPLOAD_OK
 
-        result = runner.invoke(
+        runner.invoke(
             app,
-            ["scrape", "--ente", "federal", "--fonte", "planalto",
-             "--start-coddoc", "2", "--end-coddoc", "2", "--skip-existing"],
+            [
+                "scrape",
+                "--ente",
+                "federal",
+                "--fonte",
+                "planalto",
+                "--start-coddoc",
+                "2",
+                "--end-coddoc",
+                "2",
+                "--skip-existing",
+            ],
         )
         mock_scrape.assert_called_once()
 
@@ -123,7 +168,17 @@ class TestCmdScrapeSkipExisting:
         with patch("leizilla.cli.asyncio.run"):
             result = runner.invoke(
                 app,
-                ["scrape", "--ente", "ro", "--fonte", "casacivil",
-                 "--start-coddoc", "1", "--end-coddoc", "1", "--skip-existing"],
+                [
+                    "scrape",
+                    "--ente",
+                    "ro",
+                    "--fonte",
+                    "casacivil",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "1",
+                    "--skip-existing",
+                ],
             )
         assert "0 itens existentes encontrados" in result.output
