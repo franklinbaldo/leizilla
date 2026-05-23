@@ -670,7 +670,7 @@ def cmd_parse_all(
     tipo: str = typer.Option(
         "lei",
         "--tipo",
-        help="Tipo de lei para fontes HTML (lei, lcp, decreto); ignorado para fontes OCR",
+        help="Tipo de lei: lei, lc (casacivil), lcp, decreto (planalto). Determina o chave prefix para casacivil e planalto.",
     ),
     model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
     upload: bool = typer.Option(
@@ -724,26 +724,31 @@ def cmd_parse_all(
 
         pub = InternetArchivePublisher() if upload else None
         coddoc_range = range(start_coddoc, end_coddoc + 1)
-        if limit is not None:
-            coddoc_range = coddoc_range[:limit]
 
         parsed_ok = 0
         parsed_fail = 0
         uploaded_ok = 0
         upload_fail = 0
         skipped_ok = 0
+        processed = 0  # items actually attempted (not skipped by --skip-existing)
 
         for num in coddoc_range:
-            if ente == "federal" and fonte == "planalto":
-                chave = f"{tipo}-{num:05d}"
-            else:
+            if fonte == "assembleia":
                 chave = f"coddoc-{num:05d}"
+            else:
+                # casacivil: lei-NNNNN or lc-NNNNN; planalto: lei/lcp/decreto-NNNNN
+                chave = f"{tipo}-{num:05d}"
             raw_id = f"leizilla-raw-{ente}-{fonte}-{chave}"
 
             if skip_existing and raw_id in already_parsed:
                 echo(f"[{num}] {raw_id} — já publicado, skip")
                 skipped_ok += 1
                 continue
+
+            # limit counts items actually processed, not items visited in the range
+            if limit is not None and processed >= limit:
+                break
+            processed += 1
 
             echo(f"[{num}] {raw_id}")
 

@@ -30,8 +30,11 @@ on:
         description: "Versão do dataset publicado no IA (inteiro)"
         default: "0"
       dry_run:
-        description: "Se 'true', pula upload de parsed items e do dataset (valida pipeline localmente)"
+        description: "Se 'true', pula upload de parsed items e do dataset"
         default: "false"
+      skip_existing:
+        description: "Se 'true', pula itens já parseados em IA (incremental)"
+        default: "true"
 
 jobs:
   parse-release:
@@ -45,16 +48,63 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Parse batch → XMLs locais + upload IA parsed items
+      - name: Create output dir
+        run: mkdir -p /tmp/leizilla-xmls
+
+      # ── SCHEDULED: parse all three RO sources incrementally ──────────────
+
+      - name: Parse — ro/assembleia (scheduled)
+        if: github.event_name == 'schedule'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
-          mkdir -p /tmp/leizilla-xmls
-          # Normaliza dry_run para minúsculas — cobre "true", "True", "TRUE"
+          uv run leizilla parse-all \
+            --ente ro --fonte assembleia \
+            --start-coddoc 1 --end-coddoc 5000 \
+            --limit 50 --output-dir /tmp/leizilla-xmls \
+            --skip-existing --error-threshold 20 --upload
+
+      - name: Parse — ro/casacivil lei (scheduled)
+        if: github.event_name == 'schedule'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          uv run leizilla parse-all \
+            --ente ro --fonte casacivil --tipo lei \
+            --start-coddoc 1 --end-coddoc 6000 \
+            --limit 50 --output-dir /tmp/leizilla-xmls \
+            --skip-existing --error-threshold 20 --upload
+
+      - name: Parse — ro/casacivil lc (scheduled)
+        if: github.event_name == 'schedule'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          uv run leizilla parse-all \
+            --ente ro --fonte casacivil --tipo lc \
+            --start-coddoc 1 --end-coddoc 1300 \
+            --limit 50 --output-dir /tmp/leizilla-xmls \
+            --skip-existing --error-threshold 20 --upload
+
+      # ── DISPATCH: single fonte/tipo, user-controlled ──────────────────────
+
+      - name: Parse batch (dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
           DRY_RUN="${{ inputs.dry_run || 'false' }}"
+          SKIP="${{ inputs.skip_existing || 'true' }}"
           if [ "${DRY_RUN,,}" = "true" ]; then UPLOAD_FLAG="--no-upload"; else UPLOAD_FLAG="--upload"; fi
+          if [ "${SKIP,,}" = "true" ]; then SKIP_FLAG="--skip-existing"; else SKIP_FLAG="--no-skip-existing"; fi
           uv run leizilla parse-all \
             --ente "${{ inputs.ente || 'ro' }}" \
             --fonte "${{ inputs.fonte || 'casacivil' }}" \
@@ -65,7 +115,10 @@ jobs:
             --limit "${{ inputs.limit || '50' }}" \
             --output-dir /tmp/leizilla-xmls \
             --error-threshold 20 \
+            $SKIP_FLAG \
             $UPLOAD_FLAG
+
+      # ── ETL + RELEASE ──────────────────────────────────────────────────────
 
       - name: Consolidate XMLs → Parquet
         run: |
