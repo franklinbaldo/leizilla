@@ -33,9 +33,10 @@
 | **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟢 done | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. Merged. |
 | **M5.2** — TanStack Query + paginação + filtros | 🟢 done | #43 | `LeiSearchUI.svelte` + filtros ente/ano + paginação. TanStack Query via bridge Svelte4 stores. Debounce cleanup + LIMIT/OFFSET safety. Merged. |
 | **M6.1** — `parse-all --output-dir` + workflow parse-release | 🟢 done | #40 | `--output-dir` em `parse-all` + `parse-release.yml` (parse→consolidate→release). 2 novos testes. Merged. |
-| **M6.2** — Deploy-web workflow | ⚪ todo | — | `deploy-web.yml` — incluído em #33 (M5.1). Ativo após M5.1 merge. |
+| **M6.2** — Deploy-web workflow | 🟢 done | #33 | `deploy-web.yml` incluído em M5.1. Ativo após merge de main. |
 | **M6.3** — Planalto year-scoped URLs (pós-2002) | 🟢 done | #41 | `planalto_year_scoped_url` + `_camara_year_lookup` (Câmara API, lru_cache, circuit breaker, 429 sem abrir circuit). 47 novos testes. Fix SCHEMA.md. Merged. |
-| **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
+| **M7.1** — Claude Code routine infra | 🟡 in-progress | #44 | `docs/routines/maintenance-prompt.md` + `claude-routine.yml` (seg+qui 10h UTC). Aguardando CI verde. |
+| **M7.2** — `parse-all --skip-existing` | 🟡 in-progress | — | `list_parsed_raw_ids(ente, fonte)` + `--skip-existing/--no-skip-existing`. 9 novos testes. Esta sessão. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -90,6 +91,32 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-23 — M7.2: parse-all --skip-existing via consulta IA
+
+Problema: rotina automática rodando `parse-all --ente ro --fonte assembleia --start 1 --end 5000`
+re-parseia todos os 5000 itens a cada execução, gastando ~$100 em LLM desnecessariamente.
+
+**Abordagem escolhida — fetch de parsed_meta.json por item**:
+`list_parsed_raw_ids(ente, fonte)` faz (1) uma IA scrape query para listar todos os parsed items do ente,
+(2) faz N fetches de `parsed_meta.json` (um por item) para extrair `ia_id_raw`, (3) filtra pelo prefixo
+`leizilla-raw-{ente}-{fonte}-`. Retorna `set[str]` de raw_ids já processados. Fail-open: erro de rede →
+empty set (nunca pula item por falha de conectividade).
+
+**Por que não IA metadata search**: IA permite campos customizados em `--metadata key:value` mas
+indexação é assíncrona e o suporte a buscas por campos arbitrários não é garantido. A alternativa
+confiável seria adicionar `raw-id` ao campo `subject`, mas isso requer modificar `upload_parsed` E
+re-fazer uploads de items existentes para backward compat. Para o MVP, N fetches HTTP de ~1KB cada
+é mais confiável e mais simples.
+
+**Trade-off de latência**: Para RO com ~5k leis e ~100 já parseadas, lista seria 101 requests (1 search
++ 100 fetches). Tempo estimado: 100-200s (sem threading). Aceitável para rotina semanal/quinzenal.
+Se virar gargalo → M7.3 otimiza com metadata IA ou cache local (armazenado em `data/parsed_cache.json`).
+
+**`--skip-existing` não muda saída padrão**: sem a flag, comportamento idêntico ao anterior.
+Com a flag, adiciona linha "N pulados (já publicados)" no sumário.
+
+9 novos testes (5 unitários `TestListParsedRawIds`, 4 de integração `TestCmdParseAllSkipExisting`).
 
 ### 2026-05-22 — M6.1: parse-all --output-dir + parse-release workflow
 
@@ -881,8 +908,12 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M4.3, M2.7, M2.8, M5.1, M5.2, M6.1, M6.3 concluídos** ✅
+**M0–M4.3, M2.7, M2.8, M5.1, M5.2, M6.1, M6.2, M6.3 concluídos** ✅
 
-**Nenhuma PR aberta** — todos os milestones desta sessão mergeados.
+**PRs abertas**:
+- #44 — M7.1 routine infra (CI running, aguardando merge)
+- Esta sessão — M7.2 `parse-all --skip-existing` (PR aberta, aguardando CI)
 
-**Próximo milestone**: M6.2 deploy-web workflow (`deploy-web.yml`) — ativa o frontend no GitHub Pages após M5.1 merge (já feito). Ou M7 (Claude Code routines).
+**Próximos milestones**:
+- M7.3: `parse-all --skip-existing` com metadata IA indexada (otimização — reduz N fetches de parsed_meta.json para 1 search query; decisão em M7.2 se latência for problema)
+- M5.3: benchmark DuckDB-WASM real + FTS (bloqueado por dataset com dados reais)

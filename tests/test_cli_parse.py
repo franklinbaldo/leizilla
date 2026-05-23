@@ -624,6 +624,104 @@ class TestCmdParseAll:
         assert not any(out.glob("*.xml"))
 
 
+class TestCmdParseAllSkipExisting:
+    """Testes para --skip-existing em parse-all."""
+
+    def test_skip_existing_skips_already_parsed_items(self):
+        """Items cujo raw_id está em already_parsed são pulados sem fetch/parse."""
+        raw_id = "leizilla-raw-ro-assembleia-coddoc-00001"
+        with (
+            patch(
+                "leizilla.publisher.list_parsed_raw_ids",
+                return_value={raw_id},
+            ),
+            patch("leizilla.parser.fetch_ocr") as mock_ocr,
+            patch("leizilla.parser.parse_law") as mock_parse,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "1",
+                    "--skip-existing",
+                    "--no-upload",
+                ],
+            )
+        assert result.exit_code == 0
+        assert "já publicado, skip" in result.output
+        mock_ocr.assert_not_called()
+        mock_parse.assert_not_called()
+
+    def test_skip_existing_reports_skipped_count_in_summary(self):
+        raw_ids = {
+            "leizilla-raw-ro-assembleia-coddoc-00001",
+            "leizilla-raw-ro-assembleia-coddoc-00002",
+        }
+        with (
+            patch("leizilla.publisher.list_parsed_raw_ids", return_value=raw_ids),
+            patch("leizilla.parser.fetch_ocr", return_value=None),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "2",
+                    "--skip-existing",
+                    "--no-upload",
+                ],
+            )
+        assert result.exit_code == 0
+        assert "2 pulados (já publicados)" in result.output
+
+    def test_no_skip_existing_processes_all_items(self):
+        """Sem --skip-existing, list_parsed_raw_ids não é chamado."""
+        with (
+            patch("leizilla.publisher.list_parsed_raw_ids") as mock_list,
+            patch("leizilla.parser.fetch_ocr", return_value=None),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "2",
+                    "--no-skip-existing",
+                    "--no-upload",
+                ],
+            )
+        assert result.exit_code == 0
+        mock_list.assert_not_called()
+
+    def test_skip_existing_network_error_falls_through(self):
+        """Falha de rede em list_parsed_raw_ids → empty set → nenhum skip."""
+        with (
+            patch(
+                "leizilla.publisher.list_parsed_raw_ids",
+                return_value=set(),
+            ),
+            patch("leizilla.parser.fetch_ocr", return_value="ocr"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "1",
+                    "--skip-existing",
+                ],
+            )
+        assert result.exit_code == 0
+        assert "1 parseados" in result.output
+
+
 class TestCmdParseXsdGateBlocking:
     def test_parse_upload_blocked_when_xsd_fails(self):
         with (

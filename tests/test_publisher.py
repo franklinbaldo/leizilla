@@ -11,6 +11,7 @@ from leizilla.publisher import (
     _raw_identifier,
     _bundle_identifier,
     build_raw_meta,
+    list_parsed_raw_ids,
     InternetArchivePublisher,
 )
 
@@ -212,3 +213,106 @@ class TestUploadParsed:
             )
         assert result["success"] is False
         assert "upload failed" in result["error"]
+
+
+class TestListParsedRawIds:
+    """Testes para list_parsed_raw_ids — consulta IA sem credenciais."""
+
+    def _make_urlopen(self, responses: list):
+        """Retorna mock para urllib.request.urlopen que serve respostas sequenciais."""
+        calls = iter(responses)
+
+        class _FakeResponse:
+            def __init__(self, data: bytes):
+                self._data = data
+
+            def read(self):
+                return self._data
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+        def fake_urlopen(req, timeout=None):
+            return _FakeResponse(next(calls))
+
+        return fake_urlopen
+
+    def test_returns_empty_set_on_search_network_error(self):
+        with patch("urllib.request.urlopen", side_effect=OSError("network")):
+            result = list_parsed_raw_ids("ro", "assembleia")
+        assert result == set()
+
+    def test_returns_empty_set_when_no_parsed_items(self):
+        scrape_resp = json.dumps({"items": []}).encode()
+        urlopen = self._make_urlopen([scrape_resp])
+        with patch("urllib.request.urlopen", side_effect=urlopen):
+            result = list_parsed_raw_ids("ro", "assembleia")
+        assert result == set()
+
+    def test_returns_raw_ids_matching_fonte(self):
+        scrape_resp = json.dumps(
+            {"items": [{"identifier": "leizilla-ro-lei-00001-2000"}]}
+        ).encode()
+        meta_resp = json.dumps(
+            {"ia_id_raw": "leizilla-raw-ro-assembleia-coddoc-00001"}
+        ).encode()
+        urlopen = self._make_urlopen([scrape_resp, meta_resp])
+        with patch("urllib.request.urlopen", side_effect=urlopen):
+            result = list_parsed_raw_ids("ro", "assembleia")
+        assert result == {"leizilla-raw-ro-assembleia-coddoc-00001"}
+
+    def test_filters_out_different_fonte(self):
+        scrape_resp = json.dumps(
+            {"items": [{"identifier": "leizilla-ro-lei-00001-2000"}]}
+        ).encode()
+        # raw_id belongs to casacivil, not assembleia
+        meta_resp = json.dumps(
+            {"ia_id_raw": "leizilla-raw-ro-casacivil-coddoc-00001"}
+        ).encode()
+        urlopen = self._make_urlopen([scrape_resp, meta_resp])
+        with patch("urllib.request.urlopen", side_effect=urlopen):
+            result = list_parsed_raw_ids("ro", "assembleia")
+        assert result == set()
+
+    def test_skips_items_whose_meta_fetch_fails(self):
+        scrape_resp = json.dumps(
+            {
+                "items": [
+                    {"identifier": "leizilla-ro-lei-00001-2000"},
+                    {"identifier": "leizilla-ro-lei-00002-2001"},
+                ]
+            }
+        ).encode()
+        meta_ok = json.dumps(
+            {"ia_id_raw": "leizilla-raw-ro-assembleia-coddoc-00002"}
+        ).encode()
+
+        call_count = {"n": 0}
+
+        def urlopen_with_first_meta_fail(req, timeout=None):
+            class _R:
+                def __init__(self, data):
+                    self._data = data
+
+                def read(self):
+                    return self._data
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *a):
+                    pass
+
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return _R(scrape_resp)
+            if call_count["n"] == 2:
+                raise OSError("meta fetch failed")
+            return _R(meta_ok)
+
+        with patch("urllib.request.urlopen", side_effect=urlopen_with_first_meta_fail):
+            result = list_parsed_raw_ids("ro", "assembleia")
+        assert result == {"leizilla-raw-ro-assembleia-coddoc-00002"}
