@@ -128,7 +128,7 @@ class TestCmdFetchAllParsed:
 
         assert result.exit_code == 0
         assert "Encontrados 2 itens" in result.output
-        assert "Baixados: 2, Erros: 0" in result.output
+        assert "Baixados: 2, Pulados (já existiam): 0, Erros: 0" in result.output
         assert mock_fetch.call_count == 2
 
     def test_skips_already_existing_files(self, tmp_path: Path):
@@ -146,7 +146,7 @@ class TestCmdFetchAllParsed:
             )
 
         assert result.exit_code == 0
-        assert "Baixados: 1, Erros: 0" in result.output
+        assert "Baixados: 0, Pulados (já existiam): 1, Erros: 0" in result.output
         mock_fetch.assert_not_called()
 
     def test_counts_errors_per_item(self, tmp_path: Path):
@@ -165,7 +165,7 @@ class TestCmdFetchAllParsed:
             )
 
         assert result.exit_code == 0
-        assert "Baixados: 1, Erros: 1" in result.output
+        assert "Baixados: 1, Pulados (já existiam): 0, Erros: 1" in result.output
 
     def test_no_items_found_exits_cleanly(self, tmp_path: Path):
         with patch("leizilla.publisher.list_parsed_ia_ids", return_value=[]):

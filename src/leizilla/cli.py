@@ -862,11 +862,12 @@ def cmd_fetch_all_parsed(
 
     echo(f"Encontrados {len(ia_ids)} itens. Baixando XMLs...")
     ok = 0
+    skipped = 0
     fail = 0
     for ia_id in ia_ids:
         dest = output_dir / f"{ia_id}.xml"
         if dest.exists():
-            ok += 1
+            skipped += 1
             continue
         if fetch_parsed_xml(ia_id, dest):
             ok += 1
@@ -874,7 +875,7 @@ def cmd_fetch_all_parsed(
             echo(f"  [ERRO] {ia_id} — law.xml não disponível, pulando")
             fail += 1
 
-    echo(f"Baixados: {ok}, Erros: {fail}")
+    echo(f"Baixados: {ok}, Pulados (já existiam): {skipped}, Erros: {fail}")
 
 
 @app.command("pipeline")
