@@ -40,7 +40,8 @@
 | **M7.3** — Metadata IA enriquecida | 🟢 done | #48 | `_entity_coverage` helper + `language:pt`, `coverage:{ente}`, `description` nos 4 métodos de upload. Merged. |
 | **M8.1** — `leizilla stats` via IA | 🟢 done | #49 | `count_ia_items(prefix)` + `cmd_stats --ente --ia`: mostra raw/parsed/dataset counts do IA. 9 novos testes. Merged. |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
-| **M8.2** — Observabilidade do pipeline (error rate) | 🟡 in-progress | #50 | `--error-threshold` em `parse-all` + GitHub Step Summary + `check-credentials.yml`. Workflow `parse-release.yml` com `--error-threshold 20`. 5 novos testes. |
+| **M8.2** — Observabilidade do pipeline (error rate) | 🟢 done | #50 | `--error-threshold` em `parse-all` + GitHub Step Summary + `check-credentials.yml`. Workflow `parse-release.yml` com `--error-threshold 20`. 5 novos testes. Merged. |
+| **M9.1** — Melhoria do maintenance-prompt | 🟡 in-progress | esta sessão | xsltproc na Phase 2E; instrução de conflito de sessões paralelas (Fase 1F); PRs range atualizado; princípio 7 mais preciso. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -95,6 +96,24 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-23 — M9.1: melhoria do maintenance-prompt — sessões paralelas + xsltproc
+
+**Problema**: esta sessão encontrou um conflito de merge real entre #49 e #50 (duas sessões
+que operaram no mesmo base SHA). O `maintenance-prompt.md` não tinha instrução para isso.
+
+**Adições ao maintenance-prompt.md**:
+- `Fase 1F` — protocolo de 5 passos para resolver conflito de sessões paralelas:
+  (1) merge --no-commit para identificar, (2) IMPLEMENTATION.md: manter ambas as entradas,
+  (3) testes: manter ambas as classes, (4) commit de resolução com push, (5) re-tentar merge.
+- `Phase 2E`: adicionado loop `xsltproc` + `xmllint` para validar export LexML quando
+  XSD ou fixtures mudam — estava descrito no prompt canônico da sessão mas ausente do arquivo.
+- `Princípio 7` (reversibilidade): adicionado "deletar branches alheias" à lista NÃO-PODE.
+  Era implícito; explicitado para sessões automáticas sem supervisão humana imediata.
+
+**Não feito**: os comandos de validação de schema e XSLT não foram rodados nesta sessão
+porque nenhuma fixture foi modificada (trabalho foi de merge + triagem). Comandos adicionados
+como template para quando forem relevantes.
 
 ### 2026-05-23 — M8.2: observabilidade do pipeline — error-threshold + GitHub Step Summary
 
@@ -973,9 +992,9 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M8.2 concluídos** ✅
+**M0–M8.2 + M9.1 em andamento** ✅
 
-**PR aberta**: #50 (M8.2) — `--error-threshold` + GitHub Step Summary em `parse-all` + `check-credentials.yml`. Aguardando CI e merge na próxima sessão.
+**PR aberta desta sessão**: M9.1 — melhoria do maintenance-prompt (xsltproc + Fase 1F + princípio 7). Aguardando CI e merge.
 
 **M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais IA_ACCESS_KEY em CI). Revisitar após primeiro batch real.
 

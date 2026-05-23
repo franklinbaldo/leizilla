@@ -12,7 +12,7 @@ Reescrita é barata; commits são reversíveis; squash merge mantém história l
 
 `IMPLEMENTATION.md` e `docs/SCHEMA.md` são source of truth atual — mas são editáveis.
 Se você ler o plano e perceber que ele não foi bem pensado, reescreva no mesmo PR.
-Histórico recente do projeto (PRs #6–#48) fez múltiplos pivôs arquiteturais grandes.
+Histórico recente do projeto (PRs #6–#50) fez múltiplos pivôs arquiteturais grandes.
 Pivôs são bem-vindos — só registre o porquê no log.
 
 > **Nota sobre PRs de bots externos** (Jules/Google, Dependabot): Jules cria PRs que podem
@@ -46,6 +46,15 @@ Liste PRs abertas. Para CADA uma, na ordem (mais antiga primeiro):
 que a abordagem está errada, comente o diagnóstico e SUBSTITUA a abordagem (force-push
 proibido; se precisar, crie nova PR com cherry-pick e feche a velha com comentário).
 Atualize `IMPLEMENTATION.md` no mesmo PR documentando o pivô.
+
+**F. Sessões paralelas com conflitos de merge**: duas sessões com o mesmo base SHA podem
+gerar conflitos em `IMPLEMENTATION.md` e arquivos de teste. Estratégia:
+1. `git merge origin/main --no-commit` no branch da PR para identificar os conflitos.
+2. `IMPLEMENTATION.md`: manter AMBAS as entradas (status table + decision log); status table
+   deve refletir a realidade atual (PRs já mergeadas = 🟢 done).
+3. Arquivos de teste: manter AMBAS as classes/funções; jamais descartar testes da sessão irmã.
+4. Commit de resolução explica o que foi feito, push no mesmo branch da PR.
+5. Tentar merge novamente via GitHub MCP após push.
 
 **E. NUNCA**:
 - Push direto em main.
@@ -89,7 +98,12 @@ docs/fixtures), quebre em duas. Mas se a sub-tarefa genuinamente precisa de mais
   ```bash
   uv run pytest
   python3 scripts/check_schema_consistency.py tests/fixtures/leizilla_xml/*.xml
-  xmllint --schema docs/schemas/leizilla-v0.1.xsd tests/fixtures/leizilla_xml/*.xml
+  xmllint --schema docs/schemas/leizilla-v0.1.xsd tests/fixtures/leizilla_xml/*.xml --noout
+  # Se mudou XSD ou fixtures, validar export LexML também:
+  for f in tests/fixtures/leizilla_xml/*.xml; do
+    xsltproc --param output-dir "'/tmp'" scripts/leizilla-to-lexml.xsl "$f" > /tmp/out.xml
+    xmllint --schema tests/fixtures/lexml/lexml-br-rigido.xsd /tmp/out.xml --noout
+  done
   ```
 - Commit message: conventional commits (`feat(MX):`, `refactor(MX):`, `docs(MX):` etc.).
   Mensagens explicam o **porquê**, não o quê.
@@ -128,9 +142,11 @@ Resumo curto (markdown):
 5. **Squash com mensagem curada.** PR body vira commit message do merge. Preserva o
    porquê + trade-offs; não é changelog do diff.
 6. **Sessões idempotentes.** Detecte branch/PR existente desta rotina antes de criar
-   duplicata. Se duas sessões rodarem em paralelo, a segunda vê o trabalho da primeira.
+   duplicata. Se duas sessões rodarem em paralelo, a segunda vê o trabalho da primeira
+   e resolve conflitos de merge em vez de sobrescrever (Fase 1F).
 7. **Liberdade limitada por reversibilidade.** Pode reescrever schema, mover pacote,
-   renomear conceitos. NÃO pode: force-push main, mergear sem CI, push de credenciais.
+   renomear conceitos. NÃO pode: deletar branches alheias, force-push main, mergear
+   sem CI verde, push de credenciais.
 
 ---
 
