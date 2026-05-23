@@ -38,9 +38,9 @@
 | **M7.1** — Claude Code routines: infra de automação | 🟢 done | #44 | `docs/routines/maintenance-prompt.md` + `claude-routine.yml` (schedule: seg+qui 10h UTC). Prompt canônico versionado no repo; workflow dispara sessões automáticas. |
 | **M7.2** — Incremental tracking (check IA antes de parsear) | 🟢 done | #46 | `parse-all --skip-existing` via `list_parsed_raw_ids` com paginação cursor. 9 novos testes. Merged. |
 | **M7.3** — Metadata IA enriquecida | 🟢 done | #48 | `_entity_coverage` helper + `language:pt`, `coverage:{ente}`, `description` nos 4 métodos de upload. Merged. |
-| **M8.1** — `leizilla stats` via IA | 🟡 in-progress | #49 | `count_ia_items(prefix)` + `cmd_stats --ente --ia`: mostra raw/parsed/dataset counts do IA. 9 novos testes. Aguardando merge. |
-| **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE columnar é suficiente para ~300k rows estimados. |
-| **M8.2** — Observabilidade do pipeline (error rate) | 🟡 in-progress | esta sessão | `--error-threshold` em `parse-all` + GitHub Step Summary. Workflow `parse-release.yml` com `--error-threshold 20`. 5 novos testes. |
+| **M8.1** — `leizilla stats` via IA | 🟢 done | #49 | `count_ia_items(prefix)` + `cmd_stats --ente --ia`: mostra raw/parsed/dataset counts do IA. 9 novos testes. Merged. |
+| **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
+| **M8.2** — Observabilidade do pipeline (error rate) | 🟡 in-progress | #50 | `--error-threshold` em `parse-all` + GitHub Step Summary + `check-credentials.yml`. Workflow `parse-release.yml` com `--error-threshold 20`. 5 novos testes. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -121,6 +121,21 @@ Se 10/50 falharem, algo está errado. Revisitar com dados reais quando pipeline 
 
 5 novos testes em `TestCmdParseAllErrorThreshold`: threshold disabled, abaixo do limite,
 acima do limite (exit 1 + aviso), step summary escrito, step summary com threshold no conteúdo.
+
+### 2026-05-23 — M8.1: leizilla stats via IA + M5.3 bloqueado
+
+**`count_ia_items(identifier_prefix)`** adicionado a `publisher.py`: conta itens no IA cujo identifier começa com o prefixo, paginando via cursor. Retorna `Optional[int]` — `None` em erro de rede (fail-open). Reutiliza a infraestrutura de paginação do `list_parsed_raw_ids` (M7.2), mas sem fetchar cada `parsed_meta.json` (só precisa do count).
+
+**`cmd_stats --ente --ia`** reescrito: o comando anterior era um wrapper de `DuckDBStorage.get_stats()` (local), que não tem dados no pipeline atual (pipeline vai direto para IA, sem escrita local de dados). O novo comando mostra:
+- Raw items (`leizilla-raw-{ente}-*`)
+- Parsed items (`leizilla-{ente}-*` excluindo raw/bundle/dataset — net count)
+- Dataset items (`leizilla-dataset-{ente}-*`)
+
+O parsed_net usa 4 chamadas `count_ia_items` e subtrai raw+bundle+dataset do total `leizilla-{ente}-*`. Isso é necessário porque o prefixo `leizilla-ro-*` inclui itens raw (`leizilla-raw-ro-*` começa com `leizilla-` mas não com `leizilla-ro-`). Verificado: o prefix da query para parsed é `leizilla-{ente}-` (sem "raw"), então não há double-counting — mas mantemos a subtração explícita por segurança.
+
+**M5.3 bloqueado**: sem dataset publicado em IA, o benchmark DuckDB-WASM não tem dados para medir. ILIKE columnar no DuckDB deve ser suficiente para ~300k rows estimados (RO). Revisitar quando: (a) first batch RO scraping/parsing completo, (b) search > 1s medido in-browser.
+
+9 novos testes: `TestCountIaItems` (5) + `TestCmdStats` (4).
 
 ### 2026-05-23 — M7.2: parse-all --skip-existing via consulta IA
 
@@ -958,13 +973,11 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M7.3 + M8.2 concluídos** ✅
+**M0–M8.2 concluídos** ✅
 
-**PRs abertas**:
-- #49 (M8.1) — `leizilla stats --ente --ia` + `count_ia_items`. CI verde, aguardando merge.
-- Esta sessão (M8.2) — `--error-threshold` + GitHub Step Summary em `parse-all`. Aguardando CI e merge.
+**PR aberta**: #50 (M8.2) — `--error-threshold` + GitHub Step Summary em `parse-all` + `check-credentials.yml`. Aguardando CI e merge na próxima sessão.
 
-**M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais IA_ACCESS_KEY em CI).
+**M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais IA_ACCESS_KEY em CI). Revisitar após primeiro batch real.
 
 **Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar workflows de scraping e parsing.
 

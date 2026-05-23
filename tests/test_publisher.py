@@ -11,6 +11,7 @@ from leizilla.publisher import (
     _raw_identifier,
     _bundle_identifier,
     build_raw_meta,
+    count_ia_items,
     list_parsed_raw_ids,
     InternetArchivePublisher,
 )
@@ -377,3 +378,86 @@ class TestListParsedRawIds:
         with patch("urllib.request.urlopen", side_effect=urlopen_fail_on_second):
             result = list_parsed_raw_ids("ro", "assembleia")
         assert result == set()
+
+
+class TestCountIaItems:
+    """Testes para count_ia_items — conta itens no IA sem credenciais."""
+
+    def _make_urlopen(self, responses: list):
+        calls = iter(responses)
+
+        class _R:
+            def __init__(self, data: bytes):
+                self._data = data
+
+            def read(self):
+                return self._data
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+        def fake(req, timeout=None):
+            return _R(next(calls))
+
+        return fake
+
+    def test_returns_none_on_network_error(self):
+        with patch("urllib.request.urlopen", side_effect=OSError("net")):
+            assert count_ia_items("leizilla-raw-ro-") is None
+
+    def test_returns_zero_when_no_items(self):
+        resp = json.dumps({"items": []}).encode()
+        with patch("urllib.request.urlopen", side_effect=self._make_urlopen([resp])):
+            assert count_ia_items("leizilla-raw-ro-") == 0
+
+    def test_counts_single_page(self):
+        resp = json.dumps(
+            {"items": [{"identifier": "a"}, {"identifier": "b"}]}
+        ).encode()
+        with patch("urllib.request.urlopen", side_effect=self._make_urlopen([resp])):
+            assert count_ia_items("leizilla-raw-ro-") == 2
+
+    def test_follows_cursor_across_pages(self):
+        page1 = json.dumps(
+            {"items": [{"identifier": "a"}], "cursor": "cur1"}
+        ).encode()
+        page2 = json.dumps({"items": [{"identifier": "b"}, {"identifier": "c"}]}).encode()
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=self._make_urlopen([page1, page2]),
+        ) as mock_open:
+            result = count_ia_items("leizilla-raw-ro-")
+        assert result == 3
+        second_url = mock_open.call_args_list[1][0][0].full_url
+        assert "cursor=cur1" in second_url
+
+    def test_returns_none_on_second_page_error(self):
+        page1 = json.dumps(
+            {"items": [{"identifier": "a"}], "cursor": "cur1"}
+        ).encode()
+        call_n = {"n": 0}
+
+        def urlopen_fail(req, timeout=None):
+            class _R:
+                def __init__(self, d):
+                    self._d = d
+
+                def read(self):
+                    return self._d
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *a):
+                    pass
+
+            call_n["n"] += 1
+            if call_n["n"] == 1:
+                return _R(page1)
+            raise OSError("fail")
+
+        with patch("urllib.request.urlopen", side_effect=urlopen_fail):
+            assert count_ia_items("leizilla-raw-ro-") is None

@@ -12,8 +12,13 @@ Reescrita é barata; commits são reversíveis; squash merge mantém história l
 
 `IMPLEMENTATION.md` e `docs/SCHEMA.md` são source of truth atual — mas são editáveis.
 Se você ler o plano e perceber que ele não foi bem pensado, reescreva no mesmo PR.
-Histórico recente do projeto (PRs #6–#43) fez múltiplos pivôs arquiteturais grandes.
+Histórico recente do projeto (PRs #6–#48) fez múltiplos pivôs arquiteturais grandes.
 Pivôs são bem-vindos — só registre o porquê no log.
+
+> **Nota sobre PRs de bots externos** (Jules/Google, Dependabot): Jules cria PRs que podem
+> conter mudanças arquiteturais não solicitadas (ex: #45 migração litellm). Avalie com atenção —
+> aceite apenas se houver case de uso documentado e sem regressões. Dependabot: skip direto.
+> PRs stacked em branches não-main: checar o campo `base.ref` antes de mergear.
 
 ---
 
@@ -140,3 +145,5 @@ Resumo curto (markdown):
 - **Milestones ativos**: ver `IMPLEMENTATION.md` seção "Status atual".
 - **Branch de desenvolvimento**: `claude/{milestone}-{descricao}` (nunca push direto em main).
 - **Merge**: squash merge via GitHub MCP tools (nunca `git merge` local em main).
+- **M5.3 bloqueado**: benchmark DuckDB-WASM aguarda dataset publicado em IA (primeiro batch real de scraping+parsing). Não tentar implementar sem dados.
+- **Secrets necessários para pipeline rodar** (ação manual de franklinbaldo): `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets.
