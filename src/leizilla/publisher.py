@@ -297,6 +297,63 @@ def list_parsed_raw_ids(ente: str, fonte: str) -> Set[str]:
     return raw_ids
 
 
+def list_parsed_ia_ids(ente: str) -> list[str]:
+    """Return all parsed IA item identifiers for this ente.
+
+    Queries the IA scrape API for leizilla-{ente}-* items, excluding raw,
+    bundle, and dataset variants. Returns the parsed item identifiers themselves
+    (unlike list_parsed_raw_ids which returns the raw IDs they were derived from).
+
+    Paginates via cursor. Fail-open: returns empty list on any network error.
+    """
+    q = (
+        f"identifier:leizilla-{ente}-* "
+        f"AND NOT identifier:leizilla-raw-{ente}-* "
+        f"AND NOT identifier:leizilla-bundle-{ente}-* "
+        f"AND NOT identifier:leizilla-dataset-{ente}-*"
+    )
+    base_url = (
+        f"{_IA_SCRAPE_URL}?q={urllib.parse.quote(q)}&count=10000&fields=identifier"
+    )
+
+    ids: list[str] = []
+    cursor: Optional[str] = None
+
+    while True:
+        url = base_url
+        if cursor:
+            url += f"&cursor={urllib.parse.quote(cursor)}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read())
+            ids.extend(item["identifier"] for item in data.get("items", []))
+            cursor = data.get("cursor")
+            if not cursor:
+                break
+        except Exception:
+            return []
+
+    return ids
+
+
+def fetch_parsed_xml(ia_id: str, output_path: Path) -> bool:
+    """Download law.xml from an IA parsed item and save to output_path.
+
+    URL: archive.org/download/{ia_id}/law.xml
+    Returns True on success, False on any network or I/O error (fail-open).
+    """
+    url = f"{_IA_DOWNLOAD_URL}/{ia_id}/law.xml"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            xml_bytes = resp.read()
+        output_path.write_bytes(xml_bytes)
+        return True
+    except Exception:
+        return False
+
+
 class InternetArchivePublisher:
     """Upload para IA e geração de datasets Parquet."""
 

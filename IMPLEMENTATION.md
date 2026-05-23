@@ -44,7 +44,8 @@
 | **M9.2** — check-credentials informacional | 🟢 done | #53 | `exit 0` em `pull_request`/`push`; só bloqueia em `workflow_dispatch`. Triggers `claude/**` e `pull_request: main`. Merged. |
 | **M9.3** — `scrape --skip-existing` | 🟢 done | #54 | `list_raw_ids(ente, fonte)` + flag `--skip-existing/--no-skip-existing` em `cmd_scrape`. Evita re-scraping de itens já no IA. 10 novos testes. Merged. |
 | **M9.4** — parse-release multi-fonte + skip-existing | 🟢 done | #55 | Três steps scheduled (assembleia + casacivil-lei + casacivil-lc); fix `--limit` (conta post-skip) + casacivil chave discriminant. Merged. |
-| **M9.5** — `rondonia_crawler.yml` idempotente + ranges reais | 🟡 in-progress | #57 | Schedule/dispatch split; `--skip-existing` por default; ranges 5000/6000/1300 (alinhados com parse-release). Inputs renomeados por fonte. |
+| **M9.5** — `rondonia_crawler.yml` idempotente + ranges reais | 🟢 done | #57 | Schedule/dispatch split; `--skip-existing` por default; ranges 5000/6000/1300 (alinhados com parse-release). Inputs renomeados por fonte. Merged. |
+| **M10.1** — `fetch-all-parsed` + Parquet cumulativo | 🟡 in-progress | esta sessão | `list_parsed_ia_ids` + `fetch_parsed_xml` + CLI `fetch-all-parsed`; `parse-release.yml` baixa todos os XMLs do IA antes do consolidate. 12 testes. |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
@@ -100,6 +101,37 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-23 — M10.1: fetch-all-parsed + Parquet cumulativo
+
+**Problema**: cada `parse-release.yml` run publica um Parquet com ≤150 leis (apenas os itens
+parsed naquele run). O dataset não acumula — a cada semana substitui o anterior com uma fatia
+pequena, nunca chegando a um Parquet browsable com todo o acervo do ente.
+
+**`list_parsed_ia_ids(ente)`** adicionado a `publisher.py`: variante simplificada de
+`list_parsed_raw_ids` — mesmo query IA scrape API (filtra raw/bundle/dataset), mas retorna
+`list[str]` dos próprios identifiers parsed (sem fetch de `parsed_meta.json` por item).
+Fail-open: erro de rede → lista vazia (não bloqueia pipeline).
+
+**`fetch_parsed_xml(ia_id, output_path)`**: HTTP GET de `archive.org/download/{ia_id}/law.xml`
+com timeout 30s. Salva bytes em `output_path`. Retorna `bool` (True = sucesso). Fail-open por item.
+
+**`cmd_fetch_all_parsed --ente --output-dir`**: lista todos os IDs, skip se arquivo já existe
+(idempotente), baixa em sequência, reporta `Baixados: N, Erros: M`. Exit 0 sempre (falhas
+individuais não abortam pipeline — IA pode ter itens cujo upload está em andamento).
+
+**Integração em `parse-release.yml`**: step `Fetch all parsed XMLs from IA` adicionado entre
+os steps de parse e o `Consolidate`. Output dir `/tmp/leizilla-xmls` é compartilhado com o
+parse-all step — novos XMLs gerados pelo parse ficam no dir, fetch-all-parsed adiciona os
+históricos. Consolidate processa todos. Resultado: Parquet full-histórico acumulado.
+
+**Trade-off de latência**: N requests HTTP (um por item parsed + N/10000 requests de paginação).
+Para 500 items: ~501 requests × 1-2s = ~10min extra. Aceitável para run semanal noturno.
+Otimização futura: cache local de IDs já baixados para pular confirmados (desnecessário agora).
+
+12 testes em `tests/test_fetch_all_parsed.py`: 4 × `TestListParsedIaIds` (basic, paginate,
+network_error, empty) + 3 × `TestFetchParsedXml` (success, error, url) + 5 × `TestCmdFetchAllParsed`
+(basic, skip_existing_files, count_errors, no_items, create_dir).
 
 ### 2026-05-23 — M9.5: rondonia_crawler.yml idempotente + ranges reais
 
@@ -1077,14 +1109,12 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 **M0–M9.3 concluídos** ✅
 
-**M9.4 (#55) mergeada** ✅ — parse-release multi-fonte + fix --limit + casacivil discriminant.
+**M9.4 (#55) + M9.5 (#57) mergeadas** ✅ — pipelines idempotentes, ranges reais, P1 bugs corrigidos.
 
-**PR aberta desta sessão**: #57 (M9.5) — `rondonia_crawler.yml` idempotente: schedule/dispatch split + ranges reais (5000/6000/1300) + `--skip-existing`. Aguardando CI e decantação.
+**PR aberta desta sessão**: M10.1 — `fetch-all-parsed` CLI + `parse-release.yml` com Parquet cumulativo. Aguardando CI e decantação.
 
 **M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais em CI). Revisitar após primeiro batch real.
 
 **Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar o pipeline.
 
 **Após desbloqueio M5.3**: benchmark DuckDB-WASM real; FTS se search > 1s in-browser.
-
-**M10.1 (futuro)**: `fetch-all-parsed` — baixar todos os XMLs existentes do IA antes do consolidate para Parquet full-histórico acumulado.

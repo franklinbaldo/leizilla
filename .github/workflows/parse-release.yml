@@ -120,6 +120,12 @@ jobs:
 
       # ── ETL + RELEASE ──────────────────────────────────────────────────────
 
+      - name: Fetch all parsed XMLs from IA (cumulative Parquet)
+        run: |
+          uv run leizilla fetch-all-parsed \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --output-dir /tmp/leizilla-xmls
+
       - name: Consolidate XMLs → Parquet
         run: |
           XML_COUNT=$(find /tmp/leizilla-xmls -name '*.xml' | wc -l)
