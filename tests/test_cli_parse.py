@@ -721,6 +721,45 @@ class TestCmdParseAllSkipExisting:
         assert result.exit_code == 0
         assert "1 parseados" in result.output
 
+    def test_limit_counts_only_non_skipped_items(self):
+        """--limit with --skip-existing counts items to process, not items in range.
+
+        Regression for: pre-slicing range by limit before skip check caused schedules
+        to stall after first run (all items in limit window already parsed, 51+ never reached).
+        """
+        already_parsed = {
+            "leizilla-raw-ro-assembleia-coddoc-00001",
+            "leizilla-raw-ro-assembleia-coddoc-00002",
+            "leizilla-raw-ro-assembleia-coddoc-00003",
+        }
+        fetched: list[str] = []
+
+        def track_ocr(raw_id: str) -> str | None:
+            fetched.append(raw_id)
+            return None  # OCR unavailable, but attempt is tracked
+
+        with (
+            patch("leizilla.publisher.list_parsed_raw_ids", return_value=already_parsed),
+            patch("leizilla.parser.fetch_ocr", side_effect=track_ocr),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "100",
+                    "--limit", "2",
+                    "--skip-existing",
+                    "--no-upload",
+                ],
+            )
+        assert result.exit_code == 0
+        # items 1-3 skipped; items 4 and 5 are the first 2 non-skipped → fetched
+        assert fetched == [
+            "leizilla-raw-ro-assembleia-coddoc-00004",
+            "leizilla-raw-ro-assembleia-coddoc-00005",
+        ]
+
 
 class TestCmdParseXsdGateBlocking:
     def test_parse_upload_blocked_when_xsd_fails(self):

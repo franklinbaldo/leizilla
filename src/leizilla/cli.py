@@ -697,14 +697,13 @@ def cmd_parse_all(
 
         pub = InternetArchivePublisher() if upload else None
         coddoc_range = range(start_coddoc, end_coddoc + 1)
-        if limit is not None:
-            coddoc_range = coddoc_range[:limit]
 
         parsed_ok = 0
         parsed_fail = 0
         uploaded_ok = 0
         upload_fail = 0
         skipped_ok = 0
+        processed = 0  # items actually attempted (not skipped by --skip-existing)
 
         for num in coddoc_range:
             if ente == "federal" and fonte == "planalto":
@@ -717,6 +716,11 @@ def cmd_parse_all(
                 echo(f"[{num}] {raw_id} — já publicado, skip")
                 skipped_ok += 1
                 continue
+
+            # limit counts items actually processed, not items visited in the range
+            if limit is not None and processed >= limit:
+                break
+            processed += 1
 
             echo(f"[{num}] {raw_id}")
 
