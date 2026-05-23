@@ -20,6 +20,16 @@ _DATASET_IDENTIFIER_RE = r"^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<vers
 _USER_AGENT = "leizilla-crawler/0.1"
 
 
+def _entity_coverage(ente: str) -> str:
+    """Geographic coverage string for IA metadata, derived from ente slug."""
+    try:
+        from leizilla.entes import get_ente
+        e = get_ente(ente)
+        return "Brazil" if e.tipo == "federal" else f"{e.nome}, Brazil"
+    except Exception:
+        return "Brazil"
+
+
 def _raw_identifier(ente: str, fonte: str, chave: str) -> str:
     """Constrói IA identifier para raw item conforme SCHEMA.md §1.2."""
     return f"leizilla-raw-{ente}-{fonte}-{chave}"
@@ -244,6 +254,12 @@ class InternetArchivePublisher:
             meta_path = Path(tmp) / "raw_meta.json"
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
 
+            coverage = _entity_coverage(ente)
+            desc = (
+                f"Documento original (PDF) da legislação do ente federativo "
+                f"{ente.upper()}, fonte {fonte}, chave {chave}, "
+                f"identificador {ia_id}, capturado pelo projeto Leizilla."
+            )
             try:
                 subprocess.run(
                     [
@@ -252,14 +268,13 @@ class InternetArchivePublisher:
                         ia_id,
                         str(pdf_dst),
                         str(meta_path),
-                        "--metadata",
-                        f"title:{lei_data.get('titulo', 'Lei')}",
-                        "--metadata",
-                        "mediatype:texts",
-                        "--metadata",
-                        f"subject:leis;leizilla;{ente}",
-                        "--metadata",
-                        "creator:leizilla-crawler",
+                        "--metadata", f"title:{lei_data.get('titulo', 'Lei')}",
+                        "--metadata", "mediatype:texts",
+                        "--metadata", f"subject:leis;leizilla;{ente};{fonte}",
+                        "--metadata", "creator:leizilla-crawler",
+                        "--metadata", "language:pt",
+                        "--metadata", f"coverage:{coverage}",
+                        "--metadata", f"description:{desc}",
                     ],
                     capture_output=True,
                     text=True,
@@ -302,6 +317,12 @@ class InternetArchivePublisher:
             meta_path = Path(tmp) / "raw_meta.json"
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
 
+            coverage = _entity_coverage(ente)
+            desc = (
+                f"Documento original (HTML) da legislação do ente federativo "
+                f"{ente.upper()}, fonte {fonte}, chave {chave}, "
+                f"identificador {ia_id}, capturado pelo projeto Leizilla."
+            )
             try:
                 subprocess.run(
                     [
@@ -310,14 +331,13 @@ class InternetArchivePublisher:
                         ia_id,
                         str(html_dst),
                         str(meta_path),
-                        "--metadata",
-                        f"title:{lei_data.get('titulo', 'Lei')}",
-                        "--metadata",
-                        "mediatype:texts",
-                        "--metadata",
-                        f"subject:leis;leizilla;{ente}",
-                        "--metadata",
-                        "creator:leizilla-crawler",
+                        "--metadata", f"title:{lei_data.get('titulo', 'Lei')}",
+                        "--metadata", "mediatype:texts",
+                        "--metadata", f"subject:leis;leizilla;{ente};{fonte}",
+                        "--metadata", "creator:leizilla-crawler",
+                        "--metadata", "language:pt",
+                        "--metadata", f"coverage:{coverage}",
+                        "--metadata", f"description:{desc}",
                     ],
                     capture_output=True,
                     text=True,
@@ -359,6 +379,12 @@ class InternetArchivePublisher:
                 json.dumps(parsed_meta, indent=2, ensure_ascii=False), encoding="utf-8"
             )
 
+            coverage = _entity_coverage(ente)
+            desc = (
+                f"Texto estruturado (Leizilla XML) da legislação do ente "
+                f"{ente.upper()}, tipo {tipo}, identificador {ia_id_parsed}, "
+                f"processado pelo projeto Leizilla."
+            )
             try:
                 subprocess.run(
                     [
@@ -367,14 +393,13 @@ class InternetArchivePublisher:
                         ia_id_parsed,
                         str(xml_path),
                         str(meta_path),
-                        "--metadata",
-                        f"title:{titulo}",
-                        "--metadata",
-                        "mediatype:texts",
-                        "--metadata",
-                        f"subject:leis;leizilla;{ente};{tipo}",
-                        "--metadata",
-                        "creator:leizilla-parser",
+                        "--metadata", f"title:{titulo}",
+                        "--metadata", "mediatype:texts",
+                        "--metadata", f"subject:leis;leizilla;{ente};{tipo}",
+                        "--metadata", "creator:leizilla-parser",
+                        "--metadata", "language:pt",
+                        "--metadata", f"coverage:{coverage}",
+                        "--metadata", f"description:{desc}",
                     ],
                     capture_output=True,
                     text=True,
@@ -424,6 +449,12 @@ class InternetArchivePublisher:
                 json.dumps(dataset_meta, indent=2, ensure_ascii=False), encoding="utf-8"
             )
 
+            coverage = _entity_coverage(ente)
+            desc = (
+                f"Dataset Parquet (tabela versoes) das leis do ente {ente.upper()}, "
+                f"versão v{version}, gerado pelo projeto Leizilla. "
+                f"Contém {effective_row_count} linhas."
+            )
             try:
                 subprocess.run(
                     [
@@ -433,6 +464,9 @@ class InternetArchivePublisher:
                         "--metadata", "mediatype:data",
                         "--metadata", f"subject:leis;leizilla;{ente};parquet;versoes",
                         "--metadata", "creator:leizilla-etl",
+                        "--metadata", "language:pt",
+                        "--metadata", f"coverage:{coverage}",
+                        "--metadata", f"description:{desc}",
                     ],
                     capture_output=True,
                     text=True,

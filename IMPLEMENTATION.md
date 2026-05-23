@@ -37,7 +37,7 @@
 | **M6.3** — Planalto year-scoped URLs (pós-2002) | 🟢 done | #41 | `planalto_year_scoped_url` + `_camara_year_lookup` (Câmara API, lru_cache, circuit breaker, 429 sem abrir circuit). 47 novos testes. Fix SCHEMA.md. Merged. |
 | **M7.1** — Claude Code routines: infra de automação | 🟢 done | #44 | `docs/routines/maintenance-prompt.md` + `claude-routine.yml` (schedule: seg+qui 10h UTC). Prompt canônico versionado no repo; workflow dispara sessões automáticas. |
 | **M7.2** — Incremental tracking (check IA antes de parsear) | 🟢 done | #46 | `parse-all --skip-existing` via `list_parsed_raw_ids` com paginação cursor. 9 novos testes. Merged. |
-| **M7.3** — Metadata IA enriquecida | 🟡 in-progress | #48 | `language:pt`, `coverage:{ente}`, `description` nos 4 métodos de upload. |
+| **M7.3** — Metadata IA enriquecida | 🟡 in-progress | #48 | `_entity_coverage` helper + `language:pt`, `coverage:{ente}`, `description` nos 4 métodos de upload. Aguardando merge. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -931,6 +931,6 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 **M0–M7.2 concluídos** ✅
 
-**PR aberta**: #48 (M7.3) — metadata IA enriquecida (`language`, `coverage`, `description`) nos 4 métodos de upload. Aguardando CI.
+**PR aberta**: #48 (M7.3) — metadata IA enriquecida (`language`, `coverage`, `description`) nos 4 métodos de upload. CI verde, aguardando merge.
 
 **Próximo após M7.3**: M5.3 — benchmark DuckDB-WASM real com dataset publicado; índice FTS se latência > threshold.
