@@ -147,6 +147,68 @@ def cmd_bundle_raw(
         raise typer.Exit(1)
 
 
+@app.command("fetch-ocr")
+def cmd_fetch_ocr(
+    ente: Optional[str] = typer.Option(None, help="Filtrar por ente federativo"),
+    limit: int = typer.Option(100, help="Limite de leis a processar"),
+) -> None:
+    """Busca os textos de OCR no Internet Archive e popula a base local."""
+    echo("Buscando textos de OCR pendentes...")
+    try:
+        from leizilla.storage import DuckDBStorage
+        from leizilla.ocr import fetch_and_clean_ocr, normalize_text
+
+        db = DuckDBStorage()
+        pending = db.get_leis_pending_ocr(ente=ente, limit=limit)
+
+        if not pending:
+            echo("Nenhuma lei sem OCR encontrada no banco.")
+            return
+
+        echo(f"Encontradas {len(pending)} leis sem OCR. Iniciando busca...")
+        success = 0
+        failed = 0
+
+        for lei in pending:
+            lei_id = lei["id"]
+            url_pdf_ia = lei.get("url_pdf_ia") or ""
+
+            # Determina o ia_id
+            ia_id = None
+            if url_pdf_ia:
+                match = re.search(
+                    r"archive\.org/(?:details|download)/([^/]+)", url_pdf_ia
+                )
+                if match:
+                    ia_id = match.group(1)
+
+            if not ia_id:
+                ia_id = f"leizilla-raw-{lei_id}"
+
+            echo(f"Buscando OCR para {lei_id} (IA ID: {ia_id})...")
+            text = fetch_and_clean_ocr(ia_id)
+
+            if text:
+                norm = normalize_text(text)
+                db.update_lei(
+                    lei_id,
+                    {
+                        "texto_completo": text,
+                        "texto_normalizado": norm,
+                    },
+                )
+                echo(f"  Sucesso: {len(text)} caracteres salvos.")
+                success += 1
+            else:
+                echo("  Não foi possível obter o OCR do Internet Archive.")
+                failed += 1
+
+        echo(f"Busca de OCR concluída: {success} com sucesso, {failed} falhas.")
+    except Exception as e:
+        echo(f"Erro ao buscar OCR: {e}")
+        raise typer.Exit(1)
+
+
 @app.command("download")
 def cmd_download(
     ente: str = typer.Option("ro", help="Ente federativo"),
