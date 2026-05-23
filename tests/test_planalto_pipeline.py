@@ -10,6 +10,7 @@ from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
+import typer
 
 from leizilla.fontes.federal import (
     _CamaraApiState,
@@ -33,18 +34,36 @@ class TestDiscoverPlanaltoLaws:
     def test_generates_correct_lei_urls(self) -> None:
         laws = discover_planalto_laws("lei", 9503, 9505, year_lookup_fn=_no_year)
         assert len(laws) == 3
-        assert laws[0]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/L9503.htm"
-        assert laws[1]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/L9504.htm"
-        assert laws[2]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/L9505.htm"
+        assert (
+            laws[0]["url_original"]
+            == "https://www.planalto.gov.br/ccivil_03/leis/L9503.htm"
+        )
+        assert (
+            laws[1]["url_original"]
+            == "https://www.planalto.gov.br/ccivil_03/leis/L9504.htm"
+        )
+        assert (
+            laws[2]["url_original"]
+            == "https://www.planalto.gov.br/ccivil_03/leis/L9505.htm"
+        )
 
     def test_generates_correct_lcp_urls(self) -> None:
         laws = discover_planalto_laws("lcp", 87, 88, year_lookup_fn=_no_year)
-        assert laws[0]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/lcp/Lcp87.htm"
-        assert laws[1]["url_original"] == "https://www.planalto.gov.br/ccivil_03/leis/lcp/Lcp88.htm"
+        assert (
+            laws[0]["url_original"]
+            == "https://www.planalto.gov.br/ccivil_03/leis/lcp/Lcp87.htm"
+        )
+        assert (
+            laws[1]["url_original"]
+            == "https://www.planalto.gov.br/ccivil_03/leis/lcp/Lcp88.htm"
+        )
 
     def test_generates_correct_decreto_urls(self) -> None:
         laws = discover_planalto_laws("decreto", 99, 101, year_lookup_fn=_no_year)
-        assert laws[0]["url_original"] == "https://www.planalto.gov.br/ccivil_03/decreto/D99.htm"
+        assert (
+            laws[0]["url_original"]
+            == "https://www.planalto.gov.br/ccivil_03/decreto/D99.htm"
+        )
 
     def test_sets_correct_metadata(self) -> None:
         laws = discover_planalto_laws("lei", 9503, 9503, year_lookup_fn=_no_year)
@@ -77,15 +96,24 @@ class TestDiscoverPlanaltoLaws:
 class TestPlanaltoYearScopedUrl:
     def test_lei_2014(self) -> None:
         url = planalto_year_scoped_url("lei", 12965, 2014)
-        assert url == "https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2014/lei/l12965.htm"
+        assert (
+            url
+            == "https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2014/lei/l12965.htm"
+        )
 
     def test_lcp_2006(self) -> None:
         url = planalto_year_scoped_url("lcp", 123, 2006)
-        assert url == "https://www.planalto.gov.br/ccivil_03/_ato2003-2006/2006/lei/lcp123.htm"
+        assert (
+            url
+            == "https://www.planalto.gov.br/ccivil_03/_ato2003-2006/2006/lei/lcp123.htm"
+        )
 
     def test_decreto_2012(self) -> None:
         url = planalto_year_scoped_url("decreto", 7724, 2012)
-        assert url == "https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2012/decreto/d7724.htm"
+        assert (
+            url
+            == "https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2012/decreto/d7724.htm"
+        )
 
     def test_year_out_of_range_raises(self) -> None:
         with pytest.raises(ValueError, match="fora dos ranges"):
@@ -109,19 +137,25 @@ class TestDiscoverPlanaltoLawsYearScoped:
         return None
 
     def test_post_2002_uses_year_scoped_url(self) -> None:
-        laws = discover_planalto_laws("lei", 12965, 12965, year_lookup_fn=self._lookup_2014)
+        laws = discover_planalto_laws(
+            "lei", 12965, 12965, year_lookup_fn=self._lookup_2014
+        )
         assert laws[0]["url_original"] == (
             "https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2014/lei/l12965.htm"
         )
 
     def test_year_lookup_fail_falls_back_to_legacy(self) -> None:
-        laws = discover_planalto_laws("lei", 12965, 12965, year_lookup_fn=self._lookup_none)
+        laws = discover_planalto_laws(
+            "lei", 12965, 12965, year_lookup_fn=self._lookup_none
+        )
         assert laws[0]["url_original"] == (
             "https://www.planalto.gov.br/ccivil_03/leis/L12965.htm"
         )
 
     def test_year_2002_uses_legacy(self) -> None:
-        laws = discover_planalto_laws("lei", 10406, 10406, year_lookup_fn=lambda t, n: 2002)
+        laws = discover_planalto_laws(
+            "lei", 10406, 10406, year_lookup_fn=lambda t, n: 2002
+        )
         assert "/leis/L10406.htm" in laws[0]["url_original"]
 
     def test_lcp_post_2002(self) -> None:
@@ -130,7 +164,9 @@ class TestDiscoverPlanaltoLawsYearScoped:
         assert "lcp123.htm" in laws[0]["url_original"]
 
     def test_chave_unchanged_by_year(self) -> None:
-        laws = discover_planalto_laws("lei", 12965, 12965, year_lookup_fn=self._lookup_2014)
+        laws = discover_planalto_laws(
+            "lei", 12965, 12965, year_lookup_fn=self._lookup_2014
+        )
         assert laws[0]["chave"] == "lei-12965"
 
     def test_mixed_range_with_year_lookup(self) -> None:
@@ -167,7 +203,9 @@ class TestCamaraYearLookupCircuitBreaker:
     def test_circuit_opens_on_network_failure(self) -> None:
         import urllib.error
 
-        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("timeout")):
+        with patch(
+            "urllib.request.urlopen", side_effect=urllib.error.URLError("timeout")
+        ):
             result = _camara_year_lookup("lei", 1)
         assert result is None
         assert _CamaraApiState.available is False
@@ -198,7 +236,9 @@ class TestCamaraYearLookupCircuitBreaker:
         """HTTP 429 (rate-limit) é transiente — não deve abrir o circuit breaker."""
         import urllib.error
 
-        http_error = urllib.error.HTTPError(url="", code=429, msg="Too Many Requests", hdrs=None, fp=None)  # type: ignore[arg-type]
+        http_error = urllib.error.HTTPError(
+            url="", code=429, msg="Too Many Requests", hdrs=None, fp=None
+        )  # type: ignore[arg-type]
         with patch("urllib.request.urlopen", side_effect=http_error):
             result = _camara_year_lookup("lei", 2)
         assert result is None
@@ -208,7 +248,9 @@ class TestCamaraYearLookupCircuitBreaker:
         """HTTP 503 (server error) abre o circuit breaker."""
         import urllib.error
 
-        http_error = urllib.error.HTTPError(url="", code=503, msg="Service Unavailable", hdrs=None, fp=None)  # type: ignore[arg-type]
+        http_error = urllib.error.HTTPError(
+            url="", code=503, msg="Service Unavailable", hdrs=None, fp=None
+        )  # type: ignore[arg-type]
         with patch("urllib.request.urlopen", side_effect=http_error):
             result = _camara_year_lookup("lei", 3)
         assert result is None
@@ -244,9 +286,17 @@ class TestBuildRawMetaHtml:
         assert meta1["hash_html"] != meta2["hash_html"]
 
     def test_provenance_wayback_field(self) -> None:
-        meta = build_raw_meta_html("<html/>", self._lei_data(), "wayback", wayback_url="https://web.archive.org/web/snap/url")
+        meta = build_raw_meta_html(
+            "<html/>",
+            self._lei_data(),
+            "wayback",
+            wayback_url="https://web.archive.org/web/snap/url",
+        )
         assert meta["provenance_wayback"]["fetched_from"] == "wayback"
-        assert meta["provenance_wayback"]["wayback_url"] == "https://web.archive.org/web/snap/url"
+        assert (
+            meta["provenance_wayback"]["wayback_url"]
+            == "https://web.archive.org/web/snap/url"
+        )
 
     def test_meta_version(self) -> None:
         meta = build_raw_meta_html("<html/>", self._lei_data(), "source-fallback")
@@ -314,7 +364,9 @@ class TestUploadRawHtml:
         with patch("subprocess.run", return_value=mock_result) as mock_run:
             pub.upload_raw_html("<html>lei</html>", _lei_data_html())
         call_args = mock_run.call_args_list[0][0][0]
-        html_files = [a for a in call_args if isinstance(a, str) and a.endswith(".html")]
+        html_files = [
+            a for a in call_args if isinstance(a, str) and a.endswith(".html")
+        ]
         assert len(html_files) == 1
 
     def test_mediatype_is_texts(self) -> None:
@@ -337,6 +389,7 @@ class TestScrapeOneHtml:
 
     def test_robots_blocked_returns_failure(self) -> None:
         from leizilla.scraper import scrape_one_html
+
         pub = _publisher()
         with patch("leizilla.robots.is_allowed", return_value=False):
             result = scrape_one_html(self._url(), _lei_data_html(), pub)
@@ -345,30 +398,37 @@ class TestScrapeOneHtml:
 
     def test_fetch_failed_returns_failure(self) -> None:
         from leizilla.scraper import scrape_one_html
+
         pub = _publisher()
-        with patch("leizilla.robots.is_allowed", return_value=True), \
-             patch("leizilla.wayback.save_page"), \
-             patch("leizilla.wayback.check_available", return_value=None), \
-             patch("leizilla.scraper.fetch_html", return_value=None):
+        with (
+            patch("leizilla.robots.is_allowed", return_value=True),
+            patch("leizilla.wayback.save_page"),
+            patch("leizilla.wayback.check_available", return_value=None),
+            patch("leizilla.scraper.fetch_html", return_value=None),
+        ):
             result = scrape_one_html(self._url(), _lei_data_html(), pub)
         assert result["success"] is False
         assert result["reason"] == "fetch-failed"
 
     def test_wayback_primary_success(self) -> None:
         from leizilla.scraper import scrape_one_html
+
         pub = _publisher()
         wb_url = "https://web.archive.org/web/snap/url"
         mock_run = MagicMock(returncode=0, stdout="", stderr="")
-        with patch("leizilla.robots.is_allowed", return_value=True), \
-             patch("leizilla.wayback.save_page"), \
-             patch("leizilla.wayback.check_available", return_value=wb_url), \
-             patch("leizilla.scraper.fetch_html", return_value="<html>lei</html>"), \
-             patch("subprocess.run", return_value=mock_run):
+        with (
+            patch("leizilla.robots.is_allowed", return_value=True),
+            patch("leizilla.wayback.save_page"),
+            patch("leizilla.wayback.check_available", return_value=wb_url),
+            patch("leizilla.scraper.fetch_html", return_value="<html>lei</html>"),
+            patch("subprocess.run", return_value=mock_run),
+        ):
             result = scrape_one_html(self._url(), _lei_data_html(), pub)
         assert result["success"] is True
 
     def test_fallback_when_wayback_unavailable(self) -> None:
         from leizilla.scraper import scrape_one_html
+
         pub = _publisher()
         mock_run = MagicMock(returncode=0, stdout="", stderr="")
         calls: list = []
@@ -377,39 +437,47 @@ class TestScrapeOneHtml:
             calls.append(url)
             return "<html>lei</html>"
 
-        with patch("leizilla.robots.is_allowed", return_value=True), \
-             patch("leizilla.wayback.save_page"), \
-             patch("leizilla.wayback.check_available", return_value=None), \
-             patch("leizilla.scraper.fetch_html", side_effect=fake_fetch), \
-             patch("subprocess.run", return_value=mock_run) as _mock:
+        with (
+            patch("leizilla.robots.is_allowed", return_value=True),
+            patch("leizilla.wayback.save_page"),
+            patch("leizilla.wayback.check_available", return_value=None),
+            patch("leizilla.scraper.fetch_html", side_effect=fake_fetch),
+            patch("subprocess.run", return_value=mock_run) as _mock,
+        ):
             result = scrape_one_html(self._url(), _lei_data_html(), pub)
         assert result["success"] is True, result
         assert self._url() in calls
 
     def test_rate_limiter_called_on_fallback(self) -> None:
         from leizilla.scraper import scrape_one_html
+
         pub = _publisher()
         mock_run = MagicMock(returncode=0, stdout="", stderr="")
         rate_mock = MagicMock()
-        with patch("leizilla.robots.is_allowed", return_value=True), \
-             patch("leizilla.wayback.save_page"), \
-             patch("leizilla.wayback.check_available", return_value=None), \
-             patch("leizilla.scraper.fetch_html", return_value="<html/>"), \
-             patch("subprocess.run", return_value=mock_run):
+        with (
+            patch("leizilla.robots.is_allowed", return_value=True),
+            patch("leizilla.wayback.save_page"),
+            patch("leizilla.wayback.check_available", return_value=None),
+            patch("leizilla.scraper.fetch_html", return_value="<html/>"),
+            patch("subprocess.run", return_value=mock_run),
+        ):
             scrape_one_html(self._url(), _lei_data_html(), pub, rate_limiter=rate_mock)
         rate_mock.assert_called_once_with(self._url())
 
     def test_rate_limiter_not_called_when_wayback_succeeds(self) -> None:
         from leizilla.scraper import scrape_one_html
+
         pub = _publisher()
         mock_run = MagicMock(returncode=0, stdout="", stderr="")
         rate_mock = MagicMock()
         wb_url = "https://web.archive.org/web/snap/url"
-        with patch("leizilla.robots.is_allowed", return_value=True), \
-             patch("leizilla.wayback.save_page"), \
-             patch("leizilla.wayback.check_available", return_value=wb_url), \
-             patch("leizilla.scraper.fetch_html", return_value="<html/>"), \
-             patch("subprocess.run", return_value=mock_run):
+        with (
+            patch("leizilla.robots.is_allowed", return_value=True),
+            patch("leizilla.wayback.save_page"),
+            patch("leizilla.wayback.check_available", return_value=wb_url),
+            patch("leizilla.scraper.fetch_html", return_value="<html/>"),
+            patch("subprocess.run", return_value=mock_run),
+        ):
             scrape_one_html(self._url(), _lei_data_html(), pub, rate_limiter=rate_mock)
         rate_mock.assert_not_called()
 
@@ -423,6 +491,7 @@ class TestCmdScrapeTipoValidation:
     def _invoke(self, *args: str) -> "typer.testing.Result":  # type: ignore[name-defined]
         from typer.testing import CliRunner
         from leizilla.cli import app
+
         runner = CliRunner()
         return runner.invoke(app, ["scrape"] + list(args))
 
@@ -452,11 +521,21 @@ class TestCmdScrapeTipoValidation:
         assert "planalto" in result.output
 
     def test_lcp_accepted_for_planalto(self) -> None:
-        with patch("leizilla.robots.is_allowed", return_value=False), \
-             patch("leizilla.wayback.save_page"):
+        with (
+            patch("leizilla.robots.is_allowed", return_value=False),
+            patch("leizilla.wayback.save_page"),
+        ):
             result = self._invoke(
-                "--ente", "federal", "--fonte", "planalto",
-                "--tipo", "lcp", "--start-coddoc", "1", "--end-coddoc", "1",
+                "--ente",
+                "federal",
+                "--fonte",
+                "planalto",
+                "--tipo",
+                "lcp",
+                "--start-coddoc",
+                "1",
+                "--end-coddoc",
+                "1",
             )
         assert "lcp" not in result.output or "inválido" not in result.output
         assert result.exit_code == 0

@@ -422,10 +422,10 @@ class TestCountIaItems:
             assert count_ia_items("leizilla-raw-ro-") == 2
 
     def test_follows_cursor_across_pages(self):
-        page1 = json.dumps(
-            {"items": [{"identifier": "a"}], "cursor": "cur1"}
+        page1 = json.dumps({"items": [{"identifier": "a"}], "cursor": "cur1"}).encode()
+        page2 = json.dumps(
+            {"items": [{"identifier": "b"}, {"identifier": "c"}]}
         ).encode()
-        page2 = json.dumps({"items": [{"identifier": "b"}, {"identifier": "c"}]}).encode()
         with patch(
             "urllib.request.urlopen",
             side_effect=self._make_urlopen([page1, page2]),
@@ -436,9 +436,7 @@ class TestCountIaItems:
         assert "cursor=cur1" in second_url
 
     def test_returns_none_on_second_page_error(self):
-        page1 = json.dumps(
-            {"items": [{"identifier": "a"}], "cursor": "cur1"}
-        ).encode()
+        page1 = json.dumps({"items": [{"identifier": "a"}], "cursor": "cur1"}).encode()
         call_n = {"n": 0}
 
         def urlopen_fail(req, timeout=None):
@@ -503,10 +501,15 @@ class TestListRawIds:
         }
 
     def test_follows_cursor_pagination(self):
-        page1 = {"items": [{"identifier": "leizilla-raw-ro-casacivil-lei-00001"}], "cursor": "tok"}
+        page1 = {
+            "items": [{"identifier": "leizilla-raw-ro-casacivil-lei-00001"}],
+            "cursor": "tok",
+        }
         page2 = {"items": [{"identifier": "leizilla-raw-ro-casacivil-lei-00002"}]}
         calls = iter([self._resp(page1), self._resp(page2)])
-        with patch("urllib.request.urlopen", side_effect=lambda *a, **kw: next(calls)) as m:
+        with patch(
+            "urllib.request.urlopen", side_effect=lambda *a, **kw: next(calls)
+        ) as m:
             result = list_raw_ids("ro", "casacivil")
         assert result == {
             "leizilla-raw-ro-casacivil-lei-00001",
@@ -522,7 +525,10 @@ class TestListRawIds:
         re-uploading an unconfirmed item is safe (idempotent IA upload); for
         parsing, skipping an unconfirmed item could silently lose work.
         """
-        page1 = {"items": [{"identifier": "leizilla-raw-ro-assembleia-coddoc-00001"}], "cursor": "tok"}
+        page1 = {
+            "items": [{"identifier": "leizilla-raw-ro-assembleia-coddoc-00001"}],
+            "cursor": "tok",
+        }
         call_n = {"n": 0}
 
         def urlopen(req, timeout=None):
@@ -532,4 +538,6 @@ class TestListRawIds:
             raise OSError("second page error")
 
         with patch("urllib.request.urlopen", side_effect=urlopen):
-            assert list_raw_ids("ro", "assembleia") == {"leizilla-raw-ro-assembleia-coddoc-00001"}
+            assert list_raw_ids("ro", "assembleia") == {
+                "leizilla-raw-ro-assembleia-coddoc-00001"
+            }
