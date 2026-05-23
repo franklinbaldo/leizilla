@@ -48,7 +48,7 @@ jobs:
             --fonte assembleia \
             --start-coddoc ${{ inputs.start_coddoc || '1' }} \
             --end-coddoc ${{ inputs.end_coddoc || '100' }} \
-            $SKIP_FLAG
+            "$SKIP_FLAG"
 
       - name: Scrape Rondônia — casacivil (leis ordinárias)
         env:
@@ -63,7 +63,7 @@ jobs:
             --tipo lei \
             --start-coddoc ${{ inputs.casacivil_start || '1' }} \
             --end-coddoc ${{ inputs.casacivil_end || '100' }} \
-            $SKIP_FLAG
+            "$SKIP_FLAG"
 
       - name: Scrape Rondônia — casacivil (leis complementares)
         env:
@@ -78,4 +78,4 @@ jobs:
             --tipo lc \
             --start-coddoc ${{ inputs.casacivil_start || '1' }} \
             --end-coddoc ${{ inputs.casacivil_end || '100' }} \
-            $SKIP_FLAG
+            "$SKIP_FLAG"

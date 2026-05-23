@@ -70,8 +70,8 @@ jobs:
             --limit "${{ inputs.limit || '50' }}" \
             --output-dir /tmp/leizilla-xmls \
             --error-threshold 20 \
-            $UPLOAD_FLAG \
-            $SKIP_FLAG
+            "$UPLOAD_FLAG" \
+            "$SKIP_FLAG"
 
       - name: Consolidate XMLs → Parquet
         run: |
