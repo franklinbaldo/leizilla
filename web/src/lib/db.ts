@@ -78,28 +78,90 @@ export interface LeiRow {
   ate: Date | null;
 }
 
-export async function searchLeis(query: string, limit = 20): Promise<LeiRow[]> {
-  const safeLimit = Math.trunc(Math.max(1, Math.min(1000, Number.isFinite(limit) ? limit : 20)));
+export const PAGE_SIZE = 20;
+
+export interface SearchOptions {
+  ente?: string;
+  year?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+type RowMapper<T> = (r: unknown) => T;
+const toJson: RowMapper<LeiRow> = (r) => (r as { toJSON(): LeiRow }).toJSON();
+
+function buildWhere(query: string, ente?: string, year?: number) {
+  const clauses = ['ate IS NULL'];
+  const params: Array<string | number> = [];
+  if (query.trim()) {
+    clauses.push('texto_normalizado ILIKE ?');
+    params.push(`%${query.trim()}%`);
+  }
+  if (ente) {
+    clauses.push('ente = ?');
+    params.push(ente);
+  }
+  if (year != null && year > 0) {
+    // em is a DATE column inferred by read_json_auto; YEAR(NULL) = NULL → safe
+    clauses.push('YEAR(em) = ?');
+    params.push(year);
+  }
+  return { where: clauses.join(' AND '), params };
+}
+
+async function runSql<T>(
+  sql: string,
+  params: Array<string | number>,
+  mapper: RowMapper<T>,
+): Promise<T[]> {
   const db = await getDb();
   const conn = await db.connect();
   try {
-    const term = query.trim();
-    if (!term) {
-      const result = await conn.query(
-        `SELECT * FROM versoes WHERE ate IS NULL LIMIT ${safeLimit}`,
-      );
-      return result.toArray().map((r: unknown) => (r as { toJSON(): LeiRow }).toJSON());
+    if (params.length === 0) {
+      const result = await conn.query(sql);
+      return result.toArray().map(mapper);
     }
-    const stmt = await conn.prepare(
-      `SELECT * FROM versoes WHERE ate IS NULL AND texto_normalizado ILIKE ? LIMIT ${safeLimit}`,
-    );
+    const stmt = await conn.prepare(sql);
     try {
-      const result = await stmt.query(`%${term}%`);
-      return result.toArray().map((r: unknown) => (r as { toJSON(): LeiRow }).toJSON());
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await (stmt as any).query(...params);
+      return result.toArray().map(mapper);
     } finally {
       await stmt.close();
     }
   } finally {
     await conn.close();
   }
+}
+
+export async function searchLeisFiltered(query: string, opts: SearchOptions = {}): Promise<LeiRow[]> {
+  const { ente, year, page = 0, pageSize = PAGE_SIZE } = opts;
+  // Math.trunc + bounds enforce integer values — LIMIT/OFFSET cannot be injected.
+  // DuckDB prepared statements do not support ? placeholders in LIMIT/OFFSET clauses.
+  // Number.isFinite guard prevents NaN from reaching the SQL string (e.g. if caller
+  // passes NaN explicitly; normal path always receives valid integers from PAGE_SIZE).
+  const safeSize = Math.min(100, Math.max(1, Math.trunc(Number.isFinite(pageSize) ? pageSize : PAGE_SIZE)));
+  const offset = Math.max(0, Math.trunc(Number.isFinite(page) ? page : 0)) * safeSize;
+  const { where, params } = buildWhere(query, ente, year);
+  // ORDER BY (lei_id, dispositivo_path) is globally unique → stable pagination across pages.
+  const sql = `SELECT * FROM versoes WHERE ${where} ORDER BY lei_id, dispositivo_path LIMIT ${safeSize} OFFSET ${offset}`;
+  return runSql(sql, params, toJson);
+}
+
+export async function countLeisFiltered(
+  query: string,
+  opts: Pick<SearchOptions, 'ente' | 'year'> = {},
+): Promise<number> {
+  const { where, params } = buildWhere(query, opts.ente, opts.year);
+  const rows = await runSql<{ cnt: bigint | number }>(
+    `SELECT COUNT(*)::BIGINT AS cnt FROM versoes WHERE ${where}`,
+    params,
+    (r) => (r as { toJSON(): { cnt: bigint | number } }).toJSON(),
+  );
+  return Number(rows[0]?.cnt ?? 0);
+}
+
+/** @deprecated Use searchLeisFiltered instead. Max 100 rows (capped by searchLeisFiltered). */
+export async function searchLeis(query: string, limit = 20): Promise<LeiRow[]> {
+  return searchLeisFiltered(query, { pageSize: limit });
 }

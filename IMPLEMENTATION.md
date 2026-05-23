@@ -30,13 +30,11 @@
 | **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟢 done | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. |
 | **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟢 done | #36 | Sobe dataset Parquet para IA; benchmark local §3.4. 229 testes. |
 | **M4.3** — benchmark gatilhos §3.4 (testes) | 🟢 done | #39 | 6 testes para gatilhos file/rows/latência em `TestReleaseDatasetBenchmark`. Benchmark WASM real em M5.2. |
-| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. safeLimit fix + pkg version pushed; aguardando CI rerun. |
-| **M5.2** — TanStack Query + paginação + filtros | ⚪ todo | — | Bloqueado por M5.1 merge. |
-| **M2.7** — Planalto federal HTML pipeline | 🟢 done | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 30 testes. URLs legadas (pré-2002); year-scoped em M2.8. Merged. |
-| **M2.8** — `parse-all --input-type html` + chave federal | 🟢 done | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. Merged. |
+| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟢 done | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. Merged. |
+| **M5.2** — TanStack Query + paginação + filtros | 🟢 done | #43 | `LeiSearchUI.svelte` + filtros ente/ano + paginação. TanStack Query via bridge Svelte4 stores. Debounce cleanup + LIMIT/OFFSET safety. Merged. |
 | **M6.1** — `parse-all --output-dir` + workflow parse-release | 🟢 done | #40 | `--output-dir` em `parse-all` + `parse-release.yml` (parse→consolidate→release). 2 novos testes. Merged. |
 | **M6.2** — Deploy-web workflow | ⚪ todo | — | `deploy-web.yml` — incluído em #33 (M5.1). Ativo após M5.1 merge. |
-| **M6.3** — Planalto year-scoped URLs (pós-2002) | 🟡 in-progress | #41 | `planalto_year_scoped_url` + `_camara_year_lookup` (Câmara API, lru_cache, circuit breaker). `discover_planalto_laws` usa URL year-scoped se ano ≥ 2003. 47 novos testes. Fix SCHEMA.md: chave planalto sem `{ano}`. |
+| **M6.3** — Planalto year-scoped URLs (pós-2002) | 🟢 done | #41 | `planalto_year_scoped_url` + `_camara_year_lookup` (Câmara API, lru_cache, circuit breaker, 429 sem abrir circuit). 47 novos testes. Fix SCHEMA.md. Merged. |
 | **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
@@ -138,6 +136,47 @@ aceita lambda para testes offline sem rede.
 
 **Testes**: 47 em `TestCamaraYearLookupCircuitBreaker` + `TestPlanaltoYearScopedUrl` + `TestDiscoverPlanaltoLawsYearScoped`.
 Testes existentes atualizados para passar `year_lookup_fn=lambda t, n: None` (determinismo).
+
+### 2026-05-22 — M5.2: TanStack Query + paginação + filtros
+
+**Entregável**: `LeiSearchUI.svelte` substitui a busca inline em `LeiSearch.svelte`.
+
+**Arquitetura de componente**:
+`LeiSearch.svelte` virou wrapper fino com `QueryClientProvider` (QueryClient configurado
+com retry=2, staleTime=5min). `LeiSearchUI.svelte` contém toda a lógica de busca.
+Essa separação é necessária porque `createQuery` deve ser chamado em filho do Provider.
+
+**Bridge Svelte 5 runes → Svelte 4 stores**:
+TanStack Svelte Query 5.90.2 usa a API de stores Svelte 4 (`derived`, `readable`, `subscribe`)
+internamente — NÃO suporta runes Svelte 5 nativamente. O bridge é:
+- Estado local em `$state` (Svelte 5 runes)
+- `writable()` stores passadas para `createQuery` como options reativas
+- `$effect()` para sincronizar state → store quando qualquer dependência muda
+- Template acessa resultados via `$resultsQ.data`, `$resultsQ.isPending` (sintaxe de store)
+
+**`db.ts` additions**:
+- `searchLeisFiltered(query, {ente, year, page, pageSize})`: SQL dinâmico com WHERE
+  clauses opcionais, LIMIT/OFFSET para paginação. Params parameterizados (sem injection).
+- `countLeisFiltered(query, {ente, year})`: COUNT(*) para total de páginas.
+- `runSql<T>()`: helper interno que abstrai prepare+query vs conn.query.
+- `PAGE_SIZE = 20`: constante exportada usada pelo componente e queries.
+- `YEAR(em)`: filtro por ano usa a coluna DATE `em` (inferred by DuckDB read_json_auto).
+  YEAR(NULL) = NULL → rows sem data de início são excluídas quando filtro ativo (correto).
+
+**Filtros implementados**:
+- Ente: select dropdown (ro, federal, sp) — filtra por coluna `ente` no Parquet.
+- Ano: input numérico → filtra por `YEAR(em)`. Representa o ano de início de vigência
+  do dispositivo, não necessariamente o ano de publicação da lei (melhor que o que temos).
+
+**Debounce**: 400ms no input de busca. `debouncedTerm` é o que vai para o queryKey;
+page reset para 0 sempre que term/ente/year mudam. Debounce via `$effect` cleanup —
+sem memory leak no unmount.
+
+**Paginação**: Prev/Next com "Página N de M". Controles desabilitados durante fetch
+(usando `$resultsQ.isFetching`). `totalPages()` calculado a partir de `$countQ.data`.
+
+**Erro TypeScript pré-existente**: `pthreadWorker` em BUNDLES (db.ts:18) é de M5.1 —
+não introduzido aqui. Build `astro build` passa sem erros; tsc reporta esse pré-existente.
 
 ### 2026-05-22 — M4.3: benchmark gatilhos §3.4 — local approximation é o deliverable M4
 
@@ -842,20 +881,8 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M4.3, M2.7, M2.8, M5.2 concluídos** ✅ | **M6.1 (#40), M6.3 (#41), M5.2 (#43) em PRs abertas**
+**M0–M4.3, M2.7, M2.8, M5.1, M5.2, M6.1, M6.3 concluídos** ✅
 
-**PRs abertas agora**:
-- **#40** M6.1: `parse-all --output-dir` + `parse-release.yml`. CI verde — aguardando rebase+merge.
-- **#41** M6.3: Circuit breaker Câmara API + Planalto year-scoped URLs. CI em andamento.
-- **#43** M5.2: TanStack Query + paginação + filtros. Decantação (1h).
+**Nenhuma PR aberta** — todos os milestones desta sessão mergeados.
 
-**M5.2** (após #33 mergear):
-- Integrar TanStack Query para cache + prefetch.
-- Paginação de resultados.
-- Filtro por ente/ano.
-- Benchmark DuckDB-WASM real com dataset publicado.
-
-**M6.3** (independente — Planalto pós-2002):
-- Year-scoped URLs `_ato{start}-{end}/{ano}/lei/l{num}.htm`.
-- Requer lookup ano←número via API Câmara ou tabela estática de faixas.
-- Não bloqueia M6.1/M5.2 — pode ser feito em paralelo.
+**Próximo milestone**: M6.2 deploy-web workflow (`deploy-web.yml`) — ativa o frontend no GitHub Pages após M5.1 merge (já feito). Ou M7 (Claude Code routines).
