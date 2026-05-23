@@ -746,6 +746,116 @@ class TestCmdParseXsdGateBlocking:
         mock_upload.assert_not_called()
 
 
+class TestCmdParseAllErrorThreshold:
+    """Testes para --error-threshold e GitHub Step Summary em parse-all."""
+
+    def test_threshold_disabled_by_default_allows_all_failures(self):
+        """Threshold=0 (default): 100% de falhas não dispara exit 1."""
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr"),
+            patch("leizilla.parser.parse_law", return_value=None),
+        ):
+            result = runner.invoke(
+                app,
+                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "3", "--no-upload"],
+            )
+        assert result.exit_code == 0
+        assert "3 falhos" in result.output
+
+    def test_threshold_not_exceeded_exits_zero(self):
+        """1 success, 1 fail = 50%; threshold=60% → exit 0, sem aviso."""
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr"),
+            patch("leizilla.parser.parse_law", side_effect=[_PARSE_RESULT, None]),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "2",
+                    "--error-threshold", "60",
+                ],
+            )
+        assert result.exit_code == 0
+        assert "⚠" not in result.output
+
+    def test_threshold_exceeded_exits_one_with_warning(self):
+        """2 success, 3 fail = 60%; threshold=50% → exit 1 + mensagem de aviso."""
+        parse_results = [_PARSE_RESULT, _PARSE_RESULT, None, None, None]
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr"),
+            patch("leizilla.parser.parse_law", side_effect=parse_results),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "5",
+                    "--error-threshold", "50",
+                ],
+            )
+        assert result.exit_code == 1
+        assert "⚠ Taxa de falhas" in result.output
+        assert "excede limite" in result.output
+
+    def test_step_summary_written_in_ci(self, tmp_path, monkeypatch):
+        """GITHUB_STEP_SUMMARY definido → arquivo Markdown escrito com stats."""
+        summary_file = tmp_path / "step_summary.md"
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+        ):
+            result = runner.invoke(
+                app,
+                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "2"],
+            )
+        assert result.exit_code == 0
+        assert summary_file.exists()
+        content = summary_file.read_text()
+        assert "Leizilla parse-all" in content
+        assert "Parseados OK" in content
+        assert "Taxa de falhas" in content
+
+    def test_step_summary_includes_threshold_when_set(self, tmp_path, monkeypatch):
+        """--error-threshold N aparece no step summary."""
+        summary_file = tmp_path / "step_summary.md"
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr"),
+            patch("leizilla.parser.parse_law", return_value=None),
+        ):
+            runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "2",
+                    "--no-upload",
+                    "--error-threshold", "30",
+                ],
+            )
+        content = summary_file.read_text()
+        assert "30%" in content
+
+
 class TestCmdStats:
     """Testes para cmd_stats — consulta IA sem credenciais."""
 

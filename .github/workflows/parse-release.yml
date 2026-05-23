@@ -64,6 +64,7 @@ jobs:
             --input-type "${{ inputs.input_type || 'ocr' }}" \
             --limit "${{ inputs.limit || '50' }}" \
             --output-dir /tmp/leizilla-xmls \
+            --error-threshold 20 \
             $UPLOAD_FLAG
 
       - name: Consolidate XMLs → Parquet
