@@ -43,6 +43,8 @@
 | **M9.1** — Melhoria do maintenance-prompt | 🟡 in-progress | #51 | xsltproc na Phase 2E; protocolo Fase 1F (sessões paralelas); princípio 7 mais preciso. |
 | **M9.2** — check-credentials informacional | 🟢 done | #53 | `exit 0` em PR/push; só bloqueia em `workflow_dispatch`. Triggers auto-inclusas. |
 | **M9.3** — parse-release multi-fonte + skip-existing | 🟡 in-progress | esta sessão | Três steps scheduled (assembleia + casacivil-lei + casacivil-lc) com `--skip-existing`. Input `skip_existing` no dispatch. |
+| **M9.3** — `scrape --skip-existing` | 🟢 done | 5de6cd0 | `list_raw_ids(ente, fonte)` + flag `--skip-existing/--no-skip-existing` em `cmd_scrape`. 10 novos testes. Push direto em main. |
+| **M9.4** — parse-release multi-fonte + skip-existing | 🟡 in-progress | #55 | Três steps scheduled (assembleia + casacivil-lei + casacivil-lc) com `--skip-existing`. Input `skip_existing` no dispatch. Fix limit + casacivil discriminant. |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
@@ -99,7 +101,7 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
-### 2026-05-23 — M9.3: parse-release multi-fonte + skip-existing
+### 2026-05-23 — M9.4: parse-release multi-fonte + skip-existing
 
 **Problema descoberto**: `parse-release.yml` não usava `--skip-existing` (M7.2 existe no CLI mas
 estava ausente do workflow). Sem esse flag, cada run semanal reparseia os mesmos itens do início
@@ -126,6 +128,49 @@ até cobertura completa. Após cobertura completa: ~0 LLM calls (todos os itens 
 run (≤150 itens). O Parquet não acumula com runs anteriores. Para o MVP isso é aceitável — o dataset
 cresce semana a semana. Quando precisarmos de um Parquet full-histórico, adicionar `fetch-all-parsed`
 que baixa todos os XMLs do IA antes do consolidate.
+
+### 2026-05-23 — M9.3: scrape --skip-existing via list_raw_ids
+
+**Problema**: `rondonia_crawler.yml` re-scraping todos os itens a cada execução CI mesmo
+quando já estão no IA. Para um range de 5000 leis, isso desperdiça bandwidth + IA storage
+e viola o princípio "Raw é imutável após upload" implicitamente (re-upload de item existente).
+
+**`list_raw_ids(ente, fonte)`** adicionado a `publisher.py`: consulta IA scrape API com
+prefix `leizilla-raw-{ente}-{fonte}-` e retorna `set[str]` de identifiers existentes.
+Mais simples que `list_parsed_raw_ids` (M7.2): sem fetch de `parsed_meta.json` por item —
+o prefix já identifica unicamente ente+fonte, basta listar identifiers.
+Paginação via cursor. Fail-open: erro de rede → `set()` (nunca pula por falha de conectividade).
+
+**`--skip-existing/--no-skip-existing`** (default False) em `cmd_scrape`:
+- Chama `list_raw_ids(ente, fonte)` antes do loop e exibe count
+- Para cada law, computa `ia_id = f"leizilla-raw-{ente}-{fonte}-{chave}"` e pula se em set
+- Funciona para todos os tipos de fonte: assembleia (coddoc), casacivil (lei/lc), planalto (lei/lcp/decreto)
+- Mensagem final inclui `N pulados (já existem)` quando flag ativo
+
+**Simetria com M7.2**: `parse-all --skip-existing` usa `list_parsed_raw_ids` (fetch de meta);
+`scrape --skip-existing` usa `list_raw_ids` (sem fetch extra — prefix já discrimina tudo).
+Padrão idempotente por todo o pipeline.
+
+5 novos testes em `TestListRawIds` (test_publisher.py) + 5 em `TestCmdScrapeSkipExisting`
+(test_scrape_skip_existing.py).
+
+### 2026-05-23 — M9.1: melhoria do maintenance-prompt — sessões paralelas + xsltproc
+
+**Problema**: esta sessão encontrou um conflito de merge real entre #49 e #50 (duas sessões
+que operaram no mesmo base SHA). O `maintenance-prompt.md` não tinha instrução para isso.
+
+**Adições ao maintenance-prompt.md**:
+- `Fase 1F` — protocolo de 5 passos para resolver conflito de sessões paralelas:
+  (1) merge --no-commit para identificar, (2) IMPLEMENTATION.md: manter ambas as entradas,
+  (3) testes: manter ambas as classes, (4) commit de resolução com push, (5) re-tentar merge.
+- `Phase 2E`: adicionado loop `xsltproc` + `xmllint` para validar export LexML quando
+  XSD ou fixtures mudam — estava descrito no prompt canônico da sessão mas ausente do arquivo.
+- `Princípio 7` (reversibilidade): adicionado "deletar branches alheias" à lista NÃO-PODE.
+  Era implícito; explicitado para sessões automáticas sem supervisão humana imediata.
+
+**Não feito**: os comandos de validação de schema e XSLT não foram rodados nesta sessão
+porque nenhuma fixture foi modificada (trabalho foi de merge + triagem). Comandos adicionados
+como template para quando forem relevantes.
 
 ### 2026-05-23 — M8.2: observabilidade do pipeline — error-threshold + GitHub Step Summary
 
@@ -1004,11 +1049,9 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M8.2 + M9.2 concluídos** ✅
+**M0–M9.3 concluídos** ✅
 
-**PRs abertas**:
-- #51 (M9.1) — maintenance-prompt: xsltproc loop + Fase 1F + princípio 7. CI deve passar agora.
-- Esta sessão (M9.3) — parse-release multi-fonte + `--skip-existing`. Aguardando CI e merge.
+**PR aberta desta sessão**: #55 (M9.4) — parse-release multi-fonte + `--skip-existing` + fix limit + casacivil discriminant. Aguardando CI e merge.
 
 **M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais em CI).
 

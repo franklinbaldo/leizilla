@@ -185,6 +185,41 @@ def count_ia_items(identifier_prefix: str) -> Optional[int]:
     return total
 
 
+def list_raw_ids(ente: str, fonte: str) -> Set[str]:
+    """Return set of raw item IDs already uploaded to IA for this ente/fonte.
+
+    Simpler than list_parsed_raw_ids: the raw identifier prefix already
+    uniquely identifies ente+fonte, so no per-item metadata fetch needed.
+    Fail-open on first-page error: returns empty set (never skips due to
+    connectivity issues). Partial results on mid-pagination error: returns
+    confirmed items so far — re-scraping unconfirmed items is safe (idempotent
+    IA upload), unlike parse-all where skipping means lost work.
+    """
+    prefix = f"leizilla-raw-{ente}-{fonte}-"
+    q = f"identifier:{prefix}*"
+    base_url = f"{_IA_SCRAPE_URL}?q={urllib.parse.quote(q)}&count=10000&fields=identifier"
+
+    raw_ids: Set[str] = set()
+    cursor: Optional[str] = None
+
+    while True:
+        url = base_url
+        if cursor:
+            url += f"&cursor={urllib.parse.quote(cursor)}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read())
+            raw_ids.update(item["identifier"] for item in data.get("items", []))
+            cursor = data.get("cursor")
+            if not cursor:
+                break
+        except Exception:
+            return raw_ids  # partial results on mid-pagination failure; empty set on page 1 failure
+
+    return raw_ids
+
+
 def list_parsed_raw_ids(ente: str, fonte: str) -> Set[str]:
     """Return raw item IDs that have already been parsed and uploaded to IA.
 
