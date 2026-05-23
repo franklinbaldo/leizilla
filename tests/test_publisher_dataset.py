@@ -24,7 +24,6 @@ _runner = CliRunner()
 # Helpers
 # ---------------------------------------------------------------------------
 
-
 def _make_parquet(tmp_path: Path) -> Path:
     """Cria Parquet mínimo válido para testes (sem precisar de etl.py)."""
     out = tmp_path / "versoes.parquet"
@@ -62,15 +61,8 @@ class TestBuildDatasetMeta:
         p = _make_parquet(tmp_path)
         meta = build_dataset_meta(p, "ro", 0, row_count=1, git_sha=None)
         required = {
-            "leizilla_meta_version",
-            "schema_version",
-            "ente",
-            "version",
-            "table",
-            "generated_at",
-            "row_count",
-            "file_size_bytes",
-            "hash_parquet",
+            "leizilla_meta_version", "schema_version", "ente", "version",
+            "table", "generated_at", "row_count", "file_size_bytes", "hash_parquet",
         }
         assert required.issubset(meta.keys())
 
@@ -142,10 +134,8 @@ class TestUploadDataset:
         p = _make_parquet(tmp_path)
         pub = _publisher()
         mock_cp = MagicMock(returncode=0, stdout="", stderr="")
-        with (
-            patch("leizilla.publisher._get_git_sha", return_value=None),
-            patch("subprocess.run", return_value=mock_cp) as mock_run,
-        ):
+        with patch("leizilla.publisher._get_git_sha", return_value=None), \
+             patch("subprocess.run", return_value=mock_cp) as mock_run:
             pub.upload_dataset(p, "ro", 0, row_count=1, git_sha=None)
         call_args = mock_run.call_args_list[0][0][0]
         assert "leizilla-dataset-ro-v0" in call_args
@@ -204,10 +194,8 @@ class TestUploadDataset:
         p = _make_parquet(tmp_path)
         pub = _publisher()
         mock_cp = MagicMock(returncode=0, stdout="", stderr="")
-        with (
-            patch("leizilla.publisher._get_git_sha", return_value=None),
-            patch("subprocess.run", return_value=mock_cp) as mock_run,
-        ):
+        with patch("leizilla.publisher._get_git_sha", return_value=None), \
+             patch("subprocess.run", return_value=mock_cp) as mock_run:
             pub.upload_dataset(p, "ro", 0, row_count=1, git_sha=None)
         call_args = mock_run.call_args_list[0][0][0]
         assert "mediatype:data" in call_args
@@ -222,9 +210,7 @@ class TestUploadDataset:
         def capture(cmd: list[str], **kwargs: object) -> MagicMock:
             # Collect file paths passed to ia upload (after the ia_id arg)
             uploaded_files.extend(
-                f
-                for f in cmd[3:]
-                if not f.startswith("--") and not f.startswith("media")
+                f for f in cmd[3:] if not f.startswith("--") and not f.startswith("media")
             )
             return mock_cp
 
@@ -255,11 +241,7 @@ class TestReleaseDatasetCli:
     def test_upload_failure_exits_nonzero(self, tmp_path: Path) -> None:
         """CLI deve sair com code 1 quando upload_dataset retorna success=False."""
         p = _make_parquet(tmp_path)
-        fail_result = {
-            "success": False,
-            "error": "credenciais inválidas",
-            "ia_id": "leizilla-dataset-ro-v0",
-        }
+        fail_result = {"success": False, "error": "credenciais inválidas", "ia_id": "leizilla-dataset-ro-v0"}
         with patch(
             "leizilla.publisher.InternetArchivePublisher.upload_dataset",
             return_value=fail_result,
@@ -350,10 +332,8 @@ class TestReleaseDatasetBenchmark:
                 return mock_stat
             return original_stat(self, *args, **kwargs)
 
-        with (
-            patch("duckdb.connect", return_value=self._mock_conn(2_000_001)),
-            patch.object(Path, "stat", patched_stat),
-        ):
+        with patch("duckdb.connect", return_value=self._mock_conn(2_000_001)), \
+             patch.object(Path, "stat", patched_stat):
             result = _runner.invoke(app, ["release-dataset", str(p), "--dry-run"])
         assert "RFC sobre split" in result.output
         assert "2+" in result.output

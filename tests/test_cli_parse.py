@@ -563,6 +563,7 @@ class TestCmdParseAll:
         assert "inválido" in result.output
         mock_ocr.assert_not_called()
 
+
     def test_output_dir_saves_xml_files(self, tmp_path):
         """--output-dir cria arquivos {ia_id_parsed}.xml para cada parse bem-sucedido."""
         call_n = {"n": 0}
@@ -591,12 +592,9 @@ class TestCmdParseAll:
                 app,
                 [
                     "parse-all",
-                    "--start-coddoc",
-                    "1",
-                    "--end-coddoc",
-                    "2",
-                    "--output-dir",
-                    str(tmp_path / "xmls"),
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "2",
+                    "--output-dir", str(tmp_path / "xmls"),
                 ],
             )
         assert result.exit_code == 0
@@ -615,12 +613,9 @@ class TestCmdParseAll:
                 app,
                 [
                     "parse-all",
-                    "--start-coddoc",
-                    "1",
-                    "--end-coddoc",
-                    "3",
-                    "--output-dir",
-                    str(out),
+                    "--start-coddoc", "1",
+                    "--end-coddoc", "3",
+                    "--output-dir", str(out),
                     "--no-upload",
                 ],
             )

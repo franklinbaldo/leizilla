@@ -13,9 +13,7 @@ from typing import Any, Dict, Optional
 from leizilla import config
 from leizilla import storage as storage_module
 
-_DATASET_IDENTIFIER_RE = (
-    r"^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)$"
-)
+_DATASET_IDENTIFIER_RE = r"^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)$"
 
 _USER_AGENT = "leizilla-crawler/0.1"
 
@@ -94,21 +92,11 @@ def build_raw_meta_html(
 
 def _get_git_sha() -> Optional[str]:
     try:
-        return (
-            subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=5,
-            ).stdout.strip()
-            or None
-        )
-    except (
-        subprocess.CalledProcessError,
-        FileNotFoundError,
-        subprocess.TimeoutExpired,
-    ):
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True, timeout=5,
+        ).stdout.strip() or None
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         return None
 
 
@@ -127,7 +115,6 @@ def build_dataset_meta(
     parquet_bytes = parquet_path.read_bytes()
     if row_count is None:
         import duckdb
-
         conn = duckdb.connect()
         try:
             row_count = conn.execute(
@@ -240,9 +227,7 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
-        raw_meta = build_raw_meta_html(
-            html_content, lei_data, fetched_from, wayback_url
-        )
+        raw_meta = build_raw_meta_html(html_content, lei_data, fetched_from, wayback_url)
 
         with tempfile.TemporaryDirectory() as tmp:
             html_dst = Path(tmp) / f"{ia_id}.html"
@@ -277,11 +262,7 @@ class InternetArchivePublisher:
                     "ia_url": f"https://archive.org/details/{ia_id}",
                 }
             except FileNotFoundError:
-                return {
-                    "success": False,
-                    "error": "ia CLI não encontrado — instale 'internetarchive'",
-                    "ia_id": ia_id,
-                }
+                return {"success": False, "error": "ia CLI não encontrado — instale 'internetarchive'", "ia_id": ia_id}
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
 
@@ -357,9 +338,7 @@ class InternetArchivePublisher:
             return {"success": False, "error": "IA credentials not configured"}
 
         if version < 0:
-            raise ValueError(
-                f"version must be >= 0 to satisfy _DATASET_IDENTIFIER_RE, got {version}"
-            )
+            raise ValueError(f"version must be >= 0 to satisfy _DATASET_IDENTIFIER_RE, got {version}")
 
         if not re.match(r"^[a-z][a-z0-9-]*$", ente):
             raise ValueError(
@@ -367,9 +346,7 @@ class InternetArchivePublisher:
             )
 
         ia_id = f"leizilla-dataset-{ente}-v{version}"
-        dataset_meta = build_dataset_meta(
-            parquet_path, ente, version, row_count, git_sha
-        )
+        dataset_meta = build_dataset_meta(parquet_path, ente, version, row_count, git_sha)
         effective_row_count = dataset_meta["row_count"]
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -383,19 +360,12 @@ class InternetArchivePublisher:
             try:
                 subprocess.run(
                     [
-                        "ia",
-                        "upload",
-                        ia_id,
-                        str(parquet_dst),
-                        str(meta_path),
-                        "--metadata",
-                        f"title:Leizilla Dataset {ente.upper()} v{version}",
-                        "--metadata",
-                        "mediatype:data",
-                        "--metadata",
-                        f"subject:leis;leizilla;{ente};parquet;versoes",
-                        "--metadata",
-                        "creator:leizilla-etl",
+                        "ia", "upload", ia_id,
+                        str(parquet_dst), str(meta_path),
+                        "--metadata", f"title:Leizilla Dataset {ente.upper()} v{version}",
+                        "--metadata", "mediatype:data",
+                        "--metadata", f"subject:leis;leizilla;{ente};parquet;versoes",
+                        "--metadata", "creator:leizilla-etl",
                     ],
                     capture_output=True,
                     text=True,
@@ -408,11 +378,7 @@ class InternetArchivePublisher:
                     "row_count": effective_row_count,
                 }
             except FileNotFoundError:
-                return {
-                    "success": False,
-                    "error": "ia CLI não encontrado — instale 'internetarchive'",
-                    "ia_id": ia_id,
-                }
+                return {"success": False, "error": "ia CLI não encontrado — instale 'internetarchive'", "ia_id": ia_id}
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
 
