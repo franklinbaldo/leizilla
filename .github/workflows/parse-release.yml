@@ -32,6 +32,9 @@ on:
       dry_run:
         description: "Se 'true', pula upload de parsed items e do dataset (valida pipeline localmente)"
         default: "false"
+      skip_existing:
+        description: "Pula itens já parseados no IA ('true'=incremental, 'false'=re-parseia tudo)"
+        default: "true"
 
 jobs:
   parse-release:
@@ -55,6 +58,8 @@ jobs:
           # Normaliza dry_run para minúsculas — cobre "true", "True", "TRUE"
           DRY_RUN="${{ inputs.dry_run || 'false' }}"
           if [ "${DRY_RUN,,}" = "true" ]; then UPLOAD_FLAG="--no-upload"; else UPLOAD_FLAG="--upload"; fi
+          SKIP="${{ inputs.skip_existing || 'true' }}"
+          if [ "${SKIP,,}" = "true" ]; then SKIP_FLAG="--skip-existing"; else SKIP_FLAG="--no-skip-existing"; fi
           uv run leizilla parse-all \
             --ente "${{ inputs.ente || 'ro' }}" \
             --fonte "${{ inputs.fonte || 'casacivil' }}" \
@@ -65,7 +70,8 @@ jobs:
             --limit "${{ inputs.limit || '50' }}" \
             --output-dir /tmp/leizilla-xmls \
             --error-threshold 20 \
-            $UPLOAD_FLAG
+            $UPLOAD_FLAG \
+            $SKIP_FLAG
 
       - name: Consolidate XMLs → Parquet
         run: |

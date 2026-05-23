@@ -43,7 +43,8 @@
 | **M8.2** — Observabilidade do pipeline (error rate) | 🟢 done | #50 | `--error-threshold` em `parse-all` + GitHub Step Summary + `check-credentials.yml`. Workflow `parse-release.yml` com `--error-threshold 20`. 5 novos testes. Merged. |
 | **M9.1** — Melhoria do maintenance-prompt | 🟢 done | #51 | xsltproc na Phase 2E; instrução de conflito de sessões paralelas (Fase 1F); PRs range atualizado; princípio 7 mais preciso. Merged. |
 | **M9.2** — check-credentials informacional | 🟢 done | #53 | `exit 0` em `pull_request`/`push`; só bloqueia em `workflow_dispatch`. Triggers `claude/**` e `pull_request: main`. Merged. |
-| **M9.3** — `scrape --skip-existing` | 🟡 in-progress | esta sessão | `list_raw_ids(ente, fonte)` + flag `--skip-existing/--no-skip-existing` em `cmd_scrape`. Evita re-scraping de itens já no IA. 10 novos testes. |
+| **M9.3** — `scrape --skip-existing` | 🟢 done | #54 | `list_raw_ids(ente, fonte)` + flag `--skip-existing/--no-skip-existing` em `cmd_scrape`. Evita re-scraping de itens já no IA. 10 novos testes. |
+| **M10.1** — Wire `--skip-existing` nos workflows CI | 🟡 in-progress | esta sessão | `rondonia_crawler.yml` e `parse-release.yml` passam `--skip-existing` por padrão. Runs idempotentes sem custo extra de bandwidth/LLM. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -98,6 +99,28 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-23 — M10.1: wire --skip-existing nos workflows CI
+
+**Problema**: `rondonia_crawler.yml` (scrape semanal) e `parse-release.yml` (parse+ETL semanal)
+não usavam `--skip-existing` após M9.3 (scrape) e M7.2 (parse-all) implementarem as flags.
+Re-executar os workflows repetia o trabalho completo — re-scraping todos os PDFs e re-parseando
+todas as leis mesmo as já no IA.
+
+**Mudanças**:
+- `rondonia_crawler.yml`: adiciona input `skip_existing` (default `'true'`). Todas as 3 etapas
+  de scrape (assembleia, casacivil lei, casacivil lc) passam `--skip-existing` ou `--no-skip-existing`
+  conforme o input. Default `true` para runs automáticas (schedule); operador pode setar `false`
+  em `workflow_dispatch` para forçar re-scrape completo.
+- `parse-release.yml`: mesmo padrão com `skip_existing` input (default `'true'`). `parse-all`
+  recebe `--skip-existing` ou `--no-skip-existing` conforme o input.
+
+**Por que default true nos dois**: runs automáticas (schedule) são incrementais por design.
+Re-scrape total é operação rara (quando fonte atualiza PDF, ou após reset de credenciais IA).
+Nesses casos, operador passa `skip_existing=false` no `workflow_dispatch`.
+
+**Impacto de custo**: `--skip-existing` faz uma consulta IA scrape API antes do loop (~1 req HTTP).
+Custo negligenciável vs. re-scraping/re-parseando centenas de itens.
 
 ### 2026-05-23 — M9.3: scrape --skip-existing via list_raw_ids
 
@@ -1019,13 +1042,11 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M9.2 concluídos** ✅
+**M0–M9.3 concluídos** ✅
 
-**PR aberta desta sessão**: M9.3 — `scrape --skip-existing` via `list_raw_ids`. Aguardando CI e merge.
+**PR aberta desta sessão**: M10.1 — wire `--skip-existing` em `rondonia_crawler.yml` e `parse-release.yml`. Aguardando CI e merge.
 
 **M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais IA_ACCESS_KEY em CI). Revisitar após primeiro batch real.
-
-**Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar workflows de scraping e parsing.
 
 **Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar workflows de scraping e parsing.
 
