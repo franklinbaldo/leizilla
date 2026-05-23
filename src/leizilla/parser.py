@@ -223,14 +223,11 @@ def parse_law(
 
     messages = [
         {"role": "system", "content": system, "cache_control": {"type": "ephemeral"}},
-        {"role": "user", "content": f"{user_prefix}:\n\n{ocr_text[:char_limit]}"}
+        {"role": "user", "content": f"{user_prefix}:\n\n{ocr_text[:char_limit]}"},
     ]
 
     response = completion(
-        model=model,
-        messages=messages,
-        max_tokens=4096,
-        api_key=api_key
+        model=model, messages=messages, max_tokens=4096, api_key=api_key
     )
 
     raw = response.choices[0].message.content if response.choices else ""

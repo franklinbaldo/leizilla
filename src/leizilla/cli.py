@@ -156,13 +156,16 @@ def cmd_upload(
 @app.command("scrape")
 def cmd_scrape(
     ente: str = typer.Option("ro", help="Ente federativo"),
-    fonte: str = typer.Option("assembleia", help="Fonte (assembleia, casacivil, planalto)"),
+    fonte: str = typer.Option(
+        "assembleia", help="Fonte (assembleia, casacivil, planalto)"
+    ),
     start_coddoc: int = typer.Option(
         1, help="ID inicial (coddoc p/ assembleia; número de lei p/ casacivil/planalto)"
     ),
     end_coddoc: int = typer.Option(10, help="ID final"),
     tipo: str = typer.Option(
-        "lei", help="Tipo: lei (ordinária), lc (complementar, casacivil), decreto (planalto)"
+        "lei",
+        help="Tipo: lei (ordinária), lc (complementar, casacivil), decreto (planalto)",
     ),
 ) -> None:
     """Scrape leis: discover → robots → wayback → upload_raw/upload_raw_html para IA."""
@@ -178,7 +181,9 @@ def cmd_scrape(
         echo(f"--tipo lcp só é válido com --fonte planalto (recebido: --fonte {fonte})")
         raise typer.Exit(1)
     if tipo == "decreto" and fonte != "planalto":
-        echo(f"--tipo decreto só é válido com --fonte planalto (recebido: --fonte {fonte})")
+        echo(
+            f"--tipo decreto só é válido com --fonte planalto (recebido: --fonte {fonte})"
+        )
         raise typer.Exit(1)
 
     echo(f"Scraping {ente}/{fonte} {start_coddoc}–{end_coddoc} (tipo={tipo})")
@@ -222,6 +227,7 @@ def cmd_scrape(
         async def run() -> None:
             if ente == "ro" and fonte == "assembleia":
                 from leizilla.crawler import LeisCrawler
+
                 crawler = LeisCrawler(crawler_type="playwright")
                 laws = await crawler.discover_rondonia_laws(
                     start_coddoc=start_coddoc,
@@ -229,6 +235,7 @@ def cmd_scrape(
                 )
             elif ente == "ro" and fonte == "casacivil":
                 from leizilla.crawler import discover_casacivil_laws
+
                 laws = discover_casacivil_laws(
                     tipo=tipo,
                     start_num=start_coddoc,
@@ -264,10 +271,14 @@ def cmd_scrape(
 
 @app.command("release-dataset")
 def cmd_release_dataset(
-    parquet: Path = typer.Argument(..., help="Arquivo versoes.parquet (saída de consolidate)"),
+    parquet: Path = typer.Argument(
+        ..., help="Arquivo versoes.parquet (saída de consolidate)"
+    ),
     ente: str = typer.Option("ro", "--ente", help="Ente federativo"),
     version: int = typer.Option(0, "--version", help="Versão do dataset (0 = pré-M5)"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Reporta stats sem fazer upload"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Reporta stats sem fazer upload"
+    ),
 ) -> None:
     """Publicar Parquet no IA como leizilla-dataset-{ente}-v{version} (M4 restante)."""
     import time
@@ -313,7 +324,9 @@ def cmd_release_dataset(
     if gatilhos:
         echo(f"  Gatilhos §3.4 atingidos: {'; '.join(gatilhos)}")
         if len(gatilhos) >= 2:
-            echo("  2+ gatilhos → RFC sobre split de tabelas obrigatório antes de fechar M5")
+            echo(
+                "  2+ gatilhos → RFC sobre split de tabelas obrigatório antes de fechar M5"
+            )
 
     if dry_run:
         echo("Dry-run: nenhum upload realizado.")
@@ -324,10 +337,17 @@ def cmd_release_dataset(
     git_sha = None
     try:
         import subprocess as _sp
-        git_sha = _sp.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True, text=True, check=True, timeout=5,
-        ).stdout.strip() or None
+
+        git_sha = (
+            _sp.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5,
+            ).stdout.strip()
+            or None
+        )
     except Exception:
         pass
 
@@ -338,7 +358,9 @@ def cmd_release_dataset(
         echo(f"Upload falhou: {e}")
         raise typer.Exit(1)
     if result.get("success"):
-        echo(f"Dataset publicado: {result['ia_url']} ({result.get('row_count', '?')} linhas)")
+        echo(
+            f"Dataset publicado: {result['ia_url']} ({result.get('row_count', '?')} linhas)"
+        )
     else:
         echo(f"Upload falhou: {result.get('error', 'erro desconhecido')}")
         raise typer.Exit(1)

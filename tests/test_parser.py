@@ -318,7 +318,9 @@ class TestParseLaw:
 
     def test_uses_model_parameter(self):
         mock_resp = _make_litellm_response(_LLM_OK)
-        with patch("leizilla.parser.completion", return_value=mock_resp) as mock_completion:
+        with patch(
+            "leizilla.parser.completion", return_value=mock_resp
+        ) as mock_completion:
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 parser.parse_law("ocr text", _IA_ID, "ro", model="claude-opus-4-7")
 
@@ -346,7 +348,9 @@ class TestParseLaw:
     def test_truncates_ocr_to_limit(self):
         long_ocr = "x" * 20000
         mock_resp = _make_litellm_response(_LLM_OK)
-        with patch("leizilla.parser.completion", return_value=mock_resp) as mock_completion:
+        with patch(
+            "leizilla.parser.completion", return_value=mock_resp
+        ) as mock_completion:
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 parser.parse_law(long_ocr, _IA_ID, "ro")
 
@@ -358,7 +362,9 @@ class TestParseLaw:
     def test_html_input_type_uses_html_char_limit(self):
         long_html = "<p>" + "x" * 40000 + "</p>"
         mock_resp = _make_litellm_response(_LLM_OK)
-        with patch("leizilla.parser.completion", return_value=mock_resp) as mock_completion:
+        with patch(
+            "leizilla.parser.completion", return_value=mock_resp
+        ) as mock_completion:
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 parser.parse_law(
                     long_html,
@@ -389,7 +395,9 @@ class TestParseLaw:
     def test_html_input_type_includes_url_in_user_message(self):
         url = "https://example.gov.br/lei/9999"
         mock_resp = _make_litellm_response(_LLM_OK)
-        with patch("leizilla.parser.completion", return_value=mock_resp) as mock_completion:
+        with patch(
+            "leizilla.parser.completion", return_value=mock_resp
+        ) as mock_completion:
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 parser.parse_law("html content", url, "ro", input_type="html")
 

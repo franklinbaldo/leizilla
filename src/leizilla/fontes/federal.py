@@ -26,6 +26,7 @@ class _CamaraApiState:
 
     available: bool = True
 
+
 FONTES = ["planalto", "camara", "senado", "dou"]
 FONTE_CANONICA = "planalto"
 
@@ -52,7 +53,7 @@ _PLANALTO_LEGACY_URLS: Dict[str, str] = {
 # Prefixos de tipo no path year-scoped (subdiretório e nome de arquivo)
 _PLANALTO_YEAR_SUBDIR: Dict[str, str] = {
     "lei": "lei",
-    "lcp": "lei",     # LCPs ficam em /lei/, não /lcp/
+    "lcp": "lei",  # LCPs ficam em /lei/, não /lcp/
     "decreto": "decreto",
 }
 _PLANALTO_YEAR_PREFIX: Dict[str, str] = {
@@ -90,7 +91,9 @@ def _ato_range_for_year(year: int) -> str:
         if start <= year <= end:
             return f"_ato{start}-{end}"
     if year < 2003:
-        raise ValueError(f"Ano {year} fora dos ranges Planalto year-scoped (requer >= 2003)")
+        raise ValueError(
+            f"Ano {year} fora dos ranges Planalto year-scoped (requer >= 2003)"
+        )
     # Quadriênio dinâmico: mantém o padrão de 4 anos partindo de 2003
     start = 2003 + ((year - 2003) // 4) * 4
     return f"_ato{start}-{start + 3}"
