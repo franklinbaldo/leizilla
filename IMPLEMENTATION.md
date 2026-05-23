@@ -45,7 +45,11 @@
 | **M9.3** — `scrape --skip-existing` | 🟢 done | #54 | `list_raw_ids(ente, fonte)` + flag `--skip-existing/--no-skip-existing` em `cmd_scrape`. Evita re-scraping de itens já no IA. 10 novos testes. Merged. |
 | **M9.4** — parse-release multi-fonte + skip-existing | 🟢 done | #55 | Três steps scheduled (assembleia + casacivil-lei + casacivil-lc); fix `--limit` (conta post-skip) + casacivil chave discriminant. Merged. |
 | **M9.5** — `rondonia_crawler.yml` idempotente + ranges reais | 🟢 done | #57 | Schedule/dispatch split; `--skip-existing` por default; ranges 5000/6000/1300 (alinhados com parse-release). Inputs renomeados por fonte. Merged. |
-| **M10.1** — `fetch-all-parsed` + Parquet cumulativo | 🟡 in-progress | esta sessão | `list_parsed_ia_ids` + `fetch_parsed_xml` + CLI `fetch-all-parsed`; `parse-release.yml` baixa todos os XMLs do IA antes do consolidate. 12 testes. |
+| **M10.A** — manifest-driven discovery + harvest pipeline | 🟢 done | #60 | `discovery.py` (WaybackCdx + Sequential + PlaywrightCrawler); `manifests/ro.json`; `storage.discovered_resources`; `cmd_discover` + `cmd_harvest` CLI. Queue-based: discover popula DuckDB, harvest processa. |
+| **M10.B** — `cmd_bundle_raw` + torrent bundling | 🟢 done | a8fee2b | `publisher.create_archive_item` + `cmd_bundle_raw`; consolida PDFs baixados em IA item único para torrent P2P. |
+| **M10.C** — OCR pipeline (ocr.py + cmd_fetch_ocr) | 🟡 in-progress | #61 | `ocr.py` (`clean_ocr_text`, `normalize_text`); `cmd_fetch_ocr` popula DuckDB com texto OCR do IA. Fix P1 (charset português). Aguardando CI. |
+| **M10.1** — `fetch-all-parsed` + Parquet cumulativo | 🟢 done | #58 | `list_parsed_ia_ids` + `fetch_parsed_xml` + CLI `fetch-all-parsed`; parse-release.yml baixa todos os XMLs do IA antes do consolidate → Parquet full-histórico. 12 testes. Merged. |
+| **M10.2** — docs + manifest ranges + discover-harvest workflow | 🟡 in-progress | esta sessão | IMPLEMENTATION.md atualizado; `manifests/ro.json` ranges reais (lei 1-6000, lc 1-1300, assembleia 1-5000); `discover-harvest.yml` workflow semanal. |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
@@ -101,6 +105,29 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-23 — M10.2: triagem de PRs + docs + manifest ranges + discover-harvest workflow
+
+**Sessão de rotina horária.** Quatro PRs abertas encontradas:
+
+**#42 (dependabot astro)** — Skip. Autor não é claude bot nem franklinbaldo.
+
+**#58 (M10.1 fetch-all-parsed)** — Mergeada. CI verde; Kilo reviews eram outdated (contadores já separados na versão atual). Codex P1 (fail-open no listing) é trade-off intencional documentado no PR body: fallback para comportamento pré-M10.1, não pior que status quo. Squash com mensagem curada.
+
+**#59 (litellm migration by Jules)** — Fechada. Migração Anthropic SDK → litellm não tem justificativa no PR body; quebra prompt caching (`cache_control` no root da mensagem em vez do content block — Codex P2 correto); adiciona indireção sem ganho para um projeto Claude-native. Decisão: manter SDK `anthropic` diretamente.
+
+**#61 (OCR pipeline)** — Fix P1 antes de merge: `clean_ocr_text` com `[\x7f-\xff]` removia ç, ã, é e todos os chars Latin-1 — corromperia praticamente todo texto jurídico. Fix: `[\x7f]` apenas (DEL). Testes de regressão adicionados. Push feito; aguardando CI.
+
+**M10.A e M10.B não estavam em IMPLEMENTATION.md** — duas sessões anteriores (PR #60 manifest-driven + commit a8fee2b torrent bundling) adicionaram features não rastreadas. Adicionadas ao log retrospectivamente. Não afetam nenhuma decisão ativa.
+
+**Manifest ranges** (`manifests/ro.json`): `sequential.end` estava em 100 (placeholder), alinhado com ranges reais de `rondonia_crawler.yml`:
+- casacivil lei: 1-6000 (separado do lc)
+- casacivil lc: 1-1300 (separado do lei)
+- assembleia: 1-5000
+
+Templates de lei e lc separados em estratégias distintas (anteriormente misturados num único template list que gerava L e LC para o mesmo range).
+
+**`discover-harvest.yml`**: workflow sábado 02:00 UTC. Complementa `rondonia_crawler.yml` (sequencial/incremental via scrape) com a pipeline manifest-driven (wayback-cdx pode encontrar arquivos fora do range sequencial). Os dois workflows são paralelos e aditivos — não há exclusão mútua, IA upload idempotente trata duplicatas.
 
 ### 2026-05-23 — M10.1: fetch-all-parsed + Parquet cumulativo
 
@@ -1107,11 +1134,13 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M9.3 concluídos** ✅
+**M0–M10.1 concluídos** ✅ (inclui #60 manifest-driven + M10.1 fetch-all-parsed)
 
-**M9.4 (#55) + M9.5 (#57) mergeadas** ✅ — pipelines idempotentes, ranges reais, P1 bugs corrigidos.
+**Mergeadas nesta sessão**: #59 fechada (litellm — bad pivot); #58 (M10.1) merged; #61 (M10.C OCR pipeline, fix P1 charset) aguardando CI.
 
-**PR aberta desta sessão**: M10.1 — `fetch-all-parsed` CLI + `parse-release.yml` com Parquet cumulativo. Aguardando CI e decantação.
+**PR aberta desta sessão**: #M10.2 — docs + manifest ranges reais + `discover-harvest.yml`. Aguardando CI e decantação.
+
+**M10.C (#61)**: PR aguardando CI após fix P1 (charset português em `clean_ocr_text`). Próxima sessão avalia merge.
 
 **M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais em CI). Revisitar após primeiro batch real.
 
