@@ -316,3 +316,64 @@ class TestListParsedRawIds:
         with patch("urllib.request.urlopen", side_effect=urlopen_with_first_meta_fail):
             result = list_parsed_raw_ids("ro", "assembleia")
         assert result == {"leizilla-raw-ro-assembleia-coddoc-00002"}
+
+    def test_follows_cursor_for_pagination(self):
+        """IA scrape API retorna cursor → segunda requisição busca próxima página."""
+        page1 = json.dumps(
+            {
+                "items": [{"identifier": "leizilla-ro-lei-00001-2000"}],
+                "cursor": "abc123",
+            }
+        ).encode()
+        page2 = json.dumps(
+            {"items": [{"identifier": "leizilla-ro-lei-00002-2001"}]}
+        ).encode()
+        meta1 = json.dumps(
+            {"ia_id_raw": "leizilla-raw-ro-assembleia-coddoc-00001"}
+        ).encode()
+        meta2 = json.dumps(
+            {"ia_id_raw": "leizilla-raw-ro-assembleia-coddoc-00002"}
+        ).encode()
+        urlopen = self._make_urlopen([page1, page2, meta1, meta2])
+        with patch("urllib.request.urlopen", side_effect=urlopen) as mock_open:
+            result = list_parsed_raw_ids("ro", "assembleia")
+        assert result == {
+            "leizilla-raw-ro-assembleia-coddoc-00001",
+            "leizilla-raw-ro-assembleia-coddoc-00002",
+        }
+        # Verifica que o cursor foi passado na segunda chamada de scrape
+        second_call_url = mock_open.call_args_list[1][0][0].full_url
+        assert "cursor=abc123" in second_call_url
+
+    def test_returns_empty_set_on_second_page_error(self):
+        """Erro na 2ª página do cursor → fail-open retorna set() (não resultado parcial)."""
+        page1 = json.dumps(
+            {
+                "items": [{"identifier": "leizilla-ro-lei-00001-2000"}],
+                "cursor": "abc123",
+            }
+        ).encode()
+        call_count = {"n": 0}
+
+        def urlopen_fail_on_second(req, timeout=None):
+            class _R:
+                def __init__(self, data):
+                    self._data = data
+
+                def read(self):
+                    return self._data
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *a):
+                    pass
+
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return _R(page1)
+            raise OSError("second page network error")
+
+        with patch("urllib.request.urlopen", side_effect=urlopen_fail_on_second):
+            result = list_parsed_raw_ids("ro", "assembleia")
+        assert result == set()
