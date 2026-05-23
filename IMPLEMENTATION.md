@@ -37,7 +37,7 @@
 | **M6.3** — Planalto year-scoped URLs (pós-2002) | 🟢 done | #41 | `planalto_year_scoped_url` + `_camara_year_lookup` (Câmara API, lru_cache, circuit breaker, 429 sem abrir circuit). 47 novos testes. Fix SCHEMA.md. Merged. |
 | **M7.1** — Claude Code routines: infra de automação | 🟢 done | #44 | `docs/routines/maintenance-prompt.md` + `claude-routine.yml` (schedule: seg+qui 10h UTC). Prompt canônico versionado no repo; workflow dispara sessões automáticas. |
 | **M7.2** — Incremental tracking (check IA antes de parsear) | 🟢 done | #46 | `parse-all --skip-existing` via `list_parsed_raw_ids` com paginação cursor. 9 novos testes. Merged. |
-| **M7.3** — Metadata IA enriquecida (language + coverage + description) | 🟡 in-progress | #48 | `_entity_coverage` helper + 4 upload methods enriquecidos. Aguardando merge. |
+| **M7.3** — Metadata IA enriquecida | 🟡 in-progress | #48 | `_entity_coverage` helper + `language:pt`, `coverage:{ente}`, `description` nos 4 métodos de upload. Aguardando merge. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -92,6 +92,29 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-23 — M7.2: parse-all --skip-existing via consulta IA
+
+Problema: rotina automática rodando `parse-all --ente ro --fonte assembleia --start 1 --end 5000`
+re-parseia todos os 5000 itens a cada execução, gastando ~$100 em LLM desnecessariamente.
+
+**Abordagem escolhida — fetch de parsed_meta.json por item**:
+`list_parsed_raw_ids(ente, fonte)` faz (1) uma IA scrape query para listar todos os parsed items do ente,
+(2) faz N fetches de `parsed_meta.json` (um por item) para extrair `ia_id_raw`, (3) filtra pelo prefixo
+`leizilla-raw-{ente}-{fonte}-`. Retorna `set[str]` de raw_ids já processados. Fail-open: erro de rede →
+empty set (nunca pula item por falha de conectividade).
+
+**Paginação via cursor**: o loop segue o `cursor` retornado pela IA scrape API até o esgotamento. Codex P1
+apontou corretamente que a versão inicial não paginava; corrigido com commit de fix na mesma sessão.
+
+**Por que não IA metadata search**: IA permite campos customizados mas indexação é assíncrona e busca por
+campos arbitrários não é garantida. Alternativa confiável (adicionar `raw-id` ao campo `subject`) requer
+modificar `upload_parsed` + re-fazer uploads existentes. Para MVP, N fetches HTTP de ~1KB é mais simples.
+
+**Trade-off de latência**: ~101 requests para RO com 100 parseadas. Aceitável para rotina semanal.
+Se virar gargalo → M7.3 otimiza com metadata IA indexada ou cache local.
+
+9 novos testes (5 unitários `TestListParsedRawIds`, 4 de integração `TestCmdParseAllSkipExisting`).
 
 ### 2026-05-23 — M7.1: Claude Code routine infra — prompt canônico + workflow
 
@@ -905,8 +928,6 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 ---
 
 ## Próximos passos imediatos
-
-**M0–M7.1 concluídos** ✅
 
 **M0–M7.2 concluídos** ✅
 

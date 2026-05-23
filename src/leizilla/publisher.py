@@ -6,9 +6,11 @@ import re
 import shutil
 import subprocess
 import tempfile
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 from leizilla import config
 from leizilla import storage as storage_module
@@ -147,6 +149,71 @@ def build_dataset_meta(
     if effective_git_sha:
         meta["git_sha"] = effective_git_sha
     return meta
+
+
+_IA_SCRAPE_URL = "https://archive.org/services/search/v1/scrape"
+_IA_DOWNLOAD_URL = "https://archive.org/download"
+
+
+def list_parsed_raw_ids(ente: str, fonte: str) -> Set[str]:
+    """Return raw item IDs that have already been parsed and uploaded to IA.
+
+    Queries IA for all parsed items of the ente (identifiers matching
+    leizilla-{ente}-* excluding raw/bundle/dataset variants), then fetches
+    each item's parsed_meta.json to extract ia_id_raw.  Only IDs from the
+    given fonte are returned.
+
+    Follows IA scrape API cursor for full pagination — never truncates at
+    one page even for large collections (e.g. federal).
+    Fail-open: returns empty set on any network error so parse-all never
+    silently skips items due to connectivity issues.
+    """
+    q = (
+        f"identifier:leizilla-{ente}-* "
+        f"AND NOT identifier:leizilla-raw-{ente}-* "
+        f"AND NOT identifier:leizilla-bundle-{ente}-* "
+        f"AND NOT identifier:leizilla-dataset-{ente}-*"
+    )
+    base_url = (
+        f"{_IA_SCRAPE_URL}?q={urllib.parse.quote(q)}&count=10000&fields=identifier"
+    )
+
+    parsed_ids: list[str] = []
+    cursor: Optional[str] = None
+
+    while True:
+        url = base_url
+        if cursor:
+            url += f"&cursor={urllib.parse.quote(cursor)}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read())
+            parsed_ids.extend(item["identifier"] for item in data.get("items", []))
+            cursor = data.get("cursor")
+            if not cursor:
+                break
+        except Exception:
+            return set()
+
+    raw_ids: Set[str] = set()
+    prefix = f"leizilla-raw-{ente}-{fonte}-"
+
+    for ia_id_parsed in parsed_ids:
+        meta_url = f"{_IA_DOWNLOAD_URL}/{ia_id_parsed}/parsed_meta.json"
+        try:
+            req = urllib.request.Request(
+                meta_url, headers={"User-Agent": _USER_AGENT}
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                meta = json.loads(resp.read())
+            raw_id = str(meta.get("ia_id_raw", ""))
+            if raw_id.startswith(prefix):
+                raw_ids.add(raw_id)
+        except Exception:
+            continue
+
+    return raw_ids
 
 
 class InternetArchivePublisher:
