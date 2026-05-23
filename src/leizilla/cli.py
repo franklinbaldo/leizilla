@@ -165,6 +165,11 @@ def cmd_scrape(
     tipo: str = typer.Option(
         "lei", help="Tipo: lei (ordinária), lc (complementar, casacivil), decreto (planalto)"
     ),
+    skip_existing: bool = typer.Option(
+        False,
+        "--skip-existing/--no-skip-existing",
+        help="Pula itens cujo raw IA item já existe (consulta IA antes do loop)",
+    ),
 ) -> None:
     """Scrape leis: discover → robots → wayback → upload_raw/upload_raw_html para IA."""
     _VALID_TIPOS = {"lei", "lc", "lcp", "decreto"}
@@ -185,11 +190,17 @@ def cmd_scrape(
     echo(f"Scraping {ente}/{fonte} {start_coddoc}–{end_coddoc} (tipo={tipo})")
 
     try:
-        from leizilla.publisher import InternetArchivePublisher
+        from leizilla.publisher import InternetArchivePublisher, list_raw_ids
         from leizilla.scraper import make_rate_limiter
 
         publisher = InternetArchivePublisher()
         rate_limiter = make_rate_limiter()
+
+        already_scraped: set[str] = set()
+        if skip_existing:
+            echo(f"Consultando IA para itens já scrapeados ({ente}/{fonte})...")
+            already_scraped = list_raw_ids(ente, fonte)
+            echo(f"  {len(already_scraped)} itens existentes encontrados")
 
         if ente == "federal" and fonte == "planalto":
             from leizilla.fontes.federal import discover_planalto_laws
@@ -201,11 +212,18 @@ def cmd_scrape(
                 end_num=end_coddoc,
             )
             ok = 0
+            skipped_ok = 0
             for law in laws:
                 fonte_url = law.get("url_original")
                 if not fonte_url:
                     echo(f"  Sem URL: {law.get('chave', 'N/A')}")
                     continue
+                if skip_existing:
+                    chave = str(law.get("chave", ""))
+                    ia_id = f"leizilla-raw-{ente}-{fonte}-{chave}"
+                    if ia_id in already_scraped:
+                        skipped_ok += 1
+                        continue
                 result = scrape_one_html(fonte_url, law, publisher, rate_limiter)
                 if result.get("success"):
                     echo(f"  OK: {result.get('ia_id', '?')}")
@@ -214,7 +232,8 @@ def cmd_scrape(
                     echo(
                         f"  Falha [{result.get('reason', '?')}]: {law.get('chave', 'N/A')}"
                     )
-            echo(f"Scraping concluído: {ok}/{len(laws)} com sucesso")
+            suffix = f", {skipped_ok} pulados (já existem)" if skip_existing else ""
+            echo(f"Scraping concluído: {ok}/{len(laws)} com sucesso{suffix}")
             return
 
         # Fontes PDF (ro/assembleia, ro/casacivil)
@@ -240,12 +259,19 @@ def cmd_scrape(
                 raise typer.Exit(1)
 
             ok = 0
+            skipped_ok = 0
             for law in laws:
                 pdf_url = law.get("url_pdf_original")
                 fonte_url = law.get("url_original")
                 if not pdf_url or not fonte_url:
                     echo(f"  Sem URL PDF: {law.get('id', 'N/A')}")
                     continue
+                if skip_existing:
+                    chave = str(law.get("chave", ""))
+                    ia_id = f"leizilla-raw-{ente}-{fonte}-{chave}"
+                    if ia_id in already_scraped:
+                        skipped_ok += 1
+                        continue
                 result = scrape_one(fonte_url, pdf_url, law, publisher, rate_limiter)
                 if result.get("success"):
                     echo(f"  OK: {result.get('ia_id', '?')}")
@@ -255,7 +281,8 @@ def cmd_scrape(
                         f"  Falha [{result.get('reason', '?')}]: {law.get('id', 'N/A')}"
                     )
 
-            echo(f"Scraping concluído: {ok}/{len(laws)} com sucesso")
+            suffix = f", {skipped_ok} pulados (já existem)" if skip_existing else ""
+            echo(f"Scraping concluído: {ok}/{len(laws)} com sucesso{suffix}")
 
         asyncio.run(run())
     except Exception as e:

@@ -13,6 +13,7 @@ from leizilla.publisher import (
     build_raw_meta,
     count_ia_items,
     list_parsed_raw_ids,
+    list_raw_ids,
     InternetArchivePublisher,
 )
 
@@ -461,3 +462,74 @@ class TestCountIaItems:
 
         with patch("urllib.request.urlopen", side_effect=urlopen_fail):
             assert count_ia_items("leizilla-raw-ro-") is None
+
+
+class TestListRawIds:
+    """Testes para list_raw_ids — lista raw items sem buscar metadados."""
+
+    def _resp(self, data: dict) -> object:
+        payload = json.dumps(data).encode()
+
+        class _R:
+            def read(self):
+                return payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+        return _R()
+
+    def test_returns_empty_set_on_network_error(self):
+        with patch("urllib.request.urlopen", side_effect=OSError("network")):
+            assert list_raw_ids("ro", "assembleia") == set()
+
+    def test_returns_empty_set_when_no_items(self):
+        with patch("urllib.request.urlopen", return_value=self._resp({"items": []})):
+            assert list_raw_ids("ro", "assembleia") == set()
+
+    def test_returns_identifiers(self):
+        items = [
+            {"identifier": "leizilla-raw-ro-assembleia-coddoc-00001"},
+            {"identifier": "leizilla-raw-ro-assembleia-coddoc-00002"},
+        ]
+        with patch("urllib.request.urlopen", return_value=self._resp({"items": items})):
+            result = list_raw_ids("ro", "assembleia")
+        assert result == {
+            "leizilla-raw-ro-assembleia-coddoc-00001",
+            "leizilla-raw-ro-assembleia-coddoc-00002",
+        }
+
+    def test_follows_cursor_pagination(self):
+        page1 = {"items": [{"identifier": "leizilla-raw-ro-casacivil-lei-00001"}], "cursor": "tok"}
+        page2 = {"items": [{"identifier": "leizilla-raw-ro-casacivil-lei-00002"}]}
+        calls = iter([self._resp(page1), self._resp(page2)])
+        with patch("urllib.request.urlopen", side_effect=lambda *a, **kw: next(calls)) as m:
+            result = list_raw_ids("ro", "casacivil")
+        assert result == {
+            "leizilla-raw-ro-casacivil-lei-00001",
+            "leizilla-raw-ro-casacivil-lei-00002",
+        }
+        second_url = m.call_args_list[1][0][0].full_url
+        assert "cursor=tok" in second_url
+
+    def test_returns_partial_on_second_page_error(self):
+        """Page 2 network error → returns confirmed items from page 1.
+
+        Asymmetry with list_parsed_raw_ids (which returns set()): for scraping,
+        re-uploading an unconfirmed item is safe (idempotent IA upload); for
+        parsing, skipping an unconfirmed item could silently lose work.
+        """
+        page1 = {"items": [{"identifier": "leizilla-raw-ro-assembleia-coddoc-00001"}], "cursor": "tok"}
+        call_n = {"n": 0}
+
+        def urlopen(req, timeout=None):
+            call_n["n"] += 1
+            if call_n["n"] == 1:
+                return self._resp(page1)
+            raise OSError("second page error")
+
+        with patch("urllib.request.urlopen", side_effect=urlopen):
+            assert list_raw_ids("ro", "assembleia") == {"leizilla-raw-ro-assembleia-coddoc-00001"}

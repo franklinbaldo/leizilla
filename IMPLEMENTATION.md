@@ -41,7 +41,9 @@
 | **M8.1** — `leizilla stats` via IA | 🟢 done | #49 | `count_ia_items(prefix)` + `cmd_stats --ente --ia`: mostra raw/parsed/dataset counts do IA. 9 novos testes. Merged. |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 | **M8.2** — Observabilidade do pipeline (error rate) | 🟢 done | #50 | `--error-threshold` em `parse-all` + GitHub Step Summary + `check-credentials.yml`. Workflow `parse-release.yml` com `--error-threshold 20`. 5 novos testes. Merged. |
-| **M9.1** — Melhoria do maintenance-prompt | 🟡 in-progress | esta sessão | xsltproc na Phase 2E; instrução de conflito de sessões paralelas (Fase 1F); PRs range atualizado; princípio 7 mais preciso. |
+| **M9.1** — Melhoria do maintenance-prompt | 🟢 done | #51 | xsltproc na Phase 2E; instrução de conflito de sessões paralelas (Fase 1F); PRs range atualizado; princípio 7 mais preciso. Merged. |
+| **M9.2** — check-credentials informacional | 🟢 done | #53 | `exit 0` em `pull_request`/`push`; só bloqueia em `workflow_dispatch`. Triggers `claude/**` e `pull_request: main`. Merged. |
+| **M9.3** — `scrape --skip-existing` | 🟡 in-progress | esta sessão | `list_raw_ids(ente, fonte)` + flag `--skip-existing/--no-skip-existing` em `cmd_scrape`. Evita re-scraping de itens já no IA. 10 novos testes. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -96,6 +98,31 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-23 — M9.3: scrape --skip-existing via list_raw_ids
+
+**Problema**: `rondonia_crawler.yml` re-scraping todos os itens a cada execução CI mesmo
+quando já estão no IA. Para um range de 5000 leis, isso desperdiça bandwidth + IA storage
+e viola o princípio "Raw é imutável após upload" implicitamente (re-upload de item existente).
+
+**`list_raw_ids(ente, fonte)`** adicionado a `publisher.py`: consulta IA scrape API com
+prefix `leizilla-raw-{ente}-{fonte}-` e retorna `set[str]` de identifiers existentes.
+Mais simples que `list_parsed_raw_ids` (M7.2): sem fetch de `parsed_meta.json` por item —
+o prefix já identifica unicamente ente+fonte, basta listar identifiers.
+Paginação via cursor. Fail-open: erro de rede → `set()` (nunca pula por falha de conectividade).
+
+**`--skip-existing/--no-skip-existing`** (default False) em `cmd_scrape`:
+- Chama `list_raw_ids(ente, fonte)` antes do loop e exibe count
+- Para cada law, computa `ia_id = f"leizilla-raw-{ente}-{fonte}-{chave}"` e pula se em set
+- Funciona para todos os tipos de fonte: assembleia (coddoc), casacivil (lei/lc), planalto (lei/lcp/decreto)
+- Mensagem final inclui `N pulados (já existem)` quando flag ativo
+
+**Simetria com M7.2**: `parse-all --skip-existing` usa `list_parsed_raw_ids` (fetch de meta);
+`scrape --skip-existing` usa `list_raw_ids` (sem fetch extra — prefix já discrimina tudo).
+Padrão idempotente por todo o pipeline.
+
+5 novos testes em `TestListRawIds` (test_publisher.py) + 5 em `TestCmdScrapeSkipExisting`
+(test_scrape_skip_existing.py).
 
 ### 2026-05-23 — M9.1: melhoria do maintenance-prompt — sessões paralelas + xsltproc
 
@@ -992,11 +1019,13 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M8.2 + M9.1 em andamento** ✅
+**M0–M9.2 concluídos** ✅
 
-**PR aberta desta sessão**: M9.1 — melhoria do maintenance-prompt (xsltproc + Fase 1F + princípio 7). Aguardando CI e merge.
+**PR aberta desta sessão**: M9.3 — `scrape --skip-existing` via `list_raw_ids`. Aguardando CI e merge.
 
 **M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais IA_ACCESS_KEY em CI). Revisitar após primeiro batch real.
+
+**Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar workflows de scraping e parsing.
 
 **Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar workflows de scraping e parsing.
 
