@@ -53,6 +53,59 @@ class DuckDBStorage:
             "CREATE INDEX IF NOT EXISTS idx_leis_data ON leis(data_publicacao)"
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_tipo ON leis(tipo_lei)")
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS discovered_resources (
+            url VARCHAR PRIMARY KEY,
+            ente VARCHAR NOT NULL,
+            fonte VARCHAR NOT NULL,
+            tipo_documento VARCHAR,
+            chave VARCHAR,
+            status VARCHAR DEFAULT 'pending',
+            data_descoberta TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ultima_tentativa TIMESTAMP,
+            wayback_snapshot VARCHAR
+        )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_resources_status ON discovered_resources(status)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_resources_ente ON discovered_resources(ente)"
+        )
+
+    def insert_resource(self, resource_data: Dict[str, Any]) -> None:
+        conn = self.connect()
+        columns = ", ".join(resource_data.keys())
+        placeholders = ", ".join(["?" for _ in resource_data])
+        conn.execute(
+            f"INSERT OR IGNORE INTO discovered_resources ({columns}) VALUES ({placeholders})",
+            list(resource_data.values()),
+        )
+
+    def get_pending_resources(self, limit: int = 100) -> List[Dict[str, Any]]:
+        conn = self.connect()
+        results = conn.execute(
+            "SELECT * FROM discovered_resources WHERE status = 'pending' LIMIT ?",
+            [limit],
+        ).fetchall()
+        columns = [desc[0] for desc in conn.description]
+        return [dict(zip(columns, row)) for row in results]
+
+    def update_resource_status(
+        self, url: str, status: str, wayback_snapshot: Optional[str] = None
+    ) -> None:
+        conn = self.connect()
+        now = datetime.now()
+        if wayback_snapshot:
+            conn.execute(
+                "UPDATE discovered_resources SET status = ?, wayback_snapshot = ?, ultima_tentativa = ? WHERE url = ?",
+                [status, wayback_snapshot, now, url],
+            )
+        else:
+            conn.execute(
+                "UPDATE discovered_resources SET status = ?, ultima_tentativa = ? WHERE url = ?",
+                [status, now, url],
+            )
 
     def insert_lei(self, lei_data: Dict[str, Any]) -> None:
         conn = self.connect()

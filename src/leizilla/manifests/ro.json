@@ -1,0 +1,35 @@
+{
+  "ente": "ro",
+  "fontes": {
+    "casacivil": {
+      "tipo_ingestion": "pdf",
+      "discovery": [
+        {
+          "strategy": "wayback-cdx",
+          "prefix": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/"
+        },
+        {
+          "strategy": "sequential",
+          "templates": [
+            "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L{num}.pdf",
+            "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/LC{num}.pdf"
+          ],
+          "start": 1,
+          "end": 100
+        }
+      ]
+    },
+    "assembleia": {
+      "tipo_ingestion": "pdf",
+      "discovery": [
+        {
+          "strategy": "playwright-crawler",
+          "base_url": "https://www.al.ro.leg.br",
+          "url_template": "https://www.al.ro.leg.br/legislacao/leis/{num}",
+          "start": 1,
+          "end": 10
+        }
+      ]
+    }
+  }
+}

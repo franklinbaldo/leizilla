@@ -23,37 +23,40 @@ app.add_typer(dev_app, name="dev")
 @app.command("discover")
 def cmd_discover(
     ente: str = typer.Option("ro", help="Ente federativo (ro, sp, federal, ...)"),
-    start_coddoc: int = typer.Option(1, help="ID inicial do documento"),
-    end_coddoc: int = typer.Option(10, help="ID final do documento"),
-    crawler_type: str = typer.Option(
-        "playwright", help="Tipo de crawler (playwright, simple)"
-    ),
 ) -> None:
-    """Descobrir leis nos portais oficiais."""
-    echo(f"Descobrindo leis de {ente} (coddoc: {start_coddoc}-{end_coddoc})")
-
+    """Descobrir leis nos portais oficiais usando manifestos."""
+    echo(f"Descobrindo leis para o ente: {ente}...")
     try:
-        from leizilla.crawler import LeisCrawler
+        from leizilla.discovery import run_discovery
         from leizilla.storage import DuckDBStorage
 
-        async def run() -> None:
-            crawler = LeisCrawler(crawler_type=crawler_type)
-            db = DuckDBStorage()
+        db = DuckDBStorage()
+        added = run_discovery(ente, db)
+        echo(f"Descoberta concluída. Adicionados/ignorados recursos: {added} total.")
+    except Exception as e:
+        echo(f"Erro: {e}")
+        raise typer.Exit(1)
 
-            if ente == "ro":
-                laws = await crawler.discover_rondonia_laws(
-                    start_coddoc=start_coddoc,
-                    end_coddoc=end_coddoc,
-                )
-                for law in laws:
-                    db.insert_lei(law)
-                    echo(f"  Salvou: {law.get('titulo', 'N/A')}")
-                echo(f"Descobriu {len(laws)} leis de {ente}")
-            else:
-                echo(f"Ente '{ente}' ainda não implementado")
-                raise typer.Exit(1)
 
-        asyncio.run(run())
+@app.command("harvest")
+def cmd_harvest(
+    limit: int = typer.Option(100, help="Limite de recursos a processar por execução"),
+) -> None:
+    """Consome a fila de resources pendentes no banco e realiza a colheita (harvest)."""
+    echo("Iniciando colheita (harvesting) de recursos pendentes...")
+    try:
+        from leizilla.publisher import InternetArchivePublisher
+        from leizilla.scraper import harvest_pending_resources
+        from leizilla.storage import DuckDBStorage
+
+        db = DuckDBStorage()
+        pub = InternetArchivePublisher()
+
+        stats = harvest_pending_resources(db, pub, limit=limit)
+        echo("Colheita concluída:")
+        echo(f"  Sucesso: {stats['success']}")
+        echo(f"  Falhas: {stats['failed']}")
+        echo(f"  Robots bloqueado: {stats['robots-blocked']}")
     except Exception as e:
         echo(f"Erro: {e}")
         raise typer.Exit(1)
