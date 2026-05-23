@@ -444,25 +444,28 @@ def cmd_search(
 
 
 @app.command("stats")
-def cmd_stats() -> None:
-    """Mostrar estatísticas do banco de dados."""
-    echo("Estatísticas do banco:")
+def cmd_stats(
+    ente: str = typer.Option("ro", help="Ente federativo (ro, federal, sp, ...)"),
+    ia: bool = typer.Option(True, "--ia/--no-ia", help="Consultar Internet Archive (desabilite com --no-ia para uso offline)"),
+) -> None:
+    """Mostrar estatísticas do pipeline: itens raw/parsed/dataset no IA."""
+    from leizilla.publisher import count_ia_items
 
-    try:
-        from leizilla.storage import DuckDBStorage
+    echo(f"=== Leizilla Stats: {ente} ===\n")
 
-        db = DuckDBStorage()
-        stats = db.get_stats()
-        echo(f"  Total de leis: {stats.get('total_leis', 0)}")
-        echo("  Por ente:")
-        for ente, count in stats.get("por_ente", {}).items():
-            echo(f"    {ente}: {count}")
-        echo("  Por ano:")
-        for year, count in sorted(stats.get("por_ano", {}).items()):
-            echo(f"    {year}: {count}")
-    except Exception as e:
-        echo(f"Erro: {e}")
-        raise typer.Exit(1)
+    if ia:
+        echo("Internet Archive:")
+        raw_count = count_ia_items(f"leizilla-raw-{ente}-")
+        # Prefix leizilla-{ente}- matches ONLY parsed items: raw/bundle/dataset
+        # all have an extra word before the ente slug (leizilla-raw-ro-, etc.)
+        parsed_count = count_ia_items(f"leizilla-{ente}-")
+        dataset_count = count_ia_items(f"leizilla-dataset-{ente}-")
+
+        echo(f"  Raw items:     {raw_count if raw_count is not None else 'erro de rede'}")
+        echo(f"  Parsed items:  {parsed_count if parsed_count is not None else 'erro de rede'}")
+        echo(f"  Dataset items: {dataset_count if dataset_count is not None else 'erro de rede'}")
+    else:
+        echo("Consulta IA desabilitada (use sem --no-ia para ver contagens).")
 
 
 def _xsd_gate(xml_content: str, warn_prefix: str = "") -> bool:
