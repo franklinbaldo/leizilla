@@ -5,18 +5,27 @@ on:
     - cron: "0 0 * * 0"  # Weekly on Sunday midnight UTC
   workflow_dispatch:
     inputs:
-      start_coddoc:
+      assembleia_start:
         description: "Primeiro coddoc (ALRO/assembleia)"
         default: "1"
-      end_coddoc:
+      assembleia_end:
         description: "Último coddoc (ALRO/assembleia)"
-        default: "100"
-      casacivil_start:
-        description: "Primeiro número de lei (casacivil)"
+        default: "5000"
+      casacivil_lei_start:
+        description: "Primeiro número (casacivil leis ordinárias)"
         default: "1"
-      casacivil_end:
-        description: "Último número de lei (casacivil)"
-        default: "100"
+      casacivil_lei_end:
+        description: "Último número (casacivil leis ordinárias)"
+        default: "6000"
+      casacivil_lc_start:
+        description: "Primeiro número (casacivil leis complementares)"
+        default: "1"
+      casacivil_lc_end:
+        description: "Último número (casacivil leis complementares)"
+        default: "1300"
+      skip_existing:
+        description: "Se 'true', pula itens já no IA (incremental)"
+        default: "true"
 
 jobs:
   scrape:
@@ -33,37 +42,81 @@ jobs:
       - name: Install Playwright browsers
         run: uv run playwright install chromium --with-deps
 
-      - name: Scrape Rondônia — assembleia (ALRO)
-        env:
-          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: |
-          uv run leizilla scrape \
-            --ente ro \
-            --fonte assembleia \
-            --start-coddoc ${{ inputs.start_coddoc || '1' }} \
-            --end-coddoc ${{ inputs.end_coddoc || '100' }}
+      # ── SCHEDULED: scrape all three RO sources incrementally ─────────────
 
-      - name: Scrape Rondônia — casacivil (leis ordinárias)
+      - name: Scrape — ro/assembleia (scheduled)
+        if: github.event_name == 'schedule'
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
           uv run leizilla scrape \
-            --ente ro \
-            --fonte casacivil \
-            --tipo lei \
-            --start-coddoc ${{ inputs.casacivil_start || '1' }} \
-            --end-coddoc ${{ inputs.casacivil_end || '100' }}
+            --ente ro --fonte assembleia \
+            --start-coddoc 1 --end-coddoc 5000 \
+            --skip-existing
 
-      - name: Scrape Rondônia — casacivil (leis complementares)
+      - name: Scrape — ro/casacivil lei (scheduled)
+        if: github.event_name == 'schedule'
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
           uv run leizilla scrape \
-            --ente ro \
-            --fonte casacivil \
-            --tipo lc \
-            --start-coddoc ${{ inputs.casacivil_start || '1' }} \
-            --end-coddoc ${{ inputs.casacivil_end || '100' }}
+            --ente ro --fonte casacivil --tipo lei \
+            --start-coddoc 1 --end-coddoc 6000 \
+            --skip-existing
+
+      - name: Scrape — ro/casacivil lc (scheduled)
+        if: github.event_name == 'schedule'
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          uv run leizilla scrape \
+            --ente ro --fonte casacivil --tipo lc \
+            --start-coddoc 1 --end-coddoc 1300 \
+            --skip-existing
+
+      # ── DISPATCH: user-controlled ranges ─────────────────────────────────
+
+      - name: Scrape — ro/assembleia (dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          SKIP="${{ inputs.skip_existing || 'true' }}"
+          if [ "${SKIP,,}" = "true" ]; then SKIP_FLAG="--skip-existing"; else SKIP_FLAG="--no-skip-existing"; fi
+          uv run leizilla scrape \
+            --ente ro --fonte assembleia \
+            --start-coddoc ${{ inputs.assembleia_start || '1' }} \
+            --end-coddoc ${{ inputs.assembleia_end || '5000' }} \
+            $SKIP_FLAG
+
+      - name: Scrape — ro/casacivil lei (dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          SKIP="${{ inputs.skip_existing || 'true' }}"
+          if [ "${SKIP,,}" = "true" ]; then SKIP_FLAG="--skip-existing"; else SKIP_FLAG="--no-skip-existing"; fi
+          uv run leizilla scrape \
+            --ente ro --fonte casacivil --tipo lei \
+            --start-coddoc ${{ inputs.casacivil_lei_start || '1' }} \
+            --end-coddoc ${{ inputs.casacivil_lei_end || '6000' }} \
+            $SKIP_FLAG
+
+      - name: Scrape — ro/casacivil lc (dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          SKIP="${{ inputs.skip_existing || 'true' }}"
+          if [ "${SKIP,,}" = "true" ]; then SKIP_FLAG="--skip-existing"; else SKIP_FLAG="--no-skip-existing"; fi
+          uv run leizilla scrape \
+            --ente ro --fonte casacivil --tipo lc \
+            --start-coddoc ${{ inputs.casacivil_lc_start || '1' }} \
+            --end-coddoc ${{ inputs.casacivil_lc_end || '1300' }} \
+            $SKIP_FLAG

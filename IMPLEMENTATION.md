@@ -43,7 +43,9 @@
 | **M8.2** — Observabilidade do pipeline (error rate) | 🟢 done | #50 | `--error-threshold` em `parse-all` + GitHub Step Summary + `check-credentials.yml`. Workflow `parse-release.yml` com `--error-threshold 20`. 5 novos testes. Merged. |
 | **M9.1** — Melhoria do maintenance-prompt | 🟢 done | #51 | xsltproc na Phase 2E; instrução de conflito de sessões paralelas (Fase 1F); PRs range atualizado; princípio 7 mais preciso. Merged. |
 | **M9.2** — check-credentials informacional | 🟢 done | #53 | `exit 0` em `pull_request`/`push`; só bloqueia em `workflow_dispatch`. Triggers `claude/**` e `pull_request: main`. Merged. |
-| **M9.3** — `scrape --skip-existing` | 🟡 in-progress | esta sessão | `list_raw_ids(ente, fonte)` + flag `--skip-existing/--no-skip-existing` em `cmd_scrape`. Evita re-scraping de itens já no IA. 10 novos testes. |
+| **M9.3** — `scrape --skip-existing` | 🟢 done | #54 | `list_raw_ids(ente, fonte)` + flag `--skip-existing/--no-skip-existing` em `cmd_scrape`. Evita re-scraping de itens já no IA. 10 novos testes. Merged. |
+| **M9.4** — `parse-release` multi-fonte + skip-existing | 🟡 in-progress | #55 | Três steps scheduled (assembleia + casacivil-lei + casacivil-lc); fix `--limit` + `--skip-existing` (contava itens visitados não processados). PR aguarda CI. |
+| **M9.5** — `rondonia_crawler.yml` idempotente + ranges reais | 🟡 in-progress | esta sessão | Schedule/dispatch split; `--skip-existing` por default; ranges 5000/6000/1300 (alinhados com parse-release). Inputs renomeados para melhor separação por fonte. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -98,6 +100,32 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-23 — M9.5: rondonia_crawler.yml idempotente + ranges reais
+
+**Problema**: `rondonia_crawler.yml` nunca usou `--skip-existing` (disponível desde M9.3/#54).
+Cada run semanal re-scrapeava os mesmos itens 1-100 (default) desde o início, desperdiçando
+bandwidth e IA storage. Além disso, os inputs `casacivil_start`/`casacivil_end` eram
+compartilhados para lei e lc — fontes com ranges bem distintos (~6000 vs ~1300 leis).
+
+**Decisão — schedule/dispatch split** (mesmo padrão de parse-release.yml/#55):
+- `schedule` (domingo meia-noite UTC): três steps fixos com ranges reais + `--skip-existing`.
+  Alinhados com os mesmos limites de parse-release para não scrappear além do que o parser cobre.
+- `dispatch`: inputs separados por fonte (`assembleia_start/end`, `casacivil_lei_start/end`,
+  `casacivil_lc_start/end`) + `skip_existing` input (default `true`). Permite re-scrape forçado
+  de um range específico sem impactar outras fontes.
+
+**Ranges definidos** (mesmos que parse-release.yml para consistência):
+- `assembleia`: coddocs 1-5000
+- `casacivil lei`: números 1-6000
+- `casacivil lc`: números 1-1300
+
+**Sem `--limit`** no scraping: diferente do parse-all, scraping não tem custo LLM. O rate-limit
+natural (Wayback + IA upload) limita o throughput. Com `--skip-existing`, runs subsequentes são
+rápidos (itens já no IA → skip imediato sem chamada de rede de scraping).
+
+**Não feito**: federal/planalto no schedule — o code suporta mas não há demanda imediata. Adiar
+para M10+ quando iniciarmos indexação federal além dos stubs.
 
 ### 2026-05-23 — M9.3: scrape --skip-existing via list_raw_ids
 
@@ -1019,14 +1047,14 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M9.2 concluídos** ✅
+**M0–M9.3 concluídos** ✅
 
-**PR aberta desta sessão**: M9.3 — `scrape --skip-existing` via `list_raw_ids`. Aguardando CI e merge.
+**PRs abertas**:
+- #55 (M9.4) — parse-release multi-fonte + fix `--limit`+`--skip-existing` em `cmd_parse_all`. CI pendente, aguardando Kilo review.
+- Esta sessão (M9.5) — `rondonia_crawler.yml` idempotente: schedule/dispatch split + ranges reais (5000/6000/1300) + `--skip-existing`. Aguardando CI e decantação.
 
-**M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais IA_ACCESS_KEY em CI). Revisitar após primeiro batch real.
+**M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais em CI). Revisitar após primeiro batch real.
 
-**Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar workflows de scraping e parsing.
-
-**Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar workflows de scraping e parsing.
+**Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar o pipeline.
 
 **Após desbloqueio M5.3**: benchmark DuckDB-WASM real com dataset publicado; índice FTS se search > 1s in-browser.
