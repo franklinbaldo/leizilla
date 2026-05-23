@@ -1,6 +1,7 @@
 """Leizilla CLI — interface de linha de comando."""
 
 import asyncio
+import os
 import re
 import subprocess
 import tempfile
@@ -495,6 +496,43 @@ def _xsd_gate(xml_content: str, warn_prefix: str = "") -> bool:
             tmp_path.unlink(missing_ok=True)
 
 
+def _write_step_summary(
+    parsed_ok: int,
+    parsed_fail: int,
+    uploaded_ok: int,
+    upload_fail: int,
+    skipped_ok: int,
+    error_threshold: float,
+) -> None:
+    """Escreve resumo Markdown no GitHub Step Summary se rodando em CI."""
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+    total = parsed_ok + parsed_fail
+    rate = (parsed_fail / total * 100.0) if total > 0 else 0.0
+    over = error_threshold > 0 and total > 0 and rate > error_threshold
+    status = "❌" if over or upload_fail > 0 else "✅"
+    lines = [
+        f"## {status} Leizilla parse-all",
+        "",
+        "| Métrica | Valor |",
+        "|---|---|",
+        f"| Parseados OK | {parsed_ok} |",
+        f"| Falhas de parse | {parsed_fail} |",
+        f"| Taxa de falhas | {rate:.1f}% |",
+        f"| Uploaded | {uploaded_ok} |",
+        f"| Erros de upload | {upload_fail} |",
+        f"| Pulados (já publicados) | {skipped_ok} |",
+    ]
+    if error_threshold > 0:
+        lines.append(f"| Limite de falhas configurado | {error_threshold:.0f}% |")
+    try:
+        with open(summary_path, "a", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    except OSError:
+        pass  # fail-open: CI summary não é crítico
+
+
 @app.command("parse")
 def cmd_parse(
     raw_id: str = typer.Option(..., help="IA raw item ID (leizilla-raw-...)"),
@@ -624,6 +662,11 @@ def cmd_parse_all(
         "--skip-existing/--no-skip-existing",
         help="Consultar IA e pular raw_ids que já têm parsed item publicado",
     ),
+    error_threshold: float = typer.Option(
+        0.0,
+        "--error-threshold",
+        help="Taxa máx de falhas de parse tolerada, em %% (0 = desabilitado). Causa exit 1 se excedida.",
+    ),
 ) -> None:
     """Batch parse: range de números → OCR/HTML → LLM → (upload para IA).
 
@@ -733,6 +776,19 @@ def cmd_parse_all(
             + (f", {uploaded_ok} uploaded" if upload else "")
             + (f", {upload_fail} erros de upload" if upload and upload_fail else "")
         )
+        _write_step_summary(
+            parsed_ok, parsed_fail, uploaded_ok, upload_fail, skipped_ok, error_threshold
+        )
+        if error_threshold > 0:
+            total = parsed_ok + parsed_fail
+            if total > 0:
+                rate = (parsed_fail / total) * 100.0
+                if rate > error_threshold:
+                    echo(
+                        f"\n⚠ Taxa de falhas {rate:.1f}% excede limite"
+                        f" {error_threshold:.0f}% — verifique qualidade do OCR/fonte"
+                    )
+                    raise typer.Exit(1)
         if upload_fail > 0:
             raise typer.Exit(1)
     except typer.Exit:

@@ -37,7 +37,10 @@
 | **M6.3** — Planalto year-scoped URLs (pós-2002) | 🟢 done | #41 | `planalto_year_scoped_url` + `_camara_year_lookup` (Câmara API, lru_cache, circuit breaker, 429 sem abrir circuit). 47 novos testes. Fix SCHEMA.md. Merged. |
 | **M7.1** — Claude Code routines: infra de automação | 🟢 done | #44 | `docs/routines/maintenance-prompt.md` + `claude-routine.yml` (schedule: seg+qui 10h UTC). Prompt canônico versionado no repo; workflow dispara sessões automáticas. |
 | **M7.2** — Incremental tracking (check IA antes de parsear) | 🟢 done | #46 | `parse-all --skip-existing` via `list_parsed_raw_ids` com paginação cursor. 9 novos testes. Merged. |
-| **M7.3** — Metadata IA enriquecida | 🟡 in-progress | #48 | `_entity_coverage` helper + `language:pt`, `coverage:{ente}`, `description` nos 4 métodos de upload. Aguardando merge. |
+| **M7.3** — Metadata IA enriquecida | 🟢 done | #48 | `_entity_coverage` helper + `language:pt`, `coverage:{ente}`, `description` nos 4 métodos de upload. Merged. |
+| **M8.1** — `leizilla stats` via IA | 🟡 in-progress | #49 | `count_ia_items(prefix)` + `cmd_stats --ente --ia`: mostra raw/parsed/dataset counts do IA. 9 novos testes. Aguardando merge. |
+| **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE columnar é suficiente para ~300k rows estimados. |
+| **M8.2** — Observabilidade do pipeline (error rate) | 🟡 in-progress | esta sessão | `--error-threshold` em `parse-all` + GitHub Step Summary. Workflow `parse-release.yml` com `--error-threshold 20`. 5 novos testes. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -92,6 +95,32 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-23 — M8.2: observabilidade do pipeline — error-threshold + GitHub Step Summary
+
+**Problema**: `parse-release.yml` pode completar com sucesso mesmo quando 80% das leis falharam
+no LLM (confiança baixa, OCR ruim, etc.). Sem um gate, um batch ruim sobe para o IA sem
+visibilidade. M8.1 adicionou contagens via IA API; M8.2 fecha o ciclo do lado do pipeline.
+
+**`--error-threshold FLOAT`** em `parse-all`: se a taxa de falhas de parse exceder o percentual,
+emite aviso e termina com exit 1. Default `0.0` (desabilitado) — retrocompatível. Workflow
+`parse-release.yml` agora usa `--error-threshold 20` (20% de falhas indica problema real).
+
+**Distinção com `upload_fail`**: o exit 1 de upload_fail (já existente) captura falhas de rede/IA.
+O exit 1 de error_threshold captura degradação de qualidade do LLM/OCR. São condições independentes;
+o threshold é verificado antes do upload_fail para que o Step Summary seja sempre escrito.
+
+**GitHub Step Summary (`$GITHUB_STEP_SUMMARY`)**: quando rodando em CI, `_write_step_summary`
+escreve Markdown com stats (parseados, falhos, taxa, uploaded) no arquivo apontado pela env var.
+Fail-open: se a variável não está definida ou o arquivo não é gravável, segue sem erro.
+Aparece na UI do workflow run do GitHub — visibilidade sem criar issues ou comentários.
+
+**Threshold de 20%**: conservador para MVP. Com ~50 leis por batch (--limit 50), 20% = 10 falhas.
+Falhas de OCR ruim tendem a ser estruturais (todas as leis de uma fonte), não aleatórias.
+Se 10/50 falharem, algo está errado. Revisitar com dados reais quando pipeline for rodado.
+
+5 novos testes em `TestCmdParseAllErrorThreshold`: threshold disabled, abaixo do limite,
+acima do limite (exit 1 + aviso), step summary escrito, step summary com threshold no conteúdo.
 
 ### 2026-05-23 — M7.2: parse-all --skip-existing via consulta IA
 
@@ -929,8 +958,14 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M7.2 concluídos** ✅
+**M0–M7.3 + M8.2 concluídos** ✅
 
-**PR aberta**: #48 (M7.3) — metadata IA enriquecida (`language`, `coverage`, `description`) nos 4 métodos de upload. CI verde, aguardando merge.
+**PRs abertas**:
+- #49 (M8.1) — `leizilla stats --ente --ia` + `count_ia_items`. CI verde, aguardando merge.
+- Esta sessão (M8.2) — `--error-threshold` + GitHub Step Summary em `parse-all`. Aguardando CI e merge.
 
-**Próximo após M7.3**: M5.3 — benchmark DuckDB-WASM real com dataset publicado; índice FTS se latência > threshold.
+**M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais IA_ACCESS_KEY em CI).
+
+**Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar workflows de scraping e parsing.
+
+**Após desbloqueio M5.3**: benchmark DuckDB-WASM real com dataset publicado; índice FTS se search > 1s in-browser.
