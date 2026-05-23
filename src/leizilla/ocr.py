@@ -10,8 +10,8 @@ def clean_ocr_text(text: str) -> str:
     """Limpa ruídos óbvios e formatações indesejadas do OCR bruto."""
     if not text:
         return ""
-    # Remove caracteres de controle estranhos, mantendo quebras de linha comuns
-    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\xff]", "", text)
+    # Remove control chars (excludes \t \n \r) and DEL; preserves Latin-1 chars like ç ã é
+    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
     return cleaned.strip()
 
 

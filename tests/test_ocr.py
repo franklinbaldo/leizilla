@@ -12,6 +12,9 @@ def test_clean_ocr_text():
     assert clean_ocr_text("Hello\x00 World\r\n") == "Hello World"
     assert clean_ocr_text("") == ""
     assert clean_ocr_text(None) == ""
+    # Portuguese characters (Latin-1 range \x80-\xff) must be preserved
+    assert clean_ocr_text("ação legislação ônibus") == "ação legislação ônibus"
+    assert clean_ocr_text("Art. 5º — são garantidos") == "Art. 5º — são garantidos"
 
 
 def test_normalize_text():
