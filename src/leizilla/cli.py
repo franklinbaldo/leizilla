@@ -1,6 +1,7 @@
 """Leizilla CLI — interface de linha de comando."""
 
 import asyncio
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -613,6 +614,11 @@ def cmd_parse_all(
         help="Tipo de entrada: ocr (PDF via IA _djvu.txt) ou html (HTML armazenado no IA)",
     ),
     limit: Optional[int] = typer.Option(None, help="Máx de itens a processar"),
+    output_dir: Optional[Path] = typer.Option(
+        None,
+        "--output-dir",
+        help="Salvar XMLs parseados em {output_dir}/{ia_id_parsed}.xml (além do upload IA)",
+    ),
 ) -> None:
     """Batch parse: range de números → OCR/HTML → LLM → (upload para IA).
 
@@ -625,6 +631,9 @@ def cmd_parse_all(
         if input_type not in ("ocr", "html"):
             echo(f"--input-type inválido: {input_type!r}. Use 'ocr' ou 'html'.")
             raise typer.Exit(1)
+
+        if output_dir is not None:
+            output_dir.mkdir(parents=True, exist_ok=True)
 
         from leizilla.parser import fetch_ia_html, fetch_ocr, parse_law
         from leizilla.publisher import InternetArchivePublisher
@@ -673,6 +682,15 @@ def cmd_parse_all(
 
             echo(f"  OK confiança={result.confidence:.2f} → {result.ia_id_parsed}")
             parsed_ok += 1
+
+            if output_dir is not None:
+                safe_id = re.sub(r"[^a-z0-9-]", "_", result.ia_id_parsed)
+                xml_path = (output_dir / f"{safe_id}.xml").resolve()
+                if not str(xml_path).startswith(str(output_dir.resolve())):
+                    echo(f"  ia_id_parsed suspeito, ignorando: {result.ia_id_parsed!r}")
+                    continue
+                xml_path.write_text(result.xml, encoding="utf-8")
+                echo(f"  → {xml_path}")
 
             if pub:
                 if not _xsd_gate(result.xml, warn_prefix="  "):

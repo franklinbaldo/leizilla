@@ -20,7 +20,8 @@
 | **M2.5** — casacivil discovery | 🟢 done | #27 | `discover_casacivil_laws(tipo, start_num, end_num)` + CLI `scrape --fonte casacivil --tipo lei|lc`. URL: ditel.casacivil.ro.gov.br. 15 testes. (PR #26 fechado por conflito; #27 merged.) |
 | **M2.6** — casacivil job no workflow | 🟢 done | #31 | `rondonia_crawler.yml` expandido com passos casacivil lei + lc; inputs `casacivil_start`/`casacivil_end`. |
 | **M2 restante** — fontes SP + federal (stubs) | 🟢 done | #30 | `fontes/sp.py` + `fontes/federal.py`. SP pendente de auditoria de URL. |
-| **M2.7** — Planalto federal HTML pipeline | 🟡 in-progress | — | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html`. 24 testes. CLI: `scrape --ente federal --fonte planalto --tipo lei\|lcp\|decreto`. |
+| **M2.7** — Planalto federal HTML pipeline | 🟢 done | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 30 testes. URLs legadas (pré-2002). |
+| **M2.8** — `parse-all --input-type html` + chave federal | 🟢 done | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto. 5 novos testes. |
 | **M3.1** — OCR fetch + LLM parse → parser.py | 🟢 done | #17 | `parser.fetch_ocr` + `parse_law` (Haiku, fail-closed: confidence/tipo/numero/ano obrigatórios). 27 testes. |
 | **M3.2** — publisher.upload_parsed() | 🟢 done | #19 | Sobe `law.xml` + `parsed_meta.json` para IA item canônico. 18 testes. |
 | **M3.3** — `parse --upload` + XSD gate + `parse-all` batch | 🟢 done | #21 | CLI integra parser→publisher; `_xsd_gate` via xmllint (bloqueia upload quando inválido); `parse-all` itera range coddoc. 15 testes. |
@@ -29,11 +30,13 @@
 | **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟢 done | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. |
 | **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟢 done | #36 | Sobe dataset Parquet para IA; benchmark local §3.4. 229 testes. |
 | **M4.3** — benchmark gatilhos §3.4 (testes) | 🟢 done | #39 | 6 testes para gatilhos file/rows/latência em `TestReleaseDatasetBenchmark`. Benchmark WASM real em M5.2. |
-| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. httpfs fix pushed; Kilo in_progress. |
+| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟡 in-progress | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. safeLimit fix + pkg version pushed; aguardando CI rerun. |
 | **M5.2** — TanStack Query + paginação + filtros | ⚪ todo | — | Bloqueado por M5.1 merge. |
 | **M2.7** — Planalto federal HTML pipeline | 🟢 done | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 30 testes. URLs legadas (pré-2002); year-scoped em M2.8. Merged. |
 | **M2.8** — `parse-all --input-type html` + chave federal | 🟢 done | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. Merged. |
-| **M6** — GitHub Actions produção | ⚪ todo | — | Depende de M2–M5. |
+| **M6.1** — `parse-all --output-dir` + workflow parse-release | 🟡 in-progress | #40 | `--output-dir` em `parse-all` + `parse-release.yml` (parse→consolidate→release). 2 novos testes. |
+| **M6.2** — Deploy-web workflow | ⚪ todo | — | `deploy-web.yml` — incluído em #33 (M5.1). Ativo após M5.1 merge. |
+| **M6.3** — Planalto year-scoped URLs (pós-2002) | ⚪ todo | — | URLs `_ato{start}-{end}/{ano}/lei/l{num}.htm`. Requer lookup ano←número via API Câmara ou tabela estática. |
 | **M7** — Claude Code routines | ⚪ todo | — | Depende de M6. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
@@ -89,6 +92,30 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-22 — M6.1: parse-all --output-dir + parse-release workflow
+
+Pipeline parse→ETL→release estava funcionalmente completo mas sem orquestração
+automática. O gap era: `parse-all` não salvava XMLs locais e `consolidate` só
+lê de diretório local — não havia como encadear os dois em CI sem state intermediário.
+
+**Decisão principal — `--output-dir` em vez de fetch-from-IA**: três opções
+analisadas: (a) `parse-all --output-dir` salva localmente + faz upload; (b) novo
+comando `fetch-parsed` baixa XMLs do IA depois; (c) `consolidate` aceita IA item IDs
+diretamente. Escolha: (a). Motivo: menor fricção (sem novo comando, sem HTTP extra),
+simétrico com `--output` do `parse`, e o CI job é efêmero (tmp_path entre steps).
+
+**Custo LLM controlado por `--limit`**: produção deve rodar com `--limit 50-100` por
+execução para controlar custo incremental. Re-parse de items já publicados é ineficiente
+mas aceitável no MVP — incremental tracking (check IA antes de parsear) é M7.
+
+**Workflow `parse-release.yml`**: job único `parse-release` (não matrix). Schedule
+segunda 06:00 UTC (dia após o scraping dominical de `rondonia_crawler.yml`). Inputs
+`dry_run=true` permite testar o pipeline sem upload. Secrets: `ANTHROPIC_API_KEY`
+(obrigatório para parse), `IA_ACCESS_KEY`/`IA_SECRET_KEY` (upload IA).
+
+**M6 decomposto**: M6.1 (parse+ETL+release), M6.2 (deploy-web — já em #33),
+M6.3 (Planalto pós-2002 year-scoped URLs — independente, desbloqueado).
 
 ### 2026-05-22 — M4.3: benchmark gatilhos §3.4 — local approximation é o deliverable M4
 
@@ -793,13 +820,20 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M4.3, M2.7–M2.8 concluídos** ✅ | **M5.1 (#33) em PR aberta**
+**M0–M4.3, M2.7, M2.8, M5.2 concluídos** ✅ | **M6.1 (#40), M6.3 (#41), M5.2 (#43) em PRs abertas**
 
-**PRs abertas agora** (em decantação — não auto-merge):
-- **#33** M5.1: Frontend foundation. Todos P1/P2 Kilo+Codex resolvidos. CI verde (GitGuardian ✅); Kilo queued (merge commit).
+**PRs abertas agora**:
+- **#40** M6.1: `parse-all --output-dir` + `parse-release.yml`. CI verde — aguardando rebase+merge.
+- **#41** M6.3: Circuit breaker Câmara API + Planalto year-scoped URLs. CI em andamento.
+- **#43** M5.2: TanStack Query + paginação + filtros. Decantação (1h).
 
 **M5.2** (após #33 mergear):
 - Integrar TanStack Query para cache + prefetch.
 - Paginação de resultados.
 - Filtro por ente/ano.
-- Benchmark DuckDB-WASM real com dataset publicado (continuação de M4.3 local).
+- Benchmark DuckDB-WASM real com dataset publicado.
+
+**M6.3** (independente — Planalto pós-2002):
+- Year-scoped URLs `_ato{start}-{end}/{ano}/lei/l{num}.htm`.
+- Requer lookup ano←número via API Câmara ou tabela estática de faixas.
+- Não bloqueia M6.1/M5.2 — pode ser feito em paralelo.

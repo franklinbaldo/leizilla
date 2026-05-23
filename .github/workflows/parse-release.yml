@@ -1,0 +1,108 @@
+name: Parse + ETL + Release Dataset
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"  # Monday 06:00 UTC — dia após scraping dominical
+  workflow_dispatch:
+    inputs:
+      ente:
+        description: "Ente federativo"
+        default: "ro"
+      fonte:
+        description: "Fonte (casacivil, assembleia, planalto)"
+        default: "casacivil"
+      start_num:
+        description: "Número inicial"
+        default: "1"
+      end_num:
+        description: "Número final"
+        default: "100"
+      tipo:
+        description: "Tipo de lei para fontes HTML (lei, lcp, decreto)"
+        default: "lei"
+      input_type:
+        description: "Tipo de entrada: ocr ou html"
+        default: "ocr"
+      limit:
+        description: "Máx de itens a processar por run (controle de custo)"
+        default: "50"
+      dataset_version:
+        description: "Versão do dataset publicado no IA (inteiro)"
+        default: "0"
+      dry_run:
+        description: "Se 'true', pula upload de parsed items e do dataset (valida pipeline localmente)"
+        default: "false"
+
+jobs:
+  parse-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Parse batch → XMLs locais + upload IA parsed items
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          mkdir -p /tmp/leizilla-xmls
+          # Normaliza dry_run para minúsculas — cobre "true", "True", "TRUE"
+          DRY_RUN="${{ inputs.dry_run || 'false' }}"
+          if [ "${DRY_RUN,,}" = "true" ]; then UPLOAD_FLAG="--no-upload"; else UPLOAD_FLAG="--upload"; fi
+          uv run leizilla parse-all \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --fonte "${{ inputs.fonte || 'casacivil' }}" \
+            --tipo "${{ inputs.tipo || 'lei' }}" \
+            --start-coddoc "${{ inputs.start_num || '1' }}" \
+            --end-coddoc "${{ inputs.end_num || '100' }}" \
+            --input-type "${{ inputs.input_type || 'ocr' }}" \
+            --limit "${{ inputs.limit || '50' }}" \
+            --output-dir /tmp/leizilla-xmls \
+            $UPLOAD_FLAG
+
+      - name: Consolidate XMLs → Parquet
+        run: |
+          XML_COUNT=$(find /tmp/leizilla-xmls -name '*.xml' | wc -l)
+          echo "XMLs disponíveis: $XML_COUNT"
+          if [ "$XML_COUNT" -eq 0 ]; then
+            echo "Sem XMLs para consolidar — encerrando."
+            exit 0
+          fi
+          uv run leizilla consolidate \
+            /tmp/leizilla-xmls \
+            --output /tmp/leizilla-dataset.parquet \
+            --ente "${{ inputs.ente || 'ro' }}"
+
+      - name: Release dataset → IA
+        if: "${{ inputs.dry_run != 'true' }}"
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          if [ ! -f /tmp/leizilla-dataset.parquet ]; then
+            echo "Parquet não gerado — skip release."
+            exit 0
+          fi
+          uv run leizilla release-dataset \
+            /tmp/leizilla-dataset.parquet \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --version "${{ inputs.dataset_version || '0' }}"
+
+      - name: Dry-run stats (sem upload)
+        if: "${{ inputs.dry_run == 'true' }}"
+        run: |
+          if [ ! -f /tmp/leizilla-dataset.parquet ]; then
+            echo "Parquet não gerado."
+            exit 0
+          fi
+          uv run leizilla release-dataset \
+            /tmp/leizilla-dataset.parquet \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --version "${{ inputs.dataset_version || '0' }}" \
+            --dry-run
