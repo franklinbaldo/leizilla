@@ -18,9 +18,11 @@ _USER_AGENT = (
 _MAX_AGE_SECONDS = 24 * 3600
 
 
-def check_available(url: str, max_age_seconds: int = _MAX_AGE_SECONDS) -> Optional[str]:
-    """Retorna URL do snapshot Wayback mais recente se fresco (< max_age_seconds).
+def check_available(url: str, max_age_seconds: Optional[int] = None) -> Optional[str]:
+    """Retorna URL do snapshot Wayback mais recente.
 
+    Se max_age_seconds for informado, filtra para garantir que o snapshot
+    seja fresco (< max_age_seconds).
     None se não existe snapshot, se expirou, ou se a API falhar (fail-open).
     """
     try:
@@ -44,9 +46,11 @@ def check_available(url: str, max_age_seconds: int = _MAX_AGE_SECONDS) -> Option
         snapshot_dt = datetime.strptime(timestamp_str, "%Y%m%d%H%M%S").replace(
             tzinfo=timezone.utc
         )
-        age = (datetime.now(tz=timezone.utc) - snapshot_dt).total_seconds()
-        if age <= max_age_seconds:
-            return str(snapshot.get("url", ""))
+        if max_age_seconds is not None:
+            age = (datetime.now(tz=timezone.utc) - snapshot_dt).total_seconds()
+            if age > max_age_seconds:
+                return None
+        return str(snapshot.get("url", ""))
     except ValueError:
         pass
     return None

@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -166,7 +168,9 @@ class TestUploadParsed:
         def capture_run(cmd, **kwargs):
             for arg in cmd:
                 if arg.endswith("law.xml"):
-                    captured_files.append(Path(arg).read_text())
+                    real_path = os.path.realpath(arg)
+                    assert real_path.startswith(os.path.realpath(tempfile.gettempdir()))
+                    captured_files.append(Path(real_path).read_text())
             return MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=capture_run):
@@ -182,7 +186,9 @@ class TestUploadParsed:
         def capture_run(cmd, **kwargs):
             for arg in cmd:
                 if arg.endswith("parsed_meta.json"):
-                    captured_metas.append(json.loads(Path(arg).read_text()))
+                    real_path = os.path.realpath(arg)
+                    assert real_path.startswith(os.path.realpath(tempfile.gettempdir()))
+                    captured_metas.append(json.loads(Path(real_path).read_text()))
             return MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=capture_run):
@@ -212,3 +218,130 @@ class TestUploadParsed:
             )
         assert result["success"] is False
         assert "upload failed" in result["error"]
+
+    def test_metadata_fields_are_passed(self):
+        pub = self._publisher()
+        pub.collection = "test-collection"
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pub.upload_parsed("leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META)
+
+        call_args = mock_run.call_args[0][0]
+        metadata_pairs = {}
+        for i in range(len(call_args) - 1):
+            if call_args[i] == "--metadata":
+                k, v = call_args[i + 1].split(":", 1)
+                metadata_pairs[k] = v
+
+        assert metadata_pairs["language"] == "por"
+        assert "Rondônia, Brazil" in metadata_pairs["coverage"]
+        assert metadata_pairs["date"] == "1990"
+        assert metadata_pairs["collection"] == "test-collection"
+        assert "URN" in metadata_pairs["description"]
+
+
+class TestUploadRaw:
+    def _publisher(self) -> InternetArchivePublisher:
+        pub = InternetArchivePublisher()
+        pub.access_key = "test-key"
+        pub.secret_key = "test-secret"
+        pub.collection = "test-collection"
+        return pub
+
+    def test_upload_raw_metadata(self, tmp_path):
+        pub = self._publisher()
+        pdf_path = tmp_path / "test.pdf"
+        pdf_path.write_bytes(b"pdf data")
+
+        lei_data = {
+            "ente": "ro",
+            "fonte": "casacivil",
+            "chave": "coddoc-00042",
+            "titulo": "Lei 42/1990",
+            "ano": "1990",
+        }
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pub.upload_raw(pdf_path, lei_data, b"pdf data")
+
+        call_args = mock_run.call_args[0][0]
+        metadata_pairs = {}
+        for i in range(len(call_args) - 1):
+            if call_args[i] == "--metadata":
+                k, v = call_args[i + 1].split(":", 1)
+                metadata_pairs[k] = v
+
+        assert metadata_pairs["language"] == "por"
+        assert "Rondônia, Brazil" in metadata_pairs["coverage"]
+        assert metadata_pairs["date"] == "1990"
+        assert metadata_pairs["collection"] == "test-collection"
+        assert "Documento original (PDF)" in metadata_pairs["description"]
+
+
+class TestUploadRawHtml:
+    def _publisher(self) -> InternetArchivePublisher:
+        pub = InternetArchivePublisher()
+        pub.access_key = "test-key"
+        pub.secret_key = "test-secret"
+        pub.collection = "test-collection"
+        return pub
+
+    def test_upload_raw_html_metadata(self):
+        pub = self._publisher()
+        lei_data = {
+            "ente": "federal",
+            "fonte": "planalto",
+            "chave": "lei-14133-2021",
+            "titulo": "Lei 14133/2021",
+            "ano": 2021,
+        }
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pub.upload_raw_html("<html></html>", lei_data)
+
+        call_args = mock_run.call_args[0][0]
+        metadata_pairs = {}
+        for i in range(len(call_args) - 1):
+            if call_args[i] == "--metadata":
+                k, v = call_args[i + 1].split(":", 1)
+                metadata_pairs[k] = v
+
+        assert metadata_pairs["language"] == "por"
+        assert metadata_pairs["coverage"] == "Brazil"
+        assert metadata_pairs["date"] == "2021"
+        assert metadata_pairs["collection"] == "test-collection"
+        assert "Documento original (HTML)" in metadata_pairs["description"]
+
+
+class TestUploadDataset:
+    def _publisher(self) -> InternetArchivePublisher:
+        pub = InternetArchivePublisher()
+        pub.access_key = "test-key"
+        pub.secret_key = "test-secret"
+        pub.collection = "test-collection"
+        return pub
+
+    def test_upload_dataset_metadata(self, tmp_path):
+        pub = self._publisher()
+        parquet_path = tmp_path / "versoes.parquet"
+        parquet_path.write_bytes(b"parquet data")
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pub.upload_dataset(
+                parquet_path, "ro", version=1, row_count=10, git_sha="fake-git-sha"
+            )
+
+        call_args = mock_run.call_args[0][0]
+        metadata_pairs = {}
+        for i in range(len(call_args) - 1):
+            if call_args[i] == "--metadata":
+                k, v = call_args[i + 1].split(":", 1)
+                metadata_pairs[k] = v
+
+        assert metadata_pairs["language"] == "por"
+        assert "Rondônia, Brazil" in metadata_pairs["coverage"]
+        assert metadata_pairs["collection"] == "test-collection"
+        assert "Dataset consolidado" in metadata_pairs["description"]

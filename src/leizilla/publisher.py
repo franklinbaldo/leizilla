@@ -158,6 +158,7 @@ class InternetArchivePublisher:
     def __init__(self) -> None:
         self.access_key = config.IA_ACCESS_KEY
         self.secret_key = config.IA_SECRET_KEY
+        self.collection = config.IA_COLLECTION
 
     def upload_raw(
         self,
@@ -190,23 +191,51 @@ class InternetArchivePublisher:
             meta_path = Path(tmp) / "raw_meta.json"
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
 
+            desc_text = f"Documento original (PDF) da legislação do ente federativo {ente.upper()}, fonte {fonte}, chave {chave}, capturado pelo projeto Leizilla."
+            try:
+                from leizilla.entes import get_ente
+
+                ente_obj = get_ente(ente)
+                if ente_obj.tipo == "federal":
+                    coverage = "Brazil"
+                else:
+                    coverage = f"{ente_obj.nome}, Brazil"
+            except Exception:
+                coverage = "Brazil"
+
+            ia_args = [
+                "ia",
+                "upload",
+                ia_id,
+                str(pdf_dst),
+                str(meta_path),
+                "--metadata",
+                f"title:{lei_data.get('titulo', 'Lei')}",
+                "--metadata",
+                "mediatype:texts",
+                "--metadata",
+                f"subject:leis;leizilla;{ente};{fonte}",
+                "--metadata",
+                "creator:leizilla-crawler",
+                "--metadata",
+                "language:por",
+                "--metadata",
+                f"description:{desc_text}",
+                "--metadata",
+                f"coverage:{coverage}",
+            ]
+
+            ano = lei_data.get("ano")
+            if ano:
+                ia_args.extend(["--metadata", f"date:{ano}"])
+
+            collection = getattr(self, "collection", None)
+            if collection:
+                ia_args.extend(["--metadata", f"collection:{collection}"])
+
             try:
                 subprocess.run(
-                    [
-                        "ia",
-                        "upload",
-                        ia_id,
-                        str(pdf_dst),
-                        str(meta_path),
-                        "--metadata",
-                        f"title:{lei_data.get('titulo', 'Lei')}",
-                        "--metadata",
-                        "mediatype:texts",
-                        "--metadata",
-                        f"subject:leis;leizilla;{ente}",
-                        "--metadata",
-                        "creator:leizilla-crawler",
-                    ],
+                    ia_args,
                     capture_output=True,
                     text=True,
                     check=True,
@@ -250,23 +279,51 @@ class InternetArchivePublisher:
             meta_path = Path(tmp) / "raw_meta.json"
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
 
+            desc_text = f"Documento original (HTML) da legislação do ente federativo {ente.upper()}, fonte {fonte}, chave {chave}, capturado pelo projeto Leizilla."
+            try:
+                from leizilla.entes import get_ente
+
+                ente_obj = get_ente(ente)
+                if ente_obj.tipo == "federal":
+                    coverage = "Brazil"
+                else:
+                    coverage = f"{ente_obj.nome}, Brazil"
+            except Exception:
+                coverage = "Brazil"
+
+            ia_args = [
+                "ia",
+                "upload",
+                ia_id,
+                str(html_dst),
+                str(meta_path),
+                "--metadata",
+                f"title:{lei_data.get('titulo', 'Lei')}",
+                "--metadata",
+                "mediatype:texts",
+                "--metadata",
+                f"subject:leis;leizilla;{ente};{fonte}",
+                "--metadata",
+                "creator:leizilla-crawler",
+                "--metadata",
+                "language:por",
+                "--metadata",
+                f"description:{desc_text}",
+                "--metadata",
+                f"coverage:{coverage}",
+            ]
+
+            ano = lei_data.get("ano")
+            if ano:
+                ia_args.extend(["--metadata", f"date:{ano}"])
+
+            collection = getattr(self, "collection", None)
+            if collection:
+                ia_args.extend(["--metadata", f"collection:{collection}"])
+
             try:
                 subprocess.run(
-                    [
-                        "ia",
-                        "upload",
-                        ia_id,
-                        str(html_dst),
-                        str(meta_path),
-                        "--metadata",
-                        f"title:{lei_data.get('titulo', 'Lei')}",
-                        "--metadata",
-                        "mediatype:texts",
-                        "--metadata",
-                        f"subject:leis;leizilla;{ente}",
-                        "--metadata",
-                        "creator:leizilla-crawler",
-                    ],
+                    ia_args,
                     capture_output=True,
                     text=True,
                     check=True,
@@ -311,23 +368,55 @@ class InternetArchivePublisher:
                 json.dumps(parsed_meta, indent=2, ensure_ascii=False), encoding="utf-8"
             )
 
+            urn_match = re.search(r'urn-lex="([^"]+)"', xml_content)
+            urn = urn_match.group(1) if urn_match else "unknown"
+            desc_text = f"Representação estruturada (XML) da legislação do ente federativo {ente.upper()}, identificador {ia_id_parsed}, URN {urn}, processada pelo parser do projeto Leizilla."
+
+            try:
+                from leizilla.entes import get_ente
+
+                ente_obj = get_ente(ente)
+                if ente_obj.tipo == "federal":
+                    coverage = "Brazil"
+                else:
+                    coverage = f"{ente_obj.nome}, Brazil"
+            except Exception:
+                coverage = "Brazil"
+
+            ia_args = [
+                "ia",
+                "upload",
+                ia_id_parsed,
+                str(xml_path),
+                str(meta_path),
+                "--metadata",
+                f"title:{titulo}",
+                "--metadata",
+                "mediatype:texts",
+                "--metadata",
+                f"subject:leis;leizilla;{ente};{tipo}",
+                "--metadata",
+                "creator:leizilla-parser",
+                "--metadata",
+                "language:por",
+                "--metadata",
+                f"description:{desc_text}",
+                "--metadata",
+                f"coverage:{coverage}",
+            ]
+
+            parts = ia_id_parsed.split("-")
+            ano = parts[-1] if parts and parts[-1].isdigit() else None
+            if ano:
+                ia_args.extend(["--metadata", f"date:{ano}"])
+
+            collection = getattr(self, "collection", None)
+            if collection:
+                ia_args.extend(["--metadata", f"collection:{collection}"])
+
             try:
                 subprocess.run(
-                    [
-                        "ia",
-                        "upload",
-                        ia_id_parsed,
-                        str(xml_path),
-                        str(meta_path),
-                        "--metadata",
-                        f"title:{titulo}",
-                        "--metadata",
-                        "mediatype:texts",
-                        "--metadata",
-                        f"subject:leis;leizilla;{ente};{tipo}",
-                        "--metadata",
-                        "creator:leizilla-parser",
-                    ],
+                    ia_args,
                     capture_output=True,
                     text=True,
                     check=True,
@@ -380,23 +469,47 @@ class InternetArchivePublisher:
                 json.dumps(dataset_meta, indent=2, ensure_ascii=False), encoding="utf-8"
             )
 
+            desc_text = f"Dataset consolidado (Parquet) da legislação do ente federativo {ente.upper()}, versão {version}, gerado pelo projeto Leizilla."
+            try:
+                from leizilla.entes import get_ente
+
+                ente_obj = get_ente(ente)
+                if ente_obj.tipo == "federal":
+                    coverage = "Brazil"
+                else:
+                    coverage = f"{ente_obj.nome}, Brazil"
+            except Exception:
+                coverage = "Brazil"
+
+            ia_args = [
+                "ia",
+                "upload",
+                ia_id,
+                str(parquet_dst),
+                str(meta_path),
+                "--metadata",
+                f"title:Leizilla Dataset {ente.upper()} v{version}",
+                "--metadata",
+                "mediatype:data",
+                "--metadata",
+                f"subject:leis;leizilla;{ente};parquet;versoes",
+                "--metadata",
+                "creator:leizilla-etl",
+                "--metadata",
+                "language:por",
+                "--metadata",
+                f"description:{desc_text}",
+                "--metadata",
+                f"coverage:{coverage}",
+            ]
+
+            collection = getattr(self, "collection", None)
+            if collection:
+                ia_args.extend(["--metadata", f"collection:{collection}"])
+
             try:
                 subprocess.run(
-                    [
-                        "ia",
-                        "upload",
-                        ia_id,
-                        str(parquet_dst),
-                        str(meta_path),
-                        "--metadata",
-                        f"title:Leizilla Dataset {ente.upper()} v{version}",
-                        "--metadata",
-                        "mediatype:data",
-                        "--metadata",
-                        f"subject:leis;leizilla;{ente};parquet;versoes",
-                        "--metadata",
-                        "creator:leizilla-etl",
-                    ],
+                    ia_args,
                     capture_output=True,
                     text=True,
                     check=True,

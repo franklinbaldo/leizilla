@@ -48,8 +48,24 @@ class TestCheckAvailable:
             }
         }
         with patch("urllib.request.urlopen", return_value=_mock_urlopen(data)):
-            result = wayback.check_available("https://example.gov.br")
+            result = wayback.check_available(
+                "https://example.gov.br", max_age_seconds=24 * 3600
+            )
         assert result is None
+
+    def test_returns_old_snapshot_when_no_max_age_limit(self):
+        data = {
+            "archived_snapshots": {
+                "closest": {
+                    "status": "200",
+                    "timestamp": _ts(25),  # 25h atrás
+                    "url": "https://web.archive.org/web/old/https://example.gov.br",
+                }
+            }
+        }
+        with patch("urllib.request.urlopen", return_value=_mock_urlopen(data)):
+            result = wayback.check_available("https://example.gov.br")
+        assert result == "https://web.archive.org/web/old/https://example.gov.br"
 
     def test_returns_none_when_no_snapshot(self):
         data = {"archived_snapshots": {}}
