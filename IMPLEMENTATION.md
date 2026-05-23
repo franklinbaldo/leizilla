@@ -30,15 +30,13 @@
 | **M4.1** — ETL XML→Parquet (etl.py + consolidate CLI) | 🟢 done | #28 | `xml_to_rows` + `write_parquet` + CLI `consolidate`. 76 testes. |
 | **M4.2** — release-dataset CLI + publisher.upload_dataset | 🟢 done | #36 | Sobe dataset Parquet para IA; benchmark local §3.4. 229 testes. |
 | **M4.3** — benchmark gatilhos §3.4 (testes) | 🟢 done | #39 | 6 testes para gatilhos file/rows/latência em `TestReleaseDatasetBenchmark`. Benchmark WASM real em M5.2. |
-| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟢 done | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. `deploy-web.yml` incluso. Merged em main. |
-| **M5.2** — TanStack Query + paginação + filtros | 🟡 in-progress | #43 | `LeiSearchUI.svelte` + `searchLeisFiltered` + `countLeisFiltered`. 3 fixes codex aplicados (ORDER BY estável, NaN guard, deprecated wrapper). Aguardando CI. |
-| **M2.7** — Planalto federal HTML pipeline | 🟢 done | #37 | `discover_planalto_laws` + `upload_raw_html` + `scrape_one_html` + CLI `scrape --ente federal`. 30 testes. URLs legadas (pré-2002); year-scoped em M2.8. Merged. |
-| **M2.8** — `parse-all --input-type html` + chave federal | 🟢 done | #38 | `cmd_parse_all` suporta `--input-type html`; chave `tipo-NNNNN` para federal/planalto vs `coddoc-NNNNN`. 5 novos testes. Merged. |
+| **M5.1** — Frontend Astro+Svelte+DuckDB-WASM (foundation) | 🟢 done | #33 | `web/` Astro4+Svelte5+Pico2+DuckDB-WASM1.32. `deploy-web.yml` incluso. Merged. |
+| **M5.2** — TanStack Query + paginação + filtros | 🟢 done | #43 | `LeiSearchUI.svelte` + filtros ente/ano + paginação. TanStack Query via bridge Svelte4 stores. Debounce cleanup + LIMIT/OFFSET safety. Merged. |
 | **M6.1** — `parse-all --output-dir` + workflow parse-release | 🟢 done | #40 | `--output-dir` em `parse-all` + `parse-release.yml` (parse→consolidate→release). 2 novos testes. Merged. |
 | **M6.2** — Deploy-web workflow | 🟢 done | #33 | `deploy-web.yml` — incluído em M5.1 (#33). Ativo. |
-| **M6.3** — Planalto year-scoped URLs (pós-2002) | 🟢 done | #41 | `planalto_year_scoped_url` + `_camara_year_lookup` (Câmara API, lru_cache, circuit breaker). 47 novos testes. Merged. |
-| **M7.1** — Claude Code routines: infra de automação | 🟡 in-progress | — | `docs/routines/maintenance-prompt.md` + `claude-routine.yml` (schedule: seg+qui 10h UTC). Prompt canônico versionado no repo; workflow dispara sessões automáticas. |
-| **M7.2** — Incremental tracking (check IA antes de parsear) | ⚪ todo | — | Evitar re-parse de items já publicados. `parse-all --skip-existing` via query de IDs do IA. |
+| **M6.3** — Planalto year-scoped URLs (pós-2002) | 🟢 done | #41 | `planalto_year_scoped_url` + `_camara_year_lookup` (Câmara API, lru_cache, circuit breaker, 429 sem abrir circuit). 47 novos testes. Fix SCHEMA.md. Merged. |
+| **M7.1** — Claude Code routines: infra de automação | 🟢 done | #44 | `docs/routines/maintenance-prompt.md` + `claude-routine.yml` (schedule: seg+qui 10h UTC). Prompt canônico versionado no repo; workflow dispara sessões automáticas. |
+| **M7.2** — Incremental tracking (check IA antes de parsear) | 🟡 in-progress | #46 | `parse-all --skip-existing` via `list_parsed_raw_ids` consultando IA. Fix paginação (cursor) pendente nesta sessão. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -162,6 +160,47 @@ aceita lambda para testes offline sem rede.
 
 **Testes**: 47 em `TestCamaraYearLookupCircuitBreaker` + `TestPlanaltoYearScopedUrl` + `TestDiscoverPlanaltoLawsYearScoped`.
 Testes existentes atualizados para passar `year_lookup_fn=lambda t, n: None` (determinismo).
+
+### 2026-05-22 — M5.2: TanStack Query + paginação + filtros
+
+**Entregável**: `LeiSearchUI.svelte` substitui a busca inline em `LeiSearch.svelte`.
+
+**Arquitetura de componente**:
+`LeiSearch.svelte` virou wrapper fino com `QueryClientProvider` (QueryClient configurado
+com retry=2, staleTime=5min). `LeiSearchUI.svelte` contém toda a lógica de busca.
+Essa separação é necessária porque `createQuery` deve ser chamado em filho do Provider.
+
+**Bridge Svelte 5 runes → Svelte 4 stores**:
+TanStack Svelte Query 5.90.2 usa a API de stores Svelte 4 (`derived`, `readable`, `subscribe`)
+internamente — NÃO suporta runes Svelte 5 nativamente. O bridge é:
+- Estado local em `$state` (Svelte 5 runes)
+- `writable()` stores passadas para `createQuery` como options reativas
+- `$effect()` para sincronizar state → store quando qualquer dependência muda
+- Template acessa resultados via `$resultsQ.data`, `$resultsQ.isPending` (sintaxe de store)
+
+**`db.ts` additions**:
+- `searchLeisFiltered(query, {ente, year, page, pageSize})`: SQL dinâmico com WHERE
+  clauses opcionais, LIMIT/OFFSET para paginação. Params parameterizados (sem injection).
+- `countLeisFiltered(query, {ente, year})`: COUNT(*) para total de páginas.
+- `runSql<T>()`: helper interno que abstrai prepare+query vs conn.query.
+- `PAGE_SIZE = 20`: constante exportada usada pelo componente e queries.
+- `YEAR(em)`: filtro por ano usa a coluna DATE `em` (inferred by DuckDB read_json_auto).
+  YEAR(NULL) = NULL → rows sem data de início são excluídas quando filtro ativo (correto).
+
+**Filtros implementados**:
+- Ente: select dropdown (ro, federal, sp) — filtra por coluna `ente` no Parquet.
+- Ano: input numérico → filtra por `YEAR(em)`. Representa o ano de início de vigência
+  do dispositivo, não necessariamente o ano de publicação da lei (melhor que o que temos).
+
+**Debounce**: 400ms no input de busca. `debouncedTerm` é o que vai para o queryKey;
+page reset para 0 sempre que term/ente/year mudam. Debounce via `$effect` cleanup —
+sem memory leak no unmount.
+
+**Paginação**: Prev/Next com "Página N de M". Controles desabilitados durante fetch
+(usando `$resultsQ.isFetching`). `totalPages()` calculado a partir de `$countQ.data`.
+
+**Erro TypeScript pré-existente**: `pthreadWorker` em BUNDLES (db.ts:18) é de M5.1 —
+não introduzido aqui. Build `astro build` passa sem erros; tsc reporta esse pré-existente.
 
 ### 2026-05-22 — M4.3: benchmark gatilhos §3.4 — local approximation é o deliverable M4
 
@@ -866,17 +905,8 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M6.3 concluídos** ✅ | **M5.2 (#43) aguardando CI** | **M7.1 em aberto (esta sessão)**
+**M0–M7.1 concluídos** ✅
 
-**PRs abertas agora**:
-- **#43** M5.2: TanStack Query + paginação + filtros. 3 fixes codex aplicados. Aguardando CI rerun (Kilo).
-- **M7.1** (esta sessão): `claude-routine.yml` + `docs/routines/maintenance-prompt.md`. Decantação (1h).
+**PR aberta**: #46 (M7.2) — `parse-all --skip-existing` via `list_parsed_raw_ids`. Fix de paginação (cursor IA scrape API) em andamento nesta sessão.
 
-**M7.2** (próxima sub-tarefa após M7.1 merge):
-- `parse-all --skip-existing`: consultar IDs de parsed items no IA antes de re-parsear.
-- Evita custo LLM em items já publicados; permite batches incrementais.
-- Implementação: `publisher.list_parsed_ids(ente, fonte)` → set → skip se `ia_id_parsed in existing`.
-
-**M5.3** (após M5.2 merge):
-- Benchmark DuckDB-WASM real com dataset publicado (M4.3 aproximação local aprovada).
-- Índice FTS ou embeddings se latência > threshold.
+**Próximo após M7.2**: M5.3 — benchmark DuckDB-WASM real com dataset publicado; índice FTS se latência > threshold.
