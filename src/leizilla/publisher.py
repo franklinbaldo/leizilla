@@ -190,8 +190,10 @@ def list_raw_ids(ente: str, fonte: str) -> Set[str]:
 
     Simpler than list_parsed_raw_ids: the raw identifier prefix already
     uniquely identifies ente+fonte, so no per-item metadata fetch needed.
-    Fail-open: returns empty set on network error (never silently skips due
-    to connectivity issues).
+    Fail-open on first-page error: returns empty set (never skips due to
+    connectivity issues). Partial results on mid-pagination error: returns
+    confirmed items so far — re-scraping unconfirmed items is safe (idempotent
+    IA upload), unlike parse-all where skipping means lost work.
     """
     prefix = f"leizilla-raw-{ente}-{fonte}-"
     q = f"identifier:{prefix}*"
@@ -213,7 +215,7 @@ def list_raw_ids(ente: str, fonte: str) -> Set[str]:
             if not cursor:
                 break
         except Exception:
-            return set()
+            return raw_ids  # partial results on mid-pagination failure; empty set on page 1 failure
 
     return raw_ids
 

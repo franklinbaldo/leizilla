@@ -196,7 +196,7 @@ def cmd_scrape(
         publisher = InternetArchivePublisher()
         rate_limiter = make_rate_limiter()
 
-        already_scraped: set = set()
+        already_scraped: set[str] = set()
         if skip_existing:
             echo(f"Consultando IA para itens já scrapeados ({ente}/{fonte})...")
             already_scraped = list_raw_ids(ente, fonte)

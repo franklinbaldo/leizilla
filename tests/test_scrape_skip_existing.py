@@ -118,12 +118,12 @@ class TestCmdScrapeSkipExisting:
         mock_scrape.assert_called_once()
 
     @patch("leizilla.publisher.list_raw_ids", return_value=set())
-    def test_skip_existing_reports_count_in_output(self, mock_list):
-        """Mensagem final mostra '0 pulados (já existem)' quando flag ativo."""
+    def test_skip_existing_reports_ia_count_in_output(self, mock_list):
+        """Com --skip-existing, output inclui contagem de itens existentes no IA."""
         with patch("leizilla.cli.asyncio.run"):
             result = runner.invoke(
                 app,
                 ["scrape", "--ente", "ro", "--fonte", "casacivil",
                  "--start-coddoc", "1", "--end-coddoc", "1", "--skip-existing"],
             )
-        assert "pulados (já existem)" in result.output or "0 itens existentes encontrados" in result.output
+        assert "0 itens existentes encontrados" in result.output

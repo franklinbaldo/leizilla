@@ -515,7 +515,13 @@ class TestListRawIds:
         second_url = m.call_args_list[1][0][0].full_url
         assert "cursor=tok" in second_url
 
-    def test_fail_open_on_second_page_error(self):
+    def test_returns_partial_on_second_page_error(self):
+        """Page 2 network error → returns confirmed items from page 1.
+
+        Asymmetry with list_parsed_raw_ids (which returns set()): for scraping,
+        re-uploading an unconfirmed item is safe (idempotent IA upload); for
+        parsing, skipping an unconfirmed item could silently lose work.
+        """
         page1 = {"items": [{"identifier": "leizilla-raw-ro-assembleia-coddoc-00001"}], "cursor": "tok"}
         call_n = {"n": 0}
 
@@ -526,4 +532,4 @@ class TestListRawIds:
             raise OSError("second page error")
 
         with patch("urllib.request.urlopen", side_effect=urlopen):
-            assert list_raw_ids("ro", "assembleia") == set()
+            assert list_raw_ids("ro", "assembleia") == {"leizilla-raw-ro-assembleia-coddoc-00001"}
