@@ -44,6 +44,5 @@ jobs:
       - name: Executar rotina de manutenção
         uses: anthropics/claude-code-action@beta
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}  # Required: Add ANTHROPIC_API_KEY in Settings → Secrets
           prompt_file: docs/routines/maintenance-prompt.md
