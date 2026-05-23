@@ -3,6 +3,10 @@ name: Claude Routine Maintenance
 # Sessão automática de manutenção do repositório.
 # O prompt canônico vive em docs/routines/maintenance-prompt.md — edite lá para mudar o comportamento.
 #
+# Secrets necessários (Settings → Secrets and variables → Actions):
+#   - ANTHROPIC_API_KEY  (obrigatório) — chave da API Anthropic para Claude Code
+#   - GITHUB_TOKEN é providenciado automaticamente pelo GitHub Actions
+#
 # Triggers:
 #   - schedule: segunda e quinta às 10:00 UTC (após scraping dominical e parse segunda)
 #   - workflow_dispatch: para rodar manualmente (útil para debug e sessões ad-hoc)
