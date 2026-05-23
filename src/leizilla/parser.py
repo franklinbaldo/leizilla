@@ -222,8 +222,8 @@ def parse_law(
     )
 
     messages = [
-        {"role": "system", "content": system, "cache_control": {"type": "ephemeral"}},
-        {"role": "user", "content": f"{user_prefix}:\n\n{ocr_text[:char_limit]}"}
+        {"role": "system", "content": system},
+        {"role": "user", "content": f"{user_prefix}:\n\n{ocr_text[:char_limit]}"},
     ]
 
     response = completion(
