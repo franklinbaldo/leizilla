@@ -150,3 +150,23 @@ def test_update_resource_status(temp_db):
         row[8]
         == "https://web.archive.org/web/20260523/http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L5120.pdf"
     )  # wayback_snapshot
+
+
+def test_get_downloaded_resources(temp_db):
+    res_data = {
+        "url": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L5120.pdf",
+        "ente": "ro",
+        "fonte": "casacivil",
+        "tipo_documento": "lei",
+        "chave": "L5120",
+    }
+    temp_db.insert_resource(res_data)
+    # Status is 'pending' initially
+    downloaded = temp_db.get_downloaded_resources("ro", "casacivil")
+    assert len(downloaded) == 0
+
+    # Update to 'downloaded'
+    temp_db.update_resource_status(res_data["url"], "downloaded")
+    downloaded = temp_db.get_downloaded_resources("ro", "casacivil")
+    assert len(downloaded) == 1
+    assert downloaded[0]["url"] == res_data["url"]

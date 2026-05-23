@@ -62,6 +62,91 @@ def cmd_harvest(
         raise typer.Exit(1)
 
 
+@app.command("bundle-raw")
+def cmd_bundle_raw(
+    ente: str = typer.Option("ro", help="Ente federativo (ro, sp, ...)"),
+    fonte: str = typer.Option("casacivil", help="Fonte (casacivil, assembleia, ...)"),
+    limit: int = typer.Option(100, help="Limite de recursos a processar por execução"),
+) -> None:
+    """Consolida os PDFs baixados de um ente/fonte em um único item do Internet Archive para habilitar Torrent."""
+    echo(f"Iniciando consolidação (bundling) de resources de {ente}/{fonte}...")
+    try:
+        from leizilla.publisher import InternetArchivePublisher
+        from leizilla.storage import DuckDBStorage
+        from leizilla import wayback
+
+        db = DuckDBStorage()
+        pub = InternetArchivePublisher()
+
+        downloaded = db.get_downloaded_resources(ente, fonte, limit=limit)
+        if not downloaded:
+            echo("Nenhum recurso com status 'downloaded' encontrado.")
+            return
+
+        archive_ia_id = f"leizilla-archive-{ente}-{fonte}-raw"
+        success_count = 0
+        failed_count = 0
+
+        for res in downloaded:
+            url = res["url"]
+            chave = res["chave"]
+            tipo = res["tipo_documento"]
+            wb_url = res["wayback_snapshot"]
+
+            echo(f"Processando {chave}...")
+
+            # Baixa o PDF
+            pdf_bytes = None
+            if wb_url:
+                pdf_bytes = wayback.fetch_bytes(wb_url)
+            if pdf_bytes is None:
+                pdf_bytes = wayback.fetch_bytes(url)
+
+            if pdf_bytes is None:
+                echo(f"  Falha ao baixar PDF para {chave}")
+                failed_count += 1
+                continue
+
+            # Nome do arquivo dentro do arquivo unificado (ex: lei-05120.pdf)
+            filename = (
+                f"{tipo}-{chave.split('-')[-1] if '-' in chave else chave}.pdf".lower()
+            )
+
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+                f.write(pdf_bytes)
+                tmp_path = Path(f.name)
+
+            try:
+                result = pub.upload_to_archive(
+                    archive_ia_id=archive_ia_id,
+                    file_path=tmp_path,
+                    filename_in_archive=filename,
+                    ente=ente,
+                    fonte=fonte,
+                )
+                if result.get("success"):
+                    db.update_resource_status(url, "bundled")
+                    echo(f"  Adicionado ao item {archive_ia_id} com nome {filename}")
+                    success_count += 1
+                else:
+                    echo(
+                        f"  Falha ao enviar para o arquivo consolidado: {result.get('error')}"
+                    )
+                    failed_count += 1
+            except Exception as e:
+                echo(f"  Erro ao consolidar {chave}: {e}")
+                failed_count += 1
+            finally:
+                tmp_path.unlink(missing_ok=True)
+
+        echo(
+            f"Consolidação concluída: {success_count} com sucesso, {failed_count} falhas."
+        )
+    except Exception as e:
+        echo(f"Erro: {e}")
+        raise typer.Exit(1)
+
+
 @app.command("download")
 def cmd_download(
     ente: str = typer.Option("ro", help="Ente federativo"),

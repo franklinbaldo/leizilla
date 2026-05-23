@@ -541,3 +541,46 @@ class TestListRawIds:
             assert list_raw_ids("ro", "assembleia") == {
                 "leizilla-raw-ro-assembleia-coddoc-00001"
             }
+
+
+class TestUploadToArchive:
+    @patch("subprocess.run")
+    def test_upload_success(self, mock_run, tmp_path):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        pub = InternetArchivePublisher()
+        pub.access_key = "fake_key"
+        pub.secret_key = "fake_secret"
+
+        dummy_file = tmp_path / "test.pdf"
+        dummy_file.write_bytes(b"content")
+
+        res = pub.upload_to_archive(
+            archive_ia_id="leizilla-archive-ro-casacivil-raw",
+            file_path=dummy_file,
+            filename_in_archive="lei-05120.pdf",
+            ente="ro",
+            fonte="casacivil",
+        )
+        assert res["success"] is True
+        mock_run.assert_called_once()
+        args = mock_run.call_args[0][0]
+        assert "ia" in args
+        assert "upload" in args
+        assert "leizilla-archive-ro-casacivil-raw" in args
+        assert args[3].endswith("lei-05120.pdf")
+
+    def test_missing_credentials(self, tmp_path):
+        pub = InternetArchivePublisher()
+        pub.access_key = None
+        pub.secret_key = None
+
+        dummy_file = tmp_path / "test.pdf"
+        res = pub.upload_to_archive(
+            archive_ia_id="leizilla-archive-ro-casacivil-raw",
+            file_path=dummy_file,
+            filename_in_archive="lei-05120.pdf",
+            ente="ro",
+            fonte="casacivil",
+        )
+        assert res["success"] is False
+        assert "credentials" in res["error"]

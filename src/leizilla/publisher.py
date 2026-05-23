@@ -609,6 +609,68 @@ class InternetArchivePublisher:
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
 
+    def upload_to_archive(
+        self,
+        archive_ia_id: str,
+        file_path: Path,
+        filename_in_archive: str,
+        ente: str,
+        fonte: str,
+    ) -> Dict[str, Any]:
+        """Upload a single file to a consolidated archive item.
+
+        Uses standard ia tool incremental upload.
+        """
+        if not self.access_key or not self.secret_key:
+            return {"success": False, "error": "IA credentials not configured"}
+
+        coverage = _entity_coverage(ente)
+        title = f"Leizilla Archive {ente.upper()} {fonte.upper()}"
+        desc = (
+            f"Arquivo consolidado (múltiplos PDFs) contendo a legislação do ente "
+            f"{ente.upper()}, fonte {fonte}, gerado pelo projeto Leizilla. "
+            f"Permite o download do acervo completo de uma vez via Torrent."
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dst_path = Path(tmp) / filename_in_archive
+            shutil.copy2(str(file_path), str(dst_path))
+
+            try:
+                subprocess.run(
+                    [
+                        "ia",
+                        "upload",
+                        archive_ia_id,
+                        str(dst_path),
+                        "--metadata",
+                        f"title:{title}",
+                        "--metadata",
+                        "mediatype:texts",
+                        "--metadata",
+                        f"subject:leis;leizilla;{ente};{fonte};archive",
+                        "--metadata",
+                        "creator:leizilla-crawler",
+                        "--metadata",
+                        "language:pt",
+                        "--metadata",
+                        f"coverage:{coverage}",
+                        "--metadata",
+                        f"description:{desc}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                return {"success": True}
+            except FileNotFoundError:
+                return {
+                    "success": False,
+                    "error": "ia CLI não encontrado — instale 'internetarchive'",
+                }
+            except subprocess.CalledProcessError as e:
+                return {"success": False, "error": e.stderr}
+
     def export_dataset_parquet(
         self,
         ente: str,

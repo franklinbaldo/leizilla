@@ -91,6 +91,17 @@ class DuckDBStorage:
         columns = [desc[0] for desc in conn.description]
         return [dict(zip(columns, row)) for row in results]
 
+    def get_downloaded_resources(
+        self, ente: str, fonte: str, limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        conn = self.connect()
+        results = conn.execute(
+            "SELECT * FROM discovered_resources WHERE status = 'downloaded' AND ente = ? AND fonte = ? LIMIT ?",
+            [ente, fonte, limit],
+        ).fetchall()
+        columns = [desc[0] for desc in conn.description]
+        return [dict(zip(columns, row)) for row in results]
+
     def update_resource_status(
         self, url: str, status: str, wayback_snapshot: Optional[str] = None
     ) -> None:
