@@ -744,3 +744,35 @@ class TestCmdParseXsdGateBlocking:
         assert result.exit_code == 1
         assert "XSD inválido" in result.output
         mock_upload.assert_not_called()
+
+
+class TestCmdStats:
+    """Testes para cmd_stats — consulta IA sem credenciais."""
+
+    def test_shows_counts_from_ia(self):
+        with patch("leizilla.publisher.count_ia_items") as mock_count:
+            mock_count.side_effect = [10, 3, 0, 1]  # raw, parsed+, dataset, bundle
+            result = runner.invoke(app, ["stats", "--ente", "ro"])
+        assert result.exit_code == 0
+        assert "Raw items" in result.output
+        assert "10" in result.output
+
+    def test_shows_none_on_network_error(self):
+        with patch("leizilla.publisher.count_ia_items", return_value=None):
+            result = runner.invoke(app, ["stats", "--ente", "ro"])
+        assert result.exit_code == 0
+        assert "erro de rede" in result.output
+
+    def test_no_ia_flag_skips_network(self):
+        with patch("leizilla.publisher.count_ia_items") as mock_count:
+            result = runner.invoke(app, ["stats", "--ente", "ro", "--no-ia"])
+        mock_count.assert_not_called()
+        assert result.exit_code == 0
+        assert "desabilitada" in result.output
+
+    def test_default_ente_is_ro(self):
+        with patch("leizilla.publisher.count_ia_items", return_value=0) as mock_count:
+            result = runner.invoke(app, ["stats"])
+        assert result.exit_code == 0
+        first_call_prefix = mock_count.call_args_list[0][0][0]
+        assert "leizilla-raw-ro-" == first_call_prefix

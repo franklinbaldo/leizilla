@@ -155,6 +155,36 @@ _IA_SCRAPE_URL = "https://archive.org/services/search/v1/scrape"
 _IA_DOWNLOAD_URL = "https://archive.org/download"
 
 
+def count_ia_items(identifier_prefix: str) -> Optional[int]:
+    """Count IA items whose identifier starts with prefix via scrape API.
+
+    Returns None on network error (fail-open caller decides what to show).
+    Paginates via cursor until exhausted.
+    """
+    q = f"identifier:{identifier_prefix}*"
+    base_url = f"{_IA_SCRAPE_URL}?q={urllib.parse.quote(q)}&count=10000&fields=identifier"
+
+    total = 0
+    cursor: Optional[str] = None
+
+    while True:
+        url = base_url
+        if cursor:
+            url += f"&cursor={urllib.parse.quote(cursor)}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read())
+            total += len(data.get("items", []))
+            cursor = data.get("cursor")
+            if not cursor:
+                break
+        except Exception:
+            return None
+
+    return total
+
+
 def list_parsed_raw_ids(ente: str, fonte: str) -> Set[str]:
     """Return raw item IDs that have already been parsed and uploaded to IA.
 

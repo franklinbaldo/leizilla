@@ -444,25 +444,37 @@ def cmd_search(
 
 
 @app.command("stats")
-def cmd_stats() -> None:
-    """Mostrar estatísticas do banco de dados."""
-    echo("Estatísticas do banco:")
+def cmd_stats(
+    ente: str = typer.Option("ro", help="Ente federativo (ro, federal, sp, ...)"),
+    ia: bool = typer.Option(True, help="Consultar Internet Archive (requer rede)"),
+) -> None:
+    """Mostrar estatísticas do pipeline: itens raw/parsed/dataset no IA."""
+    from leizilla.publisher import count_ia_items
 
-    try:
-        from leizilla.storage import DuckDBStorage
+    echo(f"=== Leizilla Stats: {ente} ===\n")
 
-        db = DuckDBStorage()
-        stats = db.get_stats()
-        echo(f"  Total de leis: {stats.get('total_leis', 0)}")
-        echo("  Por ente:")
-        for ente, count in stats.get("por_ente", {}).items():
-            echo(f"    {ente}: {count}")
-        echo("  Por ano:")
-        for year, count in sorted(stats.get("por_ano", {}).items()):
-            echo(f"    {year}: {count}")
-    except Exception as e:
-        echo(f"Erro: {e}")
-        raise typer.Exit(1)
+    if ia:
+        echo("Internet Archive:")
+        raw_count = count_ia_items(f"leizilla-raw-{ente}-")
+        parsed_count = count_ia_items(f"leizilla-{ente}-")
+        dataset_count = count_ia_items(f"leizilla-dataset-{ente}-")
+
+        raw_str = str(raw_count) if raw_count is not None else "erro de rede"
+        echo(f"  Raw items:     {raw_str}")
+
+        if parsed_count is not None:
+            # parsed prefix also matches raw/bundle/dataset; subtract them
+            raw_n = raw_count or 0
+            dataset_n = dataset_count or 0
+            bundle_count = count_ia_items(f"leizilla-bundle-{ente}-") or 0
+            parsed_net = max(0, parsed_count - raw_n - dataset_n - bundle_count)
+            echo(f"  Parsed items:  {parsed_net}")
+        else:
+            echo("  Parsed items:  erro de rede")
+
+        echo(f"  Dataset items: {dataset_count if dataset_count is not None else 'erro de rede'}")
+    else:
+        echo("(--no-ia: consulta IA desabilitada)")
 
 
 def _xsd_gate(xml_content: str, warn_prefix: str = "") -> bool:

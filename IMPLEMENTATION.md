@@ -37,7 +37,9 @@
 | **M6.3** — Planalto year-scoped URLs (pós-2002) | 🟢 done | #41 | `planalto_year_scoped_url` + `_camara_year_lookup` (Câmara API, lru_cache, circuit breaker, 429 sem abrir circuit). 47 novos testes. Fix SCHEMA.md. Merged. |
 | **M7.1** — Claude Code routines: infra de automação | 🟢 done | #44 | `docs/routines/maintenance-prompt.md` + `claude-routine.yml` (schedule: seg+qui 10h UTC). Prompt canônico versionado no repo; workflow dispara sessões automáticas. |
 | **M7.2** — Incremental tracking (check IA antes de parsear) | 🟢 done | #46 | `parse-all --skip-existing` via `list_parsed_raw_ids` com paginação cursor. 9 novos testes. Merged. |
-| **M7.3** — Metadata IA enriquecida | 🟡 in-progress | #48 | `_entity_coverage` helper + `language:pt`, `coverage:{ente}`, `description` nos 4 métodos de upload. Aguardando merge. |
+| **M7.3** — Metadata IA enriquecida | 🟢 done | #48 | `_entity_coverage` helper + `language:pt`, `coverage:{ente}`, `description` nos 4 métodos de upload. Merged. |
+| **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
+| **M8.1** — `leizilla stats` via IA | 🟡 in-progress | — | `count_ia_items(prefix)` + `cmd_stats --ente --ia`: mostra raw/parsed/dataset counts do IA. 9 novos testes. Esta sessão. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -92,6 +94,21 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-23 — M8.1: leizilla stats via IA + M5.3 bloqueado
+
+**`count_ia_items(identifier_prefix)`** adicionado a `publisher.py`: conta itens no IA cujo identifier começa com o prefixo, paginando via cursor. Retorna `Optional[int]` — `None` em erro de rede (fail-open). Reutiliza a infraestrutura de paginação do `list_parsed_raw_ids` (M7.2), mas sem fetchar cada `parsed_meta.json` (só precisa do count).
+
+**`cmd_stats --ente --ia`** reescrito: o comando anterior era um wrapper de `DuckDBStorage.get_stats()` (local), que não tem dados no pipeline atual (pipeline vai direto para IA, sem escrita local de dados). O novo comando mostra:
+- Raw items (`leizilla-raw-{ente}-*`)
+- Parsed items (`leizilla-{ente}-*` excluindo raw/bundle/dataset — net count)
+- Dataset items (`leizilla-dataset-{ente}-*`)
+
+O parsed_net usa 4 chamadas `count_ia_items` e subtrai raw+bundle+dataset do total `leizilla-{ente}-*`. Isso é necessário porque o prefixo `leizilla-ro-*` inclui itens raw (`leizilla-raw-ro-*` começa com `leizilla-` mas não com `leizilla-ro-`). Verificado: o prefix da query para parsed é `leizilla-{ente}-` (sem "raw"), então não há double-counting — mas mantemos a subtração explícita por segurança.
+
+**M5.3 bloqueado**: sem dataset publicado em IA, o benchmark DuckDB-WASM não tem dados para medir. ILIKE columnar no DuckDB deve ser suficiente para ~300k rows estimados (RO). Revisitar quando: (a) first batch RO scraping/parsing completo, (b) search > 1s medido in-browser.
+
+9 novos testes: `TestCountIaItems` (5) + `TestCmdStats` (4).
 
 ### 2026-05-23 — M7.2: parse-all --skip-existing via consulta IA
 
@@ -929,8 +946,12 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M7.2 concluídos** ✅
+**M0–M7.3 + M8.1 concluídos** ✅
 
-**PR aberta**: #48 (M7.3) — metadata IA enriquecida (`language`, `coverage`, `description`) nos 4 métodos de upload. CI verde, aguardando merge.
+**PR aberta desta sessão**: M8.1 — `leizilla stats --ente --ia` + `count_ia_items`. Aguardando CI e merge na próxima sessão.
 
-**Próximo após M7.3**: M5.3 — benchmark DuckDB-WASM real com dataset publicado; índice FTS se latência > threshold.
+**M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais IA_ACCESS_KEY em CI). Revisitar após primeiro batch real.
+
+**Próximo desbloqueado**: observabilidade do pipeline — quando scraping/parsing começar a rodar em produção, adicionar alertas de falha (M8.2: notify se `parse-release.yml` falhar com >10% de erros).
+
+**Ação necessária fora de CI** (não automatizável): configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos secrets do GitHub Actions para ativar os workflows de scraping e parsing.
