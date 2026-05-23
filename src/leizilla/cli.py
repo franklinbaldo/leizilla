@@ -446,7 +446,7 @@ def cmd_search(
 @app.command("stats")
 def cmd_stats(
     ente: str = typer.Option("ro", help="Ente federativo (ro, federal, sp, ...)"),
-    ia: bool = typer.Option(True, help="Consultar Internet Archive (requer rede)"),
+    ia: bool = typer.Option(True, "--ia/--no-ia", help="Consultar Internet Archive (desabilite com --no-ia para uso offline)"),
 ) -> None:
     """Mostrar estatísticas do pipeline: itens raw/parsed/dataset no IA."""
     from leizilla.publisher import count_ia_items
