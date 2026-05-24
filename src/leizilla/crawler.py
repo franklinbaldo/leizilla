@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import urljoin
 
-import requests  # type: ignore[import-untyped]
+import requests
 from playwright.async_api import Browser, Page, async_playwright
 
 from leizilla import config

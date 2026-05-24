@@ -75,6 +75,10 @@ no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 
+[[tool.mypy.overrides]]
+module = ["anthropic", "anthropic.*"]
+follow_imports = "skip"
+
 [dependency-groups]
 dev = [
     "pytest>=8.4.1",
