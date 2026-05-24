@@ -1,0 +1,62 @@
+name: Discover & Harvest (manifest-driven)
+
+on:
+  schedule:
+    # Sábado 02:00 UTC — antes do scraping dominical (rondonia_crawler.yml)
+    # Wayback CDX pode descobrir URLs novas que o scraping sequencial perderia
+    - cron: "0 2 * * 6"
+  workflow_dispatch:
+    inputs:
+      ente:
+        description: "Ente federativo (ro, sp, federal)"
+        default: "ro"
+      limit:
+        description: "Limite de recursos a harvesting por run"
+        default: "200"
+
+jobs:
+  discover-harvest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Install Playwright browsers
+        run: uv run playwright install chromium --with-deps
+
+      # ── SCHEDULED: discover + harvest all RO laws incrementally ──────────
+
+      - name: Discover — ro (scheduled)
+        if: github.event_name == 'schedule'
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: uv run leizilla discover --ente ro
+
+      - name: Harvest — ro (scheduled)
+        if: github.event_name == 'schedule'
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: uv run leizilla harvest --limit 200
+
+      # ── DISPATCH: user-controlled ente and limit ──────────────────────────
+
+      - name: Discover — populate DuckDB queue from manifests (dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: uv run leizilla discover --ente "${{ inputs.ente }}"
+
+      - name: Harvest — process pending resources from queue (dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: uv run leizilla harvest --limit "${{ inputs.limit }}"

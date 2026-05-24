@@ -154,9 +154,10 @@ def test_run_discovery(temp_db):
 
         total = run_discovery("ro", temp_db)
 
-    assert total == 2
+    # casacivil: 1 cdx + 2 sequential (lei + lc) = 3; playwright fails → 0
+    assert total == 3
     pending = temp_db.get_pending_resources()
-    assert len(pending) == 2
+    assert len(pending) == 2  # lei-00001 (cdx) + lei-00002 (sequential, deduplicated)
     urls = [p["url"] for p in pending]
     assert "http://example.com/L1.pdf" in urls
     assert "http://example.com/L2.pdf" in urls

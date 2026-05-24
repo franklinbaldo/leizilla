@@ -11,11 +11,18 @@
         {
           "strategy": "sequential",
           "templates": [
-            "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L{num}.pdf",
+            "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L{num}.pdf"
+          ],
+          "start": 1,
+          "end": 6000
+        },
+        {
+          "strategy": "sequential",
+          "templates": [
             "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/LC{num}.pdf"
           ],
           "start": 1,
-          "end": 100
+          "end": 1300
         }
       ]
     },
@@ -27,7 +34,7 @@
           "base_url": "https://www.al.ro.leg.br",
           "url_template": "https://www.al.ro.leg.br/legislacao/leis/{num}",
           "start": 1,
-          "end": 10
+          "end": 5000
         }
       ]
     }
