@@ -192,7 +192,7 @@ def load_manifest(ente: str) -> Dict[str, Any]:
     if not manifest_path.exists():
         raise FileNotFoundError(f"Manifesto não encontrado para o ente: {ente}")
     with open(manifest_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        return json.load(f)  # type: ignore[no-any-return]
 
 
 def run_discovery(ente: str, storage: DuckDBStorage) -> int:
@@ -213,7 +213,7 @@ def run_discovery(ente: str, storage: DuckDBStorage) -> int:
 
             try:
                 runner = strategy_cls(discovery_cfg, ente, fonte)
-                resources = runner.run()
+                resources = runner.run()  # type: ignore[attr-defined]
                 logger.info(
                     f"Estratégia '{strategy_name}' descobriu {len(resources)} resources."
                 )

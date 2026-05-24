@@ -49,7 +49,8 @@
 | **M10.B** — `cmd_bundle_raw` + torrent bundling | 🟢 done | a8fee2b | `publisher.create_archive_item` + `cmd_bundle_raw`; consolida PDFs baixados em IA item único para torrent P2P. |
 | **M10.C** — OCR pipeline (ocr.py + cmd_fetch_ocr) | 🟡 in-progress | #61 | `ocr.py` (`clean_ocr_text`, `normalize_text`); `cmd_fetch_ocr` popula DuckDB com texto OCR do IA. Fix P1 (charset português). Aguardando CI. |
 | **M10.1** — `fetch-all-parsed` + Parquet cumulativo | 🟢 done | #58 | `list_parsed_ia_ids` + `fetch_parsed_xml` + CLI `fetch-all-parsed`; parse-release.yml baixa todos os XMLs do IA antes do consolidate → Parquet full-histórico. 12 testes. Merged. |
-| **M10.2** — docs + manifest ranges + discover-harvest workflow | 🟡 in-progress | esta sessão | IMPLEMENTATION.md atualizado; `manifests/ro.json` ranges reais (lei 1-6000, lc 1-1300, assembleia 1-5000); `discover-harvest.yml` workflow semanal. |
+| **M10.2** — docs + manifest ranges + discover-harvest workflow | 🟢 done | #62 | IMPLEMENTATION.md atualizado; `manifests/ro.json` ranges reais (lei 1-6000, lc 1-1300, assembleia 1-5000); `discover-harvest.yml` workflow semanal. Merged. |
+| **M11** — CI lint+test + mypy fixes | 🟡 in-progress | #63 | `lint.yml` reescrito: `setup-uv@v5`, pytest adicionado; 8 erros mypy corrigidos em 6 arquivos (`storage`, `parser`, `crawler`, `discovery`, `publisher`, `cli`); ruff fix em `test_fetch_all_parsed.py`. |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
@@ -105,6 +106,40 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-05-24 — M11: CI lint+test + mypy fixes
+
+**Problema**: `lint.yml` usava `astral-sh/setup-uv@v1` (desatualizado vs. `@v5` nos demais
+workflows) e não aparecia nos check runs de PRs — CI estava silenciosamente quebrado.
+Nenhum pytest rodava em PRs; mypy tinha 8 erros em 6 arquivos sem ninguém saber.
+
+**`lint.yml` reescrito**:
+- Remove `actions/setup-python@v5` (redundante — `setup-uv@v5` configura Python automaticamente).
+- `setup-uv@v1` → `@v5` (alinha com todos os outros workflows do repo).
+- Adiciona `uv run pytest -x -q` após mypy. Exit-on-first-failure (`-x`) fail-fast sem perder
+  visibilidade de qual test quebrou.
+- Renomeia job para `lint-test` (reflete o conteúdo real).
+
+**Mypy errors corrigidos (8 erros, 6 arquivos)**:
+- `storage.py:152`: `params = []` → `params: list[str | int] = []` (erro real de tipo).
+- `parser.py:115,132`: `# type: ignore[no-any-return]` em `resp.read().decode()` — mypy
+  trata `urlopen` context manager como `Any` internamente.
+- `crawler.py:11`: `import requests  # type: ignore[import-untyped]` — stubs não instalados;
+  adicionar `types-requests` ao dev deps seria correto mas desnecessário para o uso atual.
+- `discovery.py:195`: `# type: ignore[no-any-return]` em `json.load(f)` — json.load retorna
+  `Any`, função declara `dict[str, Any]` (tecnicamente correto mas mypy não aceita `Any → dict`).
+- `discovery.py:216`: `# type: ignore[attr-defined]` em `runner.run()` — `STRATEGIES` é
+  `dict[str, type]` sem Protocol; todos os valores têm `.run()` mas mypy não consegue inferir.
+  Fix correto seria adicionar Protocol; suficiente por ora como type: ignore documentado.
+- `publisher.py:148`, `cli.py:478`: Removed stale `# type: ignore[index]` — mypy já não
+  flageia `fetchone()[0]` como erro com versões mais recentes do DuckDB stubs.
+
+**Ruff**:
+- `tests/test_fetch_all_parsed.py`: import `pytest` não utilizado removido + formatação.
+
+**Não feito**: Protocol formal para estratégias de discovery (STRATEGIES dict). Seria a fix
+correta para o `# type: ignore[attr-defined]` em discovery.py:216, mas requer refatoração
+de `WaybackCdxDiscovery`, `SequentialDiscovery`, `PlaywrightCrawlerDiscovery`. Deferido.
 
 ### 2026-05-23 — M10.2: triagem de PRs + docs + manifest ranges + discover-harvest workflow
 
@@ -1134,16 +1169,19 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M10.1 concluídos** ✅ (inclui #60 manifest-driven + M10.1 fetch-all-parsed)
+**M0–M10.2 concluídos** ✅ (inclui M10.A manifest-driven discovery, M10.B torrent bundling,
+M10.C ocr.py, M10.1 fetch-all-parsed, M10.2 docs+manifest+discover-harvest — PR #62 merged).
 
-**Mergeadas nesta sessão**: #59 fechada (litellm — bad pivot); #58 (M10.1) merged; #61 (M10.C OCR pipeline, fix P1 charset) aguardando CI.
+**PR desta sessão (M11 / #63)**: CI fix — lint.yml com pytest + mypy clean. Aguardando Kilo Code Review e merge.
 
-**PR aberta desta sessão**: #M10.2 — docs + manifest ranges reais + `discover-harvest.yml`. Aguardando CI e decantação.
-
-**M10.C (#61)**: PR aguardando CI após fix P1 (charset português em `clean_ocr_text`). Próxima sessão avalia merge.
+**M10.C (#61)**: PR ainda aberta, aguardando avaliação de merge na próxima sessão.
 
 **M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais em CI). Revisitar após primeiro batch real.
 
 **Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar o pipeline.
 
 **Após desbloqueio M5.3**: benchmark DuckDB-WASM real; FTS se search > 1s in-browser.
+
+**Dívida técnica identificada**: Protocol formal para estratégias de discovery (`WaybackCdxDiscovery`,
+`SequentialDiscovery`, `PlaywrightCrawlerDiscovery`) — eliminaria o `# type: ignore[attr-defined]`
+em `discovery.py:216`. Candidato para M12 se houver adição de nova estratégia.

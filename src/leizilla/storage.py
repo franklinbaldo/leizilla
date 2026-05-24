@@ -149,7 +149,7 @@ class DuckDBStorage:
         query = (
             "SELECT * FROM leis WHERE (texto_completo IS NULL OR texto_completo = '')"
         )
-        params = []
+        params: list[str | int] = []
         if ente:
             query += " AND ente = ?"
             params.append(ente)

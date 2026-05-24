@@ -145,7 +145,7 @@ def build_dataset_meta(
         try:
             row_count = conn.execute(
                 "SELECT count(*) FROM read_parquet(?)", [str(parquet_path)]
-            ).fetchone()[0]  # type: ignore[index]
+            ).fetchone()[0]
         finally:
             conn.close()
     effective_git_sha = git_sha if git_sha is not None else _get_git_sha()

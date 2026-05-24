@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from leizilla.cli import app
@@ -22,7 +21,9 @@ def _scrape_response(identifiers: list[str], cursor: str | None = None) -> bytes
 
 class TestListParsedIaIds:
     def test_basic_returns_parsed_ids(self):
-        response = _scrape_response(["leizilla-ro-lei-00001-2001", "leizilla-ro-lei-00002-2002"])
+        response = _scrape_response(
+            ["leizilla-ro-lei-00001-2001", "leizilla-ro-lei-00002-2002"]
+        )
         mock_resp = MagicMock()
         mock_resp.read.return_value = response
         mock_resp.__enter__ = lambda s: s
@@ -74,7 +75,9 @@ class TestListParsedIaIds:
 
 class TestFetchParsedXml:
     def test_success_writes_file(self, tmp_path: Path):
-        xml_content = b"<lei><header urn='urn:lex:br;rondonia:estadual:lei:2001-01-01;1'/></lei>"
+        xml_content = (
+            b"<lei><header urn='urn:lex:br;rondonia:estadual:lei:2001-01-01;1'/></lei>"
+        )
         mock_resp = MagicMock()
         mock_resp.read.return_value = xml_content
         mock_resp.__enter__ = lambda s: s
@@ -110,7 +113,10 @@ class TestFetchParsedXml:
         with patch("urllib.request.urlopen", side_effect=urlopen_side):
             fetch_parsed_xml("leizilla-ro-lei-00042-2003", dest)
 
-        assert captured_url[0] == "https://archive.org/download/leizilla-ro-lei-00042-2003/law.xml"
+        assert (
+            captured_url[0]
+            == "https://archive.org/download/leizilla-ro-lei-00042-2003/law.xml"
+        )
 
 
 class TestCmdFetchAllParsed:
@@ -119,7 +125,9 @@ class TestCmdFetchAllParsed:
 
         with (
             patch("leizilla.publisher.list_parsed_ia_ids", return_value=ids),
-            patch("leizilla.publisher.fetch_parsed_xml", return_value=True) as mock_fetch,
+            patch(
+                "leizilla.publisher.fetch_parsed_xml", return_value=True
+            ) as mock_fetch,
         ):
             result = runner.invoke(
                 app,
@@ -138,7 +146,9 @@ class TestCmdFetchAllParsed:
 
         with (
             patch("leizilla.publisher.list_parsed_ia_ids", return_value=ids),
-            patch("leizilla.publisher.fetch_parsed_xml", return_value=True) as mock_fetch,
+            patch(
+                "leizilla.publisher.fetch_parsed_xml", return_value=True
+            ) as mock_fetch,
         ):
             result = runner.invoke(
                 app,
