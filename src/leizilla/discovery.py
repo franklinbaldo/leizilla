@@ -224,7 +224,7 @@ def run_discovery(ente: str, storage: DuckDBStorage) -> int:
 
             try:
                 runner = strategy_cls(discovery_cfg, ente, fonte)
-                resources = runner.run()  # type: ignore[attr-defined]
+                resources = runner.run()
                 logger.info(
                     f"Estratégia '{strategy_name}' descobriu {len(resources)} resources."
                 )
