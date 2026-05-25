@@ -163,13 +163,15 @@ def harvest_pending_resources(
     storage: DuckDBStorage,
     publisher: InternetArchivePublisher,
     limit: int = 100,
+    ente: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Processa recursos pendentes da tabela discovered_resources.
 
     Faz download (preferencialmente de snapshot Wayback), upload pro IA,
     e insere/atualiza o status no banco de dados.
+    Se `ente` for fornecido, processa apenas recursos desse ente.
     """
-    pending = storage.get_pending_resources(limit=limit)
+    pending = storage.get_pending_resources(limit=limit, ente=ente)
     stats = {"success": 0, "failed": 0, "robots-blocked": 0}
     rate_limiter = make_rate_limiter()
 

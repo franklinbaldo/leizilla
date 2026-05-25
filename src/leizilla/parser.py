@@ -112,7 +112,7 @@ def fetch_ocr(ia_id: str, timeout: int = 30) -> Optional[str]:
     req.add_header("User-Agent", _USER_AGENT)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read().decode("utf-8", errors="replace")
+            return resp.read().decode("utf-8", errors="replace")  # type: ignore[no-any-return]
     except Exception:
         return None
 
@@ -129,7 +129,7 @@ def fetch_html(url: str, timeout: int = 30) -> Optional[str]:
         req = urllib.request.Request(url)
         req.add_header("User-Agent", _USER_AGENT)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read().decode("utf-8", errors="replace")
+            return resp.read().decode("utf-8", errors="replace")  # type: ignore[no-any-return]
     except (urllib.error.URLError, OSError, ValueError):
         return None
 

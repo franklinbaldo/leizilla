@@ -82,13 +82,21 @@ class DuckDBStorage:
             list(resource_data.values()),
         )
 
-    def get_pending_resources(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_pending_resources(
+        self, limit: int = 100, ente: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         conn = self.connect()
-        results = conn.execute(
-            "SELECT * FROM discovered_resources WHERE status = 'pending' LIMIT ?",
-            [limit],
-        ).fetchall()
-        columns = [desc[0] for desc in conn.description]
+        if ente:
+            results = conn.execute(
+                "SELECT * FROM discovered_resources WHERE status = 'pending' AND ente = ? LIMIT ?",
+                [ente, limit],
+            ).fetchall()
+        else:
+            results = conn.execute(
+                "SELECT * FROM discovered_resources WHERE status = 'pending' LIMIT ?",
+                [limit],
+            ).fetchall()
+        columns = [desc[0] for desc in (conn.description or [])]
         return [dict(zip(columns, row)) for row in results]
 
     def get_downloaded_resources(
@@ -99,7 +107,7 @@ class DuckDBStorage:
             "SELECT * FROM discovered_resources WHERE status = 'downloaded' AND ente = ? AND fonte = ? LIMIT ?",
             [ente, fonte, limit],
         ).fetchall()
-        columns = [desc[0] for desc in conn.description]
+        columns = [desc[0] for desc in (conn.description or [])]
         return [dict(zip(columns, row)) for row in results]
 
     def update_resource_status(
@@ -138,7 +146,7 @@ class DuckDBStorage:
         conn = self.connect()
         result = conn.execute("SELECT * FROM leis WHERE id = ?", [lei_id]).fetchone()
         if result:
-            columns = [desc[0] for desc in conn.description]
+            columns = [desc[0] for desc in (conn.description or [])]
             return dict(zip(columns, result))
         return None
 
@@ -149,14 +157,14 @@ class DuckDBStorage:
         query = (
             "SELECT * FROM leis WHERE (texto_completo IS NULL OR texto_completo = '')"
         )
-        params = []
+        params: list[str | int] = []
         if ente:
             query += " AND ente = ?"
             params.append(ente)
         query += " LIMIT ?"
         params.append(limit)
         results = conn.execute(query, params).fetchall()
-        columns = [desc[0] for desc in conn.description]
+        columns = [desc[0] for desc in (conn.description or [])]
         return [dict(zip(columns, row)) for row in results]
 
     def update_lei(self, lei_id: str, updates: Dict[str, Any]) -> None:
@@ -198,7 +206,7 @@ class DuckDBStorage:
             """,
             params + [limit],
         ).fetchall()
-        columns = [desc[0] for desc in conn.description]
+        columns = [desc[0] for desc in (conn.description or [])]
         return [dict(zip(columns, row)) for row in results]
 
     def export_parquet(
