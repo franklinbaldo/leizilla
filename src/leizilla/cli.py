@@ -40,6 +40,9 @@ def cmd_discover(
 
 @app.command("harvest")
 def cmd_harvest(
+    ente: Optional[str] = typer.Option(
+        None, help="Filtrar por ente federativo (None = todos os entes)"
+    ),
     limit: int = typer.Option(100, help="Limite de recursos a processar por execução"),
 ) -> None:
     """Consome a fila de resources pendentes no banco e realiza a colheita (harvest)."""
@@ -52,7 +55,7 @@ def cmd_harvest(
         db = DuckDBStorage()
         pub = InternetArchivePublisher()
 
-        stats = harvest_pending_resources(db, pub, limit=limit)
+        stats = harvest_pending_resources(db, pub, limit=limit, ente=ente)
         echo("Colheita concluída:")
         echo(f"  Sucesso: {stats['success']}")
         echo(f"  Falhas: {stats['failed']}")
@@ -1077,7 +1080,7 @@ def cmd_pipeline(
         echo("\nEtapa 1/3: Descobrir leis (manifesto)")
         cmd_discover(ente=ente)
         echo("\nEtapa 2/3: Colher leis descobertas")
-        cmd_harvest(limit=limit)
+        cmd_harvest(ente=ente, limit=limit)
         echo("\nEtapa 3/3: Exportar dataset")
         cmd_export(ente=ente, year=None)
         echo("\nPipeline concluído!")
