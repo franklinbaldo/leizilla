@@ -44,10 +44,11 @@ Se não houver item acionável: encerre sem criar PR.
 
 **Implementar**:
 - Branch: `claude/{descricao-kebab}`
-- `uv run pytest` antes de fazer push. Se mudou XSD ou fixtures, rodar também `check_schema_consistency.py` + `xmllint` + loop `xsltproc`/`xmllint` nas fixtures LexML.
-- Atualizar `IMPLEMENTATION.md` (status + decision log se houve decisão relevante).
+- `uv run pytest` antes de fazer push. Se mudou XSD ou fixtures, rodar também:
+  `check_schema_consistency.py`, `xmllint` e o loop `xsltproc`/`xmllint` nas fixtures LexML.
+- Atualizar `IMPLEMENTATION.md` (status + log de decisão se houve decisão relevante).
 - Commits: conventional (`feat:`, `fix:`, `refactor:`, `docs:`). Explique o *porquê*.
-- PR body: 3–5 bullets de summary, trade-offs, test plan.
+- PR body: 3–5 tópicos de resumo, trade-offs e plano de testes.
 - Abra a PR e aguarde CI. Conserte se vermelho (até 3 commits). Não faça auto-merge.
 
 ---
@@ -57,7 +58,7 @@ Se não houver item acionável: encerre sem criar PR.
 Resumo em markdown:
 - PRs mergeadas (SHA + uma linha do que entregou)
 - PR aberta para próxima sessão (link + descrição)
-- Items bloqueados (o que desbloqueia cada um)
+- Itens bloqueados (o que desbloqueia cada um)
 - Pivôs aplicados, se houver
 
 ---
