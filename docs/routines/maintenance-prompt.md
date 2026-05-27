@@ -1,5 +1,3 @@
-# Leizilla — Prompt de Rotina de Manutenção
-
 > Prompt canônico para sessões automáticas de manutenção do projeto. O estado do projeto
 > vive em `IMPLEMENTATION.md` — não aqui. Quando o projeto muda, o prompt não muda.
 

@@ -15,6 +15,16 @@ from leizilla.storage import DuckDBStorage
 logger = logging.getLogger(__name__)
 
 
+class DiscoveryStrategy:
+    """Base class para estratégias de descoberta de recursos."""
+
+    def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
+        pass
+
+    def run(self) -> List[Dict[str, Any]]:
+        return []
+
+
 def parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
     """Extrai tipo_documento e chave formatada do nome do arquivo (ex: L5120.pdf -> lei, lei-05120)."""
     # Remove extensão e limpa espaços
@@ -34,10 +44,10 @@ def parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
     return None, None
 
 
-class WaybackCdxDiscovery:
+class WaybackCdxDiscovery(DiscoveryStrategy):
     """Estratégia de descobrimento que consulta a API CDX da Wayback Machine."""
 
-    def __init__(self, config: Dict[str, Any], ente: str, fonte: str):
+    def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
         self.prefix = config["prefix"]
         self.ente = ente
         self.fonte = fonte
@@ -89,10 +99,10 @@ class WaybackCdxDiscovery:
         return resources
 
 
-class SequentialDiscovery:
+class SequentialDiscovery(DiscoveryStrategy):
     """Estratégia de descobrimento baseada em templates de URLs sequenciais."""
 
-    def __init__(self, config: Dict[str, Any], ente: str, fonte: str):
+    def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
         self.templates = config["templates"]
         self.start = int(config["start"])
         self.end = int(config["end"])
@@ -125,10 +135,10 @@ class SequentialDiscovery:
         return resources
 
 
-class PlaywrightCrawlerDiscovery:
+class PlaywrightCrawlerDiscovery(DiscoveryStrategy):
     """Estratégia de descobrimento que usa o LeisCrawler (Playwright) para o portal ALRO."""
 
-    def __init__(self, config: Dict[str, Any], ente: str, fonte: str):
+    def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
         self.start = int(config["start"])
         self.end = int(config["end"])
         self.ente = ente
@@ -179,7 +189,7 @@ class PlaywrightCrawlerDiscovery:
         return resources
 
 
-STRATEGIES = {
+STRATEGIES: Dict[str, type[DiscoveryStrategy]] = {
     "wayback-cdx": WaybackCdxDiscovery,
     "sequential": SequentialDiscovery,
     "playwright-crawler": PlaywrightCrawlerDiscovery,
@@ -192,7 +202,8 @@ def load_manifest(ente: str) -> Dict[str, Any]:
     if not manifest_path.exists():
         raise FileNotFoundError(f"Manifesto não encontrado para o ente: {ente}")
     with open(manifest_path, "r", encoding="utf-8") as f:
-        return json.load(f)  # type: ignore[no-any-return]
+        data: Dict[str, Any] = json.load(f)
+    return data
 
 
 def run_discovery(ente: str, storage: DuckDBStorage) -> int:
@@ -213,7 +224,7 @@ def run_discovery(ente: str, storage: DuckDBStorage) -> int:
 
             try:
                 runner = strategy_cls(discovery_cfg, ente, fonte)
-                resources = runner.run()  # type: ignore[attr-defined]
+                resources = runner.run()
                 logger.info(
                     f"Estratégia '{strategy_name}' descobriu {len(resources)} resources."
                 )

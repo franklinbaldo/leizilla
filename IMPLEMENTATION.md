@@ -47,10 +47,11 @@
 | **M9.5** — `rondonia_crawler.yml` idempotente + ranges reais | 🟢 done | #57 | Schedule/dispatch split; `--skip-existing` por default; ranges 5000/6000/1300 (alinhados com parse-release). Inputs renomeados por fonte. Merged. |
 | **M10.A** — manifest-driven discovery + harvest pipeline | 🟢 done | #60 | `discovery.py` (WaybackCdx + Sequential + PlaywrightCrawler); `manifests/ro.json`; `storage.discovered_resources`; `cmd_discover` + `cmd_harvest` CLI. Queue-based: discover popula DuckDB, harvest processa. |
 | **M10.B** — `cmd_bundle_raw` + torrent bundling | 🟢 done | a8fee2b | `publisher.create_archive_item` + `cmd_bundle_raw`; consolida PDFs baixados em IA item único para torrent P2P. |
-| **M10.C** — OCR pipeline (ocr.py + cmd_fetch_ocr) | 🟡 in-progress | #61 | `ocr.py` (`clean_ocr_text`, `normalize_text`); `cmd_fetch_ocr` popula DuckDB com texto OCR do IA. Fix P1 (charset português). Aguardando CI. |
-| **M10.1** — `fetch-all-parsed` + Parquet cumulativo | 🟢 done | #58 | `list_parsed_ia_ids` + `fetch_parsed_xml` + CLI `fetch-all-parsed`; parse-release.yml baixa todos os XMLs do IA antes do consolidate → Parquet full-histórico. 12 testes. Merged. |
+| **M10.C** — OCR pipeline (ocr.py + cmd_fetch_ocr) | 🟢 done | #61 | `ocr.py` (`clean_ocr_text`, `normalize_text`); `cmd_fetch_ocr` popula DuckDB com texto OCR do IA. Fix P1 (charset português). Merged. |
 | **M10.2** — docs + manifest ranges + discover-harvest workflow | 🟢 done | #62 | IMPLEMENTATION.md atualizado; `manifests/ro.json` ranges reais (lei 1-6000, lc 1-1300, assembleia 1-5000); `discover-harvest.yml` workflow semanal. Merged. |
-| **M11** — CI lint+test + mypy fixes | 🟡 in-progress | #63 | `lint.yml` reescrito: `setup-uv@v5`, pytest adicionado; 8 erros mypy corrigidos em 6 arquivos (`storage`, `parser`, `crawler`, `discovery`, `publisher`, `cli`); ruff fix em `test_fetch_all_parsed.py`. |
+| **M11** — CI lint+test + mypy fixes | 🟢 done | #63 | `lint.yml` reescrito: `setup-uv@v5`, pytest adicionado; 8 erros mypy corrigidos em 6 arquivos (`storage`, `parser`, `crawler`, `discovery`, `publisher`, `cli`); ruff fix em `test_fetch_all_parsed.py`. Merged. |
+| **M12.1** — DiscoveryStrategy base class + testes harvest pipeline | 🟢 done | #64 | `DiscoveryStrategy` base class elimina `type: ignore[attr-defined]`; 17 novos testes cobrem `storage.discovered_resources`, `SequentialDiscovery`, `run_discovery`, `harvest_pending_resources`. Merged. |
+| **M12.2** — Otimização de Scrape e Parse-All via Consultas em Lote (Vetorização) | 🟢 done | #67 | Evita iterações sequenciais longas fazendo buscas em lote via API do Internet Archive e CDX da Wayback Machine. Merged. |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
@@ -107,6 +108,22 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-05-25 — M12.1: DiscoveryStrategy base class + testes harvest pipeline
+
+**Sessão de rotina horária.** Uma PR aberta encontrada (#63, M11 CI lint+test):
+
+**#63 (M11)** — Codex P1 real: `cmd_pipeline --ente X` chamava `cmd_harvest(limit=N)` sem escopo de ente, processando recursos de qualquer ente. Fix em 3 camadas: `storage.get_pending_resources(ente=)` SQL filter; `scraper.harvest_pending_resources(ente=)` repassa; `cli.cmd_harvest(--ente)` expõe option + pipeline passa valor. Junto: dois `type: ignore[index]` indevidos removidos por M11 foram restaurados (necessários com `types-requests` instalado, pois mypy 1.19+ infere `fetchone()` retorna `tuple|None`); `types-requests` adicionado como dev dep (elimina `import-untyped` para requests em mypy 1.19+, mais robusto que `--ignore-missing-imports`). Mergeado em 06f13619.
+
+**M12.1 — DiscoveryStrategy base class**:
+- `discovery.py`: classes de estratégia não tinham base comum — M11 precisou de `# type: ignore[attr-defined]` em `runner.run()` e `# type: ignore[no-any-return]` em `json.load`. Fix próprio (sem ignores): `DiscoveryStrategy` como base class concreta com interface `__init__(config, ente, fonte)` + `run()`. As três classes herdam dela. `STRATEGIES: Dict[str, type[DiscoveryStrategy]]` completamente tipado.
+- Fix adicional: `load_manifest` agora usa variável intermediária `data: Dict[str, Any] = json.load(f)` eliminando o `no-any-return`.
+
+**17 novos testes em `tests/test_harvest_pipeline.py`**:
+- `TestStorageResources` (7): `get_pending_resources` empty, insert+get, status filter, limit, duplicate ignore, update_status, update com wayback snapshot.
+- `TestSequentialDiscovery` (3): URL range, campos, múltiplos templates.
+- `TestRunDiscovery` (2): estratégia sequential end-to-end com mock de manifesto, estratégia desconhecida silenciada.
+- `TestHarvestPendingResources` (5): queue vazia, robots bloqueado, fetch falho, sucesso com upload chamado, limit respeitado.
+
 ### 2026-05-24 — M11: CI lint+test + mypy fixes
 
 **Problema**: `lint.yml` usava `astral-sh/setup-uv@v1` (desatualizado vs. `@v5` nos demais
@@ -122,24 +139,13 @@ Nenhum pytest rodava em PRs; mypy tinha 8 erros em 6 arquivos sem ninguém saber
 
 **Mypy errors corrigidos (8 erros, 6 arquivos)**:
 - `storage.py:152`: `params = []` → `params: list[str | int] = []` (erro real de tipo).
-- `parser.py:115,132`: `# type: ignore[no-any-return]` em `resp.read().decode()` — mypy
-  trata `urlopen` context manager como `Any` internamente.
-- `crawler.py:11`: `import requests  # type: ignore[import-untyped]` — stubs não instalados;
-  adicionar `types-requests` ao dev deps seria correto mas desnecessário para o uso atual.
-- `discovery.py:195`: `# type: ignore[no-any-return]` em `json.load(f)` — json.load retorna
-  `Any`, função declara `dict[str, Any]` (tecnicamente correto mas mypy não aceita `Any → dict`).
-- `discovery.py:216`: `# type: ignore[attr-defined]` em `runner.run()` — `STRATEGIES` é
-  `dict[str, type]` sem Protocol; todos os valores têm `.run()` mas mypy não consegue inferir.
-  Fix correto seria adicionar Protocol; suficiente por ora como type: ignore documentado.
-- `publisher.py:148`, `cli.py:478`: Removed stale `# type: ignore[index]` — mypy já não
-  flageia `fetchone()[0]` como erro com versões mais recentes do DuckDB stubs.
+- `parser.py:115,132`: `# type: ignore[no-any-return]` em `resp.read().decode()` — mypy trata `urlopen` context manager como `Any` internamente.
+- `crawler.py:11`: `types-requests` adicionado como dev dep — elimina `import-untyped` para requests em mypy 1.19+.
+- `discovery.py:195`: fix via variável intermediária tipada (M12.1 substituiu o type: ignore).
+- `discovery.py:216`: fix via `DiscoveryStrategy` base class (M12.1 substituiu o type: ignore).
+- `publisher.py:148`, `cli.py:478`: `# type: ignore[index]` necessários com types-requests instalado (fetchone() retorna tuple|None).
 
-**Ruff**:
-- `tests/test_fetch_all_parsed.py`: import `pytest` não utilizado removido + formatação.
-
-**Não feito**: Protocol formal para estratégias de discovery (STRATEGIES dict). Seria a fix
-correta para o `# type: ignore[attr-defined]` em discovery.py:216, mas requer refatoração
-de `WaybackCdxDiscovery`, `SequentialDiscovery`, `PlaywrightCrawlerDiscovery`. Deferido.
+**Ruff**: `tests/test_fetch_all_parsed.py`: import `pytest` não utilizado removido + formatação.
 
 ### 2026-05-23 — M10.2: triagem de PRs + docs + manifest ranges + discover-harvest workflow
 
@@ -1169,18 +1175,18 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M10.2 concluídos** ✅ (inclui M10.A manifest-driven discovery, M10.B torrent bundling,
-M10.C ocr.py, M10.1 fetch-all-parsed, M10.2 docs+manifest+discover-harvest — PR #62 merged).
+**M0–M11 e M12.1 concluídos** ✅ (inclui manifest-driven discovery, torrent bundling, ocr.py, CI fixes/mypy, e vetorização do pipeline - PR #67).
 
-**PR desta sessão (M11 / #63)**: CI fix — lint.yml com pytest + mypy clean. Aguardando Kilo Code Review e merge.
-
-**M10.C (#61)**: PR ainda aberta, aguardando avaliação de merge na próxima sessão.
+**PR desta sessão (M12.2 / #64)**: `DiscoveryStrategy` base class + 17 testes harvest pipeline.
 
 **M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais em CI). Revisitar após primeiro batch real.
 
 **Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar o pipeline.
 
-**Após desbloqueio M5.3**: benchmark DuckDB-WASM real; FTS se search > 1s in-browser.
+**Especificação do Portal Frontend (Alinhada)**:
+* Design moderno, tema Dark Mode e Glassmorphism, com tipografia premium e micro-animações responsivas.
+* Barra de pesquisa integrada e filtros rápidos (Ano, Tipo, Ente) alimentando resultados e gráficos instantaneamente a partir do DuckDB-WASM.
+* Visualização detalhada individual contendo título, ementa, data, link original para o PDF no IA e um visualizador de texto integrado para o OCR extraído com destaque de termos pesquisados.
 
 **Dívida técnica identificada**: Protocol formal para estratégias de discovery (`WaybackCdxDiscovery`,
 `SequentialDiscovery`, `PlaywrightCrawlerDiscovery`) — eliminaria o `# type: ignore[attr-defined]`
