@@ -51,6 +51,7 @@
 | **M10.1** — `fetch-all-parsed` + Parquet cumulativo | 🟢 done | #58 | `list_parsed_ia_ids` + `fetch_parsed_xml` + CLI `fetch-all-parsed`; parse-release.yml baixa todos os XMLs do IA antes do consolidate → Parquet full-histórico. 12 testes. Merged. |
 | **M10.2** — docs + manifest ranges + discover-harvest workflow | 🟢 done | #62 | IMPLEMENTATION.md atualizado; `manifests/ro.json` ranges reais (lei 1-6000, lc 1-1300, assembleia 1-5000); `discover-harvest.yml` workflow semanal. Merged. |
 | **M11** — CI lint+test + mypy fixes | 🟡 in-progress | #63 | `lint.yml` reescrito: `setup-uv@v5`, pytest adicionado; 8 erros mypy corrigidos em 6 arquivos (`storage`, `parser`, `crawler`, `discovery`, `publisher`, `cli`); ruff fix em `test_fetch_all_parsed.py`. |
+| **M12.1** — Otimização de Scrape e Parse-All via Consultas em Lote (Vetorização) | 🟢 done | #67 | Evita iterações sequenciais longas fazendo buscas em lote via API do Internet Archive e CDX da Wayback Machine. |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
@@ -1169,19 +1170,18 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M10.2 concluídos** ✅ (inclui M10.A manifest-driven discovery, M10.B torrent bundling,
-M10.C ocr.py, M10.1 fetch-all-parsed, M10.2 docs+manifest+discover-harvest — PR #62 merged).
+**M0–M10.2 e M12.1 concluídos** ✅ (inclui M10.A manifest-driven discovery, M10.B torrent bundling,
+M10.C ocr.py, M10.1 fetch-all-parsed, M10.2 docs+manifest+discover-harvest — PR #62 merged; e M12.1 vetorização do pipeline — PR #67).
 
-**PR desta sessão (M11 / #63)**: CI fix — lint.yml com pytest + mypy clean. Aguardando Kilo Code Review e merge.
+**PR desta sessão (M12.1 / #67)**: Otimização de Scrape e Parse-All via consultas em lote (Internet Archive API + CDX Wayback Machine). Submetida e pronta para review.
 
-**M10.C (#61)**: PR ainda aberta, aguardando avaliação de merge na próxima sessão.
+**PR de M11 (#63)**: CI fix — lint.yml com pytest + mypy clean. Aguardando review e merge.
+
+**M10.C (#61)**: PR de OCR ainda aberta, aguardando avaliação de merge.
 
 **M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais em CI). Revisitar após primeiro batch real.
 
-**Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar o pipeline.
-
-**Após desbloqueio M5.3**: benchmark DuckDB-WASM real; FTS se search > 1s in-browser.
-
-**Dívida técnica identificada**: Protocol formal para estratégias de discovery (`WaybackCdxDiscovery`,
-`SequentialDiscovery`, `PlaywrightCrawlerDiscovery`) — eliminaria o `# type: ignore[attr-defined]`
-em `discovery.py:216`. Candidato para M12 se houver adição de nova estratégia.
+**Especificação do Portal Frontend (Alinhada)**:
+* Design moderno, tema Dark Mode e Glassmorphism, com tipografia premium e micro-animações responsivas.
+* Barra de pesquisa integrada e filtros rápidos (Ano, Tipo, Ente) alimentando resultados e gráficos instantaneamente a partir do DuckDB-WASM.
+* Visualização detalhada individual contendo título, ementa, data, link original para o PDF no IA e um visualizador de texto integrado para o OCR extraído com destaque de termos pesquisados.
