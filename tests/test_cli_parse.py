@@ -934,7 +934,7 @@ class TestCmdParseAllErrorThreshold:
             )
         assert result.exit_code == 0
         assert summary_file.exists()
-        content = summary_file.read_text()
+        content = summary_file.read_text(encoding="utf-8")
         assert "Leizilla parse-all" in content
         assert "Parseados OK" in content
         assert "Taxa de falhas" in content
@@ -960,7 +960,7 @@ class TestCmdParseAllErrorThreshold:
                     "30",
                 ],
             )
-        content = summary_file.read_text()
+        content = summary_file.read_text(encoding="utf-8")
         assert "30%" in content
 
 
