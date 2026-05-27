@@ -48,10 +48,10 @@
 | **M10.A** — manifest-driven discovery + harvest pipeline | 🟢 done | #60 | `discovery.py` (WaybackCdx + Sequential + PlaywrightCrawler); `manifests/ro.json`; `storage.discovered_resources`; `cmd_discover` + `cmd_harvest` CLI. Queue-based: discover popula DuckDB, harvest processa. |
 | **M10.B** — `cmd_bundle_raw` + torrent bundling | 🟢 done | a8fee2b | `publisher.create_archive_item` + `cmd_bundle_raw`; consolida PDFs baixados em IA item único para torrent P2P. |
 | **M10.C** — OCR pipeline (ocr.py + cmd_fetch_ocr) | 🟢 done | #61 | `ocr.py` (`clean_ocr_text`, `normalize_text`); `cmd_fetch_ocr` popula DuckDB com texto OCR do IA. Fix P1 (charset português). Merged. |
-| **M10.1** — `fetch-all-parsed` + Parquet cumulativo | 🟢 done | #58 | `list_parsed_ia_ids` + `fetch_parsed_xml` + CLI `fetch-all-parsed`; parse-release.yml baixa todos os XMLs do IA antes do consolidate → Parquet full-histórico. 12 testes. Merged. |
-| **M10.2** — docs + manifest ranges + discover-harvest workflow | 🟢 done | 55e4de3 | IMPLEMENTATION.md atualizado; `manifests/ro.json` ranges reais (lei 1-6000, lc 1-1300, assembleia 1-5000); `discover-harvest.yml` workflow semanal. Em main. |
-| **M11** — CI lint+test pipeline — pytest em PRs + mypy clean | 🟢 done | #63 | `lint.yml` setup-uv@v5 + pytest; 8 mypy fixes; ente filter em harvest P1 corrigido. Merged 06f13619. |
-| **M12.1** — DiscoveryStrategy base class + testes harvest pipeline | 🟡 in-progress | #64 | `DiscoveryStrategy` base class elimina `type: ignore[attr-defined]`; 17 novos testes cobrem `storage.discovered_resources`, `SequentialDiscovery`, `run_discovery`, `harvest_pending_resources`. |
+| **M10.2** — docs + manifest ranges + discover-harvest workflow | 🟢 done | #62 | IMPLEMENTATION.md atualizado; `manifests/ro.json` ranges reais (lei 1-6000, lc 1-1300, assembleia 1-5000); `discover-harvest.yml` workflow semanal. Merged. |
+| **M11** — CI lint+test + mypy fixes | 🟢 done | #63 | `lint.yml` reescrito: `setup-uv@v5`, pytest adicionado; 8 erros mypy corrigidos em 6 arquivos (`storage`, `parser`, `crawler`, `discovery`, `publisher`, `cli`); ruff fix em `test_fetch_all_parsed.py`. Merged. |
+| **M12.1** — DiscoveryStrategy base class + testes harvest pipeline | 🟢 done | #64 | `DiscoveryStrategy` base class elimina `type: ignore[attr-defined]`; 17 novos testes cobrem `storage.discovered_resources`, `SequentialDiscovery`, `run_discovery`, `harvest_pending_resources`. Merged. |
+| **M12.2** — Otimização de Scrape e Parse-All via Consultas em Lote (Vetorização) | 🟢 done | #67 | Evita iterações sequenciais longas fazendo buscas em lote via API do Internet Archive e CDX da Wayback Machine. Merged. |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
@@ -1175,17 +1175,18 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M11 concluídos** ✅ (inclui M10.A manifest-driven, M10.B torrent, M10.C OCR, M10.1, M10.2, M11 CI/mypy fix — PR #63 merged).
+**M0–M11 e M12.1 concluídos** ✅ (inclui manifest-driven discovery, torrent bundling, ocr.py, CI fixes/mypy, e vetorização do pipeline - PR #67).
 
-**PR desta sessão (M12.1 / #64)**: `DiscoveryStrategy` base class + 17 testes harvest pipeline. Aguardando CI e decantação.
+**PR desta sessão (M12.2 / #64)**: `DiscoveryStrategy` base class + 17 testes harvest pipeline.
 
 **M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais em CI). Revisitar após primeiro batch real.
 
 **Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar o pipeline.
 
-**Após M11 merger**: M12.1 pode precisar rebase se os mypy fixes de M11 conflitarem. É seguro — M12.1 só toca `discovery.py` e `tests/test_harvest_pipeline.py`.
-
-**Após desbloqueio M5.3**: benchmark DuckDB-WASM real; FTS se search > 1s in-browser.
+**Especificação do Portal Frontend (Alinhada)**:
+* Design moderno, tema Dark Mode e Glassmorphism, com tipografia premium e micro-animações responsivas.
+* Barra de pesquisa integrada e filtros rápidos (Ano, Tipo, Ente) alimentando resultados e gráficos instantaneamente a partir do DuckDB-WASM.
+* Visualização detalhada individual contendo título, ementa, data, link original para o PDF no IA e um visualizador de texto integrado para o OCR extraído com destaque de termos pesquisados.
 
 **Dívida técnica identificada**: Protocol formal para estratégias de discovery (`WaybackCdxDiscovery`,
 `SequentialDiscovery`, `PlaywrightCrawlerDiscovery`) — eliminaria o `# type: ignore[attr-defined]`

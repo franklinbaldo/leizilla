@@ -139,6 +139,14 @@ data/                  # Dados locais (gitignored)
   └─ leizilla.duckdb   # Banco DuckDB local
 ```
 
+## 💻 Especificação do Portal Frontend
+
+A apresentação do portal público do Leizilla seguirá as seguintes diretrizes de design e funcionalidade:
+
+* **Estilo e Apresentação Visual:** Interface moderna de alto padrão com tema **Dark Mode** e efeitos de **Glassmorphism**, com tipografia premium e micro-animações responsivas.
+* **Mecanismo de Busca:** Barra de pesquisa unificada conectada diretamente ao **DuckDB-WASM** no lado do cliente. Filtros rápidos por **Ano**, **Tipo de Lei** e **Ente** que renderizam resultados e gráficos analíticos instantaneamente na tela.
+* **Exibição dos Resultados:** Cada lei será apresentada individualmente mostrando título, resumo/ementa, data de publicação, link original para download do PDF arquivado no Internet Archive e um **visualizador de texto integrado (OCR)** com destaque dos termos pesquisados (*highlighting*).
+
 ---
 
 ## 🗺 Roadmap
