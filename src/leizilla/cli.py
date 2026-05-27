@@ -408,17 +408,25 @@ def cmd_scrape(
                 )
             elif ente == "ro" and fonte == "casacivil":
                 laws = []
+                from leizilla.crawler import _CASACIVIL_FONTE_URL
                 from leizilla.discovery import WaybackCdxDiscovery
-                is_mocked = hasattr(WaybackCdxDiscovery, "mock") or hasattr(WaybackCdxDiscovery, "return_value") or "MagicMock" in str(type(WaybackCdxDiscovery))
+
+                is_mocked = (
+                    hasattr(WaybackCdxDiscovery, "mock")
+                    or hasattr(WaybackCdxDiscovery, "return_value")
+                    or "MagicMock" in str(type(WaybackCdxDiscovery))
+                )
                 if "PYTEST_CURRENT_TEST" not in os.environ or is_mocked:
                     try:
-                        echo(f"Consultando API CDX da Wayback Machine para {ente}/{fonte}...")
+                        echo(
+                            f"Consultando API CDX da Wayback Machine para {ente}/{fonte}..."
+                        )
                         cdx_cfg = {
                             "prefix": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/"
                         }
                         discovery = WaybackCdxDiscovery(cdx_cfg, ente, fonte)
                         discovered = discovery.run()
-                        
+
                         for item in discovered:
                             if item["tipo_documento"] != tipo:
                                 continue
@@ -426,24 +434,31 @@ def cmd_scrape(
                                 # Extract number to filter by start/end range
                                 num = int(item["chave"].split("-")[-1])
                                 if start_coddoc <= num <= end_coddoc:
-                                    laws.append({
-                                        "id": f"{ente}-{fonte}-{item['chave']}",
-                                        "ente": ente,
-                                        "fonte": fonte,
-                                        "chave": item["chave"],
-                                        "titulo": f"{tipo.upper()} {item['chave'].split('-')[-1]} ({ente.upper()})",
-                                        "url_original": _CASACIVIL_FONTE_URL,
-                                        "url_pdf_original": item["url"],
-                                    })
+                                    laws.append(
+                                        {
+                                            "id": f"{ente}-{fonte}-{item['chave']}",
+                                            "ente": ente,
+                                            "fonte": fonte,
+                                            "chave": item["chave"],
+                                            "titulo": f"{tipo.upper()} {item['chave'].split('-')[-1]} ({ente.upper()})",
+                                            "url_original": _CASACIVIL_FONTE_URL,
+                                            "url_pdf_original": item["url"],
+                                        }
+                                    )
                             except ValueError:
                                 continue
-                        echo(f"  Encontradas {len(laws)} leis existentes arquivadas na faixa {start_coddoc}-{end_coddoc}")
+                        echo(
+                            f"  Encontradas {len(laws)} leis existentes arquivadas na faixa {start_coddoc}-{end_coddoc}"
+                        )
                     except Exception as e:
-                        echo(f"  Erro ao consultar CDX ({e}). Usando fallback sequencial.")
+                        echo(
+                            f"  Erro ao consultar CDX ({e}). Usando fallback sequencial."
+                        )
                         laws = []
 
                 if not laws:
                     from leizilla.crawler import discover_casacivil_laws
+
                     laws = discover_casacivil_laws(
                         tipo=tipo,
                         start_num=start_coddoc,
@@ -513,7 +528,7 @@ def cmd_release_dataset(
     try:
         row_count: int = conn.execute(
             "SELECT count(*) FROM read_parquet(?)", [str(parquet)]
-        ).fetchone()[0]  # type: ignore[index]
+        ).fetchone()[0]
 
         # Benchmark gatilhos §3.4 — aproximação local (DuckDB-WASM em M5)
         t0 = time.perf_counter()
@@ -934,7 +949,11 @@ def cmd_parse_all(
             output_dir.mkdir(parents=True, exist_ok=True)
 
         from leizilla.parser import fetch_ia_html, fetch_ocr, parse_law
-        from leizilla.publisher import InternetArchivePublisher, list_parsed_raw_ids, list_raw_ids
+        from leizilla.publisher import (
+            InternetArchivePublisher,
+            list_parsed_raw_ids,
+            list_raw_ids,
+        )
 
         already_parsed: set[str] = set()
         if skip_existing:
@@ -945,14 +964,24 @@ def cmd_parse_all(
         pub = InternetArchivePublisher() if upload else None
 
         raw_items_on_ia = None
-        is_mocked = hasattr(list_raw_ids, "mock") or hasattr(list_raw_ids, "return_value") or "MagicMock" in str(type(list_raw_ids))
+        is_mocked = (
+            hasattr(list_raw_ids, "mock")
+            or hasattr(list_raw_ids, "return_value")
+            or "MagicMock" in str(type(list_raw_ids))
+        )
         if "PYTEST_CURRENT_TEST" not in os.environ or is_mocked:
             try:
-                echo(f"Consultando IA para obter lista de itens raw disponíveis ({ente}/{fonte})...")
+                echo(
+                    f"Consultando IA para obter lista de itens raw disponíveis ({ente}/{fonte})..."
+                )
                 raw_items_on_ia = list_raw_ids(ente, fonte)
-                echo(f"  {len(raw_items_on_ia)} itens raw encontrados no Internet Archive")
+                echo(
+                    f"  {len(raw_items_on_ia)} itens raw encontrados no Internet Archive"
+                )
             except Exception as e:
-                echo(f"  Aviso: não foi possível listar itens do IA ({e}). Usando fallback sequencial.")
+                echo(
+                    f"  Aviso: não foi possível listar itens do IA ({e}). Usando fallback sequencial."
+                )
 
         # Build target items list
         target_items = []
