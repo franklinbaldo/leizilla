@@ -143,18 +143,16 @@ def test_run_discovery(temp_db):
         }
     ]
 
+    from leizilla.discovery import PlaywrightCrawlerDiscovery
+
     with (
         patch.object(WaybackCdxDiscovery, "run", return_value=mock_res_cdx),
         patch.object(SequentialDiscovery, "run", return_value=mock_res_seq),
-        patch("leizilla.discovery.PlaywrightCrawlerDiscovery") as mock_playwright_cls,
+        patch.object(PlaywrightCrawlerDiscovery, "run", return_value=[]),
     ):
-        mock_playwright_instance = MagicMock()
-        mock_playwright_instance.run.return_value = []
-        mock_playwright_cls.return_value = mock_playwright_instance
-
         total = run_discovery("ro", temp_db)
 
-    # casacivil: 1 cdx + 2 sequential (lei + lc) = 3; playwright fails → 0
+    # casacivil: 1 cdx + 2 sequential (lei + lc) = 3; playwright returns 0
     assert total == 3
     pending = temp_db.get_pending_resources()
     assert len(pending) == 2  # lei-00001 (cdx) + lei-00002 (sequential, deduplicated)
