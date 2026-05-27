@@ -52,6 +52,7 @@
 | **M11** — CI lint+test + mypy fixes | 🟢 done | #63 | `lint.yml` reescrito: `setup-uv@v5`, pytest adicionado; 8 erros mypy corrigidos em 6 arquivos (`storage`, `parser`, `crawler`, `discovery`, `publisher`, `cli`); ruff fix em `test_fetch_all_parsed.py`. Merged. |
 | **M12.1** — DiscoveryStrategy base class + testes harvest pipeline | 🟢 done | #64 | `DiscoveryStrategy` base class elimina `type: ignore[attr-defined]`; 17 novos testes cobrem `storage.discovered_resources`, `SequentialDiscovery`, `run_discovery`, `harvest_pending_resources`. Merged. |
 | **M12.2** — Otimização de Scrape e Parse-All via Consultas em Lote (Vetorização) | 🟢 done | #67 | Evita iterações sequenciais longas fazendo buscas em lote via API do Internet Archive e CDX da Wayback Machine. Merged. |
+| **M13** — Frontend: Dark Mode + Glassmorphism + Detail View | 🟡 in-progress | — | `Layout.astro` dark theme + radial gradient bg; `LeiCard.svelte` glassmorphism + badges + search highlighting; `LeiDetail.svelte` side panel com OCR text + links IA/PDF. |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
@@ -1175,19 +1176,10 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M11 e M12.1 concluídos** ✅ (inclui manifest-driven discovery, torrent bundling, ocr.py, CI fixes/mypy, e vetorização do pipeline - PR #67).
+**M0–M12.2 concluídos** ✅ (inclui manifest-driven discovery, torrent bundling, ocr.py, CI fixes/mypy, vetorização do pipeline, DiscoveryStrategy base class).
 
-**PR desta sessão (M12.2 / #64)**: `DiscoveryStrategy` base class + 17 testes harvest pipeline.
+**PR desta sessão (M13)**: Frontend dark mode + glassmorphism + `LeiDetail` side panel com OCR text + search highlighting. Aguardando CI e decantação.
 
 **M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais em CI). Revisitar após primeiro batch real.
 
 **Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar o pipeline.
-
-**Especificação do Portal Frontend (Alinhada)**:
-* Design moderno, tema Dark Mode e Glassmorphism, com tipografia premium e micro-animações responsivas.
-* Barra de pesquisa integrada e filtros rápidos (Ano, Tipo, Ente) alimentando resultados e gráficos instantaneamente a partir do DuckDB-WASM.
-* Visualização detalhada individual contendo título, ementa, data, link original para o PDF no IA e um visualizador de texto integrado para o OCR extraído com destaque de termos pesquisados.
-
-**Dívida técnica identificada**: Protocol formal para estratégias de discovery (`WaybackCdxDiscovery`,
-`SequentialDiscovery`, `PlaywrightCrawlerDiscovery`) — eliminaria o `# type: ignore[attr-defined]`
-em `discovery.py:216`. Candidato para M12 se houver adição de nova estratégia.
