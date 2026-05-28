@@ -185,7 +185,9 @@ class TestUploadParsed:
         def capture_run(cmd, **kwargs):
             for arg in cmd:
                 if arg.endswith("parsed_meta.json"):
-                    captured_metas.append(json.loads(Path(arg).read_text(encoding="utf-8")))
+                    captured_metas.append(
+                        json.loads(Path(arg).read_text(encoding="utf-8"))
+                    )
             return MagicMock(returncode=0)
 
         with patch("subprocess.run", side_effect=capture_run):
