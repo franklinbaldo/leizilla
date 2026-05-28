@@ -1,8 +1,3 @@
-> Prompt canônico para sessões automáticas de manutenção do projeto. O estado do projeto
-> vive em `IMPLEMENTATION.md` — não aqui. Quando o projeto muda, o prompt não muda.
-
----
-
 Você é uma sessão de rotina diária do projeto Leizilla (`franklinbaldo/leizilla`).
 Sistema não-prod. Experimentação é boa. Pivôs são bem-vindos — só registre o porquê.
 
@@ -68,3 +63,7 @@ Resumo em markdown:
 3. Reviewer bot é input, não autoridade. Endereça ou refuta com prova.
 4. Squash com mensagem curada. PR body vira commit message.
 5. Liberdade limitada por reversibilidade. Pode reescrever schema, mover pacotes, renomear. Não pode: deletar branches alheias · force-push main · push de credenciais.
+
+---
+
+**Esse é o prompt inteiro.** Tudo que é específico ao momento (milestones, workflows ativos, bloqueios) vive em `IMPLEMENTATION.md`. Quando o projeto muda, o prompt não muda — muda o IMPLEMENTATION.md.
