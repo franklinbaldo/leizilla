@@ -526,9 +526,10 @@ def cmd_release_dataset(
 
     conn = duckdb.connect()
     try:
-        row_count: int = conn.execute(
+        row = conn.execute(
             "SELECT count(*) FROM read_parquet(?)", [str(parquet)]
-        ).fetchone()[0]
+        ).fetchone()
+        row_count: int = row[0] if row is not None else 0
 
         # Benchmark gatilhos §3.4 — aproximação local (DuckDB-WASM em M5)
         t0 = time.perf_counter()
