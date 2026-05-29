@@ -527,7 +527,7 @@ def cmd_release_dataset(
     try:
         row_count: int = conn.execute(
             "SELECT count(*) FROM read_parquet(?)", [str(parquet)]
-        ).fetchone()[0]  # type: ignore[index]
+        ).fetchone()[0]
 
         # Benchmark gatilhos §3.4 — aproximação local (DuckDB-WASM em M5)
         t0 = time.perf_counter()

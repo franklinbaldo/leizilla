@@ -81,7 +81,9 @@ module = ["anthropic", "anthropic.*"]
 follow_imports = "skip"
 
 
+
 [dependency-groups]
 dev = [
     "pytest>=8.4.1",
+    "types-requests>=2.33.0.20260518",
 ]
