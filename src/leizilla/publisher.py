@@ -143,9 +143,12 @@ def build_dataset_meta(
 
         conn = duckdb.connect()
         try:
-            row_count = conn.execute(
-                "SELECT count(*) FROM read_parquet(?)", [str(parquet_path)]
-            ).fetchone()[0]
+            row_count = (
+                conn.execute(
+                    "SELECT count(*) FROM read_parquet(?)", [str(parquet_path)]
+                ).fetchone()
+                or (0,)
+            )[0]
         finally:
             conn.close()
     effective_git_sha = git_sha if git_sha is not None else _get_git_sha()
