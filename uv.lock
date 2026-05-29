@@ -499,6 +499,7 @@ dev = [
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "types-requests" },
 ]
 
 [package.metadata]
@@ -520,7 +521,10 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.4.1" }]
+dev = [
+    { name = "pytest", specifier = ">=8.4.1" },
+    { name = "types-requests", specifier = ">=2.33.0.20260518" },
+]
 
 [[package]]
 name = "markdown-it-py"
