@@ -8,6 +8,7 @@
     type LeiRow,
   } from '../lib/db.ts';
   import LeiCard from './LeiCard.svelte';
+  import LeiDetail from './LeiDetail.svelte';
 
   // --- Svelte 5 state for UI ---
   let rawTerm = $state('');
@@ -15,6 +16,7 @@
   let ente = $state('');
   let year = $state<number | null>(null);
   let page = $state(0);
+  let selectedRow = $state<LeiRow | null>(null);
 
   // Debounce: update debouncedTerm 400ms after last keystroke.
   // $effect cleanup cancels the pending timer on rawTerm change or unmount.
@@ -130,7 +132,11 @@
 
     <div class="results">
       {#each $resultsQ.data ?? [] as row (row.lei_id + '|' + row.dispositivo_path + '|' + (row.em ?? ''))}
-        <LeiCard {row} />
+        <LeiCard
+          {row}
+          searchTerm={debouncedTerm}
+          onSelect={(r) => { selectedRow = r; }}
+        />
       {/each}
 
       {#if ($resultsQ.data ?? []).length === 0 && !$resultsQ.isFetching}
@@ -144,19 +150,27 @@
           disabled={page === 0 || $resultsQ.isFetching}
           onclick={() => { page = Math.max(0, page - 1); }}
         >
-          ← Anterior
+          &larr; Anterior
         </button>
         <span>Página {page + 1} de {totalPages()}</span>
         <button
           disabled={page >= totalPages() - 1 || $resultsQ.isFetching}
           onclick={() => { page = Math.min(totalPages() - 1, page + 1); }}
         >
-          Próxima →
+          Próxima &rarr;
         </button>
       </nav>
     {/if}
   {/if}
 </section>
+
+{#if selectedRow !== null}
+  <LeiDetail
+    row={selectedRow}
+    searchTerm={debouncedTerm}
+    onClose={() => { selectedRow = null; }}
+  />
+{/if}
 
 <style>
   .filters {
