@@ -329,7 +329,13 @@ class TestUploadRawHtml:
     def test_success_returns_ia_id(self, tmp_path: Any) -> None:
         pub = _publisher()
         mock_result = MagicMock(returncode=0, stdout="", stderr="")
-        with patch("subprocess.run", return_value=mock_result):
+        with (
+            patch("subprocess.run", return_value=mock_result),
+            patch(
+                "leizilla.publisher.update_raw_index",
+                return_value={"success": True},
+            ),
+        ):
             result = pub.upload_raw_html("<html>lei</html>", _lei_data_html())
         assert result["success"] is True
         assert result["ia_id"] == "leizilla-raw-federal-planalto-lei-09503"
@@ -422,6 +428,10 @@ class TestScrapeOneHtml:
             patch("leizilla.wayback.check_available", return_value=wb_url),
             patch("leizilla.scraper.fetch_html", return_value="<html>lei</html>"),
             patch("subprocess.run", return_value=mock_run),
+            patch(
+                "leizilla.publisher.update_raw_index",
+                return_value={"success": True},
+            ),
         ):
             result = scrape_one_html(self._url(), _lei_data_html(), pub)
         assert result["success"] is True
@@ -443,6 +453,10 @@ class TestScrapeOneHtml:
             patch("leizilla.wayback.check_available", return_value=None),
             patch("leizilla.scraper.fetch_html", side_effect=fake_fetch),
             patch("subprocess.run", return_value=mock_run) as _mock,
+            patch(
+                "leizilla.publisher.update_raw_index",
+                return_value={"success": True},
+            ),
         ):
             result = scrape_one_html(self._url(), _lei_data_html(), pub)
         assert result["success"] is True, result
