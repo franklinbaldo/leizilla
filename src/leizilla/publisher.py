@@ -1,5 +1,6 @@
 """Publicação no Internet Archive e exportação de datasets."""
 
+import csv
 import hashlib
 import json
 import re
@@ -8,12 +9,19 @@ import subprocess
 import tempfile
 import urllib.parse
 import urllib.request
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
 from leizilla import config
 from leizilla import storage as storage_module
+from leizilla.ia_utils import (
+    get_range_bounds,
+    get_range_identifier as _range_identifier,
+    parse_chave_numeric,
+    get_ia_filename,
+)
 
 _DATASET_IDENTIFIER_RE = (
     r"^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)$"
@@ -357,6 +365,52 @@ def fetch_parsed_xml(ia_id: str, output_path: Path) -> bool:
         return False
 
 
+def update_ia_manifest(
+    range_ia_id: str, filename: str, url_original: str, tmp_dir: Path
+) -> Path:
+    """Baixa o manifest.csv existente do IA, adiciona a nova linha e salva localmente.
+
+    WARNING: Este método realiza um download/upload sequencial incremental do manifest.csv
+    para cada arquivo de raw upload individual. Se invocado repetidamente em loops extensos
+    sem controle de lote (batching), gera complexidade de rede O(n²). Projetos futuros que
+    realizem ingestão em massa offline devem agrupar múltiplos arquivos em um único manifest.csv
+    local consolidador antes de realizar a requisição ao Internet Archive.
+    """
+    manifest_path = tmp_dir / "manifest.csv"
+    lines: list[list[str]] = []
+
+    # Tenta baixar o manifest existente do Internet Archive
+    url_ia_manifest = f"https://archive.org/download/{range_ia_id}/manifest.csv"
+    req = urllib.request.Request(url_ia_manifest)
+    req.add_header("User-Agent", "leizilla-crawler/0.1")
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            content = resp.read().decode("utf-8", errors="replace")
+            # Faz o parse do CSV existente para evitar duplicatas
+            reader = csv.reader(content.splitlines())
+            next(reader, None)  # filename,url
+            for row in reader:
+                if len(row) == 2:
+                    lines.append(row)
+    except (urllib.error.URLError, OSError):
+        # Se falhar (404 ou erro de rede), começamos com um manifest limpo
+        pass
+
+    # Adiciona ou atualiza a linha correspondente
+    # Garante que não teremos duplicatas do mesmo arquivo
+    lines = [row for row in lines if row[0] != filename]
+    lines.append([filename, url_original])
+
+    # Grava o arquivo localmente
+    with open(manifest_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["filename", "url"])
+        writer.writerows(lines)
+
+    return manifest_path
+
+
 class InternetArchivePublisher:
     """Upload para IA e geração de datasets Parquet."""
 
@@ -385,15 +439,42 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
+        tipo, num = parse_chave_numeric(chave)
+        if num > 0:
+            range_ia_id = _range_identifier(ente, fonte, tipo, num)
+            start, end = get_range_bounds(num)
+            if tipo.lower() == "coddoc":
+                title = (
+                    f"Leizilla Raw {ente.upper()} {fonte.upper()} {start:04d}-{end:04d}"
+                )
+            else:
+                title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {tipo.upper()} {start:04d}-{end:04d}"
+        else:
+            range_ia_id = f"leizilla_{ente.lower()}_{fonte.lower()}_fallback"
+            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} Fallback"
+
         raw_meta = build_raw_meta(lei_data, pdf_bytes, fetched_from, wayback_url)
+        url_original = str(lei_data.get("url_original") or fetched_from)
 
         with tempfile.TemporaryDirectory() as tmp:
-            # Rename PDF to {ia_id}.pdf so IA OCR output is {ia_id}_djvu.txt,
-            # matching the URL template used by parser.fetch_ocr().
-            pdf_dst = Path(tmp) / f"{ia_id}.pdf"
+            if num > 0:
+                pdf_name = get_ia_filename(num, ".pdf")
+                meta_name = get_ia_filename(num, "_meta.json")
+                pdf_dst = Path(tmp) / pdf_name
+                meta_path = Path(tmp) / meta_name
+                filename_manifest = pdf_name
+            else:
+                pdf_dst = Path(tmp) / f"{chave.lower()}.pdf"
+                meta_path = Path(tmp) / f"{chave.lower()}_meta.json"
+                filename_manifest = f"{chave.lower()}.pdf"
+
             shutil.copy2(str(pdf_path), str(pdf_dst))
-            meta_path = Path(tmp) / "raw_meta.json"
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
+
+            # Atualiza o manifest.csv contendo o histórico de URLs do range
+            manifest_path = update_ia_manifest(
+                range_ia_id, filename_manifest, url_original, Path(tmp)
+            )
 
             coverage = _entity_coverage(ente)
             desc = (
@@ -406,11 +487,12 @@ class InternetArchivePublisher:
                     [
                         "ia",
                         "upload",
-                        ia_id,
+                        range_ia_id,
                         str(pdf_dst),
                         str(meta_path),
+                        str(manifest_path),
                         "--metadata",
-                        f"title:{lei_data.get('titulo', 'Lei')}",
+                        f"title:{title}",
                         "--metadata",
                         "mediatype:texts",
                         "--metadata",
@@ -431,7 +513,7 @@ class InternetArchivePublisher:
                 return {
                     "success": True,
                     "ia_id": ia_id,
-                    "ia_url": f"https://archive.org/details/{ia_id}",
+                    "ia_url": f"https://archive.org/details/{range_ia_id}",
                 }
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
@@ -457,15 +539,44 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
+        tipo, num = parse_chave_numeric(chave)
+        if num > 0:
+            range_ia_id = _range_identifier(ente, fonte, tipo, num)
+            start, end = get_range_bounds(num)
+            if tipo.lower() == "coddoc":
+                title = (
+                    f"Leizilla Raw {ente.upper()} {fonte.upper()} {start:04d}-{end:04d}"
+                )
+            else:
+                title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {tipo.upper()} {start:04d}-{end:04d}"
+        else:
+            range_ia_id = f"leizilla_{ente.lower()}_{fonte.lower()}_fallback"
+            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} Fallback"
+
         raw_meta = build_raw_meta_html(
             html_content, lei_data, fetched_from, wayback_url
         )
+        url_original = str(lei_data.get("url_original") or fetched_from)
 
         with tempfile.TemporaryDirectory() as tmp:
-            html_dst = Path(tmp) / f"{ia_id}.html"
+            if num > 0:
+                html_name = get_ia_filename(num, ".html")
+                meta_name = get_ia_filename(num, "_meta.json")
+                html_dst = Path(tmp) / html_name
+                meta_path = Path(tmp) / meta_name
+                filename_manifest = html_name
+            else:
+                html_dst = Path(tmp) / f"{chave.lower()}.html"
+                meta_path = Path(tmp) / f"{chave.lower()}_meta.json"
+                filename_manifest = f"{chave.lower()}.html"
+
             html_dst.write_text(html_content, encoding="utf-8")
-            meta_path = Path(tmp) / "raw_meta.json"
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
+
+            # Atualiza o manifest.csv contendo o histórico de URLs do range
+            manifest_path = update_ia_manifest(
+                range_ia_id, filename_manifest, url_original, Path(tmp)
+            )
 
             coverage = _entity_coverage(ente)
             desc = (
@@ -478,11 +589,12 @@ class InternetArchivePublisher:
                     [
                         "ia",
                         "upload",
-                        ia_id,
+                        range_ia_id,
                         str(html_dst),
                         str(meta_path),
+                        str(manifest_path),
                         "--metadata",
-                        f"title:{lei_data.get('titulo', 'Lei')}",
+                        f"title:{title}",
                         "--metadata",
                         "mediatype:texts",
                         "--metadata",
@@ -503,7 +615,7 @@ class InternetArchivePublisher:
                 return {
                     "success": True,
                     "ia_id": ia_id,
-                    "ia_url": f"https://archive.org/details/{ia_id}",
+                    "ia_url": f"https://archive.org/details/{range_ia_id}",
                 }
             except FileNotFoundError:
                 return {

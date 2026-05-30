@@ -19,10 +19,9 @@ from typing import Any, Dict, Optional
 import anthropic
 
 from leizilla import config
+from leizilla.ia_utils import resolve_ia_id_to_url
 
 _HAIKU = "claude-haiku-4-5"
-_OCR_URL = "https://archive.org/download/{ia_id}/{ia_id}_djvu.txt"
-_IA_HTML_URL = "https://archive.org/download/{ia_id}/{ia_id}.html"
 _USER_AGENT = "leizilla-crawler/0.1"
 _MIN_CONFIDENCE = 0.5
 _OCR_CHAR_LIMIT = 8000
@@ -107,7 +106,7 @@ class ParseResult:
 
 def fetch_ocr(ia_id: str, timeout: int = 30) -> Optional[str]:
     """Fetch OCR text (_djvu.txt) for a raw IA item. Returns None on failure."""
-    url = _OCR_URL.format(ia_id=ia_id)
+    url = resolve_ia_id_to_url(ia_id, "_djvu.txt")
     req = urllib.request.Request(url)
     req.add_header("User-Agent", _USER_AGENT)
     try:
@@ -140,7 +139,7 @@ def fetch_ia_html(ia_id: str, timeout: int = 30) -> Optional[str]:
     IA stores HTML as {ia_id}.html alongside raw_meta.json when uploaded via
     upload_raw_html. Delegates to fetch_html for uniform error handling.
     """
-    url = _IA_HTML_URL.format(ia_id=ia_id)
+    url = resolve_ia_id_to_url(ia_id, ".html")
     return fetch_html(url, timeout=timeout)
 
 

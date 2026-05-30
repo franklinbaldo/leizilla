@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from leizilla import parser
+from leizilla.ia_utils import resolve_ia_id_to_url
 
 _IA_ID = "leizilla-raw-ro-casacivil-coddoc-09999"
 
@@ -72,7 +73,21 @@ class TestFetchOcr:
         with patch("urllib.request.urlopen", side_effect=TimeoutError()):
             assert parser.fetch_ocr(_IA_ID) is None
 
-    def test_constructs_djvu_url(self):
+    def test_constructs_djvu_url_fallback(self):
+        captured: list[str] = []
+
+        def capture(req, **kw):  # type: ignore[no-untyped-def]
+            captured.append(req.full_url)
+            raise OSError("stop")
+
+        non_numeric_id = "leizilla-raw-ro-casacivil-nonnumeric"
+        with patch("urllib.request.urlopen", side_effect=capture):
+            parser.fetch_ocr(non_numeric_id)
+
+        expected = resolve_ia_id_to_url(non_numeric_id, "_djvu.txt")
+        assert captured == [expected]
+
+    def test_constructs_djvu_url_range(self):
         captured: list[str] = []
 
         def capture(req, **kw):  # type: ignore[no-untyped-def]
@@ -82,7 +97,7 @@ class TestFetchOcr:
         with patch("urllib.request.urlopen", side_effect=capture):
             parser.fetch_ocr(_IA_ID)
 
-        expected = f"https://archive.org/download/{_IA_ID}/{_IA_ID}_djvu.txt"
+        expected = resolve_ia_id_to_url(_IA_ID, "_djvu.txt")
         assert captured == [expected]
 
 
@@ -127,7 +142,21 @@ class TestFetchHtml:
 
 
 class TestFetchIaHtml:
-    def test_constructs_ia_html_url(self):
+    def test_constructs_ia_html_url_fallback(self):
+        captured: list[str] = []
+
+        def capture(req, **kw):  # type: ignore[no-untyped-def]
+            captured.append(req.get_full_url())
+            raise OSError("stop")
+
+        non_numeric_id = "leizilla-raw-ro-casacivil-nonnumeric"
+        with patch("urllib.request.urlopen", side_effect=capture):
+            parser.fetch_ia_html(non_numeric_id)
+
+        expected = resolve_ia_id_to_url(non_numeric_id, ".html")
+        assert captured == [expected]
+
+    def test_constructs_ia_html_url_range(self):
         captured: list[str] = []
 
         def capture(req, **kw):  # type: ignore[no-untyped-def]
@@ -137,7 +166,7 @@ class TestFetchIaHtml:
         with patch("urllib.request.urlopen", side_effect=capture):
             parser.fetch_ia_html(_IA_ID)
 
-        expected = f"https://archive.org/download/{_IA_ID}/{_IA_ID}.html"
+        expected = resolve_ia_id_to_url(_IA_ID, ".html")
         assert captured == [expected]
 
     def test_returns_html_on_success(self):
