@@ -1,5 +1,6 @@
 """Publicação no Internet Archive e exportação de datasets."""
 
+import csv
 import hashlib
 import json
 import re
@@ -8,7 +9,7 @@ import subprocess
 import tempfile
 import urllib.parse
 import urllib.request
-import uuid
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
@@ -367,9 +368,14 @@ def fetch_parsed_xml(ia_id: str, output_path: Path) -> bool:
 def update_ia_manifest(
     range_ia_id: str, filename: str, url_original: str, tmp_dir: Path
 ) -> Path:
-    """Baixa o manifest.csv existente do IA, adiciona a nova linha e salva localmente."""
-    import csv
+    """Baixa o manifest.csv existente do IA, adiciona a nova linha e salva localmente.
 
+    WARNING: Este método realiza um download/upload sequencial incremental do manifest.csv
+    para cada arquivo de raw upload individual. Se invocado repetidamente em loops extensos
+    sem controle de lote (batching), gera complexidade de rede O(n²). Projetos futuros que
+    realizem ingestão em massa offline devem agrupar múltiplos arquivos em um único manifest.csv
+    local consolidador antes de realizar a requisição ao Internet Archive.
+    """
     manifest_path = tmp_dir / "manifest.csv"
     lines: list[list[str]] = []
 
@@ -387,7 +393,7 @@ def update_ia_manifest(
             for row in reader:
                 if len(row) == 2:
                     lines.append(row)
-    except Exception:
+    except (urllib.error.URLError, OSError):
         # Se falhar (404 ou erro de rede), começamos com um manifest limpo
         pass
 
@@ -437,22 +443,23 @@ class InternetArchivePublisher:
         if num > 0:
             range_ia_id = _range_identifier(ente, fonte, tipo, num)
             start, end = get_range_bounds(num)
-            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {tipo.upper()} {start:04d}-{end:04d}"
+            if tipo.lower() == "coddoc":
+                title = (
+                    f"Leizilla Raw {ente.upper()} {fonte.upper()} {start:04d}-{end:04d}"
+                )
+            else:
+                title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {tipo.upper()} {start:04d}-{end:04d}"
         else:
-            range_ia_id = f"leizilla-raw_{ente.lower()}_{fonte.lower()}_fallback"
+            range_ia_id = f"leizilla_{ente.lower()}_{fonte.lower()}_fallback"
             title = f"Leizilla Raw {ente.upper()} {fonte.upper()} Fallback"
 
         raw_meta = build_raw_meta(lei_data, pdf_bytes, fetched_from, wayback_url)
         url_original = str(lei_data.get("url_original") or fetched_from)
 
-        sha256 = hashlib.sha256(pdf_bytes).hexdigest()
-        uuid_val = uuid.uuid5(uuid.NAMESPACE_DNS, sha256)
-        hash_8 = str(uuid_val)[:8]
-
         with tempfile.TemporaryDirectory() as tmp:
             if num > 0:
-                pdf_name = get_ia_filename(tipo, num, ".pdf", hash_8)
-                meta_name = get_ia_filename(tipo, num, "_meta.json", hash_8)
+                pdf_name = get_ia_filename(num, ".pdf")
+                meta_name = get_ia_filename(num, "_meta.json")
                 pdf_dst = Path(tmp) / pdf_name
                 meta_path = Path(tmp) / meta_name
                 filename_manifest = pdf_name
@@ -536,9 +543,14 @@ class InternetArchivePublisher:
         if num > 0:
             range_ia_id = _range_identifier(ente, fonte, tipo, num)
             start, end = get_range_bounds(num)
-            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {tipo.upper()} {start:04d}-{end:04d}"
+            if tipo.lower() == "coddoc":
+                title = (
+                    f"Leizilla Raw {ente.upper()} {fonte.upper()} {start:04d}-{end:04d}"
+                )
+            else:
+                title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {tipo.upper()} {start:04d}-{end:04d}"
         else:
-            range_ia_id = f"leizilla-raw_{ente.lower()}_{fonte.lower()}_fallback"
+            range_ia_id = f"leizilla_{ente.lower()}_{fonte.lower()}_fallback"
             title = f"Leizilla Raw {ente.upper()} {fonte.upper()} Fallback"
 
         raw_meta = build_raw_meta_html(
@@ -546,14 +558,10 @@ class InternetArchivePublisher:
         )
         url_original = str(lei_data.get("url_original") or fetched_from)
 
-        sha256 = hashlib.sha256(html_content.encode("utf-8")).hexdigest()
-        uuid_val = uuid.uuid5(uuid.NAMESPACE_DNS, sha256)
-        hash_8 = str(uuid_val)[:8]
-
         with tempfile.TemporaryDirectory() as tmp:
             if num > 0:
-                html_name = get_ia_filename(tipo, num, ".html", hash_8)
-                meta_name = get_ia_filename(tipo, num, "_meta.json", hash_8)
+                html_name = get_ia_filename(num, ".html")
+                meta_name = get_ia_filename(num, "_meta.json")
                 html_dst = Path(tmp) / html_name
                 meta_path = Path(tmp) / meta_name
                 filename_manifest = html_name

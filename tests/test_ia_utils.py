@@ -68,36 +68,13 @@ class TestGetRangeIdentifier:
 
 class TestGetIaFilename:
     def test_standard_types(self):
-        # Sem hash, omite redundâncias e gera apenas o número
+        # Omite redundâncias e gera apenas o número
         from leizilla.ia_utils import get_ia_filename
 
-        assert get_ia_filename("lei", 5120, ".pdf") == "005120.pdf"
-        assert get_ia_filename("lei-complementar", 42, ".html") == "000042.html"
-        assert get_ia_filename("lei", 5120, "_djvu.txt") == "005120_djvu.txt"
-        assert get_ia_filename("lei", 5120, "_meta.json") == "005120_meta.json"
-
-    def test_with_hash(self):
-        # Com hash, anexa o hash determinístico ao final do número
-        from leizilla.ia_utils import get_ia_filename
-
-        assert get_ia_filename("lei", 5120, ".pdf", "a1b2c3d4") == "005120_a1b2c3d4.pdf"
-        assert (
-            get_ia_filename("lei", 5120, "_djvu.txt", "a1b2c3d4")
-            == "005120_a1b2c3d4_djvu.txt"
-        )
-        assert (
-            get_ia_filename("lei", 5120, "_meta.json", "a1b2c3d4")
-            == "005120_a1b2c3d4_meta.json"
-        )
-
-    def test_coddoc_omits_slug(self):
-        # coddoc também omite o slug completamente e aceita o hash
-        from leizilla.ia_utils import get_ia_filename
-
-        assert get_ia_filename("coddoc", 5120, ".pdf") == "005120.pdf"
-        assert (
-            get_ia_filename("coddoc", 5120, ".pdf", "a1b2c3d4") == "005120_a1b2c3d4.pdf"
-        )
+        assert get_ia_filename(5120, ".pdf") == "005120.pdf"
+        assert get_ia_filename(42, ".html") == "000042.html"
+        assert get_ia_filename(5120, "_djvu.txt") == "005120_djvu.txt"
+        assert get_ia_filename(5120, "_meta.json") == "005120_meta.json"
 
 
 class TestResolveIaIdToUrl:
@@ -113,11 +90,6 @@ class TestResolveIaIdToUrl:
         # Resolves to numeric range bucket with underscores and lowers filename without type redundancy
         expected = "https://archive.org/download/leizilla_ro_casacivil_lei_5001-6000/005120_djvu.txt"
         assert resolve_ia_id_to_url(ia_id, "_djvu.txt") == expected
-
-    def test_numeric_range_resolution_with_hash(self):
-        ia_id = "leizilla-raw-ro-casacivil-lei-05120"
-        expected = "https://archive.org/download/leizilla_ro_casacivil_lei_5001-6000/005120_a1b2c3d4_djvu.txt"
-        assert resolve_ia_id_to_url(ia_id, "_djvu.txt", "a1b2c3d4") == expected
 
     def test_complex_numeric_range_resolution(self):
         ia_id = "leizilla-raw-ro-casacivil-lei-complementar-00042"
@@ -138,7 +110,7 @@ class TestResolveIaIdToUrl:
     def test_fallback_resolution(self):
         ia_id = "leizilla-raw-ro-casacivil-lei-decretada-a"
         # Resolves to fallback item with underscores
-        expected = "https://archive.org/download/leizilla-raw_ro_casacivil_fallback/lei-decretada-a_djvu.txt"
+        expected = "https://archive.org/download/leizilla_ro_casacivil_fallback/lei-decretada-a_djvu.txt"
         assert resolve_ia_id_to_url(ia_id, "_djvu.txt") == expected
 
     def test_malformed_ia_id_fallback(self):
