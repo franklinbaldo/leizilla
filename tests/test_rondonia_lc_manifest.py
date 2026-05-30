@@ -1,5 +1,7 @@
 """Test pipeline validation specifically for Rondônia Leis Complementares and UUIDv5 manifest.csv."""
 
+import hashlib
+import uuid
 import csv
 from unittest.mock import patch, MagicMock
 
@@ -26,22 +28,25 @@ class TestRondoniaLCManifestPipeline:
         range_id = get_range_identifier(ente, fonte, tipo, num)
         assert range_id == "leizilla_ro_casacivil_lc_0001-1000"
 
-        # 2. Valida a geração do filename previsível e determinístico
-        filename = get_ia_filename(num, ".pdf")
-        # O arquivo físico omite o tipo 'lc' e não anexa hashes de versão
-        assert filename == "000042.pdf"
+        # 2. Valida a geração do filename baseado em UUIDv5 do conteúdo dos bytes
+        dummy_content = b"PDF content of Lei Complementar 42"
+        from leizilla.ia_utils import get_uuid5_hash
+
+        hash_8 = get_uuid5_hash(dummy_content)
+
+        filename = get_ia_filename(num, ".pdf", hash_8=hash_8)
+        # O arquivo físico omite o tipo 'lc' e anexa o hash determinístico da versão
+        assert filename == f"000042_{hash_8}.pdf"
 
         # 3. Valida a resolução transparente da URL de download direto a partir do ID bruto DuckDB legado
         legacy_ia_id = "leizilla-raw-ro-casacivil-lc-00042"
-        resolved_url = resolve_ia_id_to_url(legacy_ia_id, ".pdf")
-        expected_url = (
-            "https://archive.org/download/leizilla_ro_casacivil_lc_0001-1000/000042.pdf"
-        )
+        resolved_url = resolve_ia_id_to_url(legacy_ia_id, ".pdf", hash_8=hash_8)
+        expected_url = f"https://archive.org/download/leizilla_ro_casacivil_lc_0001-1000/000042_{hash_8}.pdf"
         assert resolved_url == expected_url
 
     def test_incremental_manifest_csv_generation(self, tmp_path):
         range_id = "leizilla_ro_casacivil_lc_0001-1000"
-        filename = "000042.pdf"
+        filename = "000042_a1b2c3d4.pdf"
         url_original = "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/LC42.pdf"
 
         import urllib.error
@@ -101,9 +106,11 @@ class TestRondoniaLCManifestPipeline:
         assert "upload" in args
         assert "leizilla_ro_casacivil_lc_0001-1000" in args
 
-        # O arquivo PDF no upload deve ser o filename previsível e determinístico
-        expected_pdf_name = "000042.pdf"
+        # O arquivo PDF no upload deve conter o hash determinístico baseado em UUIDv5
+        sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+        hash_8 = str(uuid.uuid5(uuid.NAMESPACE_DNS, sha256))[:8]
+        expected_pdf_name = f"000042_{hash_8}.pdf"
 
-        # Verifica que o PDF renomeado temporariamente com o padrão determinístico foi incluído no upload
+        # Verifica que o PDF renomeado temporariamente com UUIDv5 foi incluído no upload
         pdf_arg = next((a for a in args if a.endswith(expected_pdf_name)), None)
         assert pdf_arg is not None

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Leizilla CLI — interface de linha de comando."""
 
 import asyncio
@@ -175,6 +176,17 @@ def cmd_fetch_ocr(
         for lei in pending:
             lei_id = lei["id"]
             url_pdf_ia = lei.get("url_pdf_ia") or ""
+            metadados_str = lei.get("metadados")
+            hash_8 = None
+            if metadados_str:
+                import json
+
+                try:
+                    meta = json.loads(metadados_str)
+                    if isinstance(meta, dict):
+                        hash_8 = meta.get("hash_8")
+                except Exception:
+                    pass
 
             # Determina o ia_id
             ia_id = None
@@ -189,7 +201,10 @@ def cmd_fetch_ocr(
                 ia_id = f"leizilla-raw-{lei_id}"
 
             echo(f"Buscando OCR para {lei_id} (IA ID: {ia_id})...")
-            text = fetch_and_clean_ocr(ia_id)
+            if hash_8:
+                text = fetch_and_clean_ocr(ia_id, hash_8=hash_8)
+            else:
+                text = fetch_and_clean_ocr(ia_id)
 
             if text:
                 norm = normalize_text(text)
@@ -633,7 +648,7 @@ def cmd_consolidate(
             f"  Aviso: {read_errors}/{len(xml_files)} arquivo(s) ignorado(s) por erro de leitura."
         )
     rows = consolidate_xmls(items)
-    echo(f"Convertidos {len(items)}/{len(xml_files)} XMLs → {len(rows)} linhas")
+    echo(f"Convertidos {len(items)}/{len(xml_files)} XMLs -> {len(rows)} linhas")
     write_parquet(rows, output)
     echo(f"Parquet escrito em {output}")
     if read_errors:
@@ -817,17 +832,41 @@ def cmd_parse(
         help="Tipo de entrada do raw item: ocr (PDF via IA) ou html (HTML armazenado no IA)",
     ),
 ) -> None:
-    """Parsear raw IA item → Leizilla XML via LLM (Etapa 2).
+    """Parsear raw IA item -> Leizilla XML via LLM (Etapa 2).
 
     Para fontes PDF (assembleia, casacivil): --input-type ocr (default).
     Para fontes HTML (federal/planalto após M2.7): --input-type html.
     """
     try:
         from leizilla.parser import fetch_ia_html, fetch_ocr, parse_law
+        from leizilla.storage import DuckDBStorage
+
+        # Tenta obter o hash do DuckDB
+        hash_8 = None
+        match = re.match(r"^leizilla-raw-([a-zA-Z0-9-]+)-([a-zA-Z0-9-]+)-(.*)$", raw_id)
+        if match:
+            ente_slug = match.group(1)
+            fonte_slug = match.group(2)
+            chave = match.group(3)
+            db_id = f"{ente_slug}-{fonte_slug}-{chave}"
+            try:
+                db = DuckDBStorage()
+                lei = db.get_lei(db_id)
+                if lei and lei.get("metadados"):
+                    import json
+
+                    meta = json.loads(lei["metadados"])
+                    if isinstance(meta, dict):
+                        hash_8 = meta.get("hash_8")
+            except Exception:
+                pass
 
         if input_type == "html":
             echo(f"Buscando HTML para {raw_id}...")
-            raw_text = fetch_ia_html(raw_id)
+            if hash_8:
+                raw_text = fetch_ia_html(raw_id, hash_8=hash_8)
+            else:
+                raw_text = fetch_ia_html(raw_id)
             if not raw_text:
                 echo(
                     f"HTML não disponível para {raw_id} (item inexistente ou upload pendente)"
@@ -835,7 +874,10 @@ def cmd_parse(
                 raise typer.Exit(1)
         elif input_type == "ocr":
             echo(f"Buscando OCR para {raw_id}...")
-            raw_text = fetch_ocr(raw_id)
+            if hash_8:
+                raw_text = fetch_ocr(raw_id, hash_8=hash_8)
+            else:
+                raw_text = fetch_ocr(raw_id)
             if not raw_text:
                 echo(
                     f"OCR não disponível para {raw_id} (IA ainda processando ou item inexistente)"
@@ -935,7 +977,7 @@ def cmd_parse_all(
         help="Taxa máx de falhas de parse tolerada, em %% (0 = desabilitado). Causa exit 1 se excedida.",
     ),
 ) -> None:
-    """Batch parse: range de números → OCR/HTML → LLM → (upload para IA).
+    """Batch parse: range de números -> OCR/HTML -> LLM -> (upload para IA).
 
     Fontes OCR (assembleia, casacivil): itera leizilla-raw-{ente}-{fonte}-coddoc-NNNNN.
     Fontes HTML (federal/planalto): itera leizilla-raw-{ente}-{fonte}-{tipo}-NNNNN.
@@ -1055,7 +1097,7 @@ def cmd_parse_all(
                 parsed_fail += 1
                 continue
 
-            echo(f"  OK confiança={result.confidence:.2f} → {result.ia_id_parsed}")
+            echo(f"  OK confiança={result.confidence:.2f} -> {result.ia_id_parsed}")
             parsed_ok += 1
 
             if output_dir is not None:
@@ -1065,7 +1107,7 @@ def cmd_parse_all(
                     echo(f"  ia_id_parsed suspeito, ignorando: {result.ia_id_parsed!r}")
                     continue
                 xml_path.write_text(result.xml, encoding="utf-8")
-                echo(f"  → {xml_path}")
+                echo(f"  -> {xml_path}")
 
             if pub:
                 if not _xsd_gate(result.xml, warn_prefix="  "):
@@ -1167,7 +1209,7 @@ def cmd_pipeline(
     ente: str = typer.Option("ro", help="Ente federativo"),
     limit: int = typer.Option(5, help="Limite por etapa"),
 ) -> None:
-    """Executar pipeline completo (manifest-driven: discover → harvest → export)."""
+    """Executar pipeline completo (manifest-driven: discover -> harvest -> export)."""
     echo(f"Pipeline completo para {ente}")
 
     try:

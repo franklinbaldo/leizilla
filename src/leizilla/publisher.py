@@ -21,6 +21,7 @@ from leizilla.ia_utils import (
     get_range_identifier as _range_identifier,
     parse_chave_numeric,
     get_ia_filename,
+    get_uuid5_hash,
 )
 
 _DATASET_IDENTIFIER_RE = (
@@ -453,20 +454,23 @@ class InternetArchivePublisher:
             range_ia_id = f"leizilla_{ente.lower()}_{fonte.lower()}_fallback"
             title = f"Leizilla Raw {ente.upper()} {fonte.upper()} Fallback"
 
+        hash_8 = get_uuid5_hash(pdf_bytes)
         raw_meta = build_raw_meta(lei_data, pdf_bytes, fetched_from, wayback_url)
         url_original = str(lei_data.get("url_original") or fetched_from)
 
         with tempfile.TemporaryDirectory() as tmp:
             if num > 0:
-                pdf_name = get_ia_filename(num, ".pdf")
-                meta_name = get_ia_filename(num, "_meta.json")
+                pdf_name = get_ia_filename(num, ".pdf", hash_8=hash_8)
+                meta_name = get_ia_filename(num, "_meta.json", hash_8=hash_8)
                 pdf_dst = Path(tmp) / pdf_name
                 meta_path = Path(tmp) / meta_name
                 filename_manifest = pdf_name
             else:
-                pdf_dst = Path(tmp) / f"{chave.lower()}.pdf"
-                meta_path = Path(tmp) / f"{chave.lower()}_meta.json"
-                filename_manifest = f"{chave.lower()}.pdf"
+                pdf_name = f"{chave.lower()}_{hash_8}.pdf"
+                meta_name = f"{chave.lower()}_{hash_8}_meta.json"
+                pdf_dst = Path(tmp) / pdf_name
+                meta_path = Path(tmp) / meta_name
+                filename_manifest = pdf_name
 
             shutil.copy2(str(pdf_path), str(pdf_dst))
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
@@ -514,6 +518,7 @@ class InternetArchivePublisher:
                     "success": True,
                     "ia_id": ia_id,
                     "ia_url": f"https://archive.org/details/{range_ia_id}",
+                    "hash_8": hash_8,
                 }
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
@@ -553,6 +558,8 @@ class InternetArchivePublisher:
             range_ia_id = f"leizilla_{ente.lower()}_{fonte.lower()}_fallback"
             title = f"Leizilla Raw {ente.upper()} {fonte.upper()} Fallback"
 
+        html_bytes = html_content.encode("utf-8")
+        hash_8 = get_uuid5_hash(html_bytes)
         raw_meta = build_raw_meta_html(
             html_content, lei_data, fetched_from, wayback_url
         )
@@ -560,15 +567,17 @@ class InternetArchivePublisher:
 
         with tempfile.TemporaryDirectory() as tmp:
             if num > 0:
-                html_name = get_ia_filename(num, ".html")
-                meta_name = get_ia_filename(num, "_meta.json")
+                html_name = get_ia_filename(num, ".html", hash_8=hash_8)
+                meta_name = get_ia_filename(num, "_meta.json", hash_8=hash_8)
                 html_dst = Path(tmp) / html_name
                 meta_path = Path(tmp) / meta_name
                 filename_manifest = html_name
             else:
-                html_dst = Path(tmp) / f"{chave.lower()}.html"
-                meta_path = Path(tmp) / f"{chave.lower()}_meta.json"
-                filename_manifest = f"{chave.lower()}.html"
+                html_name = f"{chave.lower()}_{hash_8}.html"
+                meta_name = f"{chave.lower()}_{hash_8}_meta.json"
+                html_dst = Path(tmp) / html_name
+                meta_path = Path(tmp) / meta_name
+                filename_manifest = html_name
 
             html_dst.write_text(html_content, encoding="utf-8")
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
@@ -616,6 +625,7 @@ class InternetArchivePublisher:
                     "success": True,
                     "ia_id": ia_id,
                     "ia_url": f"https://archive.org/details/{range_ia_id}",
+                    "hash_8": hash_8,
                 }
             except FileNotFoundError:
                 return {

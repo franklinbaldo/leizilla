@@ -104,14 +104,63 @@ class ParseResult:
     output_tokens: int = field(default=0)
 
 
-def fetch_ocr(ia_id: str, timeout: int = 30) -> Optional[str]:
+def fetch_ocr(
+    ia_id: str, timeout: int = 30, hash_8: Optional[str] = None
+) -> Optional[str]:
     """Fetch OCR text (_djvu.txt) for a raw IA item. Returns None on failure."""
-    url = resolve_ia_id_to_url(ia_id, "_djvu.txt")
+    url = resolve_ia_id_to_url(ia_id, "_djvu.txt", hash_8=hash_8)
     req = urllib.request.Request(url)
     req.add_header("User-Agent", _USER_AGENT)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read().decode("utf-8", errors="replace")  # type: ignore[no-any-return]
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404 and not hash_8:
+            try:
+                from leizilla.ia_utils import (
+                    parse_chave_numeric,
+                    get_range_identifier,
+                    discover_hash_from_manifest,
+                )
+                from leizilla.entes import list_slugs
+
+                if ia_id.startswith("leizilla-raw-"):
+                    content = ia_id[len("leizilla-raw-") :]
+                    matched_ente = None
+                    for slug in sorted(list_slugs(), key=len, reverse=True):
+                        if content.startswith(f"{slug}-"):
+                            matched_ente = slug
+                            break
+                    if matched_ente:
+                        rest = content[len(matched_ente) + 1 :]
+                        if "-" in rest:
+                            fonte, chave = rest.split("-", 1)
+                            tipo, num = parse_chave_numeric(chave)
+                            if num > 0:
+                                range_ia_id = get_range_identifier(
+                                    matched_ente, fonte, tipo, num
+                                )
+                                prefix = f"{num:06d}_"
+                            else:
+                                range_ia_id = f"leizilla_{matched_ente.lower()}_{fonte.lower()}_fallback"
+                                prefix = f"{chave.lower()}_"
+
+                            discovered_hash = discover_hash_from_manifest(
+                                range_ia_id, prefix
+                            )
+                            if discovered_hash:
+                                retry_url = resolve_ia_id_to_url(
+                                    ia_id, "_djvu.txt", hash_8=discovered_hash
+                                )
+                                retry_req = urllib.request.Request(retry_url)
+                                retry_req.add_header("User-Agent", _USER_AGENT)
+                                with urllib.request.urlopen(
+                                    retry_req, timeout=timeout
+                                ) as resp:
+                                    return resp.read().decode("utf-8", errors="replace")
+            except Exception:
+                pass
+        return None
     except Exception:
         return None
 
@@ -133,14 +182,64 @@ def fetch_html(url: str, timeout: int = 30) -> Optional[str]:
         return None
 
 
-def fetch_ia_html(ia_id: str, timeout: int = 30) -> Optional[str]:
+def fetch_ia_html(
+    ia_id: str, timeout: int = 30, hash_8: Optional[str] = None
+) -> Optional[str]:
     """Fetch HTML from IA raw item (for HTML sources like Planalto, M2.7+).
 
     IA stores HTML as {ia_id}.html alongside raw_meta.json when uploaded via
     upload_raw_html. Delegates to fetch_html for uniform error handling.
     """
-    url = resolve_ia_id_to_url(ia_id, ".html")
-    return fetch_html(url, timeout=timeout)
+    url = resolve_ia_id_to_url(ia_id, ".html", hash_8=hash_8)
+    try:
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent", _USER_AGENT)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404 and not hash_8:
+            try:
+                from leizilla.ia_utils import (
+                    parse_chave_numeric,
+                    get_range_identifier,
+                    discover_hash_from_manifest,
+                )
+                from leizilla.entes import list_slugs
+
+                if ia_id.startswith("leizilla-raw-"):
+                    content = ia_id[len("leizilla-raw-") :]
+                    matched_ente = None
+                    for slug in sorted(list_slugs(), key=len, reverse=True):
+                        if content.startswith(f"{slug}-"):
+                            matched_ente = slug
+                            break
+                    if matched_ente:
+                        rest = content[len(matched_ente) + 1 :]
+                        if "-" in rest:
+                            fonte, chave = rest.split("-", 1)
+                            tipo, num = parse_chave_numeric(chave)
+                            if num > 0:
+                                range_ia_id = get_range_identifier(
+                                    matched_ente, fonte, tipo, num
+                                )
+                                prefix = f"{num:06d}_"
+                            else:
+                                range_ia_id = f"leizilla_{matched_ente.lower()}_{fonte.lower()}_fallback"
+                                prefix = f"{chave.lower()}_"
+
+                            discovered_hash = discover_hash_from_manifest(
+                                range_ia_id, prefix
+                            )
+                            if discovered_hash:
+                                retry_url = resolve_ia_id_to_url(
+                                    ia_id, ".html", hash_8=discovered_hash
+                                )
+                                return fetch_html(retry_url, timeout=timeout)
+            except Exception:
+                pass
+        return None
+    except Exception:
+        return None
 
 
 def _extract_json(text: str) -> Optional[Dict[str, Any]]:

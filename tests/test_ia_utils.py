@@ -76,6 +76,19 @@ class TestGetIaFilename:
         assert get_ia_filename(5120, "_djvu.txt") == "005120_djvu.txt"
         assert get_ia_filename(5120, "_meta.json") == "005120_meta.json"
 
+    def test_with_hash(self):
+        # Com hash, anexa o hash determinístico ao final do número
+        from leizilla.ia_utils import get_ia_filename
+
+        assert get_ia_filename(5120, ".pdf", "a1b2c3d4") == "005120_a1b2c3d4.pdf"
+        assert (
+            get_ia_filename(5120, "_djvu.txt", "a1b2c3d4") == "005120_a1b2c3d4_djvu.txt"
+        )
+        assert (
+            get_ia_filename(5120, "_meta.json", "a1b2c3d4")
+            == "005120_a1b2c3d4_meta.json"
+        )
+
 
 class TestResolveIaIdToUrl:
     def test_legacy_or_external_id(self):
@@ -90,6 +103,11 @@ class TestResolveIaIdToUrl:
         # Resolves to numeric range bucket with underscores and lowers filename without type redundancy
         expected = "https://archive.org/download/leizilla_ro_casacivil_lei_5001-6000/005120_djvu.txt"
         assert resolve_ia_id_to_url(ia_id, "_djvu.txt") == expected
+
+    def test_numeric_range_resolution_with_hash(self):
+        ia_id = "leizilla-raw-ro-casacivil-lei-05120"
+        expected = "https://archive.org/download/leizilla_ro_casacivil_lei_5001-6000/005120_a1b2c3d4_djvu.txt"
+        assert resolve_ia_id_to_url(ia_id, "_djvu.txt", "a1b2c3d4") == expected
 
     def test_complex_numeric_range_resolution(self):
         ia_id = "leizilla-raw-ro-casacivil-lei-complementar-00042"

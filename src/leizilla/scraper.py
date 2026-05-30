@@ -249,6 +249,7 @@ def harvest_pending_resources(
                     "tipo_lei": tipo,
                     "url_original": url,
                     "url_pdf_ia": result.get("ia_url"),
+                    "metadados": {"hash_8": result.get("hash_8")},
                 }
                 storage.insert_lei(lei_record)
                 stats["success"] += 1

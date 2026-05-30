@@ -34,9 +34,12 @@ def normalize_text(text: str) -> str:
     return normalized.strip()
 
 
-def fetch_and_clean_ocr(ia_id: str) -> Optional[str]:
+def fetch_and_clean_ocr(ia_id: str, hash_8: Optional[str] = None) -> Optional[str]:
     """Busca o texto de OCR do IA e limpa ruídos iniciais."""
-    raw_text = fetch_ocr(ia_id)
+    if hash_8:
+        raw_text = fetch_ocr(ia_id, hash_8=hash_8)
+    else:
+        raw_text = fetch_ocr(ia_id)
     if raw_text is None:
         return None
     return clean_ocr_text(raw_text)
