@@ -41,10 +41,10 @@ Para assegurar parsing trivial no motor e eliminar ambiguidades de hifens (como 
   `leizilla_ro_casacivil_lei-complementar_0001-1000`
 
 ### Como os Arquivos São Organizados dentro de Cada Item (Nomenclatura Padronizada):
-Ao fazer o upload dos arquivos para o item do range, os arquivos individuais são renomeados de forma uniforme e elegante usando preenchimento de zeros (6 dígitos) + o tipo de discovery quando necessária desambiguação (sendo omitido para 'coddoc'):
-* **PDF da Lei**: `{num:06d}_{tipo}.pdf` ou `{num:06d}.pdf` (ex: `005120.pdf` para coddoc, `012345_lei.pdf` para lei)
-* **HTML da Lei (se aplicável)**: `{num:06d}_{tipo}.html` ou `{num:06d}.html` (ex: `005120.html` para coddoc, `012345_lei.html` para lei)
-* **Metadados Individuais**: `{num:06d}_{tipo}_meta.json` ou `{num:06d}_meta.json` (ex: `005120_meta.json` para coddoc, `012345_lei_meta.json` para lei)
+Ao fazer o upload dos arquivos para o item do range, os arquivos individuais são renomeados de forma uniforme e elegante usando puramente o preenchimento de zeros (6 dígitos) + extensão, eliminando redundâncias estilísticas de tipo no nome uma vez que o próprio range do IA já atua como pasta segregadora de tipo:
+* **PDF da Lei**: `{num:06d}.pdf` (ex: `005120.pdf` para lei 5120 ou coddoc 5120)
+* **HTML da Lei (se aplicável)**: `{num:06d}.html` (ex: `005120.html`)
+* **Metadados Individuais**: `{num:06d}_meta.json` (ex: `005120_meta.json`)
 
 ### 📋 O Arquivo de Manifesto de Proveniência (`manifest.csv`)
 Para garantir procedência e rastreabilidade absoluta de cada documento (sem impor dependência de nomes de arquivos opacos ou obsoletos), cada range de 1.000 leis contém um arquivo consolidado chamado **`manifest.csv`**. 
