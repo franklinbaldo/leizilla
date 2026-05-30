@@ -38,11 +38,22 @@ Para assegurar parsing trivial no motor e eliminar ambiguidades de hifens (como 
 * **Leis Complementares de Rondônia (1 a 1000)** (chave de discovery `lei-complementar`):
   `leizilla_ro_casacivil_lei-complementar_0001-1000`
 
-### Como os Arquivos São Organizados dentro de Cada Item:
-Ao fazer o upload dos arquivos para o item do range, renomeamos os arquivos individuais usando sua chave de discovery para evitar colisões:
-* **PDF da Lei**: `{chave}.pdf` (ex: `coddoc-05120.pdf`)
-* **HTML da Lei (se aplicável)**: `{chave}.html` (ex: `coddoc-05120.html`)
-* **Metadados Individuais**: `{chave}_meta.json` (ex: `coddoc-05120_meta.json`)
+### Como os Arquivos São Organizados dentro de Cada Item (Nomenclatura Padronizada):
+Ao fazer o upload dos arquivos para o item do range, os arquivos individuais são renomeados de forma uniforme e elegante usando preenchimento de zeros (6 dígitos) + o tipo de discovery:
+* **PDF da Lei**: `{num:06d}_{tipo}.pdf` (ex: `005120_coddoc.pdf`)
+* **HTML da Lei (se aplicável)**: `{num:06d}_{tipo}.html` (ex: `005120_coddoc.html`)
+* **Metadados Individuais**: `{num:06d}_{tipo}_meta.json` (ex: `005120_coddoc_meta.json`)
+
+### 📋 O Arquivo de Manifesto de Proveniência (`manifest.csv`)
+Para garantir procedência e rastreabilidade absoluta de cada documento (sem impor dependência de nomes de arquivos opacos ou obsoletos), cada range de 1.000 leis contém um arquivo consolidado chamado **`manifest.csv`**. 
+
+Este CSV vincula de forma definitiva e idempotente cada arquivo unitário no IA com a sua URL original correspondente, estruturado como:
+```csv
+filename,url
+005120_coddoc.pdf,http://ditel.casacivil.ro.gov.br/...
+```
+
+Durante uploads incrementais, o motor do Leizilla lê o `manifest.csv` existente do IA (se disponível), adiciona/atualiza a nova lei no histórico de registros de forma idempotente, e reenvia o manifesto atualizado.
 
 ---
 
@@ -50,15 +61,15 @@ Ao fazer o upload dos arquivos para o item do range, renomeamos os arquivos indi
 
 O Internet Archive possui uma engine interna de processamento de tarefas em segundo plano chamada **derivação (`derive`)**. Quando vários PDFs são enviados para o mesmo item consolidado, a tarefa `derive` roda de forma **independente para cada arquivo PDF**.
 
-Ao enviar 1.000 PDFs para o item `leizilla-ro-casacivil-5001-6000`, o IA gerará na pasta de downloads:
-* `coddoc-05001_djvu.txt` (OCR do arquivo 5001)
-* `coddoc-05002_djvu.txt` (OCR do arquivo 5002)
+Ao enviar 1.000 PDFs para o item `leizilla_ro_casacivil_coddoc_5001-6000`, o IA gerará na pasta de downloads:
+* `005001_coddoc_djvu.txt` (OCR do arquivo 5001)
+* `005002_coddoc_djvu.txt` (OCR do arquivo 5002)
 * ...
-* `coddoc-06000_djvu.txt` (OCR do arquivo 6000)
+* `006000_coddoc_djvu.txt` (OCR do arquivo 6000)
 
 ### O Impacto para o Leizilla:
 Nós **não** precisamos baixar o item inteiro ou descompactar um ZIP imenso para extrair o texto de uma única lei! Podemos fazer uma requisição HTTP direta de arquivo único (serverless de custo zero):
-`https://archive.org/download/leizilla-ro-casacivil-5001-6000/coddoc-05120_djvu.txt`
+`https://archive.org/download/leizilla_ro_casacivil_coddoc_5001-6000/005120_coddoc_djvu.txt`
 
 ---
 

@@ -49,7 +49,7 @@ def resolve_ia_id_to_url(ia_id: str, suffix: str) -> str:
     """Resolve um raw IA ID para a URL de download direto correspondente.
 
     Resolve de forma transparente chaves legadas e novos ranges / fallbacks:
-      1. Ranges com underscores (ex: leizilla_ro_casacivil_coddoc_5001-6000/coddoc-05120_djvu.txt)
+      1. Ranges com underscores (ex: leizilla_ro_casacivil_coddoc_5001-6000/005120_coddoc_djvu.txt)
       2. Itens de Fallback (ex: leizilla-raw_ro_casacivil_fallback/chave_djvu.txt)
       3. Itens legados externos ou per-item clássicos (sem tradução)
 
@@ -86,7 +86,16 @@ def resolve_ia_id_to_url(ia_id: str, suffix: str) -> str:
 
     if num > 0:
         range_ia_id = get_range_identifier(matched_ente, fonte, tipo, num)
-        return f"https://archive.org/download/{range_ia_id}/{chave.lower()}{suffix}"
+        # Nomes de arquivos são uniformizados com pad de 6 dígitos + tipo jurídico (ex: 005120_coddoc.pdf)
+        if suffix == "_djvu.txt":
+            filename = f"{num:06d}_{tipo.lower()}_djvu.txt"
+        elif suffix == ".html":
+            filename = f"{num:06d}_{tipo.lower()}.html"
+        elif suffix == ".pdf":
+            filename = f"{num:06d}_{tipo.lower()}.pdf"
+        else:
+            filename = f"{num:06d}_{tipo.lower()}{suffix}"
+        return f"https://archive.org/download/{range_ia_id}/{filename}"
     else:
         # Fallback de itens não-numéricos consolidados com underscores '_'
         range_ia_id = f"leizilla-raw_{matched_ente.lower()}_{fonte.lower()}_fallback"

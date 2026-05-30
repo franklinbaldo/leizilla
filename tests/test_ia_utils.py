@@ -69,12 +69,12 @@ class TestResolveIaIdToUrl:
     def test_numeric_range_resolution(self):
         ia_id = "leizilla-raw-ro-casacivil-lei-05120"
         # Resolves to numeric range bucket with underscores and lowers filename
-        expected = "https://archive.org/download/leizilla_ro_casacivil_lei_5001-6000/lei-05120_djvu.txt"
+        expected = "https://archive.org/download/leizilla_ro_casacivil_lei_5001-6000/005120_lei_djvu.txt"
         assert resolve_ia_id_to_url(ia_id, "_djvu.txt") == expected
 
     def test_complex_numeric_range_resolution(self):
         ia_id = "leizilla-raw-ro-casacivil-lei-complementar-00042"
-        expected = "https://archive.org/download/leizilla_ro_casacivil_lei-complementar_0001-1000/lei-complementar-00042.html"
+        expected = "https://archive.org/download/leizilla_ro_casacivil_lei-complementar_0001-1000/000042_lei-complementar.html"
         assert resolve_ia_id_to_url(ia_id, ".html") == expected
 
     def test_fallback_resolution(self):
