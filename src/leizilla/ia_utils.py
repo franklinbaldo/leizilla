@@ -5,10 +5,10 @@ between publisher.py (M4 staging) and parser.py (M2 parser pipeline).
 """
 
 import re
-from typing import Tuple
+from leizilla.entes import list_slugs
 
 
-def parse_chave_numeric(chave: str) -> Tuple[str, int]:
+def parse_chave_numeric(chave: str) -> tuple[str, int]:
     """Extrai o tipo e o número da chave (ex: 'lei-05120' -> ('lei', 5120)).
 
     Retorna o tipo em minúsculas e o número inteiro correspondente.
@@ -19,7 +19,7 @@ def parse_chave_numeric(chave: str) -> Tuple[str, int]:
     return "documento", 0
 
 
-def get_range_bounds(num: int, range_size: int = 1000) -> Tuple[int, int]:
+def get_range_bounds(num: int, range_size: int = 1000) -> tuple[int, int]:
     """Calcula os limites inferior e superior do range (ex: 5120 -> (5001, 6000)).
 
     Nota de Design: Limites superiores como 10000 vão expandir para 5 dígitos.
@@ -59,9 +59,6 @@ def resolve_ia_id_to_url(ia_id: str, suffix: str) -> str:
 
     content = ia_id[len("leizilla-raw-") :]
 
-    # Importa localmente para evitar dependências circulares na inicialização
-    from leizilla.entes import list_slugs
-
     # Procura o ente de maior comprimento para casar corretamente (ex: ro-porto-velho antes de ro)
     matched_ente = None
     for slug in sorted(list_slugs(), key=len, reverse=True):
@@ -78,6 +75,9 @@ def resolve_ia_id_to_url(ia_id: str, suffix: str) -> str:
     if "-" not in rest:
         return f"https://archive.org/download/{ia_id}/{ia_id}{suffix}"
 
+    # TODO: No futuro, se houver fontes com hifens em municípios (ex: assembleia-legislativa),
+    # o split por "-" pode precisar ser adaptado a partir da esquerda usando uma lista
+    # de fontes mapeadas, de forma análoga a entes.
     fonte, chave = rest.split("-", 1)
 
     tipo, num = parse_chave_numeric(chave)

@@ -390,7 +390,7 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
-        tipo, num = parse_chave_numeric(chave)
+        _, num = parse_chave_numeric(chave)
         if num > 0:
             range_ia_id = _range_identifier(ente, fonte, num)
             start, end = get_range_bounds(num)
@@ -469,7 +469,7 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
-        tipo, num = parse_chave_numeric(chave)
+        _, num = parse_chave_numeric(chave)
         if num > 0:
             range_ia_id = _range_identifier(ente, fonte, num)
             start, end = get_range_bounds(num)
