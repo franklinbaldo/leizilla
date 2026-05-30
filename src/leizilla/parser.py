@@ -107,7 +107,25 @@ class ParseResult:
 
 def fetch_ocr(ia_id: str, timeout: int = 30) -> Optional[str]:
     """Fetch OCR text (_djvu.txt) for a raw IA item. Returns None on failure."""
-    url = _OCR_URL.format(ia_id=ia_id)
+    import re
+
+    if ia_id.startswith("leizilla-raw-"):
+        match = re.match(
+            r"^leizilla-raw-([a-z0-9-]+)-([a-z0-9-]+)-([a-zA-Z-]+)-(\d+)$", ia_id
+        )
+        if match:
+            ente, fonte, tipo, num_str = match.groups()
+            num = int(num_str)
+            from leizilla.publisher import _range_identifier
+
+            range_ia_id = _range_identifier(ente, fonte, tipo, num)
+            chave = f"{tipo}-{num_str}"
+            url = f"https://archive.org/download/{range_ia_id}/{chave}_djvu.txt"
+        else:
+            url = _OCR_URL.format(ia_id=ia_id)
+    else:
+        url = _OCR_URL.format(ia_id=ia_id)
+
     req = urllib.request.Request(url)
     req.add_header("User-Agent", _USER_AGENT)
     try:
@@ -140,7 +158,24 @@ def fetch_ia_html(ia_id: str, timeout: int = 30) -> Optional[str]:
     IA stores HTML as {ia_id}.html alongside raw_meta.json when uploaded via
     upload_raw_html. Delegates to fetch_html for uniform error handling.
     """
-    url = _IA_HTML_URL.format(ia_id=ia_id)
+    import re
+
+    if ia_id.startswith("leizilla-raw-"):
+        match = re.match(
+            r"^leizilla-raw-([a-z0-9-]+)-([a-z0-9-]+)-([a-zA-Z-]+)-(\d+)$", ia_id
+        )
+        if match:
+            ente, fonte, tipo, num_str = match.groups()
+            num = int(num_str)
+            from leizilla.publisher import _range_identifier
+
+            range_ia_id = _range_identifier(ente, fonte, tipo, num)
+            chave = f"{tipo}-{num_str}"
+            url = f"https://archive.org/download/{range_ia_id}/{chave}.html"
+        else:
+            url = _IA_HTML_URL.format(ia_id=ia_id)
+    else:
+        url = _IA_HTML_URL.format(ia_id=ia_id)
     return fetch_html(url, timeout=timeout)
 
 

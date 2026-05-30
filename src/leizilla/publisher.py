@@ -38,6 +38,29 @@ def _raw_identifier(ente: str, fonte: str, chave: str) -> str:
     return f"leizilla-raw-{ente}-{fonte}-{chave}"
 
 
+def parse_chave_numeric(chave: str) -> tuple[str, int]:
+    """Extrai o tipo e o número da chave (ex: 'lei-05120' -> ('lei', 5120))."""
+    match = re.match(r"^([a-zA-Z-]+)-(\d+)$", chave)
+    if match:
+        return match.group(1).lower(), int(match.group(2))
+    return "documento", 0
+
+
+def get_range_bounds(num: int, range_size: int = 1000) -> tuple[int, int]:
+    """Calcula os limites inferior e superior do range (ex: 5120 -> (5001, 6000))."""
+    if num <= 0:
+        return 1, range_size
+    start = ((num - 1) // range_size) * range_size + 1
+    end = start + range_size - 1
+    return start, end
+
+
+def _range_identifier(ente: str, fonte: str, tipo: str, num: int) -> str:
+    """Gera o ID do item consolidado do range (ex: 'leizilla-ro-casacivil-lei-5001-6000')."""
+    start, end = get_range_bounds(num)
+    return f"leizilla-{ente}-{fonte}-{tipo}-{start:04d}-{end:04d}"
+
+
 def _bundle_identifier(ente: str, fonte: str, dt: Optional[datetime] = None) -> str:
     """Constrói IA identifier para bundle semanal conforme SCHEMA.md §1.2."""
     d = dt or datetime.now(tz=timezone.utc)
@@ -385,14 +408,21 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
+        tipo, num = parse_chave_numeric(chave)
+        if num > 0:
+            range_ia_id = _range_identifier(ente, fonte, tipo, num)
+            start, end = get_range_bounds(num)
+            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {tipo.upper()} {start:04d}-{end:04d}"
+        else:
+            range_ia_id = f"leizilla-raw-{ente}-{fonte}-fallback"
+            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} Fallback"
+
         raw_meta = build_raw_meta(lei_data, pdf_bytes, fetched_from, wayback_url)
 
         with tempfile.TemporaryDirectory() as tmp:
-            # Rename PDF to {ia_id}.pdf so IA OCR output is {ia_id}_djvu.txt,
-            # matching the URL template used by parser.fetch_ocr().
-            pdf_dst = Path(tmp) / f"{ia_id}.pdf"
+            pdf_dst = Path(tmp) / f"{chave}.pdf"
             shutil.copy2(str(pdf_path), str(pdf_dst))
-            meta_path = Path(tmp) / "raw_meta.json"
+            meta_path = Path(tmp) / f"{chave}_meta.json"
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
 
             coverage = _entity_coverage(ente)
@@ -406,11 +436,11 @@ class InternetArchivePublisher:
                     [
                         "ia",
                         "upload",
-                        ia_id,
+                        range_ia_id,
                         str(pdf_dst),
                         str(meta_path),
                         "--metadata",
-                        f"title:{lei_data.get('titulo', 'Lei')}",
+                        f"title:{title}",
                         "--metadata",
                         "mediatype:texts",
                         "--metadata",
@@ -431,7 +461,7 @@ class InternetArchivePublisher:
                 return {
                     "success": True,
                     "ia_id": ia_id,
-                    "ia_url": f"https://archive.org/details/{ia_id}",
+                    "ia_url": f"https://archive.org/details/{range_ia_id}",
                 }
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
@@ -457,14 +487,23 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
+        tipo, num = parse_chave_numeric(chave)
+        if num > 0:
+            range_ia_id = _range_identifier(ente, fonte, tipo, num)
+            start, end = get_range_bounds(num)
+            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {tipo.upper()} {start:04d}-{end:04d}"
+        else:
+            range_ia_id = f"leizilla-raw-{ente}-{fonte}-fallback"
+            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} Fallback"
+
         raw_meta = build_raw_meta_html(
             html_content, lei_data, fetched_from, wayback_url
         )
 
         with tempfile.TemporaryDirectory() as tmp:
-            html_dst = Path(tmp) / f"{ia_id}.html"
+            html_dst = Path(tmp) / f"{chave}.html"
             html_dst.write_text(html_content, encoding="utf-8")
-            meta_path = Path(tmp) / "raw_meta.json"
+            meta_path = Path(tmp) / f"{chave}_meta.json"
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
 
             coverage = _entity_coverage(ente)
@@ -478,11 +517,11 @@ class InternetArchivePublisher:
                     [
                         "ia",
                         "upload",
-                        ia_id,
+                        range_ia_id,
                         str(html_dst),
                         str(meta_path),
                         "--metadata",
-                        f"title:{lei_data.get('titulo', 'Lei')}",
+                        f"title:{title}",
                         "--metadata",
                         "mediatype:texts",
                         "--metadata",
@@ -503,7 +542,7 @@ class InternetArchivePublisher:
                 return {
                     "success": True,
                     "ia_id": ia_id,
-                    "ia_url": f"https://archive.org/details/{ia_id}",
+                    "ia_url": f"https://archive.org/details/{range_ia_id}",
                 }
             except FileNotFoundError:
                 return {
