@@ -572,3 +572,110 @@ class TestUploadToArchive:
         )
         assert res["success"] is False
         assert "credentials" in res["error"]
+
+
+class TestUpdateRawIndex:
+    """update_raw_index deve preservar o histórico: nunca sobrescrever o índice
+    com uma versão de uma linha por causa de falha transitória de leitura."""
+
+    def _http_error(self, code: int) -> Exception:
+        import urllib.error
+
+        return urllib.error.HTTPError(
+            url="http://ia/index.csv", code=code, msg="x", hdrs=None, fp=None
+        )
+
+    def _csv_resp(self, text: str) -> object:
+        payload = text.encode()
+
+        class _R:
+            def read(self):
+                return payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+        return _R()
+
+    def test_404_starts_fresh_and_uploads(self):
+        from leizilla.publisher import update_raw_index
+
+        with patch("urllib.request.urlopen", side_effect=self._http_error(404)):
+            with patch("subprocess.run", return_value=MagicMock(returncode=0)) as run:
+                res = update_raw_index(
+                    "ro",
+                    "casacivil",
+                    source_key="coddoc-1",
+                    content_hash="h1",
+                    content_type="application/pdf",
+                    source_url="http://s/1",
+                )
+        assert res["success"] is True
+        run.assert_called_once()
+
+    def test_transient_error_aborts_without_upload(self):
+        """5xx/timeout while an index may already exist → abort, do NOT overwrite."""
+        from leizilla.publisher import update_raw_index
+
+        with patch("urllib.request.urlopen", side_effect=self._http_error(503)):
+            with patch("subprocess.run") as run:
+                res = update_raw_index(
+                    "ro",
+                    "casacivil",
+                    source_key="coddoc-2",
+                    content_hash="h2",
+                    content_type="application/pdf",
+                    source_url="http://s/2",
+                )
+        assert res["success"] is False
+        assert "data loss" in res["error"]
+        run.assert_not_called()  # crucial: no upload that would wipe history
+
+    def test_timeout_aborts_without_upload(self):
+        from leizilla.publisher import update_raw_index
+
+        with patch("urllib.request.urlopen", side_effect=OSError("timeout")):
+            with patch("subprocess.run") as run:
+                res = update_raw_index(
+                    "ro",
+                    "casacivil",
+                    source_key="coddoc-3",
+                    content_hash="h3",
+                    content_type="application/pdf",
+                    source_url="http://s/3",
+                )
+        assert res["success"] is False
+        run.assert_not_called()
+
+    def test_existing_index_is_appended_not_replaced(self):
+        from leizilla.publisher import update_raw_index
+
+        existing = (
+            "source_key,content_hash,content_type,source_url,captured_at\n"
+            "coddoc-1,h1,application/pdf,http://s/1,2026-05-30T00:00:00+00:00\n"
+        )
+        written: dict = {}
+
+        def fake_run(args, **kw):
+            # args = ["ia","upload",index_id,index_path,...] — capture uploaded CSV
+            path = args[3]
+            written["csv"] = open(path, encoding="utf-8").read()
+            return MagicMock(returncode=0)
+
+        with patch("urllib.request.urlopen", return_value=self._csv_resp(existing)):
+            with patch("subprocess.run", side_effect=fake_run):
+                res = update_raw_index(
+                    "ro",
+                    "casacivil",
+                    source_key="coddoc-2",
+                    content_hash="h2",
+                    content_type="application/pdf",
+                    source_url="http://s/2",
+                )
+        assert res["success"] is True
+        # Both the prior and the new mapping survive.
+        assert "coddoc-1,h1" in written["csv"]
+        assert "coddoc-2,h2" in written["csv"]

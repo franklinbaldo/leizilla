@@ -358,16 +358,38 @@ def fetch_parsed_xml(ia_id: str, output_path: Path) -> bool:
         return False
 
 
+class IndexFetchError(Exception):
+    """Falha transitória ao buscar o index.csv (não é um 404 confirmado).
+
+    Distingue "índice ausente" (404 → seguro começar vazio) de "não foi possível
+    determinar" (timeout/5xx/rede). No segundo caso, sobrescrever o índice com uma
+    versão de uma linha apagaria todo o histórico source_key → content_hash, então
+    o chamador deve abortar em vez de começar do zero.
+    """
+
+
 def _fetch_existing_index(ente: str, fonte: str) -> Optional[str]:
-    """Baixa o index.csv corrente do (ente, fonte) do IA. None se não existir."""
+    """Baixa o index.csv corrente do (ente, fonte) do IA.
+
+    Retorna o CSV se existir, ``None`` se for um 404 confirmado (índice ainda não
+    publicado — seguro começar vazio), e levanta ``IndexFetchError`` em falhas
+    transitórias (timeout, 5xx, rede) para que o chamador não sobrescreva o
+    histórico existente com um índice vazio.
+    """
     url = download_url(raw_index_identifier(ente, fonte), INDEX_FILENAME)
     req = urllib.request.Request(url)
     req.add_header("User-Agent", _USER_AGENT)
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return resp.read().decode("utf-8", errors="replace")  # type: ignore[no-any-return]
-    except (urllib.error.URLError, OSError):
-        return None
+    except urllib.error.HTTPError as e:
+        if e.code in (403, 404):
+            # IA serve 403/404 para itens/arquivos inexistentes — índice ausente.
+            return None
+        raise IndexFetchError(f"HTTP {e.code} ao buscar index.csv") from e
+    except (urllib.error.URLError, OSError) as e:
+        # Timeout, DNS, conexão recusada — transitório, não confirma ausência.
+        raise IndexFetchError(str(e)) from e
 
 
 def update_raw_index(
@@ -389,7 +411,16 @@ def update_raw_index(
     WARNING: download+upload incremental por captura é O(n²) em ingestão massiva.
     Para backfill offline, acumular o index.csv localmente e publicar uma vez.
     """
-    existing = _fetch_existing_index(ente, fonte)
+    try:
+        existing = _fetch_existing_index(ente, fonte)
+    except IndexFetchError as e:
+        # Falha transitória ao ler o índice atual: abortar em vez de sobrescrever
+        # o histórico com uma única linha (perderia mapeamentos prévios).
+        return {
+            "success": False,
+            "error": f"could not read existing index (aborting to avoid data loss): {e}",
+            "index_id": raw_index_identifier(ente, fonte),
+        }
     updated = merge_index_row(
         existing,
         source_key=source_key,
