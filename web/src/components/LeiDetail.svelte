@@ -54,14 +54,18 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') onClose();
+    if (e.key === 'Escape') {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      onClose();
+    }
   }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-<div class="backdrop" onclick={handleBackdropClick} role="dialog" aria-modal="true" aria-label="Detalhes da lei {row.lei_id}">
+<div class="backdrop" onclick={handleBackdropClick} role="dialog" aria-modal="true" aria-label={`Detalhes da lei ${row.lei_id}`}>
   <aside class="panel">
     <div class="panel-header">
       <h2>{row.lei_id}</h2>

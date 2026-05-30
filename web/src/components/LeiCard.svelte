@@ -58,7 +58,7 @@
   role="button"
   tabindex="0"
   onkeydown={(e) => e.key === 'Enter' && handleClick()}
-  aria-label="Ver detalhes de {row.lei_id}"
+  aria-label={`Ver detalhes de ${row.lei_id}`}
 >
   <header>
     <div class="law-id">
