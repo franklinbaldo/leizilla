@@ -149,6 +149,31 @@ class TestMergeIndexRow:
         rows = [ln for ln in second.strip().splitlines()[1:]]
         assert len(rows) == 1  # re-crawl, identical bytes → no duplicate
 
+    def test_idempotent_preserves_original_captured_at(self):
+        # A re-crawl of unchanged bytes must NOT rewrite the provenance timestamp.
+        # Re-appending with a newer captured_at would also push the row to the end,
+        # making lookup_current_hash see it as "newer" and silently rolling back any
+        # capture that was added between the two crawls.
+        first = merge_index_row(
+            None,
+            source_key="coddoc-1",
+            content_hash="h1",
+            content_type="application/pdf",
+            source_url="http://src/1",
+            captured_at="2026-05-30T00:00:00+00:00",
+        )
+        second = merge_index_row(
+            first,
+            source_key="coddoc-1",
+            content_hash="h1",
+            content_type="application/pdf",
+            source_url="http://src/1",
+            captured_at="2026-05-31T00:00:00+00:00",  # newer timestamp must be ignored
+        )
+        assert second == first  # truly no-op: CSV unchanged
+        assert "2026-05-30T00:00:00+00:00" in second
+        assert "2026-05-31T00:00:00+00:00" not in second
+
 
 class TestLookupCurrentHash:
     def _two_version_index(self) -> str:

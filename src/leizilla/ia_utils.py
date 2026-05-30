@@ -28,7 +28,7 @@ _USER_AGENT = "leizilla-crawler/0.1"
 
 _RAW_PREFIX = "leizilla-raw-"
 # OCR (_djvu.txt) is IA-derived from the PDF, so resolving it requires the
-# PDF hash.  HTML captures are stored as a separate text/html component.
+# PDF hash. HTML captures are stored as a separate text/html component.
 _SUFFIX_TO_CONTENT_TYPE: dict[str, str] = {
     "_djvu.txt": "application/pdf",
     ".html": "text/html",
@@ -127,12 +127,14 @@ def merge_index_row(
     if existing_csv:
         for row in csv.DictReader(io.StringIO(existing_csv)):
             rows.append({c: row.get(c, "") or "" for c in INDEX_COLUMNS})
-    # Idempotência: remove linha prévia com mesmo key+hash e re-anexa como a mais nova.
-    rows = [
-        r
+    # True no-op: (source_key, content_hash) already recorded → preserve provenance.
+    # Re-appending would change the row's position, which affects the "newest wins"
+    # ordering in lookup_current_hash and can silently roll back newer captures.
+    if existing_csv and any(
+        r["source_key"] == source_key and r["content_hash"] == content_hash
         for r in rows
-        if not (r["source_key"] == source_key and r["content_hash"] == content_hash)
-    ]
+    ):
+        return existing_csv
     rows.append(
         {
             "source_key": source_key,
