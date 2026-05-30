@@ -142,6 +142,22 @@ def merge_index_row(
     return out.getvalue()
 
 
+def list_source_keys(index_csv: str) -> set[str]:
+    """Conjunto de source_keys distintos presentes no índice.
+
+    Usado pela descoberta (list_raw_ids) para reconstruir os raw_ids legados
+    (``leizilla-raw-{ente}-{fonte}-{source_key}``) que o parser sabe resolver —
+    os identifiers dos itens IA (buckets de hash, item ``index``) não carregam o
+    source_key e não servem para a descoberta.
+    """
+    keys: set[str] = set()
+    for row in csv.DictReader(io.StringIO(index_csv)):
+        sk = row.get("source_key")
+        if sk:
+            keys.add(sk)
+    return keys
+
+
 def lookup_current_hash(index_csv: str, source_key: str) -> Optional[tuple[str, str]]:
     """Retorna ``(content_hash, content_type)`` da captura corrente (mais recente).
 

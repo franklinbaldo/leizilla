@@ -88,3 +88,33 @@ class TestRondoniaLCContentAddressed:
         assert kwargs["source_key"] == "lc-00042"
         assert kwargs["content_hash"] == h
         assert kwargs["content_type"] == "application/pdf"
+
+    @patch("leizilla.publisher.update_raw_index")
+    @patch("subprocess.run")
+    def test_index_failure_propagates_as_upload_failure(
+        self, mock_run, mock_index, tmp_path
+    ):
+        # Reads resolve exclusively through the index; if the index write fails,
+        # the capture would be unreachable. upload_raw must NOT report success.
+        mock_run.return_value = MagicMock(returncode=0)
+        mock_index.return_value = {"success": False, "error": "IA 503"}
+
+        pub = InternetArchivePublisher()
+        pub.access_key = "fake-key"
+        pub.secret_key = "fake-secret"
+
+        pdf_path = tmp_path / "LC42.pdf"
+        pdf_bytes = b"PDF content for LC 42"
+        pdf_path.write_bytes(pdf_bytes)
+
+        lei_data = {
+            "ente": "ro",
+            "fonte": "casacivil",
+            "chave": "lc-00042",
+            "url_original": "http://ditel/LC42.pdf",
+        }
+
+        res = pub.upload_raw(pdf_path, lei_data, pdf_bytes, fetched_from="wayback")
+
+        assert res["success"] is False
+        assert "index update failed" in res["error"]

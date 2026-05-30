@@ -19,6 +19,7 @@ from leizilla.ia_utils import (
     INDEX_FILENAME,
     compute_hash,
     download_url,
+    list_source_keys,
     merge_index_row,
     raw_filename,
     raw_index_identifier,
@@ -215,40 +216,30 @@ def count_ia_items(identifier_prefix: str) -> Optional[int]:
 
 
 def list_raw_ids(ente: str, fonte: str) -> Set[str]:
-    """Return set of raw item IDs already uploaded to IA for this ente/fonte.
+    """Return set of legacy raw IDs already captured to IA for this ente/fonte.
 
-    Simpler than list_parsed_raw_ids: the raw identifier prefix already
-    uniquely identifies ente+fonte, so no per-item metadata fetch needed.
-    Fail-open on first-page error: returns empty set (never skips due to
-    connectivity issues). Partial results on mid-pagination error: returns
-    confirmed items so far — re-scraping unconfirmed items is safe (idempotent
-    IA upload), unlike parse-all where skipping means lost work.
+    Under the content-addressed layer (ADR-0010), raw bytes live in hash-prefix
+    range items whose identifiers carry no source_key — only the per-(ente,fonte)
+    ``index.csv`` maps source_keys to content. So discovery reads the index and
+    reconstructs the legacy raw IDs (``leizilla-raw-{ente}-{fonte}-{source_key}``)
+    that the parser knows how to resolve.
+
+    Fail-open: returns the empty set when the index doesn't exist yet or on any
+    network error, so the caller falls back to the sequential range — never skips
+    due to connectivity.
     """
-    prefix = f"leizilla-raw-{ente}-{fonte}-"
-    q = f"identifier:{prefix}*"
-    base_url = (
-        f"{_IA_SCRAPE_URL}?q={urllib.parse.quote(q)}&count=10000&fields=identifier"
-    )
+    index_url = download_url(raw_index_identifier(ente, fonte), INDEX_FILENAME)
+    req = urllib.request.Request(index_url, headers={"User-Agent": _USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            index_csv = resp.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, OSError, ValueError):
+        return set()
 
-    raw_ids: Set[str] = set()
-    cursor: Optional[str] = None
-
-    while True:
-        url = base_url
-        if cursor:
-            url += f"&cursor={urllib.parse.quote(cursor)}"
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read())
-            raw_ids.update(item["identifier"] for item in data.get("items", []))
-            cursor = data.get("cursor")
-            if not cursor:
-                break
-        except Exception:
-            return raw_ids  # partial results on mid-pagination failure; empty set on page 1 failure
-
-    return raw_ids
+    return {
+        _raw_identifier(ente, fonte, source_key)
+        for source_key in list_source_keys(index_csv)
+    }
 
 
 def list_parsed_raw_ids(ente: str, fonte: str) -> Set[str]:
@@ -520,7 +511,10 @@ class InternetArchivePublisher:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
 
         # Anexa a captura ao índice source_key → content_hash do (ente, fonte).
-        update_raw_index(
+        # A leitura (fetch_ocr) resolve exclusivamente via índice; se este upload
+        # falhar, a captura existe nos bytes mas o parser nunca a localiza —
+        # então propagamos a falha em vez de reportar sucesso.
+        index_result = update_raw_index(
             ente,
             fonte,
             source_key=chave,
@@ -528,6 +522,12 @@ class InternetArchivePublisher:
             content_type="application/pdf",
             source_url=url_original,
         )
+        if not index_result.get("success"):
+            return {
+                "success": False,
+                "error": f"index update failed: {index_result.get('error')}",
+                "ia_id": ia_id,
+            }
         return {
             "success": True,
             "ia_id": ia_id,
@@ -616,7 +616,7 @@ class InternetArchivePublisher:
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
 
-        update_raw_index(
+        index_result = update_raw_index(
             ente,
             fonte,
             source_key=chave,
@@ -624,6 +624,12 @@ class InternetArchivePublisher:
             content_type="text/html",
             source_url=url_original,
         )
+        if not index_result.get("success"):
+            return {
+                "success": False,
+                "error": f"index update failed: {index_result.get('error')}",
+                "ia_id": ia_id,
+            }
         return {
             "success": True,
             "ia_id": ia_id,
