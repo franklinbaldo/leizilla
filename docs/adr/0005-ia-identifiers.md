@@ -1,6 +1,8 @@
 # ADR-0005 — Internet Archive Identifiers
 
-**Status**: Aprovada  
+**Status**: Parcialmente superada por [ADR-0010](0010-raw-content-addressed-parsed-urn.md)
+(linhas "Raw (individual)" e "Raw (bundle ZIP)" da tabela abaixo). A camada
+parsed (`leizilla-{ente}-{tipo}-{numero}-{ano}`) permanece vigente.
 **Data**: 2026-05-20  
 **Contexto**: M1 — Foundation
 

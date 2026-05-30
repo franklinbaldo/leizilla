@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional
 import anthropic
 
 from leizilla import config
-from leizilla.ia_utils import resolve_ia_id_to_url
+from leizilla.ia_utils import resolve_raw_url
 
 _HAIKU = "claude-haiku-4-5"
 _USER_AGENT = "leizilla-crawler/0.1"
@@ -105,8 +105,15 @@ class ParseResult:
 
 
 def fetch_ocr(ia_id: str, timeout: int = 30) -> Optional[str]:
-    """Fetch OCR text (_djvu.txt) for a raw IA item. Returns None on failure."""
-    url = resolve_ia_id_to_url(ia_id, "_djvu.txt")
+    """Fetch OCR text (_djvu.txt) for a raw IA item. Returns None on failure.
+
+    Resolution is content-addressed (ADR-0010): the raw_id is mapped through the
+    (ente, fonte) index to the current capture's content hash. A None URL means
+    the index/source_key isn't published yet — treated as "OCR not available".
+    """
+    url = resolve_raw_url(ia_id, "_djvu.txt", timeout=timeout)
+    if url is None:
+        return None
     req = urllib.request.Request(url)
     req.add_header("User-Agent", _USER_AGENT)
     try:
@@ -136,10 +143,13 @@ def fetch_html(url: str, timeout: int = 30) -> Optional[str]:
 def fetch_ia_html(ia_id: str, timeout: int = 30) -> Optional[str]:
     """Fetch HTML from IA raw item (for HTML sources like Planalto, M2.7+).
 
-    IA stores HTML as {ia_id}.html alongside raw_meta.json when uploaded via
-    upload_raw_html. Delegates to fetch_html for uniform error handling.
+    IA stores HTML content-addressed as {hash}.html inside the range item, mapped
+    via the (ente, fonte) index (ADR-0010). Delegates to fetch_html for uniform
+    error handling. A None URL means the index/source_key isn't published yet.
     """
-    url = resolve_ia_id_to_url(ia_id, ".html")
+    url = resolve_raw_url(ia_id, ".html", timeout=timeout)
+    if url is None:
+        return None
     return fetch_html(url, timeout=timeout)
 
 

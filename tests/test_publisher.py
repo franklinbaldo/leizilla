@@ -465,10 +465,15 @@ class TestCountIaItems:
 
 
 class TestListRawIds:
-    """Testes para list_raw_ids — lista raw items sem buscar metadados."""
+    """Testes para list_raw_ids — reconstrói raw_ids legados a partir do index.csv.
 
-    def _resp(self, data: dict) -> object:
-        payload = json.dumps(data).encode()
+    Sob a camada content-addressed (ADR-0010), os itens IA são buckets de hash
+    sem source_key; a descoberta lê o index.csv do (ente, fonte) e reconstrói os
+    raw_ids que o parser sabe resolver.
+    """
+
+    def _csv_resp(self, csv_text: str) -> object:
+        payload = csv_text.encode()
 
         class _R:
             def read(self):
@@ -483,66 +488,47 @@ class TestListRawIds:
         return _R()
 
     def test_returns_empty_set_on_network_error(self):
+        # No index published yet (404) → empty set → caller uses sequential range.
         with patch("urllib.request.urlopen", side_effect=OSError("network")):
             assert list_raw_ids("ro", "assembleia") == set()
 
-    def test_returns_empty_set_when_no_items(self):
-        with patch("urllib.request.urlopen", return_value=self._resp({"items": []})):
+    def test_returns_empty_set_when_index_has_no_rows(self):
+        header = "source_key,content_hash,content_type,source_url,captured_at\n"
+        with patch("urllib.request.urlopen", return_value=self._csv_resp(header)):
             assert list_raw_ids("ro", "assembleia") == set()
 
-    def test_returns_identifiers(self):
-        items = [
-            {"identifier": "leizilla-raw-ro-assembleia-coddoc-00001"},
-            {"identifier": "leizilla-raw-ro-assembleia-coddoc-00002"},
-        ]
-        with patch("urllib.request.urlopen", return_value=self._resp({"items": items})):
+    def test_reconstructs_legacy_raw_ids_from_index(self):
+        index_csv = (
+            "source_key,content_hash,content_type,source_url,captured_at\n"
+            "coddoc-00001,h1,application/pdf,http://s/1,2026-05-30T00:00:00+00:00\n"
+            "coddoc-00002,h2,application/pdf,http://s/2,2026-05-30T00:00:00+00:00\n"
+        )
+        with patch("urllib.request.urlopen", return_value=self._csv_resp(index_csv)):
             result = list_raw_ids("ro", "assembleia")
         assert result == {
             "leizilla-raw-ro-assembleia-coddoc-00001",
             "leizilla-raw-ro-assembleia-coddoc-00002",
         }
 
-    def test_follows_cursor_pagination(self):
-        page1 = {
-            "items": [{"identifier": "leizilla-raw-ro-casacivil-lei-00001"}],
-            "cursor": "tok",
-        }
-        page2 = {"items": [{"identifier": "leizilla-raw-ro-casacivil-lei-00002"}]}
-        calls = iter([self._resp(page1), self._resp(page2)])
-        with patch(
-            "urllib.request.urlopen", side_effect=lambda *a, **kw: next(calls)
-        ) as m:
+    def test_deduplicates_source_keys_across_versions(self):
+        # Same source_key captured twice (two versions) → one raw_id.
+        index_csv = (
+            "source_key,content_hash,content_type,source_url,captured_at\n"
+            "lei-00001,h1,application/pdf,http://s/1,2026-05-30T00:00:00+00:00\n"
+            "lei-00001,h2,application/pdf,http://s/1,2026-05-31T00:00:00+00:00\n"
+        )
+        with patch("urllib.request.urlopen", return_value=self._csv_resp(index_csv)):
             result = list_raw_ids("ro", "casacivil")
-        assert result == {
-            "leizilla-raw-ro-casacivil-lei-00001",
-            "leizilla-raw-ro-casacivil-lei-00002",
-        }
-        second_url = m.call_args_list[1][0][0].full_url
-        assert "cursor=tok" in second_url
+        assert result == {"leizilla-raw-ro-casacivil-lei-00001"}
 
-    def test_returns_partial_on_second_page_error(self):
-        """Page 2 network error → returns confirmed items from page 1.
-
-        Asymmetry with list_parsed_raw_ids (which returns set()): for scraping,
-        re-uploading an unconfirmed item is safe (idempotent IA upload); for
-        parsing, skipping an unconfirmed item could silently lose work.
-        """
-        page1 = {
-            "items": [{"identifier": "leizilla-raw-ro-assembleia-coddoc-00001"}],
-            "cursor": "tok",
-        }
-        call_n = {"n": 0}
-
-        def urlopen(req, timeout=None):
-            call_n["n"] += 1
-            if call_n["n"] == 1:
-                return self._resp(page1)
-            raise OSError("second page error")
-
-        with patch("urllib.request.urlopen", side_effect=urlopen):
-            assert list_raw_ids("ro", "assembleia") == {
-                "leizilla-raw-ro-assembleia-coddoc-00001"
-            }
+    def test_queries_the_index_item(self):
+        index_csv = "source_key,content_hash,content_type,source_url,captured_at\n"
+        with patch(
+            "urllib.request.urlopen", return_value=self._csv_resp(index_csv)
+        ) as m:
+            list_raw_ids("ro", "casacivil")
+        url = m.call_args_list[0][0][0].full_url
+        assert "leizilla-raw-ro-casacivil-index/index.csv" in url
 
 
 class TestUploadToArchive:
@@ -586,3 +572,110 @@ class TestUploadToArchive:
         )
         assert res["success"] is False
         assert "credentials" in res["error"]
+
+
+class TestUpdateRawIndex:
+    """update_raw_index deve preservar o histórico: nunca sobrescrever o índice
+    com uma versão de uma linha por causa de falha transitória de leitura."""
+
+    def _http_error(self, code: int) -> Exception:
+        import urllib.error
+
+        return urllib.error.HTTPError(
+            url="http://ia/index.csv", code=code, msg="x", hdrs=None, fp=None
+        )
+
+    def _csv_resp(self, text: str) -> object:
+        payload = text.encode()
+
+        class _R:
+            def read(self):
+                return payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+        return _R()
+
+    def test_404_starts_fresh_and_uploads(self):
+        from leizilla.publisher import update_raw_index
+
+        with patch("urllib.request.urlopen", side_effect=self._http_error(404)):
+            with patch("subprocess.run", return_value=MagicMock(returncode=0)) as run:
+                res = update_raw_index(
+                    "ro",
+                    "casacivil",
+                    source_key="coddoc-1",
+                    content_hash="h1",
+                    content_type="application/pdf",
+                    source_url="http://s/1",
+                )
+        assert res["success"] is True
+        run.assert_called_once()
+
+    def test_transient_error_aborts_without_upload(self):
+        """5xx/timeout while an index may already exist → abort, do NOT overwrite."""
+        from leizilla.publisher import update_raw_index
+
+        with patch("urllib.request.urlopen", side_effect=self._http_error(503)):
+            with patch("subprocess.run") as run:
+                res = update_raw_index(
+                    "ro",
+                    "casacivil",
+                    source_key="coddoc-2",
+                    content_hash="h2",
+                    content_type="application/pdf",
+                    source_url="http://s/2",
+                )
+        assert res["success"] is False
+        assert "data loss" in res["error"]
+        run.assert_not_called()  # crucial: no upload that would wipe history
+
+    def test_timeout_aborts_without_upload(self):
+        from leizilla.publisher import update_raw_index
+
+        with patch("urllib.request.urlopen", side_effect=OSError("timeout")):
+            with patch("subprocess.run") as run:
+                res = update_raw_index(
+                    "ro",
+                    "casacivil",
+                    source_key="coddoc-3",
+                    content_hash="h3",
+                    content_type="application/pdf",
+                    source_url="http://s/3",
+                )
+        assert res["success"] is False
+        run.assert_not_called()
+
+    def test_existing_index_is_appended_not_replaced(self):
+        from leizilla.publisher import update_raw_index
+
+        existing = (
+            "source_key,content_hash,content_type,source_url,captured_at\n"
+            "coddoc-1,h1,application/pdf,http://s/1,2026-05-30T00:00:00+00:00\n"
+        )
+        written: dict = {}
+
+        def fake_run(args, **kw):
+            # args = ["ia","upload",index_id,index_path,...] — capture uploaded CSV
+            path = args[3]
+            written["csv"] = open(path, encoding="utf-8").read()
+            return MagicMock(returncode=0)
+
+        with patch("urllib.request.urlopen", return_value=self._csv_resp(existing)):
+            with patch("subprocess.run", side_effect=fake_run):
+                res = update_raw_index(
+                    "ro",
+                    "casacivil",
+                    source_key="coddoc-2",
+                    content_hash="h2",
+                    content_type="application/pdf",
+                    source_url="http://s/2",
+                )
+        assert res["success"] is True
+        # Both the prior and the new mapping survive.
+        assert "coddoc-1,h1" in written["csv"]
+        assert "coddoc-2,h2" in written["csv"]
