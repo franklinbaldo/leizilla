@@ -81,6 +81,8 @@ module = ["anthropic", "anthropic.*"]
 follow_imports = "skip"
 
 
+[tool.pytest.ini_options]
+testpaths = ["tests", "test_rondonia_e2e.py"]
 
 [dependency-groups]
 dev = [
