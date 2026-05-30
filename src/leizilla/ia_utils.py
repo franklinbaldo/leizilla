@@ -32,23 +32,25 @@ def get_range_bounds(num: int, range_size: int = 1000) -> tuple[int, int]:
     return start, end
 
 
-def get_range_identifier(ente: str, fonte: str, num: int) -> str:
-    """Gera o ID do item consolidado do range (ex: 'leizilla-ro-casacivil-5001-6000').
+def get_range_identifier(ente: str, fonte: str, tipo: str, num: int) -> str:
+    """Gera o ID do item consolidado do range (ex: 'leizilla_ro_casacivil_lei_5001-6000').
 
-    Ranges são intencionalmente heterogêneos e genéricos (sem o tipo jurídico no nome
-    do item) para assegurar acoplamento robusto com chaves sequenciais da fonte antes
-    do processamento de OCR e parse.
+    Utiliza underscores '_' como delimitador de seções e mantém hifens '-' livres
+    para uso interno nas seções (ex: tipo 'lei-complementar', entes 'ro-porto-velho'),
+    assegurando robustez e legibilidade semântica da numeração por tipo de documento.
     """
     start, end = get_range_bounds(num)
-    return f"leizilla-{ente.lower()}-{fonte.lower()}-{start:04d}-{end:04d}"
+    return (
+        f"leizilla_{ente.lower()}_{fonte.lower()}_{tipo.lower()}_{start:04d}-{end:04d}"
+    )
 
 
 def resolve_ia_id_to_url(ia_id: str, suffix: str) -> str:
     """Resolve um raw IA ID para a URL de download direto correspondente.
 
     Resolve de forma transparente chaves legadas e novos ranges / fallbacks:
-      1. Ranges numéricos (ex: leizilla-ro-casacivil-5001-6000/coddoc-05120_djvu.txt)
-      2. Itens de Fallback (ex: leizilla-raw-ro-casacivil-fallback/chave_djvu.txt)
+      1. Ranges com underscores (ex: leizilla_ro_casacivil_coddoc_5001-6000/coddoc-05120_djvu.txt)
+      2. Itens de Fallback (ex: leizilla-raw_ro_casacivil_fallback/chave_djvu.txt)
       3. Itens legados externos ou per-item clássicos (sem tradução)
 
     Usa a lista de entes conhecidos do catálogo para garantir resolução
@@ -83,9 +85,9 @@ def resolve_ia_id_to_url(ia_id: str, suffix: str) -> str:
     tipo, num = parse_chave_numeric(chave)
 
     if num > 0:
-        range_ia_id = get_range_identifier(matched_ente, fonte, num)
+        range_ia_id = get_range_identifier(matched_ente, fonte, tipo, num)
         return f"https://archive.org/download/{range_ia_id}/{chave.lower()}{suffix}"
     else:
-        # Fallback de itens não-numéricos consolidados
-        range_ia_id = f"leizilla-raw-{matched_ente.lower()}-{fonte.lower()}-fallback"
+        # Fallback de itens não-numéricos consolidados com underscores '_'
+        range_ia_id = f"leizilla-raw_{matched_ente.lower()}_{fonte.lower()}_fallback"
         return f"https://archive.org/download/{range_ia_id}/{chave.lower()}{suffix}"

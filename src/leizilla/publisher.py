@@ -390,13 +390,13 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
-        _, num = parse_chave_numeric(chave)
+        tipo, num = parse_chave_numeric(chave)
         if num > 0:
-            range_ia_id = _range_identifier(ente, fonte, num)
+            range_ia_id = _range_identifier(ente, fonte, tipo, num)
             start, end = get_range_bounds(num)
-            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {start:04d}-{end:04d}"
+            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {tipo.upper()} {start:04d}-{end:04d}"
         else:
-            range_ia_id = f"leizilla-raw-{ente}-{fonte}-fallback"
+            range_ia_id = f"leizilla-raw_{ente.lower()}_{fonte.lower()}_fallback"
             title = f"Leizilla Raw {ente.upper()} {fonte.upper()} Fallback"
 
         raw_meta = build_raw_meta(lei_data, pdf_bytes, fetched_from, wayback_url)
@@ -469,13 +469,13 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
-        _, num = parse_chave_numeric(chave)
+        tipo, num = parse_chave_numeric(chave)
         if num > 0:
-            range_ia_id = _range_identifier(ente, fonte, num)
+            range_ia_id = _range_identifier(ente, fonte, tipo, num)
             start, end = get_range_bounds(num)
-            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {start:04d}-{end:04d}"
+            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {tipo.upper()} {start:04d}-{end:04d}"
         else:
-            range_ia_id = f"leizilla-raw-{ente}-{fonte}-fallback"
+            range_ia_id = f"leizilla-raw_{ente.lower()}_{fonte.lower()}_fallback"
             title = f"Leizilla Raw {ente.upper()} {fonte.upper()} Fallback"
 
         raw_meta = build_raw_meta_html(

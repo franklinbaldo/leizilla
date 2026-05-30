@@ -49,12 +49,12 @@ class TestGetRangeBounds:
 class TestGetRangeIdentifier:
     def test_generates_correct_slug(self):
         assert (
-            get_range_identifier("ro", "casacivil", 5120)
-            == "leizilla-ro-casacivil-5001-6000"
+            get_range_identifier("ro", "casacivil", "lei", 5120)
+            == "leizilla_ro_casacivil_lei_5001-6000"
         )
         assert (
-            get_range_identifier("RO", "CasaCivil", 42)
-            == "leizilla-ro-casacivil-0001-1000"
+            get_range_identifier("RO", "CasaCivil", "Lei-Complementar", 42)
+            == "leizilla_ro_casacivil_lei-complementar_0001-1000"
         )
 
 
@@ -68,19 +68,19 @@ class TestResolveIaIdToUrl:
 
     def test_numeric_range_resolution(self):
         ia_id = "leizilla-raw-ro-casacivil-lei-05120"
-        # Resolves to numeric range bucket and lowers filename
-        expected = "https://archive.org/download/leizilla-ro-casacivil-5001-6000/lei-05120_djvu.txt"
+        # Resolves to numeric range bucket with underscores and lowers filename
+        expected = "https://archive.org/download/leizilla_ro_casacivil_lei_5001-6000/lei-05120_djvu.txt"
         assert resolve_ia_id_to_url(ia_id, "_djvu.txt") == expected
 
     def test_complex_numeric_range_resolution(self):
         ia_id = "leizilla-raw-ro-casacivil-lei-complementar-00042"
-        expected = "https://archive.org/download/leizilla-ro-casacivil-0001-1000/lei-complementar-00042.html"
+        expected = "https://archive.org/download/leizilla_ro_casacivil_lei-complementar_0001-1000/lei-complementar-00042.html"
         assert resolve_ia_id_to_url(ia_id, ".html") == expected
 
     def test_fallback_resolution(self):
         ia_id = "leizilla-raw-ro-casacivil-lei-decretada-a"
-        # Resolves to fallback item
-        expected = "https://archive.org/download/leizilla-raw-ro-casacivil-fallback/lei-decretada-a_djvu.txt"
+        # Resolves to fallback item with underscores
+        expected = "https://archive.org/download/leizilla-raw_ro_casacivil_fallback/lei-decretada-a_djvu.txt"
         assert resolve_ia_id_to_url(ia_id, "_djvu.txt") == expected
 
     def test_malformed_ia_id_fallback(self):
