@@ -177,6 +177,49 @@ class TestLookupCurrentHash:
         idx = self._two_version_index()
         assert lookup_current_hash(idx, "coddoc-999") is None
 
+    def test_content_type_filter_picks_correct_component(self):
+        # Same source_key has a PDF row and an HTML row.
+        pdf_hash = "pdf_hash"
+        html_hash = "html_hash"
+        idx = merge_index_row(
+            None,
+            source_key="lc-00042",
+            content_hash=pdf_hash,
+            content_type="application/pdf",
+            source_url="http://src/pdf",
+            captured_at="2026-05-30T00:00:00+00:00",
+        )
+        idx = merge_index_row(
+            idx,
+            source_key="lc-00042",
+            content_hash=html_hash,
+            content_type="text/html",
+            source_url="http://src/html",
+            captured_at="2026-05-30T01:00:00+00:00",
+        )
+        # Without filter, returns last-appended row (HTML).
+        assert lookup_current_hash(idx, "lc-00042") == (html_hash, "text/html")
+        # With filter, each component resolves independently.
+        assert lookup_current_hash(idx, "lc-00042", "application/pdf") == (
+            pdf_hash,
+            "application/pdf",
+        )
+        assert lookup_current_hash(idx, "lc-00042", "text/html") == (
+            html_hash,
+            "text/html",
+        )
+
+    def test_content_type_filter_returns_none_when_type_absent(self):
+        idx = merge_index_row(
+            None,
+            source_key="lc-00042",
+            content_hash="h1",
+            content_type="application/pdf",
+            source_url="http://src/1",
+        )
+        # Requesting HTML for a source that only has a PDF entry → None.
+        assert lookup_current_hash(idx, "lc-00042", "text/html") is None
+
 
 class TestResolveRawUrl:
     def test_non_raw_id_passthrough(self):
@@ -216,3 +259,31 @@ class TestResolveRawUrl:
         )
         with patch("leizilla.ia_utils._fetch_text", return_value=index_csv):
             assert resolve_raw_url("leizilla-raw-ro-casacivil-coddoc-1", ".pdf") is None
+
+    def test_suffix_content_type_filters_mixed_components(self):
+        # source_key has both PDF and HTML components; suffix drives which hash is used.
+        pdf_hash = "aa" + "0" * 62
+        html_hash = "bb" + "0" * 62
+        idx = merge_index_row(
+            None,
+            source_key="lc-00042",
+            content_hash=pdf_hash,
+            content_type="application/pdf",
+            source_url="http://src/pdf",
+        )
+        idx = merge_index_row(
+            idx,
+            source_key="lc-00042",
+            content_hash=html_hash,
+            content_type="text/html",
+            source_url="http://src/html",
+        )
+        ia_id = "leizilla-raw-ro-casacivil-lc-00042"
+        with patch("leizilla.ia_utils._fetch_text", return_value=idx):
+            # OCR suffix → PDF hash (IA derives djvu.txt from the PDF)
+            ocr_url = resolve_raw_url(ia_id, "_djvu.txt")
+            assert ocr_url and f"{pdf_hash}_djvu.txt" in ocr_url
+        with patch("leizilla.ia_utils._fetch_text", return_value=idx):
+            # .html suffix → HTML hash
+            html_url = resolve_raw_url(ia_id, ".html")
+            assert html_url and f"{html_hash}.html" in html_url

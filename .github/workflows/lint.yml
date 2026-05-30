@@ -17,6 +17,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          version: "0.8.17"
 
       - name: Verify lockfile synchronization
         run: uv lock --locked

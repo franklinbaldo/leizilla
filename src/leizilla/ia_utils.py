@@ -27,6 +27,13 @@ from leizilla.entes import list_slugs
 _USER_AGENT = "leizilla-crawler/0.1"
 
 _RAW_PREFIX = "leizilla-raw-"
+# OCR (_djvu.txt) is IA-derived from the PDF, so resolving it requires the
+# PDF hash.  HTML captures are stored as a separate text/html component.
+_SUFFIX_TO_CONTENT_TYPE: dict[str, str] = {
+    "_djvu.txt": "application/pdf",
+    ".html": "text/html",
+    ".pdf": "application/pdf",
+}
 _HASH_BUCKET_LEN = 2  # hex chars → 256 range items per (ente, fonte)
 _IA_DOWNLOAD = "https://archive.org/download"
 
@@ -158,16 +165,29 @@ def list_source_keys(index_csv: str) -> set[str]:
     return keys
 
 
-def lookup_current_hash(index_csv: str, source_key: str) -> Optional[tuple[str, str]]:
+def lookup_current_hash(
+    index_csv: str,
+    source_key: str,
+    content_type: Optional[str] = None,
+) -> Optional[tuple[str, str]]:
     """Retorna ``(content_hash, content_type)`` da captura corrente (mais recente).
 
-    A captura corrente é a última linha do source_key no índice append-only.
-    Retorna ``None`` se o source_key não estiver no índice.
+    Se ``content_type`` for especificado, restringe à linha desse tipo antes de
+    escolher a mais recente — necessário quando um source_key tem componentes
+    distintos (``application/pdf`` e ``text/html``) no mesmo índice.
+
+    A captura corrente é a última linha do source_key (filtrado) no índice
+    append-only. Retorna ``None`` se o source_key não estiver no índice ou se
+    nenhuma linha corresponder ao tipo requisitado.
     """
     found: Optional[tuple[str, str]] = None
     for row in csv.DictReader(io.StringIO(index_csv)):
-        if row.get("source_key") == source_key:
-            found = (row.get("content_hash", ""), row.get("content_type", ""))
+        if row.get("source_key") != source_key:
+            continue
+        row_ct = row.get("content_type", "")
+        if content_type is not None and row_ct != content_type:
+            continue
+        found = (row.get("content_hash", ""), row_ct)
     return found
 
 
@@ -203,7 +223,9 @@ def resolve_raw_url(ia_id: str, suffix: str, timeout: int = 30) -> Optional[str]
     if not index_csv:
         return None
 
-    current = lookup_current_hash(index_csv, source_key)
+    current = lookup_current_hash(
+        index_csv, source_key, content_type=_SUFFIX_TO_CONTENT_TYPE.get(suffix)
+    )
     if current is None:
         return None
 
