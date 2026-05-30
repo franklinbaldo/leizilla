@@ -6,9 +6,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from leizilla import parser
-from leizilla.ia_utils import resolve_ia_id_to_url
 
 _IA_ID = "leizilla-raw-ro-casacivil-coddoc-09999"
+# URL that resolve_raw_url would produce for a captured raw item (content-addressed).
+_RESOLVED = "https://archive.org/download/leizilla-raw-ro-casacivil-3f/3f8a_djvu.txt"
+_RESOLVED_HTML = "https://archive.org/download/leizilla-raw-ro-casacivil-3f/3f8a.html"
 
 _VALID_XML = (
     '<?xml version="1.0" encoding="UTF-8"?>'
@@ -60,45 +62,41 @@ def _make_urlopen_resp(body: str) -> MagicMock:
 
 class TestFetchOcr:
     def test_returns_text_on_success(self):
-        with patch(
-            "urllib.request.urlopen", return_value=_make_urlopen_resp("OCR text")
-        ):
-            assert parser.fetch_ocr(_IA_ID) == "OCR text"
+        # resolve_raw_url maps the raw_id → content-addressed URL via the index;
+        # then the OCR file at that URL is fetched. Both mocked.
+        with patch("leizilla.parser.resolve_raw_url", return_value=_RESOLVED):
+            with patch(
+                "urllib.request.urlopen", return_value=_make_urlopen_resp("OCR text")
+            ):
+                assert parser.fetch_ocr(_IA_ID) == "OCR text"
+
+    def test_returns_none_when_unresolved(self):
+        # Index/source_key not published yet → resolve returns None → no fetch.
+        with patch("leizilla.parser.resolve_raw_url", return_value=None):
+            assert parser.fetch_ocr(_IA_ID) is None
 
     def test_returns_none_on_network_error(self):
-        with patch("urllib.request.urlopen", side_effect=OSError("404")):
-            assert parser.fetch_ocr(_IA_ID) is None
+        with patch("leizilla.parser.resolve_raw_url", return_value=_RESOLVED):
+            with patch("urllib.request.urlopen", side_effect=OSError("404")):
+                assert parser.fetch_ocr(_IA_ID) is None
 
     def test_returns_none_on_timeout(self):
-        with patch("urllib.request.urlopen", side_effect=TimeoutError()):
-            assert parser.fetch_ocr(_IA_ID) is None
+        with patch("leizilla.parser.resolve_raw_url", return_value=_RESOLVED):
+            with patch("urllib.request.urlopen", side_effect=TimeoutError()):
+                assert parser.fetch_ocr(_IA_ID) is None
 
-    def test_constructs_djvu_url_fallback(self):
+    def test_fetches_the_resolved_url(self):
         captured: list[str] = []
 
         def capture(req, **kw):  # type: ignore[no-untyped-def]
             captured.append(req.full_url)
             raise OSError("stop")
 
-        non_numeric_id = "leizilla-raw-ro-casacivil-nonnumeric"
-        with patch("urllib.request.urlopen", side_effect=capture):
-            parser.fetch_ocr(non_numeric_id)
+        with patch("leizilla.parser.resolve_raw_url", return_value=_RESOLVED):
+            with patch("urllib.request.urlopen", side_effect=capture):
+                parser.fetch_ocr(_IA_ID)
 
-        expected = resolve_ia_id_to_url(non_numeric_id, "_djvu.txt")
-        assert captured == [expected]
-
-    def test_constructs_djvu_url_range(self):
-        captured: list[str] = []
-
-        def capture(req, **kw):  # type: ignore[no-untyped-def]
-            captured.append(req.full_url)
-            raise OSError("stop")
-
-        with patch("urllib.request.urlopen", side_effect=capture):
-            parser.fetch_ocr(_IA_ID)
-
-        expected = resolve_ia_id_to_url(_IA_ID, "_djvu.txt")
-        assert captured == [expected]
+        assert captured == [_RESOLVED]
 
 
 class TestFetchHtml:
@@ -142,43 +140,35 @@ class TestFetchHtml:
 
 
 class TestFetchIaHtml:
-    def test_constructs_ia_html_url_fallback(self):
+    def test_fetches_the_resolved_url(self):
         captured: list[str] = []
 
         def capture(req, **kw):  # type: ignore[no-untyped-def]
             captured.append(req.get_full_url())
             raise OSError("stop")
 
-        non_numeric_id = "leizilla-raw-ro-casacivil-nonnumeric"
-        with patch("urllib.request.urlopen", side_effect=capture):
-            parser.fetch_ia_html(non_numeric_id)
+        with patch("leizilla.parser.resolve_raw_url", return_value=_RESOLVED_HTML):
+            with patch("urllib.request.urlopen", side_effect=capture):
+                parser.fetch_ia_html(_IA_ID)
 
-        expected = resolve_ia_id_to_url(non_numeric_id, ".html")
-        assert captured == [expected]
+        assert captured == [_RESOLVED_HTML]
 
-    def test_constructs_ia_html_url_range(self):
-        captured: list[str] = []
-
-        def capture(req, **kw):  # type: ignore[no-untyped-def]
-            captured.append(req.get_full_url())
-            raise OSError("stop")
-
-        with patch("urllib.request.urlopen", side_effect=capture):
-            parser.fetch_ia_html(_IA_ID)
-
-        expected = resolve_ia_id_to_url(_IA_ID, ".html")
-        assert captured == [expected]
+    def test_returns_none_when_unresolved(self):
+        with patch("leizilla.parser.resolve_raw_url", return_value=None):
+            assert parser.fetch_ia_html(_IA_ID) is None
 
     def test_returns_html_on_success(self):
-        with patch(
-            "urllib.request.urlopen",
-            return_value=_make_urlopen_resp("<html>Lei federal</html>"),
-        ):
-            assert parser.fetch_ia_html(_IA_ID) == "<html>Lei federal</html>"
+        with patch("leizilla.parser.resolve_raw_url", return_value=_RESOLVED_HTML):
+            with patch(
+                "urllib.request.urlopen",
+                return_value=_make_urlopen_resp("<html>Lei federal</html>"),
+            ):
+                assert parser.fetch_ia_html(_IA_ID) == "<html>Lei federal</html>"
 
     def test_returns_none_on_network_error(self):
-        with patch("urllib.request.urlopen", side_effect=OSError("timeout")):
-            assert parser.fetch_ia_html(_IA_ID) is None
+        with patch("leizilla.parser.resolve_raw_url", return_value=_RESOLVED_HTML):
+            with patch("urllib.request.urlopen", side_effect=OSError("timeout")):
+                assert parser.fetch_ia_html(_IA_ID) is None
 
 
 class TestExtractJson:

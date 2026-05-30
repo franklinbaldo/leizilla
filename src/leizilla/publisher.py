@@ -1,6 +1,5 @@
 """Publicação no Internet Archive e exportação de datasets."""
 
-import csv
 import hashlib
 import json
 import re
@@ -17,10 +16,13 @@ from typing import Any, Dict, Optional, Set
 from leizilla import config
 from leizilla import storage as storage_module
 from leizilla.ia_utils import (
-    get_range_bounds,
-    get_range_identifier as _range_identifier,
-    parse_chave_numeric,
-    get_ia_filename,
+    INDEX_FILENAME,
+    compute_hash,
+    download_url,
+    merge_index_row,
+    raw_filename,
+    raw_index_identifier,
+    raw_range_identifier,
 )
 
 _DATASET_IDENTIFIER_RE = (
@@ -365,50 +367,73 @@ def fetch_parsed_xml(ia_id: str, output_path: Path) -> bool:
         return False
 
 
-def update_ia_manifest(
-    range_ia_id: str, filename: str, url_original: str, tmp_dir: Path
-) -> Path:
-    """Baixa o manifest.csv existente do IA, adiciona a nova linha e salva localmente.
-
-    WARNING: Este método realiza um download/upload sequencial incremental do manifest.csv
-    para cada arquivo de raw upload individual. Se invocado repetidamente em loops extensos
-    sem controle de lote (batching), gera complexidade de rede O(n²). Projetos futuros que
-    realizem ingestão em massa offline devem agrupar múltiplos arquivos em um único manifest.csv
-    local consolidador antes de realizar a requisição ao Internet Archive.
-    """
-    manifest_path = tmp_dir / "manifest.csv"
-    lines: list[list[str]] = []
-
-    # Tenta baixar o manifest existente do Internet Archive
-    url_ia_manifest = f"https://archive.org/download/{range_ia_id}/manifest.csv"
-    req = urllib.request.Request(url_ia_manifest)
-    req.add_header("User-Agent", "leizilla-crawler/0.1")
-
+def _fetch_existing_index(ente: str, fonte: str) -> Optional[str]:
+    """Baixa o index.csv corrente do (ente, fonte) do IA. None se não existir."""
+    url = download_url(raw_index_identifier(ente, fonte), INDEX_FILENAME)
+    req = urllib.request.Request(url)
+    req.add_header("User-Agent", _USER_AGENT)
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            content = resp.read().decode("utf-8", errors="replace")
-            # Faz o parse do CSV existente para evitar duplicatas
-            reader = csv.reader(content.splitlines())
-            next(reader, None)  # filename,url
-            for row in reader:
-                if len(row) == 2:
-                    lines.append(row)
+            return resp.read().decode("utf-8", errors="replace")  # type: ignore[no-any-return]
     except (urllib.error.URLError, OSError):
-        # Se falhar (404 ou erro de rede), começamos com um manifest limpo
-        pass
+        return None
 
-    # Adiciona ou atualiza a linha correspondente
-    # Garante que não teremos duplicatas do mesmo arquivo
-    lines = [row for row in lines if row[0] != filename]
-    lines.append([filename, url_original])
 
-    # Grava o arquivo localmente
-    with open(manifest_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["filename", "url"])
-        writer.writerows(lines)
+def update_raw_index(
+    ente: str,
+    fonte: str,
+    *,
+    source_key: str,
+    content_hash: str,
+    content_type: str,
+    source_url: str,
+) -> Dict[str, Any]:
+    """Anexa uma captura ao index.csv do (ente, fonte) e re-publica o item índice.
 
-    return manifest_path
+    O índice (``leizilla-raw-{ente}-{fonte}-index``) é a ponte source_key →
+    content_hash da camada raw (ADR-0010). Append-only e idempotente em
+    (source_key, content_hash). Item separado do range que guarda os bytes, para
+    que a resolução de leitura precise de um único fetch por (ente, fonte).
+
+    WARNING: download+upload incremental por captura é O(n²) em ingestão massiva.
+    Para backfill offline, acumular o index.csv localmente e publicar uma vez.
+    """
+    existing = _fetch_existing_index(ente, fonte)
+    updated = merge_index_row(
+        existing,
+        source_key=source_key,
+        content_hash=content_hash,
+        content_type=content_type,
+        source_url=source_url,
+    )
+    index_id = raw_index_identifier(ente, fonte)
+    with tempfile.TemporaryDirectory() as tmp:
+        index_path = Path(tmp) / INDEX_FILENAME
+        index_path.write_text(updated, encoding="utf-8")
+        try:
+            subprocess.run(
+                [
+                    "ia",
+                    "upload",
+                    index_id,
+                    str(index_path),
+                    "--metadata",
+                    f"title:Leizilla Raw Index {ente.upper()} {fonte.upper()}",
+                    "--metadata",
+                    "mediatype:data",
+                    "--metadata",
+                    f"subject:leizilla;index;{ente};{fonte}",
+                    "--metadata",
+                    "creator:leizilla-crawler",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"success": True, "index_id": index_id}
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            err = getattr(e, "stderr", str(e))
+            return {"success": False, "error": err, "index_id": index_id}
 
 
 class InternetArchivePublisher:
@@ -439,42 +464,24 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
-        tipo, num = parse_chave_numeric(chave)
-        if num > 0:
-            range_ia_id = _range_identifier(ente, fonte, tipo, num)
-            start, end = get_range_bounds(num)
-            if tipo.lower() == "coddoc":
-                title = (
-                    f"Leizilla Raw {ente.upper()} {fonte.upper()} {start:04d}-{end:04d}"
-                )
-            else:
-                title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {tipo.upper()} {start:04d}-{end:04d}"
-        else:
-            range_ia_id = f"leizilla_{ente.lower()}_{fonte.lower()}_fallback"
-            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} Fallback"
+        # Endereço de conteúdo (ADR-0010): o arquivo raw é nomeado pelo SHA-256
+        # dos seus bytes e bucketizado por prefixo de hash. A chave de colheita
+        # (chave) é metadado no índice, nunca path nem fronteira de range.
+        content_hash = compute_hash(pdf_bytes)
+        range_ia_id = raw_range_identifier(ente, fonte, content_hash)
+        title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {content_hash[:2]}"
 
         raw_meta = build_raw_meta(lei_data, pdf_bytes, fetched_from, wayback_url)
         url_original = str(lei_data.get("url_original") or fetched_from)
 
         with tempfile.TemporaryDirectory() as tmp:
-            if num > 0:
-                pdf_name = get_ia_filename(num, ".pdf")
-                meta_name = get_ia_filename(num, "_meta.json")
-                pdf_dst = Path(tmp) / pdf_name
-                meta_path = Path(tmp) / meta_name
-                filename_manifest = pdf_name
-            else:
-                pdf_dst = Path(tmp) / f"{chave.lower()}.pdf"
-                meta_path = Path(tmp) / f"{chave.lower()}_meta.json"
-                filename_manifest = f"{chave.lower()}.pdf"
+            pdf_name = raw_filename(content_hash, ".pdf")
+            meta_name = raw_filename(content_hash, "_meta.json")
+            pdf_dst = Path(tmp) / pdf_name
+            meta_path = Path(tmp) / meta_name
 
             shutil.copy2(str(pdf_path), str(pdf_dst))
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
-
-            # Atualiza o manifest.csv contendo o histórico de URLs do range
-            manifest_path = update_ia_manifest(
-                range_ia_id, filename_manifest, url_original, Path(tmp)
-            )
 
             coverage = _entity_coverage(ente)
             desc = (
@@ -490,7 +497,6 @@ class InternetArchivePublisher:
                         range_ia_id,
                         str(pdf_dst),
                         str(meta_path),
-                        str(manifest_path),
                         "--metadata",
                         f"title:{title}",
                         "--metadata",
@@ -510,13 +516,23 @@ class InternetArchivePublisher:
                     text=True,
                     check=True,
                 )
-                return {
-                    "success": True,
-                    "ia_id": ia_id,
-                    "ia_url": f"https://archive.org/details/{range_ia_id}",
-                }
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
+
+        # Anexa a captura ao índice source_key → content_hash do (ente, fonte).
+        update_raw_index(
+            ente,
+            fonte,
+            source_key=chave,
+            content_hash=content_hash,
+            content_type="application/pdf",
+            source_url=url_original,
+        )
+        return {
+            "success": True,
+            "ia_id": ia_id,
+            "ia_url": f"https://archive.org/details/{range_ia_id}",
+        }
 
     def upload_raw_html(
         self,
@@ -539,19 +555,10 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
-        tipo, num = parse_chave_numeric(chave)
-        if num > 0:
-            range_ia_id = _range_identifier(ente, fonte, tipo, num)
-            start, end = get_range_bounds(num)
-            if tipo.lower() == "coddoc":
-                title = (
-                    f"Leizilla Raw {ente.upper()} {fonte.upper()} {start:04d}-{end:04d}"
-                )
-            else:
-                title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {tipo.upper()} {start:04d}-{end:04d}"
-        else:
-            range_ia_id = f"leizilla_{ente.lower()}_{fonte.lower()}_fallback"
-            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} Fallback"
+        html_bytes = html_content.encode("utf-8")
+        content_hash = compute_hash(html_bytes)
+        range_ia_id = raw_range_identifier(ente, fonte, content_hash)
+        title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {content_hash[:2]}"
 
         raw_meta = build_raw_meta_html(
             html_content, lei_data, fetched_from, wayback_url
@@ -559,24 +566,13 @@ class InternetArchivePublisher:
         url_original = str(lei_data.get("url_original") or fetched_from)
 
         with tempfile.TemporaryDirectory() as tmp:
-            if num > 0:
-                html_name = get_ia_filename(num, ".html")
-                meta_name = get_ia_filename(num, "_meta.json")
-                html_dst = Path(tmp) / html_name
-                meta_path = Path(tmp) / meta_name
-                filename_manifest = html_name
-            else:
-                html_dst = Path(tmp) / f"{chave.lower()}.html"
-                meta_path = Path(tmp) / f"{chave.lower()}_meta.json"
-                filename_manifest = f"{chave.lower()}.html"
+            html_name = raw_filename(content_hash, ".html")
+            meta_name = raw_filename(content_hash, "_meta.json")
+            html_dst = Path(tmp) / html_name
+            meta_path = Path(tmp) / meta_name
 
             html_dst.write_text(html_content, encoding="utf-8")
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
-
-            # Atualiza o manifest.csv contendo o histórico de URLs do range
-            manifest_path = update_ia_manifest(
-                range_ia_id, filename_manifest, url_original, Path(tmp)
-            )
 
             coverage = _entity_coverage(ente)
             desc = (
@@ -592,7 +588,6 @@ class InternetArchivePublisher:
                         range_ia_id,
                         str(html_dst),
                         str(meta_path),
-                        str(manifest_path),
                         "--metadata",
                         f"title:{title}",
                         "--metadata",
@@ -612,11 +607,6 @@ class InternetArchivePublisher:
                     text=True,
                     check=True,
                 )
-                return {
-                    "success": True,
-                    "ia_id": ia_id,
-                    "ia_url": f"https://archive.org/details/{range_ia_id}",
-                }
             except FileNotFoundError:
                 return {
                     "success": False,
@@ -625,6 +615,20 @@ class InternetArchivePublisher:
                 }
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
+
+        update_raw_index(
+            ente,
+            fonte,
+            source_key=chave,
+            content_hash=content_hash,
+            content_type="text/html",
+            source_url=url_original,
+        )
+        return {
+            "success": True,
+            "ia_id": ia_id,
+            "ia_url": f"https://archive.org/details/{range_ia_id}",
+        }
 
     def upload_parsed(
         self,
