@@ -33,23 +33,40 @@ def get_range_bounds(num: int, range_size: int = 1000) -> tuple[int, int]:
 
 
 def get_range_identifier(ente: str, fonte: str, tipo: str, num: int) -> str:
-    """Gera o ID do item consolidado do range (ex: 'leizilla_ro_casacivil_lei_5001-6000').
+    """Gera o ID do item consolidado do range (ex: 'leizilla_ro_casacivil_5001-6000').
 
     Utiliza underscores '_' como delimitador de seções e mantém hifens '-' livres
-    para uso interno nas seções (ex: tipo 'lei-complementar', entes 'ro-porto-velho'),
-    assegurando robustez e legibilidade semântica da numeração por tipo de documento.
+    para uso interno nas seções. Omitimos o tipo 'coddoc' nos identificadores de
+    range por não se tratar de um tipo jurídico de documento.
     """
     start, end = get_range_bounds(num)
-    return (
-        f"leizilla_{ente.lower()}_{fonte.lower()}_{tipo.lower()}_{start:04d}-{end:04d}"
-    )
+    ente_clean = ente.lower()
+    fonte_clean = fonte.lower()
+    tipo_clean = tipo.lower()
+
+    if tipo_clean == "coddoc":
+        return f"leizilla_{ente_clean}_{fonte_clean}_{start:04d}-{end:04d}"
+    return f"leizilla_{ente_clean}_{fonte_clean}_{tipo_clean}_{start:04d}-{end:04d}"
+
+
+def get_ia_filename(tipo: str, num: int, suffix: str) -> str:
+    """Retorna o nome do arquivo padronizado para o IA.
+
+    Caso a desambiguação não seja necessária (ex: tipo 'coddoc' da Casa Civil),
+    omite o slug técnico no nome do arquivo físico no IA, padronizando como
+    000000{sufixo} (ex: 005120.pdf, 005120_djvu.txt, 005120_meta.json).
+    """
+    tipo_clean = tipo.lower()
+    if tipo_clean == "coddoc":
+        return f"{num:06d}{suffix}"
+    return f"{num:06d}_{tipo_clean}{suffix}"
 
 
 def resolve_ia_id_to_url(ia_id: str, suffix: str) -> str:
     """Resolve um raw IA ID para a URL de download direto correspondente.
 
     Resolve de forma transparente chaves legadas e novos ranges / fallbacks:
-      1. Ranges com underscores (ex: leizilla_ro_casacivil_coddoc_5001-6000/005120_coddoc_djvu.txt)
+      1. Ranges com underscores (ex: leizilla_ro_casacivil_5001-6000/005120_djvu.txt)
       2. Itens de Fallback (ex: leizilla-raw_ro_casacivil_fallback/chave_djvu.txt)
       3. Itens legados externos ou per-item clássicos (sem tradução)
 
@@ -77,24 +94,13 @@ def resolve_ia_id_to_url(ia_id: str, suffix: str) -> str:
     if "-" not in rest:
         return f"https://archive.org/download/{ia_id}/{ia_id}{suffix}"
 
-    # TODO: No futuro, se houver fontes com hifens em municípios (ex: assembleia-legislativa),
-    # o split por "-" pode precisar ser adaptado a partir da esquerda usando uma lista
-    # de fontes mapeadas, de forma análoga a entes.
     fonte, chave = rest.split("-", 1)
 
     tipo, num = parse_chave_numeric(chave)
 
     if num > 0:
         range_ia_id = get_range_identifier(matched_ente, fonte, tipo, num)
-        # Nomes de arquivos são uniformizados com pad de 6 dígitos + tipo jurídico (ex: 005120_coddoc.pdf)
-        if suffix == "_djvu.txt":
-            filename = f"{num:06d}_{tipo.lower()}_djvu.txt"
-        elif suffix == ".html":
-            filename = f"{num:06d}_{tipo.lower()}.html"
-        elif suffix == ".pdf":
-            filename = f"{num:06d}_{tipo.lower()}.pdf"
-        else:
-            filename = f"{num:06d}_{tipo.lower()}{suffix}"
+        filename = get_ia_filename(tipo, num, suffix)
         return f"https://archive.org/download/{range_ia_id}/{filename}"
     else:
         # Fallback de itens não-numéricos consolidados com underscores '_'

@@ -30,28 +30,28 @@ Para assegurar parsing trivial no motor e eliminar ambiguidades de hifens (como 
 ### Nomenclatura Unificada dos Itens de Ranges:
 `leizilla_{ente}_{fonte}_{tipo}_{range_inicio:04d}-{range_fim:04d}`
 
+*Nota de Design: Quando o tipo extraído for um identificador técnico genérico da URL fonte (como 'coddoc'), ele é omitido do range identifier e da nomenclatura de arquivos, mantendo a estrutura semântica limpa.*
+
 #### Exemplos Práticos:
-* **Leis Ordinárias de Rondônia (5001 a 6000)** (chave de discovery `coddoc`):
-  `leizilla_ro_casacivil_coddoc_5001-6000`
-* **Leis Ordinárias Federais (Planalto, 12001 a 13000)** (chave de discovery `lei`):
+* **Leis Ordinárias de Rondônia (5001 a 6000)** (chave de discovery `coddoc` -> tipo omitido):
+  `leizilla_ro_casacivil_5001-6000`
+* **Leis Ordinárias Federais (Planalto, 12001 a 13000)** (chave de discovery `lei` -> tipo mantido):
   `leizilla_federal_planalto_lei_12001-13000`
-* **Leis Complementares de Rondônia (1 a 1000)** (chave de discovery `lei-complementar`):
+* **Leis Complementares de Rondônia (1 a 1000)** (chave de discovery `lei-complementar` -> tipo mantido):
   `leizilla_ro_casacivil_lei-complementar_0001-1000`
 
 ### Como os Arquivos São Organizados dentro de Cada Item (Nomenclatura Padronizada):
-Ao fazer o upload dos arquivos para o item do range, os arquivos individuais são renomeados de forma uniforme e elegante usando preenchimento de zeros (6 dígitos) + o tipo de discovery:
-* **PDF da Lei**: `{num:06d}_{tipo}.pdf` (ex: `005120_coddoc.pdf`)
-* **HTML da Lei (se aplicável)**: `{num:06d}_{tipo}.html` (ex: `005120_coddoc.html`)
-* **Metadados Individuais**: `{num:06d}_{tipo}_meta.json` (ex: `005120_coddoc_meta.json`)
+Ao fazer o upload dos arquivos para o item do range, os arquivos individuais são renomeados de forma uniforme e elegante usando preenchimento de zeros (6 dígitos) + o tipo de discovery quando necessária desambiguação (sendo omitido para 'coddoc'):
+* **PDF da Lei**: `{num:06d}_{tipo}.pdf` ou `{num:06d}.pdf` (ex: `005120.pdf` para coddoc, `012345_lei.pdf` para lei)
+* **HTML da Lei (se aplicável)**: `{num:06d}_{tipo}.html` ou `{num:06d}.html` (ex: `005120.html` para coddoc, `012345_lei.html` para lei)
+* **Metadados Individuais**: `{num:06d}_{tipo}_meta.json` ou `{num:06d}_meta.json` (ex: `005120_meta.json` para coddoc, `012345_lei_meta.json` para lei)
 
 ### 📋 O Arquivo de Manifesto de Proveniência (`manifest.csv`)
 Para garantir procedência e rastreabilidade absoluta de cada documento (sem impor dependência de nomes de arquivos opacos ou obsoletos), cada range de 1.000 leis contém um arquivo consolidado chamado **`manifest.csv`**. 
 
 Este CSV vincula de forma definitiva e idempotente cada arquivo unitário no IA com a sua URL original correspondente, estruturado como:
-```csv
 filename,url
-005120_coddoc.pdf,http://ditel.casacivil.ro.gov.br/...
-```
+005120.pdf,http://ditel.casacivil.ro.gov.br/...
 
 Durante uploads incrementais, o motor do Leizilla lê o `manifest.csv` existente do IA (se disponível), adiciona/atualiza a nova lei no histórico de registros de forma idempotente, e reenvia o manifesto atualizado.
 
@@ -61,15 +61,15 @@ Durante uploads incrementais, o motor do Leizilla lê o `manifest.csv` existente
 
 O Internet Archive possui uma engine interna de processamento de tarefas em segundo plano chamada **derivação (`derive`)**. Quando vários PDFs são enviados para o mesmo item consolidado, a tarefa `derive` roda de forma **independente para cada arquivo PDF**.
 
-Ao enviar 1.000 PDFs para o item `leizilla_ro_casacivil_coddoc_5001-6000`, o IA gerará na pasta de downloads:
-* `005001_coddoc_djvu.txt` (OCR do arquivo 5001)
-* `005002_coddoc_djvu.txt` (OCR do arquivo 5002)
+Ao enviar 1.000 PDFs para o item `leizilla_ro_casacivil_5001-6000`, o IA gerará na pasta de downloads:
+* `005001_djvu.txt` (OCR do arquivo 5001)
+* `005002_djvu.txt` (OCR do arquivo 5002)
 * ...
-* `006000_coddoc_djvu.txt` (OCR do arquivo 6000)
+* `006000_djvu.txt` (OCR do arquivo 6000)
 
 ### O Impacto para o Leizilla:
 Nós **não** precisamos baixar o item inteiro ou descompactar um ZIP imenso para extrair o texto de uma única lei! Podemos fazer uma requisição HTTP direta de arquivo único (serverless de custo zero):
-`https://archive.org/download/leizilla_ro_casacivil_coddoc_5001-6000/005120_coddoc_djvu.txt`
+`https://archive.org/download/leizilla_ro_casacivil_5001-6000/005120_djvu.txt`
 
 ---
 

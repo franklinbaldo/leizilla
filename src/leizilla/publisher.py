@@ -18,6 +18,7 @@ from leizilla.ia_utils import (
     get_range_bounds,
     get_range_identifier as _range_identifier,
     parse_chave_numeric,
+    get_ia_filename,
 )
 
 _DATASET_IDENTIFIER_RE = (
@@ -445,9 +446,11 @@ class InternetArchivePublisher:
 
         with tempfile.TemporaryDirectory() as tmp:
             if num > 0:
-                pdf_dst = Path(tmp) / f"{num:06d}_{tipo.lower()}.pdf"
-                meta_path = Path(tmp) / f"{num:06d}_{tipo.lower()}_meta.json"
-                filename_manifest = f"{num:06d}_{tipo.lower()}.pdf"
+                pdf_name = get_ia_filename(tipo, num, ".pdf")
+                meta_name = get_ia_filename(tipo, num, "_meta.json")
+                pdf_dst = Path(tmp) / pdf_name
+                meta_path = Path(tmp) / meta_name
+                filename_manifest = pdf_name
             else:
                 pdf_dst = Path(tmp) / f"{chave.lower()}.pdf"
                 meta_path = Path(tmp) / f"{chave.lower()}_meta.json"
@@ -540,9 +543,11 @@ class InternetArchivePublisher:
 
         with tempfile.TemporaryDirectory() as tmp:
             if num > 0:
-                html_dst = Path(tmp) / f"{num:06d}_{tipo.lower()}.html"
-                meta_path = Path(tmp) / f"{num:06d}_{tipo.lower()}_meta.json"
-                filename_manifest = f"{num:06d}_{tipo.lower()}.html"
+                html_name = get_ia_filename(tipo, num, ".html")
+                meta_name = get_ia_filename(tipo, num, "_meta.json")
+                html_dst = Path(tmp) / html_name
+                meta_path = Path(tmp) / meta_name
+                filename_manifest = html_name
             else:
                 html_dst = Path(tmp) / f"{chave.lower()}.html"
                 meta_path = Path(tmp) / f"{chave.lower()}_meta.json"
