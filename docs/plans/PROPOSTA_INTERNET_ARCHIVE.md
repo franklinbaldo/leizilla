@@ -18,26 +18,25 @@ O banco de dados local DuckDB (`leizilla.duckdb`) já possui **51.442 recursos d
 
 ---
 
-## ⚡ 2. A Solução Proposta: Ranges Genéricos de 1.000
+## ⚡ 2. A Solução Proposta: Ranges de 1.000 (com Tipo e Underscore)
 
-Em vez de criar um item no IA para cada lei, **consolidaremos os uploads em faixas de 1.000 chaves sequenciais da fonte de dados**, independente do tipo de norma.
+Em vez de criar um item no IA para cada lei, **consolidaremos os uploads em faixas de 1.000 chaves sequenciais da fonte de dados**, mantendo o **tipo** associado à numeração para dar pleno sentido semântico ao range (já que cada tipo de norma/documento de discovery possui numeração sequencial própria e independente).
 
-### 🧠 O Desafio Arquitetural do "Timing de Tipagem" e a Chave "coddoc"
-Em fontes como Rondônia (Casa Civil e Assembleia), o crawler do Leizilla descobre as leis através de chaves sequenciais da fonte, chamadas no sistema de **`coddoc`** (ex: `coddoc-05120`). O tipo jurídico exato da norma (se é uma lei ordinária, complementar, ou decreto) é **desconhecido** no momento do discovery e do download bruto — ele só é determinado *após* o parse de OCR processado pela LLM.
+### 🧠 A Nova Convenção de Delimitadores (`_` entre seções, `-` livre)
+Para assegurar parsing trivial no motor e eliminar ambiguidades de hifens (como no caso de UFs municipais ex: `ro-porto-velho` ou tipos compostos ex: `lei-complementar`), adotamos as seguintes regras:
+- Usamos **underscore (`_`)** para delimitar as seções principais do ID no Internet Archive.
+- Mantemos o **hífen (`-`)** livre para uso interno nas seções.
 
-Como o upload bruto precisa acontecer *antes* de sabermos o tipo da norma para que o IA possa gerar o OCR, **o agrupamento nos ranges deve ser estritamente genérico e baseado na chave sequencial de colheita**.
+### Nomenclatura Unificada dos Itens de Ranges:
+`leizilla_{ente}_{fonte}_{tipo}_{range_inicio:04d}-{range_fim:04d}`
 
-### Nomenclatura Unificada e Genérica dos Itens de Ranges:
-`leizilla-{ente}-{fonte}-{range_inicio:04d}-{range_fim:04d}`
-
-#### Exemplos Práticos (Rondônia):
-* **Chaves de Colheita 1 a 1000**:
-  `leizilla-ro-casacivil-0001-1000`
-* **Chaves de Colheita 5001 a 6000**:
-  `leizilla-ro-casacivil-5001-6000`
-
-> [!NOTE]
-> Essa abordagem é a mais correta e honesta: ela assume que os ranges são heterogêneos (guardam leis e decretos misturados na sequência da fonte), eliminando nomenclaturas opacas ou termos técnicos de crawler (como `coddoc`) do catálogo público do IA. A tipagem jurídica de alta fidelidade semântica é salva no DuckDB e nos datasets exportados (Parquet/JSON) após a fase de parse.
+#### Exemplos Práticos:
+* **Leis Ordinárias de Rondônia (5001 a 6000)** (chave de discovery `coddoc`):
+  `leizilla_ro_casacivil_coddoc_5001-6000`
+* **Leis Ordinárias Federais (Planalto, 12001 a 13000)** (chave de discovery `lei`):
+  `leizilla_federal_planalto_lei_12001-13000`
+* **Leis Complementares de Rondônia (1 a 1000)** (chave de discovery `lei-complementar`):
+  `leizilla_ro_casacivil_lei-complementar_0001-1000`
 
 ### Como os Arquivos São Organizados dentro de Cada Item:
 Ao fazer o upload dos arquivos para o item do range, renomeamos os arquivos individuais usando sua chave de discovery para evitar colisões:
