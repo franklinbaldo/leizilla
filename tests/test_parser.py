@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from leizilla import parser
+from leizilla.ia_utils import resolve_ia_id_to_url
 
 _IA_ID = "leizilla-raw-ro-casacivil-coddoc-09999"
 
@@ -83,9 +84,7 @@ class TestFetchOcr:
         with patch("urllib.request.urlopen", side_effect=capture):
             parser.fetch_ocr(non_numeric_id)
 
-        expected = (
-            f"https://archive.org/download/{non_numeric_id}/{non_numeric_id}_djvu.txt"
-        )
+        expected = resolve_ia_id_to_url(non_numeric_id, "_djvu.txt")
         assert captured == [expected]
 
     def test_constructs_djvu_url_range(self):
@@ -98,7 +97,7 @@ class TestFetchOcr:
         with patch("urllib.request.urlopen", side_effect=capture):
             parser.fetch_ocr(_IA_ID)
 
-        expected = "https://archive.org/download/leizilla-ro-casacivil-coddoc-9001-10000/coddoc-09999_djvu.txt"
+        expected = resolve_ia_id_to_url(_IA_ID, "_djvu.txt")
         assert captured == [expected]
 
 
@@ -154,9 +153,7 @@ class TestFetchIaHtml:
         with patch("urllib.request.urlopen", side_effect=capture):
             parser.fetch_ia_html(non_numeric_id)
 
-        expected = (
-            f"https://archive.org/download/{non_numeric_id}/{non_numeric_id}.html"
-        )
+        expected = resolve_ia_id_to_url(non_numeric_id, ".html")
         assert captured == [expected]
 
     def test_constructs_ia_html_url_range(self):
@@ -169,7 +166,7 @@ class TestFetchIaHtml:
         with patch("urllib.request.urlopen", side_effect=capture):
             parser.fetch_ia_html(_IA_ID)
 
-        expected = "https://archive.org/download/leizilla-ro-casacivil-coddoc-9001-10000/coddoc-09999.html"
+        expected = resolve_ia_id_to_url(_IA_ID, ".html")
         assert captured == [expected]
 
     def test_returns_html_on_success(self):

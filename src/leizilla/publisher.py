@@ -14,6 +14,11 @@ from typing import Any, Dict, Optional, Set
 
 from leizilla import config
 from leizilla import storage as storage_module
+from leizilla.ia_utils import (
+    get_range_bounds,
+    get_range_identifier as _range_identifier,
+    parse_chave_numeric,
+)
 
 _DATASET_IDENTIFIER_RE = (
     r"^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)$"
@@ -36,29 +41,6 @@ def _entity_coverage(ente: str) -> str:
 def _raw_identifier(ente: str, fonte: str, chave: str) -> str:
     """Constrói IA identifier para raw item conforme SCHEMA.md §1.2."""
     return f"leizilla-raw-{ente}-{fonte}-{chave}"
-
-
-def parse_chave_numeric(chave: str) -> tuple[str, int]:
-    """Extrai o tipo e o número da chave (ex: 'lei-05120' -> ('lei', 5120))."""
-    match = re.match(r"^([a-zA-Z-]+)-(\d+)$", chave)
-    if match:
-        return match.group(1).lower(), int(match.group(2))
-    return "documento", 0
-
-
-def get_range_bounds(num: int, range_size: int = 1000) -> tuple[int, int]:
-    """Calcula os limites inferior e superior do range (ex: 5120 -> (5001, 6000))."""
-    if num <= 0:
-        return 1, range_size
-    start = ((num - 1) // range_size) * range_size + 1
-    end = start + range_size - 1
-    return start, end
-
-
-def _range_identifier(ente: str, fonte: str, tipo: str, num: int) -> str:
-    """Gera o ID do item consolidado do range (ex: 'leizilla-ro-casacivil-lei-5001-6000')."""
-    start, end = get_range_bounds(num)
-    return f"leizilla-{ente}-{fonte}-{tipo}-{start:04d}-{end:04d}"
 
 
 def _bundle_identifier(ente: str, fonte: str, dt: Optional[datetime] = None) -> str:
@@ -410,9 +392,9 @@ class InternetArchivePublisher:
 
         tipo, num = parse_chave_numeric(chave)
         if num > 0:
-            range_ia_id = _range_identifier(ente, fonte, tipo, num)
+            range_ia_id = _range_identifier(ente, fonte, num)
             start, end = get_range_bounds(num)
-            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {tipo.upper()} {start:04d}-{end:04d}"
+            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {start:04d}-{end:04d}"
         else:
             range_ia_id = f"leizilla-raw-{ente}-{fonte}-fallback"
             title = f"Leizilla Raw {ente.upper()} {fonte.upper()} Fallback"
@@ -489,9 +471,9 @@ class InternetArchivePublisher:
 
         tipo, num = parse_chave_numeric(chave)
         if num > 0:
-            range_ia_id = _range_identifier(ente, fonte, tipo, num)
+            range_ia_id = _range_identifier(ente, fonte, num)
             start, end = get_range_bounds(num)
-            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {tipo.upper()} {start:04d}-{end:04d}"
+            title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {start:04d}-{end:04d}"
         else:
             range_ia_id = f"leizilla-raw-{ente}-{fonte}-fallback"
             title = f"Leizilla Raw {ente.upper()} {fonte.upper()} Fallback"
