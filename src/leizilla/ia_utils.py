@@ -5,6 +5,7 @@ between publisher.py (M4 staging) and parser.py (M2 parser pipeline).
 """
 
 import re
+from typing import Optional
 from leizilla.entes import list_slugs
 
 
@@ -49,22 +50,25 @@ def get_range_identifier(ente: str, fonte: str, tipo: str, num: int) -> str:
     return f"leizilla_{ente_clean}_{fonte_clean}_{tipo_clean}_{start:04d}-{end:04d}"
 
 
-def get_ia_filename(tipo: str, num: int, suffix: str) -> str:
+def get_ia_filename(
+    tipo: str, num: int, suffix: str, hash_8: Optional[str] = None
+) -> str:
     """Retorna o nome do arquivo padronizado para o IA.
 
-    Os arquivos físicos são salvos puramente pelo número de 6 dígitos
-    (ex: 005120.pdf, 005120_djvu.txt, 005120_meta.json). Como o tipo de norma
-    já é segregado no range identifier (que atua como uma pasta no IA),
-    omitimos o tipo de norma no nome do arquivo físico para evitar redundância.
+    Os arquivos físicos são salvos puramente pelo número de 6 dígitos e, opcionalmente,
+    um hash determinístico de versionamento de 8 caracteres baseado no conteúdo dos bytes
+    do arquivo (ex: 005120_a1b2c3d4.pdf).
     """
+    if hash_8:
+        return f"{num:06d}_{hash_8}{suffix}"
     return f"{num:06d}{suffix}"
 
 
-def resolve_ia_id_to_url(ia_id: str, suffix: str) -> str:
+def resolve_ia_id_to_url(ia_id: str, suffix: str, hash_8: Optional[str] = None) -> str:
     """Resolve um raw IA ID para a URL de download direto correspondente.
 
     Resolve de forma transparente chaves legadas e novos ranges / fallbacks:
-      1. Ranges com underscores (ex: leizilla_ro_casacivil_5001-6000/005120_djvu.txt)
+      1. Ranges com underscores (ex: leizilla_ro_casacivil_5001-6000/005120_a1b2c3d4_djvu.txt)
       2. Itens de Fallback (ex: leizilla-raw_ro_casacivil_fallback/chave_djvu.txt)
       3. Itens legados externos ou per-item clássicos (sem tradução)
 
@@ -98,7 +102,7 @@ def resolve_ia_id_to_url(ia_id: str, suffix: str) -> str:
 
     if num > 0:
         range_ia_id = get_range_identifier(matched_ente, fonte, tipo, num)
-        filename = get_ia_filename(tipo, num, suffix)
+        filename = get_ia_filename(tipo, num, suffix, hash_8)
         return f"https://archive.org/download/{range_ia_id}/{filename}"
     else:
         # Fallback de itens não-numéricos consolidados com underscores '_'

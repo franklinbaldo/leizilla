@@ -41,19 +41,19 @@ Para assegurar parsing trivial no motor e eliminar ambiguidades de hifens (como 
   `leizilla_ro_casacivil_lei-complementar_0001-1000`
 
 ### Como os Arquivos São Organizados dentro de Cada Item (Nomenclatura Padronizada):
-Ao fazer o upload dos arquivos para o item do range, os arquivos individuais são renomeados de forma uniforme e elegante usando puramente o preenchimento de zeros (6 dígitos) + extensão, eliminando redundâncias estilísticas de tipo no nome uma vez que o próprio range do IA já atua como pasta segregadora de tipo:
-* **PDF da Lei**: `{num:06d}.pdf` (ex: `005120.pdf` para lei 5120 ou coddoc 5120)
-* **HTML da Lei (se aplicável)**: `{num:06d}.html` (ex: `005120.html`)
-* **Metadados Individuais**: `{num:06d}_meta.json` (ex: `005120_meta.json`)
+Ao fazer o upload dos arquivos para o item do range, os arquivos individuais são renomeados de forma uniforme e elegante usando puramente o preenchimento de zeros (6 dígitos) + um hash determinístico de versionamento descentralizado e sem estado baseado nos bytes do próprio arquivo (gerado via UUIDv5 a partir do hash SHA-256 do arquivo):
+* **PDF da Lei**: `{num:06d}_{hash_8}.pdf` (ex: `005120_a1b2c3d4.pdf`)
+* **HTML da Lei (se aplicável)**: `{num:06d}_{hash_8}.html` (ex: `005120_a1b2c3d4.html`)
+* **Metadados Individuais**: `{num:06d}_{hash_8}_meta.json` (ex: `005120_a1b2c3d4_meta.json`)
 
 ### 📋 O Arquivo de Manifesto de Proveniência (`manifest.csv`)
 Para garantir procedência e rastreabilidade absoluta de cada documento (sem impor dependência de nomes de arquivos opacos ou obsoletos), cada range de 1.000 leis contém um arquivo consolidado chamado **`manifest.csv`**. 
 
 Este CSV vincula de forma definitiva e idempotente cada arquivo unitário no IA com a sua URL original correspondente, estruturado como:
 filename,url
-005120.pdf,http://ditel.casacivil.ro.gov.br/...
+005120_a1b2c3d4.pdf,http://ditel.casacivil.ro.gov.br/...
 
-Durante uploads incrementais, o motor do Leizilla lê o `manifest.csv` existente do IA (se disponível), adiciona/atualiza a nova lei no histórico de registros de forma idempotente, e reenvia o manifesto atualizado.
+Lendo o `manifest.csv`, o Leizilla rastreia de forma elegante e sem estado: "Encontramos o arquivo físico com hash tal (`005120_a1b2c3d4.pdf`) na URL tal!". Se uma nova versão for detectada com bytes de conteúdo (e hash SHA-256) diferentes, um novo UUIDv5 determinístico de 8 caracteres é gerado, permitindo que múltiplas versões coexistam no mesmo range de forma descentralizada.
 
 ---
 

@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import urllib.parse
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
@@ -444,10 +445,14 @@ class InternetArchivePublisher:
         raw_meta = build_raw_meta(lei_data, pdf_bytes, fetched_from, wayback_url)
         url_original = str(lei_data.get("url_original") or fetched_from)
 
+        sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+        uuid_val = uuid.uuid5(uuid.NAMESPACE_DNS, sha256)
+        hash_8 = str(uuid_val)[:8]
+
         with tempfile.TemporaryDirectory() as tmp:
             if num > 0:
-                pdf_name = get_ia_filename(tipo, num, ".pdf")
-                meta_name = get_ia_filename(tipo, num, "_meta.json")
+                pdf_name = get_ia_filename(tipo, num, ".pdf", hash_8)
+                meta_name = get_ia_filename(tipo, num, "_meta.json", hash_8)
                 pdf_dst = Path(tmp) / pdf_name
                 meta_path = Path(tmp) / meta_name
                 filename_manifest = pdf_name
@@ -541,10 +546,14 @@ class InternetArchivePublisher:
         )
         url_original = str(lei_data.get("url_original") or fetched_from)
 
+        sha256 = hashlib.sha256(html_content.encode("utf-8")).hexdigest()
+        uuid_val = uuid.uuid5(uuid.NAMESPACE_DNS, sha256)
+        hash_8 = str(uuid_val)[:8]
+
         with tempfile.TemporaryDirectory() as tmp:
             if num > 0:
-                html_name = get_ia_filename(tipo, num, ".html")
-                meta_name = get_ia_filename(tipo, num, "_meta.json")
+                html_name = get_ia_filename(tipo, num, ".html", hash_8)
+                meta_name = get_ia_filename(tipo, num, "_meta.json", hash_8)
                 html_dst = Path(tmp) / html_name
                 meta_path = Path(tmp) / meta_name
                 filename_manifest = html_name
