@@ -52,14 +52,12 @@ def get_range_identifier(ente: str, fonte: str, tipo: str, num: int) -> str:
 def get_ia_filename(tipo: str, num: int, suffix: str) -> str:
     """Retorna o nome do arquivo padronizado para o IA.
 
-    Caso a desambiguação não seja necessária (ex: tipo 'coddoc' da Casa Civil),
-    omite o slug técnico no nome do arquivo físico no IA, padronizando como
-    000000{sufixo} (ex: 005120.pdf, 005120_djvu.txt, 005120_meta.json).
+    Os arquivos físicos são salvos puramente pelo número de 6 dígitos
+    (ex: 005120.pdf, 005120_djvu.txt, 005120_meta.json). Como o tipo de norma
+    já é segregado no range identifier (que atua como uma pasta no IA),
+    omitimos o tipo de norma no nome do arquivo físico para evitar redundância.
     """
-    tipo_clean = tipo.lower()
-    if tipo_clean == "coddoc":
-        return f"{num:06d}{suffix}"
-    return f"{num:06d}_{tipo_clean}{suffix}"
+    return f"{num:06d}{suffix}"
 
 
 def resolve_ia_id_to_url(ia_id: str, suffix: str) -> str:
