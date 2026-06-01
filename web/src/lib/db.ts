@@ -86,7 +86,9 @@ export const PAGE_SIZE = 20;
 
 export interface SearchOptions {
   ente?: string;
-  tipoLei?: string;
+  // Um valor exato, ou vários aliases equivalentes (ex: ['lei.complementar','lc'])
+  // que o filtro casa via tipo_lei IN (...).
+  tipoLei?: string | string[];
   year?: number;
   page?: number;
   pageSize?: number;
@@ -111,8 +113,16 @@ function buildWhere(query: string, opts: SearchOptions = {}) {
     params.push(ente);
   }
   if (tipoLei) {
-    clauses.push('tipo_lei = ?');
-    params.push(tipoLei);
+    // tipoLei pode ser um valor único ou vários aliases do mesmo tipo de norma
+    // (lei.complementar / lc) — casamos todos de uma vez.
+    const vals = (Array.isArray(tipoLei) ? tipoLei : [tipoLei]).filter(Boolean);
+    if (vals.length === 1) {
+      clauses.push('tipo_lei = ?');
+      params.push(vals[0]);
+    } else if (vals.length > 1) {
+      clauses.push(`tipo_lei IN (${vals.map(() => '?').join(', ')})`);
+      params.push(...vals);
+    }
   }
   if (year != null && year > 0) {
     // em is a DATE column inferred by read_json_auto; YEAR(NULL) = NULL → safe

@@ -13,7 +13,7 @@
   let rawTerm = $state('');
   let debouncedTerm = $state('');
   let ente = $state(''); // Padrão: Todos os entes
-  let tipoLei = $state(''); // Padrão: Todos os tipos de norma
+  let tipoLei = $state(''); // Rótulo selecionado (agrupa aliases); '' = todos
   let tipoOptions = $state<string[]>([]); // valores reais de tipo_lei no dataset
   let year = $state<number | null>(null);
   let page = $state(0);
@@ -28,6 +28,28 @@
       })
       .catch(() => {});
   });
+
+  // Agrupa valores crus equivalentes sob o mesmo rótulo (lei.complementar e lc
+  // → "Lei Complementar"): o dropdown não exibe opções duplicadas e o filtro
+  // casa todos os aliases de um tipo de uma vez (tipo_lei IN (...)).
+  const tipoGroups = $derived.by(() => {
+    const byLabel = new Map<string, string[]>();
+    for (const raw of tipoOptions) {
+      const label = formatTipoLei(raw);
+      const arr = byLabel.get(label) ?? [];
+      arr.push(raw);
+      byLabel.set(label, arr);
+    }
+    return [...byLabel.entries()]
+      .map(([label, values]) => ({ label, values }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'pt'));
+  });
+
+  // Rótulo selecionado → todos os valores crus daquele tipo (ou undefined).
+  function selectedTipoValues(): string[] | undefined {
+    if (!tipoLei) return undefined;
+    return tipoGroups.find((g) => g.label === tipoLei)?.values;
+  }
 
   // Debounce: update debouncedTerm 400ms after last keystroke.
   $effect(() => {
@@ -118,7 +140,7 @@
       queryFn: () =>
         searchLeisFiltered(debouncedTerm, {
           ente: ente || undefined,
-          tipoLei: tipoLei || undefined,
+          tipoLei: selectedTipoValues(),
           year: year ?? undefined,
           page,
           pageSize: PAGE_SIZE,
@@ -133,7 +155,7 @@
       queryFn: () =>
         countLeisFiltered(debouncedTerm, {
           ente: ente || undefined,
-          tipoLei: tipoLei || undefined,
+          tipoLei: selectedTipoValues(),
           year: year ?? undefined,
         }),
       staleTime: 5 * 60 * 1000,
@@ -168,8 +190,8 @@
 
     <select value={tipoLei} onchange={onTipoLeiChange} aria-label="Filtrar por tipo de norma">
       <option value="">Todos os tipos de norma</option>
-      {#each tipoOptions as t}
-        <option value={t}>{formatTipoLei(t)}</option>
+      {#each tipoGroups as g}
+        <option value={g.label}>{g.label}</option>
       {/each}
     </select>
 
