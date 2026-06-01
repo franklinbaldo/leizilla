@@ -38,6 +38,7 @@ dev = [
     "pytest",
     "pytest-cov",
     "types-requests",
+    "pre-commit",
 ]
 
 [project.scripts]

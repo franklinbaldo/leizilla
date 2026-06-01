@@ -1188,7 +1188,7 @@ def dev_setup() -> None:
     """Configurar ambiente de desenvolvimento."""
     echo("Configurando ambiente...")
     try:
-        subprocess.run(["uv", "sync", "--dev"], check=True)
+        subprocess.run(["uv", "sync", "--extra", "dev"], check=True)
         echo("Dependências instaladas")
         result = subprocess.run(
             ["uv", "run", "pre-commit", "install"], capture_output=True, text=True

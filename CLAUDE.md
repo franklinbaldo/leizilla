@@ -32,9 +32,11 @@ Uses **uv** for dependency management (Python 3.12):
 ```bash
 uv venv
 source .venv/bin/activate           # .venv\Scripts\activate on Windows
-uv sync --extra dev                 # installs ruff/mypy/pytest (the `dev` extra); matches CI
-uvx pre-commit install              # optional git hooks (pre-commit isn't a project dep, so run via uvx)
+uv sync --extra dev                 # installs ruff/mypy/pytest/pre-commit (the `dev` extra); matches CI
+uv run pre-commit install           # install git hooks
 ```
+
+Or just `uv run leizilla dev setup`, which runs both.
 
 CI runs `uv sync --frozen --extra dev`. Use `--extra dev` (not `--dev`) — the
 linters/type-checker live in the optional `dev` extra, while `--dev` only pulls
