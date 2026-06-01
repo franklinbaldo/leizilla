@@ -10,12 +10,37 @@ from unittest.mock import patch, MagicMock
 from leizilla.publisher import (
     _raw_identifier,
     _bundle_identifier,
+    _ia_subprocess_env,
     build_raw_meta,
     count_ia_items,
     list_parsed_raw_ids,
     list_raw_ids,
     InternetArchivePublisher,
 )
+
+
+class TestIASubprocessEnv:
+    """O CLI `ia` só lê credenciais de um config file; injetamos via IA_CONFIG_FILE."""
+
+    def test_returns_none_without_credentials(self):
+        assert _ia_subprocess_env(None, None) is None
+        assert _ia_subprocess_env("", "secret") is None
+        assert _ia_subprocess_env("access", "") is None
+
+    def test_points_ia_config_file_at_temp_ini_with_keys(self):
+        env = _ia_subprocess_env("AKIA-test", "shh-secret")
+        assert env is not None
+        cfg_path = env["IA_CONFIG_FILE"]
+        content = Path(cfg_path).read_text(encoding="utf-8")
+        assert "[s3]" in content
+        assert "AKIA-test" in content
+        assert "shh-secret" in content
+
+    def test_caches_config_per_credential_pair(self):
+        first = _ia_subprocess_env("dup-key", "dup-secret")
+        second = _ia_subprocess_env("dup-key", "dup-secret")
+        assert first is not None and second is not None
+        assert first["IA_CONFIG_FILE"] == second["IA_CONFIG_FILE"]
 
 
 class TestRawIdentifier:

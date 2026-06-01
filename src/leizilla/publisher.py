@@ -1,7 +1,10 @@
 """Publicação no Internet Archive e exportação de datasets."""
 
+import atexit
+import configparser
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -451,11 +454,49 @@ def update_raw_index(
                 capture_output=True,
                 text=True,
                 check=True,
+                env=_ia_subprocess_env(config.IA_ACCESS_KEY, config.IA_SECRET_KEY),
             )
             return {"success": True, "index_id": index_id}
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             err = getattr(e, "stderr", str(e))
             return {"success": False, "error": err, "index_id": index_id}
+
+
+_ia_config_cache: Dict[tuple[str, str], str] = {}
+
+
+def _ia_subprocess_env(
+    access_key: Optional[str], secret_key: Optional[str]
+) -> Optional[Dict[str, str]]:
+    """Devolve um env que autentica o CLI ``ia``, ou ``None`` se sem credenciais.
+
+    O CLI ``ia`` ignora ``IA_ACCESS_KEY``/``IA_SECRET_KEY`` e não tem flags de
+    chave: ele só lê credenciais de um arquivo de config, cujo caminho pode ser
+    sobrescrito via a env var ``IA_CONFIG_FILE``. Escrevemos um ``ia.ini`` mínimo
+    (uma vez por par de credenciais) e apontamos o subprocess para ele, para que
+    o upload funcione sem um ``~/.config/internetarchive/ia.ini`` pré-existente.
+    """
+    if not access_key or not secret_key:
+        return None
+    key = (access_key, secret_key)
+    cfg_path = _ia_config_cache.get(key)
+    if cfg_path is None:
+        cfg = configparser.ConfigParser()
+        cfg["s3"] = {"access": access_key, "secret": secret_key}
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".ini", delete=False, encoding="utf-8"
+        )
+        cfg.write(tmp)
+        tmp.close()
+        cfg_path = tmp.name
+        _ia_config_cache[key] = cfg_path
+        _final_path = cfg_path
+
+        def _cleanup() -> None:
+            Path(_final_path).unlink(missing_ok=True)
+
+        atexit.register(_cleanup)
+    return {**os.environ, "IA_CONFIG_FILE": cfg_path}
 
 
 class InternetArchivePublisher:
@@ -537,6 +578,7 @@ class InternetArchivePublisher:
                     capture_output=True,
                     text=True,
                     check=True,
+                    env=_ia_subprocess_env(self.access_key, self.secret_key),
                 )
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
@@ -637,6 +679,7 @@ class InternetArchivePublisher:
                     capture_output=True,
                     text=True,
                     check=True,
+                    env=_ia_subprocess_env(self.access_key, self.secret_key),
                 )
             except FileNotFoundError:
                 return {
@@ -725,6 +768,7 @@ class InternetArchivePublisher:
                     capture_output=True,
                     text=True,
                     check=True,
+                    env=_ia_subprocess_env(self.access_key, self.secret_key),
                 )
                 return {
                     "success": True,
@@ -806,6 +850,7 @@ class InternetArchivePublisher:
                     capture_output=True,
                     text=True,
                     check=True,
+                    env=_ia_subprocess_env(self.access_key, self.secret_key),
                 )
                 return {
                     "success": True,
@@ -874,6 +919,7 @@ class InternetArchivePublisher:
                     capture_output=True,
                     text=True,
                     check=True,
+                    env=_ia_subprocess_env(self.access_key, self.secret_key),
                 )
                 return {"success": True}
             except FileNotFoundError:
