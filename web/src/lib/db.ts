@@ -43,8 +43,37 @@ async function _init(): Promise<duckdb.AsyncDuckDB> {
       console.log('🦆 DuckDB-WASM carregando Parquet de:', resolvedUrl);
 
       await conn.query(
-        `CREATE OR REPLACE VIEW versoes AS SELECT * FROM read_parquet('${resolvedUrl}');`,
+        `CREATE OR REPLACE VIEW raw_data AS SELECT * FROM read_parquet('${resolvedUrl}');`,
       );
+      
+      const colsResult = await conn.query(`PRAGMA table_info('raw_data');`);
+      const cols = colsResult.toArray().map((r: any) => r.toJSON().name);
+      
+      if (cols.includes('texto_completo')) {
+        console.log('🦆 DuckDB-WASM: Tabela de leis crua detectada. Mapeando colunas...');
+        await conn.query(`
+          CREATE OR REPLACE VIEW versoes AS 
+          SELECT 
+            id AS lei_id,
+            ente,
+            tipo_lei,
+            numero AS numero_lei,
+            ano AS ano_lei,
+            data_publicacao,
+            COALESCE(texto_completo, titulo) AS texto,
+            texto_normalizado,
+            '[]' AS fontes,
+            0 AS num_fontes,
+            FALSE AS tem_divergencia,
+            'ementa' AS dispositivo_path,
+            COALESCE(data_publicacao, make_date(COALESCE(ano, 1900), 1, 1)) AS em,
+            NULL AS ate
+          FROM raw_data;
+        `);
+      } else {
+        console.log('🦆 DuckDB-WASM: Tabela de versoes consolidada detectada.');
+        await conn.query(`CREATE OR REPLACE VIEW versoes AS SELECT * FROM raw_data;`);
+      }
     } finally {
       await conn.close();
     }
