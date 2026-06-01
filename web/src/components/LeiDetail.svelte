@@ -12,7 +12,6 @@
   } = $props();
 
   const iaUrl = `https://archive.org/details/${row.lei_id}`;
-  const pdfUrl = `https://archive.org/download/${row.lei_id}/${row.lei_id}.pdf`;
 
   const enteLabel: Record<string, string> = {
     ro: 'Rondônia',
@@ -108,9 +107,6 @@
     <div class="links">
       <a href={iaUrl} target="_blank" rel="noopener noreferrer" class="link-btn ia">
         Internet Archive
-      </a>
-      <a href={pdfUrl} target="_blank" rel="noopener noreferrer" class="link-btn pdf">
-        Baixar PDF
       </a>
     </div>
 
@@ -260,12 +256,6 @@
     background: rgba(124, 58, 237, 0.2);
     color: #c4b5fd;
     border: 1px solid rgba(124, 58, 237, 0.3);
-  }
-
-  .link-btn.pdf {
-    background: rgba(16, 185, 129, 0.15);
-    color: #6ee7b7;
-    border: 1px solid rgba(16, 185, 129, 0.25);
   }
 
   .text-section h3 {
