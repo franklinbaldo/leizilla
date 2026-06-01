@@ -151,9 +151,16 @@ def make_rate_limiter(min_interval: float = _RATE_LIMIT_S) -> Callable[[str], No
 
     def limiter(url: str) -> None:
         host = urlparse(url).hostname or ""
-        elapsed = time.monotonic() - last.get(host, 0.0)
-        if elapsed < min_interval:
-            time.sleep(min_interval - elapsed)
+        # Primeira batida em um host nunca espera. Usamos um sentinela explícito
+        # (host ausente no dict) em vez de 0.0: o epoch de time.monotonic() é
+        # arbitrário, então `monotonic() - 0.0` pode ser < min_interval logo após
+        # o boot e provocar um sleep espúrio na primeira chamada (hosts distintos
+        # devem permanecer independentes).
+        previous = last.get(host)
+        if previous is not None:
+            elapsed = time.monotonic() - previous
+            if elapsed < min_interval:
+                time.sleep(min_interval - elapsed)
         last[host] = time.monotonic()
 
     return limiter
