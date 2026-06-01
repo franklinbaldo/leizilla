@@ -33,7 +33,7 @@ Uses **uv** for dependency management (Python 3.12):
 uv venv
 source .venv/bin/activate           # .venv\Scripts\activate on Windows
 uv sync --extra dev                 # installs ruff/mypy/pytest (the `dev` extra); matches CI
-uv run pre-commit install           # install git hooks
+uvx pre-commit install              # optional git hooks (pre-commit isn't a project dep, so run via uvx)
 ```
 
 CI runs `uv sync --frozen --extra dev`. Use `--extra dev` (not `--dev`) — the
