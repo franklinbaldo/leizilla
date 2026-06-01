@@ -175,9 +175,9 @@ Currently, there are no explicitly denied commands in the `deny` list.
 Run the complete test suite:
 
 ```bash
-just test              # Run all tests
-just check             # Run linting, formatting, and type checking
-just ci                # Complete CI pipeline
+uv run leizilla dev test     # Run all tests (pytest)
+uv run leizilla dev check    # Lint + format-check + tests
+uv run mypy src/ --ignore-missing-imports   # Type-check (CI also runs this)
 ```
 
 Current test coverage includes:
