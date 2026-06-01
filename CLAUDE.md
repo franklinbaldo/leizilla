@@ -32,9 +32,13 @@ Uses **uv** for dependency management (Python 3.12):
 ```bash
 uv venv
 source .venv/bin/activate           # .venv\Scripts\activate on Windows
-uv sync --dev
-uv run leizilla dev setup           # installs deps + pre-commit hooks
+uv sync --extra dev                 # installs ruff/mypy/pytest (the `dev` extra); matches CI
+uv run pre-commit install           # install git hooks
 ```
+
+CI runs `uv sync --frozen --extra dev`. Use `--extra dev` (not `--dev`) — the
+linters/type-checker live in the optional `dev` extra, while `--dev` only pulls
+the `dev` dependency group.
 
 ## Everyday commands
 
@@ -129,10 +133,11 @@ All commands run as `uv run leizilla <command>`. Most take `--ente` (default `ro
 | `scrape --ente ro --fonte casacivil --tipo lei --start-coddoc 1 --end-coddoc 10` | range scrape one source |
 | `bundle-raw --ente ro --fonte casacivil` | consolidate raw PDFs into one IA item (torrents) |
 | `fetch-ocr --ente ro --limit 100` | pull IA OCR text into DuckDB |
-| `parse --ente ro` / `parse-all --ente ro --start-coddoc 1 --end-coddoc 100` | LLM parse raw → XML (`--upload`, `--skip-existing`, `--error-threshold`) |
-| `fetch-all-parsed --ente ro` | download all parsed XML from IA |
-| `consolidate --output out.parquet --ente ro` | XML → Parquet |
-| `release-dataset --ente ro --version 0` | publish Parquet dataset to IA |
+| `parse --ente ro --raw-id leizilla-raw-ro-casacivil-lei-05120` | LLM parse one raw item → XML (`--upload`, `--input-type ocr\|html`) |
+| `parse-all --ente ro --start-coddoc 1 --end-coddoc 100` | batch parse a range (`--upload`, `--skip-existing`, `--error-threshold`, `--output-dir`) |
+| `fetch-all-parsed --ente ro --output-dir data/parsed` | download all parsed XML from IA |
+| `consolidate data/parsed --output out.parquet --ente ro` | XML dir (positional) → Parquet |
+| `release-dataset out.parquet --ente ro --version 0` | publish Parquet (positional) dataset to IA |
 | `export --ente ro --year 2020` | export local Parquet |
 | `search --ente ro` / `stats --ente ro` | local search / IA item counts |
 | `pipeline --ente ro --limit 5` | orchestrate discover→harvest→export |
