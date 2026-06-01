@@ -102,11 +102,10 @@ function buildWhere(query: string, opts: SearchOptions = {}) {
   if (query.trim()) {
     clauses.push('texto_normalizado ILIKE ?');
     params.push(`%${query.trim()}%`);
-  } else {
-    // Sem busca textual, mostramos uma linha por norma (a ementa) em vez de
-    // uma linha por dispositivo — a tabela lista normas, não artigos.
-    clauses.push("dispositivo_path = 'ementa'");
   }
+  // Sem busca textual (modo navegação) NÃO filtramos por dispositivo aqui:
+  // colapsamos para uma linha representativa por norma em searchLeisFiltered,
+  // para não esconder leis publicadas sem ementa (SCHEMA.md §0.6).
   if (ente) {
     clauses.push('ente = ?');
     params.push(ente);
@@ -157,8 +156,24 @@ export async function searchLeisFiltered(query: string, opts: SearchOptions = {}
   const safeSize = Math.min(100, Math.max(1, Math.trunc(Number.isFinite(pageSize) ? pageSize : PAGE_SIZE)));
   const offset = Math.max(0, Math.trunc(Number.isFinite(page) ? page : 0)) * safeSize;
   const { where, params } = buildWhere(query, opts);
-  // ORDER BY (lei_id, dispositivo_path) is globally unique → stable pagination across pages.
-  const sql = `SELECT * FROM versoes WHERE ${where} ORDER BY lei_id, dispositivo_path LIMIT ${safeSize} OFFSET ${offset}`;
+  let sql: string;
+  if (query.trim()) {
+    // Busca textual: uma linha por dispositivo que casa (mostra os trechos).
+    // ORDER BY (lei_id, dispositivo_path) is globally unique → stable pagination.
+    sql = `SELECT * FROM versoes WHERE ${where} ORDER BY lei_id, dispositivo_path LIMIT ${safeSize} OFFSET ${offset}`;
+  } else {
+    // Navegação: uma linha representativa por norma. Preferimos a ementa, com
+    // fallback para o primeiro dispositivo (leis em estágio incremental podem
+    // não ter ementa; SCHEMA.md §0.6) — assim nenhuma norma publicada some.
+    sql = `SELECT * EXCLUDE (_rn) FROM (
+        SELECT *, ROW_NUMBER() OVER (
+          PARTITION BY lei_id
+          ORDER BY (dispositivo_path = 'ementa') DESC, dispositivo_ordem, dispositivo_path
+        ) AS _rn
+        FROM versoes WHERE ${where}
+      ) WHERE _rn = 1
+      ORDER BY lei_id LIMIT ${safeSize} OFFSET ${offset}`;
+  }
   return runSql(sql, params, toJson);
 }
 
@@ -167,8 +182,11 @@ export async function countLeisFiltered(
   opts: Pick<SearchOptions, 'ente' | 'tipoLei' | 'year'> = {},
 ): Promise<number> {
   const { where, params } = buildWhere(query, opts);
+  // Navegação conta normas distintas (1 linha representativa por lei_id); busca
+  // textual conta dispositivos que casam — coerente com searchLeisFiltered.
+  const countExpr = query.trim() ? 'COUNT(*)' : 'COUNT(DISTINCT lei_id)';
   const rows = await runSql<{ cnt: bigint | number }>(
-    `SELECT COUNT(*)::BIGINT AS cnt FROM versoes WHERE ${where}`,
+    `SELECT ${countExpr}::BIGINT AS cnt FROM versoes WHERE ${where}`,
     params,
     (r) => (r as { toJSON(): { cnt: bigint | number } }).toJSON(),
   );
