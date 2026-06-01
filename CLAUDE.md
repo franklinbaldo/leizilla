@@ -1,197 +1,197 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) when working in this repository.
 
-## Project Overview
+## What Leizilla is
 
-Leizilla is a **working** legal document indexing system that crawls, processes, and distributes Brazilian laws as open datasets. It's a sister project to CausaGanha, focused exclusively on indexing all Brazilian laws starting with Rondônia state. The project operates with minimal infrastructure, radical transparency, and a 100% static architecture - no servers or backends to maintain.
+Leizilla crawls, parses, and republishes Brazilian legislation as open datasets.
+It is deliberately **infrastructure-minimal and Internet-Archive-centric**: there
+are no servers to run. The Internet Archive (IA) provides free OCR, permanent
+storage, a CDN, and automatic torrents; everything else is a local pipeline that
+produces files and pushes them to IA and GitHub.
 
-## Development Setup
+Coverage starts with **Rondônia (RO)** and expands to federal (Planalto) and
+other states over time.
 
-This project uses **uv** for dependency management and follows modern Python packaging standards:
+## Source of truth
+
+**`IMPLEMENTATION.md` holds the canonical milestone status** — what is done,
+in-progress, or blocked. Read it before planning work. Do not reintroduce a
+separate TODO/status doc; status lives in `IMPLEMENTATION.md` and design lives
+in `docs/adr/` and `docs/SCHEMA.md`.
+
+Current state: milestones **M0–M12.2 are done** (discovery, scraping, IA upload,
+OCR fetch, LLM parsing, ETL→Parquet, dataset release, frontend foundation).
+**M5.3** (DuckDB-WASM benchmark + FTS) is blocked pending a large published
+dataset. **M13** (frontend polish) is in flight.
+
+## Development setup
+
+Uses **uv** for dependency management (Python 3.12):
 
 ```bash
-# Install uv first: curl -LsSf https://astral.sh/uv/install.sh | sh
 uv venv
-source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
-uv sync --dev
-
-# Setup pre-commit hooks and complete environment
-uv run leizilla dev setup
+source .venv/bin/activate           # .venv\Scripts\activate on Windows
+uv sync --extra dev                 # installs ruff/mypy/pytest (the `dev` extra); matches CI
+uvx pre-commit install              # optional git hooks (pre-commit isn't a project dep, so run via uvx)
 ```
 
-## Development Commands
+CI runs `uv sync --frozen --extra dev`. Use `--extra dev` (not `--dev`) — the
+linters/type-checker live in the optional `dev` extra, while `--dev` only pulls
+the `dev` dependency group.
 
-The project uses uv scripts for all development operations:
+## Everyday commands
 
 ```bash
-# Essential commands
-uv run leizilla dev setup    # Complete development environment setup
-uv run leizilla dev check    # Run all pre-commit checks (lint, format-check, typecheck, test)
-uv run leizilla dev fix      # Apply automatic fixes (ruff + formatting)
+uv run leizilla dev check    # lint (ruff) + format-check + tests (pytest)
+uv run leizilla dev fix      # auto-fix: ruff --fix + ruff format
+uv run leizilla dev test     # pytest
+uv run leizilla dev lint     # ruff check
+uv run leizilla dev format   # ruff format
+uv run leizilla dev clean    # remove build/cache artifacts
 
-# Individual operations
-uv run leizilla dev lint     # Lint with ruff
-uv run leizilla dev format   # Format with ruff
-uv run leizilla dev test     # Run pytest
-uv run leizilla dev clean    # Clean build artifacts and caches
-
-# Leizilla pipeline commands
-uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10 --crawler-type simple    # Discover laws from a specific range of coddocs using the simple crawler
-uv run leizilla download --origem rondonia --limit 5       # Download up to 5 PDFs
-uv run leizilla upload --limit 3                  # Upload up to 3 PDFs to Internet Archive
-uv run leizilla export --origem rondonia --year 2020      # Export dataset to Parquet
-uv run leizilla pipeline --origem rondonia --start-coddoc 1 --end-coddoc 10 --limit 5 --crawler-type simple  # Complete pipeline for state/year/limit
-
-# Single test execution
-uv run pytest tests/test_specific.py -v
+uv run mypy src/ --ignore-missing-imports   # type-check (CI runs this separately)
+uv run pytest tests/test_etl.py -v          # a single test file
 ```
 
-## CLI Usage
+Note: `dev check` does **not** run mypy — CI (`.github/workflows/lint.yml`) runs
+ruff, mypy, and pytest. Run mypy yourself before pushing type-sensitive changes.
 
-The project has a complete command-line interface. All commands are executed via `uv run leizilla <command>`.
-
-## Core Architecture
-
-### Internet Archive as Central Pillar
-
-The project's architecture is built around Internet Archive as the foundational component, validated by the CausaGanha project which successfully processed 21+ years of judicial decisions. This approach provides:
-
-- **Free OCR**: Automatic text extraction from uploaded PDFs
-- **Permanent storage**: Zero-cost hosting with global CDN
-- **Automatic torrents**: P2P distribution generated by IA
-- **Shared database**: Distributed DuckDB via IA with conflict prevention
-
-### Data Flow Pipeline
-
-1. **Crawler** (Playwright + AnyIO): Downloads PDFs from official sources (.gov.br)
-2. **Internet Archive Upload**: Immediate archival triggers automatic OCR and torrent generation
-3. **ETL Processing** (DuckDB): Local processing of OCR text into structured data
-4. **Dataset Publication**: Export to Parquet + JSON Lines formats
-5. **Distribution**: GitHub Releases, IA mirrors, and P2P torrents
-6. **Client-side Search**: DuckDB-WASM enables SQL queries in browser
-
-### Technology Stack
-
-- **Python 3.12**: Core language with strict type checking (mypy)
-- **Playwright + AnyIO**: Async web crawling for JavaScript-heavy government sites
-- **DuckDB**: Embedded analytical database, exports Parquet natively
-- **Internet Archive**: OCR, permanent storage, and torrent distribution
-- **uv**: Fast Python package management
-- **ruff**: Linting and formatting
-- **GitHub Actions**: Complete CI/CD automation
-
-## Project Structure
+## Architecture: the pipeline
 
 ```
-src/                   # Flat source structure
-├── config.py         # Centralized configuration management
-├── storage.py         # DuckDB schema and database operations
-├── crawler.py         # Playwright-based web crawling
-├── publisher.py       # Internet Archive integration and exports
-└── cli.py             # Complete command-line interface
-docs/adr/              # Architecture Decision Records
-docs/plans/            # Future feature planning documents
-docs/DEVELOPMENT.md    # Detailed technical development guide
-tests/                 # Test suite (pytest-based)
-data/                  # Local data directory (gitignored)
-  └─ leizilla.duckdb   # Local DuckDB database (auto-created)
+discover ──> harvest/scrape ──> fetch-ocr ──> parse ──> consolidate ──> release-dataset ──> frontend
+(manifest)   (robots→Wayback    (IA _djvu.txt  (Claude   (XML→Parquet)   (Parquet→IA)        (DuckDB-WASM
+             →IA upload,         →clean/         Haiku                                        in browser)
+             SHA-256 bucket)     normalize)      →XML)
 ```
 
-## Development Status
+1. **Discover** — manifest-driven (`manifests/{ente}.json`) strategies enqueue
+   resources into DuckDB (`discovered_resources`).
+2. **Harvest/scrape** — respect robots.txt, save to Wayback then fetch from it
+   (fail-open to direct download), upload raw bytes to IA.
+3. **OCR fetch** — pull IA-generated `_djvu.txt`, clean and normalize.
+4. **Parse** — Claude Haiku turns OCR/HTML into validated Leizilla XML.
+5. **Consolidate** — XML → Parquet (`versoes` table).
+6. **Release** — publish the Parquet dataset to IA.
+7. **Search** — `web/` runs DuckDB-WASM against the published Parquet in-browser.
 
-**Current Phase**: Working MVP with complete pipeline
+The scheduled GitHub Actions run this chain weekly: **Sat** discover-harvest →
+**Sun** crawl → **Mon** parse/release, plus a **Mon/Thu** Claude maintenance
+routine.
 
-The project has a **complete implementation** including:
+## Source layout
 
-- ✅ Full CLI interface with discover/download/upload/export/search commands
-- ✅ DuckDB schema with complete CRUD operations (storage.py:1-247)
-- ✅ Playwright-based async crawler (crawler.py:1-180)
-- ✅ Internet Archive integration (publisher.py:1-150)
-- ✅ Centralized configuration management (config.py:1-45)
-- ✅ Complete test suite for core modules
-- ✅ Modern CLI with subcommands for pipeline automation
-- ✅ Development environment with type checking and linting
-
-## Data Architecture
-
-### Local DuckDB Database
-
-- **Location**: `data/leizilla.duckdb` (auto-created, gitignored)
-- **Purpose**: Local ETL processing and staging
-- **Schema**: Complete `leis` table with full-text content, metadata, JSON support, and search indices
-- **Export**: Native Parquet export for distribution
-
-### Current Data Formats
-
-- **Parquet**: Columnar analytics format (primary)
-- **JSON Lines**: Pipeline-compatible streaming format
-- **Torrents**: P2P distribution via Internet Archive
-
-## Quality Standards
-
-- **Type Safety**: All functions require type hints, mypy strict checking
-- **Code Style**: ruff formatting with 88-character line length
-- **Testing**: pytest with coverage requirements
-- **Commits**: Conventional Commits format required
-- **Documentation**: ADRs for architectural decisions, clear docstrings for public APIs
-
-## Environment Variables
-
-The project uses configuration from environment variables:
-
-- `IA_ACCESS_KEY` / `IA_SECRET_KEY`: Internet Archive credentials (required for upload)
-- `DUCKDB_PATH`: Database location (defaults to `data/leizilla.duckdb`)
-- `DATA_DIR`: Data directory path (defaults to `data/`)
-
-## Claude Assistant Permissions
-
-The `.claude/settings.local.json` file defines the permissions for the Claude Code AI assistant when working in this repository. These permissions are specified as allowed Bash commands:
-
-- `Bash(git checkout:*)`: Allows checking out branches or paths.
-- `Bash(rm:*)`: Allows removing files or directories.
-- `Bash(git add:*)`: Allows adding file contents to the index.
-- `Bash(mkdir:*)`: Allows creating new directories.
-- `Bash(touch:*)`: Allows creating empty files or updating timestamps.
-- `Bash(mv:*)`: Allows moving or renaming files and directories.
-- `Bash(find:*)`: Allows searching for files in a directory hierarchy.
-- `Bash(PYTHONPATH=src python -c "import config; print('✅ Config loaded'); import storage; print('✅ Storage loaded')")`: Allows running a specific Python command to check if `config` and `storage` modules can be loaded. This is likely a health check or a way to ensure the core components are importable.
-- `Bash(uv run:*)`: Allows running any `uv run` scripts defined in `pyproject.toml`. This is crucial for development, testing, and pipeline execution tasks.
-- `Bash(rg:*)`: Allows using `ripgrep` for searching text patterns in files.
-- `Bash(grep:*)`: Allows using `grep` for searching text patterns in files.
-
-Currently, there are no explicitly denied commands in the `deny` list.
-
-## Key Implementation Files
-
-- **config.py:1-45**: Environment configuration and path management
-- **storage.py:1-247**: Complete DuckDB schema and operations
-- **crawler.py:1-180**: Async web crawling with Playwright
-- **publisher.py:1-150**: Internet Archive uploads and dataset exports
-- **cli.py:1-200**: Full command-line interface implementation
-
-## Testing and Quality
-
-Run the complete test suite:
-
-```bash
-just test              # Run all tests
-just check             # Run linting, formatting, and type checking
-just ci                # Complete CI pipeline
+```
+src/leizilla/
+├── config.py        # env + path config (DUCKDB_PATH, IA/Anthropic keys, crawler timeouts)
+├── entes.py         # federative entity catalog (27 states + federal)
+├── storage.py       # DuckDB schema + CRUD (leis, discovered_resources)
+├── discovery.py     # manifest-driven discovery strategies (WaybackCdx/Sequential/Playwright)
+├── crawler.py       # Playwright + direct PDF download
+├── scraper.py       # robots → Wayback → IA orchestration; per-host rate limiting
+├── wayback.py       # Wayback Machine save/fetch (fail-open)
+├── robots.py        # robots.txt enforcement (ADR-0008)
+├── publisher.py     # IA upload + content-addressing (ADR-0010) + dataset release  [largest, ~900 LOC]
+├── ia_utils.py      # SHA-256 addressing, index.csv, IA identifier helpers
+├── parser.py        # OCR/HTML → Leizilla XML via Claude (confidence-gated)
+├── ocr.py           # OCR text cleaning + normalization
+├── etl.py           # Leizilla XML → Parquet (versioning + revogação cascade)
+├── cli.py           # Typer CLI, ~20 commands  [largest user-facing, ~1300 LOC]
+└── fontes/          # source-specific discovery: ro.py (done), federal.py (Planalto), sp.py (stub)
+manifests/           # per-ente discovery manifests (currently ro.json)
+web/                 # Astro + Svelte 5 + Pico CSS + DuckDB-WASM frontend
+docs/adr/            # Architecture Decision Records
+docs/SCHEMA.md       # canonical data model (dispositivo-centric)
+docs/routines/       # Claude maintenance-prompt for automated sessions
+tests/               # pytest suite (~530 tests, all external calls mocked)
+data/                # local DuckDB + artifacts (gitignored)
 ```
 
-Current test coverage includes:
+## Key design decisions (see `docs/adr/`)
 
-- Storage operations (DuckDB schema validation)
-- Configuration loading
-- CLI argument parsing
-- Core module imports
+- **ADR-0001 — IA as central pillar.** Free OCR, permanent storage, torrents.
+- **ADR-0004 — Wayback as primary fetch.** Be gentle to fragile gov.br sites.
+- **ADR-0008 — robots.txt + rate limiting.** Permanent reject on disallow; ~1 req/s.
+- **ADR-0009 — LGPD/ethics.** Brazilian laws are public; no despublication.
+- **ADR-0010 — content-addressed raw, URN-keyed parsed.** Raw bytes are stored by
+  SHA-256 (source-agnostic, dedup-by-construction); parsed norms are keyed by
+  URN-LEX. The harvest key (`coddoc`, URL path, …) is metadata in an `index.csv`,
+  never a path or range boundary. ADR-0010 supersedes ADR-0005's raw-item scheme.
 
-## Roadmap Context
+The codebase is **fail-open by design**: Wayback save failures, missing
+robots.txt, and IA query errors return empty/None rather than aborting batch jobs.
 
-- **Q3/2025**: Complete Rondônia state laws indexing
-- **Q4/2025**: Federal legislation coverage (1988-present)
-- **Q1/2026**: Static frontend (HTML/JS) with DuckDB-WASM search
-- **Q2/2026**: Semantic search with embeddings stored in DuckDB
+## CLI reference
 
-The project emphasizes cost-zero operation, radical transparency, and distributed resilience over traditional cloud-based approaches.
+All commands run as `uv run leizilla <command>`. Most take `--ente` (default `ro`).
+
+| Command | Purpose |
+|---|---|
+| `discover --ente ro` | run manifest discovery → enqueue resources |
+| `harvest --ente ro --limit 100` | process the pending queue (scrape + upload) |
+| `scrape --ente ro --fonte casacivil --tipo lei --start-coddoc 1 --end-coddoc 10` | range scrape one source |
+| `bundle-raw --ente ro --fonte casacivil` | consolidate raw PDFs into one IA item (torrents) |
+| `fetch-ocr --ente ro --limit 100` | pull IA OCR text into DuckDB |
+| `parse --ente ro --raw-id leizilla-raw-ro-casacivil-lei-05120` | LLM parse one raw item → XML (`--upload`, `--input-type ocr\|html`) |
+| `parse-all --ente ro --start-coddoc 1 --end-coddoc 100` | batch parse a range (`--upload`, `--skip-existing`, `--error-threshold`, `--output-dir`) |
+| `fetch-all-parsed --ente ro --output-dir data/parsed` | download all parsed XML from IA |
+| `consolidate data/parsed --output out.parquet --ente ro` | XML dir (positional) → Parquet |
+| `release-dataset out.parquet --ente ro --version 0` | publish Parquet (positional) dataset to IA |
+| `export --ente ro --year 2020` | export local Parquet |
+| `search --ente ro` / `stats --ente ro` | local search / IA item counts |
+| `pipeline --ente ro --limit 5` | orchestrate discover→harvest→export |
+
+Source-specific discovery currently exists for RO (`fontes/ro.py`) and federal
+Planalto (`fontes/federal.py`); `fontes/sp.py` is a stub, and only `ro.json`
+manifest exists.
+
+## Data & schema
+
+- **Local DB:** `data/leizilla.duckdb` (auto-created, gitignored). Tables: `leis`
+  (law records) and `discovered_resources` (discovery queue).
+- **Canonical data model:** `docs/SCHEMA.md` — the **dispositivo** (article/clause)
+  is the unit; tipo/rótulo are derived from path, vigência inherited, revogação is
+  a structured event. XML is validated against `docs/schemas/leizilla-v0.1.xsd`.
+- **Distribution formats:** Parquet (`versoes` table, primary), plus IA torrents.
+
+## Testing & CI
+
+- ~530 pytest tests; **all network/IA/Anthropic/subprocess calls are mocked** —
+  there are no live-network tests. Keep new tests offline/deterministic.
+- `lint.yml` gates every PR: ruff check, ruff format-check, mypy, pytest.
+- `schema-validate.yml` runs xmllint/xsltproc + the consistency checker when
+  schema, fixtures, or related tests change.
+- Weakly covered today: `ocr.py`; `config.py` and `entes.py` have no direct tests.
+
+## Conventions
+
+- **Types:** all functions need type hints; mypy is part of CI.
+- **Style:** ruff format, 88-char lines, double quotes, target py312.
+- **Commits:** Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, …).
+- **ADRs:** add an ADR in `docs/adr/` for architectural decisions; update
+  `docs/SCHEMA.md` for data-model changes (and re-run the schema validation).
+- **Pre-commit** mirrors CI (ruff, ruff-format, mypy, hygiene hooks).
+
+## Environment variables
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `IA_ACCESS_KEY` / `IA_SECRET_KEY` | Internet Archive auth (required for upload) | — |
+| `ANTHROPIC_API_KEY` | Claude API for parsing | — |
+| `DUCKDB_PATH` | local DB location | `data/leizilla.duckdb` |
+| `DATA_DIR` | data directory | `data/` |
+| `CRAWLER_DELAY` / `CRAWLER_RETRIES` / `CRAWLER_TIMEOUT` | crawler tuning (ms/count/ms) | `2000` / `3` / `30000` |
+
+See `.env.example`. Permissions for the Claude Code assistant live in
+`.claude/settings.local.json`.
+
+## Roadmap
+
+- **Q3/2025** — complete Rondônia indexing.
+- **Q4/2025** — federal legislation (1988–present).
+- **Q1/2026** — static DuckDB-WASM search frontend.
+- **Q2/2026** — semantic search with embeddings in DuckDB.
+
+Guiding principles throughout: cost-zero operation, radical transparency, and
+distributed resilience over cloud infrastructure.
