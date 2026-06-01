@@ -71,8 +71,12 @@ export function getDb(): Promise<duckdb.AsyncDuckDB> {
 export interface LeiRow {
   lei_id: string;
   ente: string;
+  tipo_lei: string;
+  numero_lei: string | null;
+  ano_lei: number;
   dispositivo_path: string;
   dispositivo_tipo: string;
+  texto: string | null;
   texto_normalizado: string | null;
   em: string | null;
   ate: Date | null;
@@ -82,6 +86,7 @@ export const PAGE_SIZE = 20;
 
 export interface SearchOptions {
   ente?: string;
+  tipoLei?: string;
   year?: number;
   page?: number;
   pageSize?: number;
@@ -90,16 +95,25 @@ export interface SearchOptions {
 type RowMapper<T> = (r: unknown) => T;
 const toJson: RowMapper<LeiRow> = (r) => (r as { toJSON(): LeiRow }).toJSON();
 
-function buildWhere(query: string, ente?: string, year?: number) {
+function buildWhere(query: string, opts: SearchOptions = {}) {
+  const { ente, tipoLei, year } = opts;
   const clauses = ['ate IS NULL'];
   const params: Array<string | number> = [];
   if (query.trim()) {
     clauses.push('texto_normalizado ILIKE ?');
     params.push(`%${query.trim()}%`);
+  } else {
+    // Sem busca textual, mostramos uma linha por norma (a ementa) em vez de
+    // uma linha por dispositivo — a tabela lista normas, não artigos.
+    clauses.push("dispositivo_path = 'ementa'");
   }
   if (ente) {
     clauses.push('ente = ?');
     params.push(ente);
+  }
+  if (tipoLei) {
+    clauses.push('tipo_lei = ?');
+    params.push(tipoLei);
   }
   if (year != null && year > 0) {
     // em is a DATE column inferred by read_json_auto; YEAR(NULL) = NULL → safe
@@ -135,14 +149,14 @@ async function runSql<T>(
 }
 
 export async function searchLeisFiltered(query: string, opts: SearchOptions = {}): Promise<LeiRow[]> {
-  const { ente, year, page = 0, pageSize = PAGE_SIZE } = opts;
+  const { page = 0, pageSize = PAGE_SIZE } = opts;
   // Math.trunc + bounds enforce integer values — LIMIT/OFFSET cannot be injected.
   // DuckDB prepared statements do not support ? placeholders in LIMIT/OFFSET clauses.
   // Number.isFinite guard prevents NaN from reaching the SQL string (e.g. if caller
   // passes NaN explicitly; normal path always receives valid integers from PAGE_SIZE).
   const safeSize = Math.min(100, Math.max(1, Math.trunc(Number.isFinite(pageSize) ? pageSize : PAGE_SIZE)));
   const offset = Math.max(0, Math.trunc(Number.isFinite(page) ? page : 0)) * safeSize;
-  const { where, params } = buildWhere(query, ente, year);
+  const { where, params } = buildWhere(query, opts);
   // ORDER BY (lei_id, dispositivo_path) is globally unique → stable pagination across pages.
   const sql = `SELECT * FROM versoes WHERE ${where} ORDER BY lei_id, dispositivo_path LIMIT ${safeSize} OFFSET ${offset}`;
   return runSql(sql, params, toJson);
@@ -150,9 +164,9 @@ export async function searchLeisFiltered(query: string, opts: SearchOptions = {}
 
 export async function countLeisFiltered(
   query: string,
-  opts: Pick<SearchOptions, 'ente' | 'year'> = {},
+  opts: Pick<SearchOptions, 'ente' | 'tipoLei' | 'year'> = {},
 ): Promise<number> {
-  const { where, params } = buildWhere(query, opts.ente, opts.year);
+  const { where, params } = buildWhere(query, opts);
   const rows = await runSql<{ cnt: bigint | number }>(
     `SELECT COUNT(*)::BIGINT AS cnt FROM versoes WHERE ${where}`,
     params,
