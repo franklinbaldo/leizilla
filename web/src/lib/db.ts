@@ -35,13 +35,21 @@ async function _init(): Promise<duckdb.AsyncDuckDB> {
 
     const conn = await db.connect();
     try {
+      // Resolve a URL do Parquet em tempo de execução no navegador para que seja sempre 100% absoluta!
+      const resolvedUrl = typeof window !== 'undefined'
+        ? new URL(PARQUET_URL, window.location.href).href
+        : PARQUET_URL;
+
+      console.log('🦆 DuckDB-WASM carregando Parquet de:', resolvedUrl);
+
       await conn.query(
-        `CREATE OR REPLACE VIEW versoes AS SELECT * FROM read_parquet('${PARQUET_URL}');`,
+        `CREATE OR REPLACE VIEW versoes AS SELECT * FROM read_parquet('${resolvedUrl}');`,
       );
     } finally {
       await conn.close();
     }
   } catch (e) {
+    console.error('❌ Falha ao inicializar DuckDB-WASM:', e);
     await db.terminate().catch(() => {}); // cleanup orphaned worker; ignore secondary errors
     throw e;
   } finally {
