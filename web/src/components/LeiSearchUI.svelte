@@ -64,14 +64,49 @@
     return enteCode.toUpperCase();
   }
 
-  function getIaUrl(row: LeiRow): string {
-    try {
-      if (row.fontes) {
-        const list = JSON.parse(row.fontes);
-        if (list && list.length > 0 && list[0].ia_id) {
-          return `https://archive.org/details/${list[0].ia_id}`;
+  function getRangeIdentifier(row: LeiRow): string {
+    const num = parseInt(row.numero_lei || '0', 10);
+    const enteClean = row.ente.toLowerCase();
+    
+    // Extrai fonte
+    let fonte = 'desconhecido';
+    const prefix = `${row.ente}-`;
+    if (row.lei_id.startsWith(prefix)) {
+      const suffix = `-${row.tipo_lei}-${row.numero_lei}`;
+      if (row.lei_id.endsWith(suffix)) {
+        fonte = row.lei_id.slice(prefix.length, row.lei_id.length - suffix.length);
+      } else {
+        const rest = row.lei_id.slice(prefix.length);
+        const lastDash = rest.lastIndexOf('-');
+        if (lastDash !== -1) {
+          fonte = rest.slice(0, lastDash);
         }
       }
+    }
+    const fonteClean = fonte.toLowerCase();
+
+    if (!Number.isFinite(num) || num <= 0) {
+      return `leizilla_${enteClean}_${fonteClean}_fallback`;
+    }
+
+    const rangeSize = 1000;
+    const start = Math.floor((num - 1) / rangeSize) * rangeSize + 1;
+    const end = start + rangeSize - 1;
+    const tipoClean = (row.tipo_lei || 'documento').toLowerCase();
+    
+    const startPad = String(start).padStart(4, '0');
+    const endPad = String(end).padStart(4, '0');
+
+    if (tipoClean === 'coddoc') {
+      return `leizilla_${enteClean}_${fonteClean}_${startPad}-${endPad}`;
+    }
+    return `leizilla_${enteClean}_${fonteClean}_${tipoClean}_${startPad}-${endPad}`;
+  }
+
+  function getIaUrl(row: LeiRow): string {
+    try {
+      const rangeId = getRangeIdentifier(row);
+      return `https://archive.org/details/${rangeId}`;
     } catch (e) {}
     return `https://archive.org/search?query=${row.lei_id}`;
   }
