@@ -11,7 +11,7 @@
   // --- Svelte 5 state for UI ---
   let rawTerm = $state('');
   let debouncedTerm = $state('');
-  let ente = $state('ro'); // Padrão: Rondônia
+  let ente = $state(''); // Padrão: Todos os entes
   let tipoLei = $state(''); // Padrão: Todos os tipos de norma
   let year = $state<number | null>(null);
   let page = $state(0);
@@ -78,13 +78,13 @@
 
   // --- Bridge: Svelte 5 state → Svelte 4 stores (TanStack Query interface) ---
   const resultsOpts = writable({
-    queryKey: ['leis', '', 'ro', '', null, 0] as readonly unknown[],
-    queryFn: () => searchLeisFiltered('', { ente: 'ro' }),
+    queryKey: ['leis', '', '', '', null, 0] as readonly unknown[],
+    queryFn: () => searchLeisFiltered('', {}),
     placeholderData: (prev: LeiRow[] | undefined) => prev,
   });
   const countOpts = writable({
-    queryKey: ['leis-count', '', 'ro', '', null] as readonly unknown[],
-    queryFn: () => countLeisFiltered('', { ente: 'ro' }),
+    queryKey: ['leis-count', '', '', '', null] as readonly unknown[],
+    queryFn: () => countLeisFiltered('', {}),
     staleTime: 5 * 60 * 1000,
   });
 
