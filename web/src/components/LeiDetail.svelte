@@ -46,7 +46,8 @@
     );
   }
 
-  const highlightedText = $derived(highlight(row.texto_normalizado, searchTerm));
+  // Prefer canonical text (with accents/punctuation); fall back to normalized if absent.
+  const highlightedText = $derived(highlight(row.texto ?? row.texto_normalizado, searchTerm));
 
   // Focus management: move focus into panel on open, restore on close.
   let panelEl: HTMLElement;

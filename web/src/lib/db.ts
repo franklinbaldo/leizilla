@@ -73,6 +73,7 @@ export interface LeiRow {
   ente: string;
   dispositivo_path: string;
   dispositivo_tipo: string;
+  texto: string | null;
   texto_normalizado: string | null;
   em: string | null;
   ate: Date | null;
