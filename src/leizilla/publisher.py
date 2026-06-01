@@ -419,6 +419,45 @@ class InternetArchivePublisher:
         self.access_key = config.IA_ACCESS_KEY
         self.secret_key = config.IA_SECRET_KEY
 
+    def _ia_upload_cmd(
+        self,
+        ia_id: str,
+        files: list,
+        metadata: list,
+    ) -> list:
+        """Build an `ia upload` command list with credentials injected.
+
+        The `ia` CLI does not honour IA_ACCESS_KEY/IA_SECRET_KEY env vars —
+        it only reads a config file (default ~/.config/internetarchive/ia.ini
+        or the path given via `-c FILE`).  We write a minimal temp config and
+        pass it with `-c` so the subprocess can authenticate without requiring
+        a pre-configured system-wide ini file.
+        """
+        import configparser
+        import atexit
+
+        cmd_prefix = ["ia"]
+        if self.access_key and self.secret_key:
+            cfg = configparser.ConfigParser()
+            cfg["s3"] = {
+                "access": self.access_key,
+                "secret": self.secret_key,
+            }
+            cfg["cookies"] = {}
+            tmp_cfg = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".ini", delete=False, encoding="utf-8"
+            )
+            cfg.write(tmp_cfg)
+            tmp_cfg.close()
+            atexit.register(lambda p=tmp_cfg.name: Path(p).unlink(missing_ok=True))
+            cmd_prefix += ["-c", tmp_cfg.name]
+
+        cmd = cmd_prefix + ["upload", ia_id]
+        cmd.extend(files)
+        for item in metadata:
+            cmd += ["--metadata", item]
+        return cmd
+
     def upload_raw(
         self,
         pdf_path: Path,
@@ -487,33 +526,20 @@ class InternetArchivePublisher:
                 f"identificador {ia_id}, capturado pelo projeto Leizilla."
             )
             try:
-                subprocess.run(
-                    [
-                        "ia",
-                        "upload",
-                        range_ia_id,
-                        str(pdf_dst),
-                        str(meta_path),
-                        str(manifest_path),
-                        "--metadata",
+                cmd = self._ia_upload_cmd(
+                    range_ia_id,
+                    files=[str(pdf_dst), str(meta_path), str(manifest_path)],
+                    metadata=[
                         f"title:{title}",
-                        "--metadata",
                         "mediatype:texts",
-                        "--metadata",
                         f"subject:leis;leizilla;{ente};{fonte}",
-                        "--metadata",
                         "creator:leizilla-crawler",
-                        "--metadata",
                         "language:pt",
-                        "--metadata",
                         f"coverage:{coverage}",
-                        "--metadata",
                         f"description:{desc}",
                     ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
                 )
+                subprocess.run(cmd, capture_output=True, text=True, check=True)
                 return {
                     "success": True,
                     "ia_id": ia_id,
@@ -594,33 +620,20 @@ class InternetArchivePublisher:
                 f"identificador {ia_id}, capturado pelo projeto Leizilla."
             )
             try:
-                subprocess.run(
-                    [
-                        "ia",
-                        "upload",
-                        range_ia_id,
-                        str(html_dst),
-                        str(meta_path),
-                        str(manifest_path),
-                        "--metadata",
+                cmd = self._ia_upload_cmd(
+                    range_ia_id,
+                    files=[str(html_dst), str(meta_path), str(manifest_path)],
+                    metadata=[
                         f"title:{title}",
-                        "--metadata",
                         "mediatype:texts",
-                        "--metadata",
                         f"subject:leis;leizilla;{ente};{fonte}",
-                        "--metadata",
                         "creator:leizilla-crawler",
-                        "--metadata",
                         "language:pt",
-                        "--metadata",
                         f"coverage:{coverage}",
-                        "--metadata",
                         f"description:{desc}",
                     ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
                 )
+                subprocess.run(cmd, capture_output=True, text=True, check=True)
                 return {
                     "success": True,
                     "ia_id": ia_id,
@@ -669,32 +682,20 @@ class InternetArchivePublisher:
                 f"processado pelo projeto Leizilla."
             )
             try:
-                subprocess.run(
-                    [
-                        "ia",
-                        "upload",
-                        ia_id_parsed,
-                        str(xml_path),
-                        str(meta_path),
-                        "--metadata",
+                cmd = self._ia_upload_cmd(
+                    ia_id_parsed,
+                    files=[str(xml_path), str(meta_path)],
+                    metadata=[
                         f"title:{titulo}",
-                        "--metadata",
                         "mediatype:texts",
-                        "--metadata",
                         f"subject:leis;leizilla;{ente};{tipo}",
-                        "--metadata",
                         "creator:leizilla-parser",
-                        "--metadata",
                         "language:pt",
-                        "--metadata",
                         f"coverage:{coverage}",
-                        "--metadata",
                         f"description:{desc}",
                     ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
                 )
+                subprocess.run(cmd, capture_output=True, text=True, check=True)
                 return {
                     "success": True,
                     "ia_id": ia_id_parsed,
@@ -750,32 +751,20 @@ class InternetArchivePublisher:
                 f"Contém {effective_row_count} linhas."
             )
             try:
-                subprocess.run(
-                    [
-                        "ia",
-                        "upload",
-                        ia_id,
-                        str(parquet_dst),
-                        str(meta_path),
-                        "--metadata",
+                cmd = self._ia_upload_cmd(
+                    ia_id,
+                    files=[str(parquet_dst), str(meta_path)],
+                    metadata=[
                         f"title:Leizilla Dataset {ente.upper()} v{version}",
-                        "--metadata",
                         "mediatype:data",
-                        "--metadata",
                         f"subject:leis;leizilla;{ente};parquet;versoes",
-                        "--metadata",
                         "creator:leizilla-etl",
-                        "--metadata",
                         "language:pt",
-                        "--metadata",
                         f"coverage:{coverage}",
-                        "--metadata",
                         f"description:{desc}",
                     ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
                 )
+                subprocess.run(cmd, capture_output=True, text=True, check=True)
                 return {
                     "success": True,
                     "ia_id": ia_id,
@@ -819,31 +808,20 @@ class InternetArchivePublisher:
             shutil.copy2(str(file_path), str(dst_path))
 
             try:
-                subprocess.run(
-                    [
-                        "ia",
-                        "upload",
-                        archive_ia_id,
-                        str(dst_path),
-                        "--metadata",
+                cmd = self._ia_upload_cmd(
+                    archive_ia_id,
+                    files=[str(dst_path)],
+                    metadata=[
                         f"title:{title}",
-                        "--metadata",
                         "mediatype:texts",
-                        "--metadata",
                         f"subject:leis;leizilla;{ente};{fonte};archive",
-                        "--metadata",
                         "creator:leizilla-crawler",
-                        "--metadata",
                         "language:pt",
-                        "--metadata",
                         f"coverage:{coverage}",
-                        "--metadata",
                         f"description:{desc}",
                     ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
                 )
+                subprocess.run(cmd, capture_output=True, text=True, check=True)
                 return {"success": True}
             except FileNotFoundError:
                 return {
