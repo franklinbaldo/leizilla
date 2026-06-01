@@ -4,6 +4,7 @@
   import {
     searchLeisFiltered,
     countLeisFiltered,
+    listTiposLei,
     PAGE_SIZE,
     type LeiRow,
   } from '../lib/db.ts';
@@ -13,8 +14,20 @@
   let debouncedTerm = $state('');
   let ente = $state(''); // Padrão: Todos os entes
   let tipoLei = $state(''); // Padrão: Todos os tipos de norma
+  let tipoOptions = $state<string[]>([]); // valores reais de tipo_lei no dataset
   let year = $state<number | null>(null);
   let page = $state(0);
+
+  // Popula o filtro de tipo a partir dos valores realmente persistidos no
+  // dataset (lei.complementar, lc, decreto, ...), evitando slugs hardcoded que
+  // poderiam divergir do ETL e filtrar zero resultados. Roda uma vez.
+  $effect(() => {
+    listTiposLei()
+      .then((tipos) => {
+        tipoOptions = tipos;
+      })
+      .catch(() => {});
+  });
 
   // Debounce: update debouncedTerm 400ms after last keystroke.
   $effect(() => {
@@ -47,12 +60,28 @@
   function formatTipoLei(tipo: string): string {
     if (!tipo) return 'Norma';
     const clean = tipo.toLowerCase();
-    if (clean === 'lei') return 'Lei Ordinária';
-    if (clean === 'lei-complementar') return 'Lei Complementar';
-    if (clean === 'decreto') return 'Decreto';
-    if (clean === 'resolucao') return 'Resolução';
-    if (clean === 'portaria') return 'Portaria';
-    return tipo.charAt(0).toUpperCase() + tipo.slice(1);
+    // O tipo_lei persistido vem do URN-LEX (lei.complementar, pontuado) ou da
+    // heurística de fallback do lei_id (lc) — cobrimos ambas as formas.
+    const labels: Record<string, string> = {
+      lei: 'Lei Ordinária',
+      'lei.complementar': 'Lei Complementar',
+      'lei-complementar': 'Lei Complementar',
+      lc: 'Lei Complementar',
+      decreto: 'Decreto',
+      'decreto-lei': 'Decreto-Lei',
+      'decreto.lei': 'Decreto-Lei',
+      'medida.provisoria': 'Medida Provisória',
+      'emenda.constitucional': 'Emenda Constitucional',
+      constituicao: 'Constituição',
+      resolucao: 'Resolução',
+      portaria: 'Portaria',
+    };
+    if (labels[clean]) return labels[clean];
+    // Desconhecido: prettifica separando por '.'/'‑' e capitalizando.
+    return clean
+      .split(/[.\-]/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
   }
 
   function formatEnte(enteCode: string): string {
@@ -139,9 +168,9 @@
 
     <select value={tipoLei} onchange={onTipoLeiChange} aria-label="Filtrar por tipo de norma">
       <option value="">Todos os tipos de norma</option>
-      <option value="lei">Lei Ordinária</option>
-      <option value="lei-complementar">Lei Complementar</option>
-      <option value="decreto">Decreto</option>
+      {#each tipoOptions as t}
+        <option value={t}>{formatTipoLei(t)}</option>
+      {/each}
     </select>
 
     <input

@@ -175,6 +175,23 @@ export async function countLeisFiltered(
   return Number(rows[0]?.cnt ?? 0);
 }
 
+/**
+ * Distinct `tipo_lei` values present in the dataset, for the type filter.
+ *
+ * Driven by the data so the dropdown always uses the persisted representation
+ * (the ETL stores e.g. `lei.complementar` or `lc`, never a hardcoded slug) —
+ * a hardcoded option list would silently filter to zero matches if it drifted.
+ */
+export async function listTiposLei(): Promise<string[]> {
+  const rows = await runSql<{ tipo_lei: string }>(
+    "SELECT DISTINCT tipo_lei FROM versoes " +
+      "WHERE tipo_lei IS NOT NULL AND tipo_lei <> 'desconhecido' ORDER BY tipo_lei",
+    [],
+    (r) => (r as { toJSON(): { tipo_lei: string } }).toJSON(),
+  );
+  return rows.map((r) => r.tipo_lei).filter(Boolean);
+}
+
 /** @deprecated Use searchLeisFiltered instead. Max 100 rows (capped by searchLeisFiltered). */
 export async function searchLeis(query: string, limit = 20): Promise<LeiRow[]> {
   return searchLeisFiltered(query, { pageSize: limit });
