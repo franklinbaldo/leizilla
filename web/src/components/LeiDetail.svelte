@@ -48,6 +48,41 @@
 
   const highlightedText = $derived(highlight(row.texto_normalizado, searchTerm));
 
+  // Focus management: move focus into panel on open, restore on close.
+  let panelEl: HTMLElement;
+  let closeBtn: HTMLButtonElement;
+
+  $effect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    closeBtn?.focus();
+    return () => {
+      prev?.focus();
+    };
+  });
+
+  function focusableElements(): HTMLElement[] {
+    return Array.from(
+      panelEl?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) ?? [],
+    );
+  }
+
+  function handlePanelKeydown(e: KeyboardEvent) {
+    if (e.key !== 'Tab') return;
+    const els = focusableElements();
+    if (els.length === 0) return;
+    const first = els[0];
+    const last = els[els.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
   function handleBackdropClick(e: MouseEvent) {
     if (e.target === e.currentTarget) onClose();
   }
@@ -65,10 +100,10 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 <div class="backdrop" onclick={handleBackdropClick} role="dialog" aria-modal="true" aria-label={`Detalhes da lei ${row.lei_id}`}>
-  <aside class="panel">
+  <aside class="panel" bind:this={panelEl} onkeydown={handlePanelKeydown}>
     <div class="panel-header">
       <h2>{row.lei_id}</h2>
-      <button class="close-btn" onclick={onClose} aria-label="Fechar">&times;</button>
+      <button bind:this={closeBtn} class="close-btn" onclick={onClose} aria-label="Fechar">&times;</button>
     </div>
 
     <div class="meta-grid">
