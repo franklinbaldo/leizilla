@@ -810,34 +810,23 @@ class InternetArchivePublisher:
             "identified": identity is not None,
         }
 
-    def _promote_to_range(
+    def _upload_to_range(
         self,
+        range_id: str,
+        content: bytes,
+        filename: str,
+        index_csv: str,
         ente: str,
         fonte: str,
         tipo: str,
         numero: int,
-        content: bytes,
-        row: Dict[str, str],
-    ) -> Optional[str]:
-        """Sobe um arquivo preservado para o item de range com a identidade agora
-        conhecida. Devolve o ``uuid5`` promovido, ou ``None`` em falha."""
-        range_id = range_item_identifier(ente, fonte, tipo, numero)
-        try:
-            uuid5, index_csv = _resolve_uuid5_and_index(
-                range_id,
-                content,
-                tipo=tipo,
-                numero=numero,
-                rendicao=row.get("rendicao", ""),
-                formato=row.get("formato", "pdf"),
-                source=row.get("source", ""),
-            )
-        except IndexFetchError as e:
-            logger.warning("reconcile: índice do range ilegível (%s): %s", range_id, e)
-            return None
-        suffix = _FORMATO_SUFFIX.get(row.get("formato", "pdf"), ".pdf")
+    ) -> bool:
+        """Escreve o arquivo + o ``index.csv`` (já mesclado pelo chamador) e sobe ao
+        item de range. O index vem pronto para que promoções ao MESMO range numa
+        execução acumulem num único índice — evita o lost-update de releituras
+        sucessivas contra o IA eventualmente-consistente."""
         with tempfile.TemporaryDirectory() as tmp:
-            fdst = Path(tmp) / raw_filename(uuid5, suffix)
+            fdst = Path(tmp) / filename
             fdst.write_bytes(content)
             index_path = Path(tmp) / INDEX_FILENAME
             index_path.write_text(index_csv, encoding="utf-8")
@@ -869,8 +858,8 @@ class InternetArchivePublisher:
                 logger.warning(
                     "reconcile: upload ao range falhou (%s): %s", range_id, e
                 )
-                return None
-        return uuid5
+                return False
+        return True
 
     def _upload_index_only(self, item_id: str, index_csv: str) -> bool:
         """Reescreve o index.csv de um item (usado para tirar do índice de espera o
@@ -912,7 +901,12 @@ class InternetArchivePublisher:
         bytes vêm do **IA** (item de espera), nunca do portal frágil (ADR-0004).
         """
         if not self.access_key or not self.secret_key:
-            return {"success": False, "error": "IA credentials not configured"}
+            return {
+                "success": False,
+                "error": "IA credentials not configured",
+                "promoted": 0,
+                "remaining": 0,
+            }
         holding_id = unidentified_item_identifier(ente, fonte)
         try:
             holding_index = _fetch_existing_index(holding_id)
@@ -920,6 +914,8 @@ class InternetArchivePublisher:
             return {
                 "success": False,
                 "error": f"could not read holding index: {e}",
+                "promoted": 0,
+                "remaining": 0,
                 "item_id": holding_id,
             }
         if not holding_index:
@@ -937,12 +933,19 @@ class InternetArchivePublisher:
         # Chaveamos por (uuid5, source): bytes idênticos de origens distintas
         # compartilham o uuid5, mas só a origem identificável deve sair da espera.
         promoted_keys: Set[tuple[str, str]] = set()
+        # Index.csv acumulado por range NESTA execução. Promoções ao mesmo range
+        # crescem um único índice (uma leitura por range): sem isso, cada upload
+        # releria do IA — eventualmente consistente — um índice sem a linha recém-
+        # subida e a sobrescreveria (lost update).
+        range_index_cache: Dict[str, Optional[str]] = {}
+        failed_ranges: Set[str] = set()
         for row in rows:
             if row["numero"]:  # já identificado nesta área (não deveria ocorrer)
                 continue
             ident = identity_by_source.get(row["source"])
             if ident is None:
                 continue
+            tipo, numero = ident
             suffix = _FORMATO_SUFFIX.get(row["formato"], ".pdf")
             try:
                 content = _fetch_item_file_bytes(
@@ -951,9 +954,44 @@ class InternetArchivePublisher:
             except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
                 logger.warning("reconcile: download de %s falhou: %s", row["uuid5"], e)
                 continue
-            tipo, numero = ident
-            promoted = self._promote_to_range(ente, fonte, tipo, numero, content, row)
-            if promoted is not None:
+            range_id = range_item_identifier(ente, fonte, tipo, numero)
+            if range_id in failed_ranges:
+                continue
+            if range_id not in range_index_cache:
+                try:
+                    range_index_cache[range_id] = _fetch_existing_index(range_id)
+                except IndexFetchError as e:
+                    logger.warning(
+                        "reconcile: índice do range ilegível (%s): %s", range_id, e
+                    )
+                    failed_ranges.add(range_id)
+                    continue
+            base = range_index_cache[range_id]
+            sha256 = compute_hash(content)
+            uuid5 = uuid5_name(content)
+            if base and uuid5_collision(base, uuid5=uuid5, sha256=sha256):
+                uuid5 = uuid5_name(content, length=32)
+            merged = merge_index_row(
+                base or None,
+                tipo=tipo,
+                numero=numero,
+                rendicao=row["rendicao"],
+                formato=row["formato"],
+                uuid5=uuid5,
+                sha256=sha256,
+                source=row["source"],
+            )
+            if self._upload_to_range(
+                range_id,
+                content,
+                raw_filename(uuid5, suffix),
+                merged,
+                ente,
+                fonte,
+                tipo,
+                numero,
+            ):
+                range_index_cache[range_id] = merged  # acumula só em sucesso
                 promoted_keys.add((row["uuid5"], row["source"]))
 
         # As promoções ao range já aconteceram; só falta tirar essas linhas do

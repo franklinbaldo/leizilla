@@ -128,6 +128,63 @@ class TestReconcileUnidentified:
         assert res["promoted"] == 1
         assert res["remaining"] == 1  # src 8 alias still preserved
 
+    def test_same_range_promotions_accumulate_index_no_lost_update(self):
+        # Two held files (different bytes → different uuid5, different sources) both
+        # resolve into the SAME range bucket (lei 7 & 8 → lei_0001-1000). The range
+        # index must be fetched once and accumulate BOTH rows; without the per-call
+        # cache, each upload would re-read a stale index and clobber the prior row.
+        import csv as _csv
+        import io as _io
+
+        holding = merge_index_row(
+            None,
+            tipo="",
+            numero=None,
+            rendicao="",
+            formato="pdf",
+            uuid5="ua",
+            sha256="ha",
+            source="http://x/7",
+        )
+        holding = merge_index_row(
+            holding,
+            tipo="",
+            numero=None,
+            rendicao="",
+            formato="pdf",
+            uuid5="ub",
+            sha256="hb",
+            source="http://x/8",
+        )
+        identity = {"http://x/7": ("lei", 7), "http://x/8": ("lei", 8)}
+
+        captured: list[tuple[str, str]] = []
+
+        def fake_upload(range_id, content, filename, index_csv, *a):
+            captured.append((range_id, index_csv))
+            return True
+
+        def fake_bytes(item_id, filename):
+            return b"A" if filename.startswith("ua") else b"B"
+
+        pub = _pub()
+        with (
+            patch("leizilla.publisher._fetch_item_file_bytes", side_effect=fake_bytes),
+            patch("leizilla.publisher._fetch_existing_index") as mock_idx,
+            patch.object(pub, "_upload_to_range", side_effect=fake_upload),
+            patch.object(pub, "_upload_index_only", return_value=True),
+        ):
+            mock_idx.side_effect = [holding, None]  # holding, then range ONCE
+            res = pub.reconcile_unidentified("ro", "casacivil", identity)
+
+        assert res["promoted"] == 2
+        # holding (1) + range index (1) — the range is NOT re-fetched per file.
+        assert mock_idx.call_count == 2
+        # Final index uploaded for the range carries BOTH números (no lost update).
+        last_index = captured[-1][1]
+        numeros = {r["numero"] for r in _csv.DictReader(_io.StringIO(last_index))}
+        assert numeros == {"7", "8"}
+
     @patch("leizilla.publisher._fetch_existing_index", return_value=None)
     def test_empty_holding_is_noop(self, _mock_idx):
         res = _pub().reconcile_unidentified("ro", "assembleia", {"x": ("lei", 1)})

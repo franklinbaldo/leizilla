@@ -39,6 +39,14 @@ class TestParseTituloIdentity:
     def test_no_number_returns_none(self):
         assert parse_titulo_identity("Lei sem número identificável") is None
 
+    def test_year_word_is_not_mistaken_for_number(self):
+        # The "n" in "ano"/"no" before a year must NOT anchor a número — these
+        # titles lack a real ordinal marker, so they're unidentified (preserved),
+        # not catalogued under a fabricated number equal to the year.
+        assert parse_titulo_identity("RESOLUÇÃO ADMINISTRATIVA - ANO 2020") is None
+        assert parse_titulo_identity("LEI QUE DISPÕE NO ÂMBITO, DE 2021") is None
+        assert parse_titulo_identity("Portaria do ano 2019 sobre x") is None
+
     def test_no_tipo_returns_none(self):
         assert parse_titulo_identity("Documento avulso nº 123") is None
 
