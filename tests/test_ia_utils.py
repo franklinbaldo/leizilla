@@ -170,6 +170,44 @@ class TestMergeIndexRow:
             .endswith(",http://alro.ro.gov.br/legislacao/leis/7")
         )
 
+    def test_unidentified_same_bytes_different_source_coexist(self):
+        # Holding area: identical bytes from two different source URLs must yield
+        # two rows (reconcile keys by source) — not deduped to one.
+        idx = merge_index_row(
+            None,
+            tipo="",
+            numero=None,
+            rendicao="",
+            formato="pdf",
+            uuid5="u1",
+            sha256="hsame",
+            source="http://alro/leis/7",
+        )
+        idx = merge_index_row(
+            idx,
+            tipo="",
+            numero=None,
+            rendicao="",
+            formato="pdf",
+            uuid5="u1",
+            sha256="hsame",
+            source="http://alro/leis/8",  # same bytes, different source
+        )
+        rows = idx.strip().splitlines()[1:]
+        assert len(rows) == 2
+        # But re-appending the *same* source+bytes is still a no-op.
+        idx2 = merge_index_row(
+            idx,
+            tipo="",
+            numero=None,
+            rendicao="",
+            formato="pdf",
+            uuid5="u1",
+            sha256="hsame",
+            source="http://alro/leis/8",
+        )
+        assert idx2 == idx
+
 
 class TestRemoveIndexRows:
     def test_drops_named_uuid5_keeps_others(self):

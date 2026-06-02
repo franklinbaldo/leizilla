@@ -173,7 +173,8 @@ def merge_index_row(
     Idempotente em ``(tipo, numero, rendicao, formato, sha256)`` — re-capturar os
     mesmos bytes é no-op (preserva a ordem/proveniência). Bytes diferentes para a
     mesma ``(tipo, numero, rendicao, formato)`` anexam uma linha nova; a mais
-    recente é a corrente.
+    recente é a corrente. Para linhas **não identificadas** (sem número), ``source``
+    também entra na chave de idempotência, pois a reconciliação casa por ``source``.
     """
     captured_at = captured_at or datetime.now(tz=timezone.utc).isoformat()
     rows: list[dict[str, str]] = []
@@ -182,16 +183,25 @@ def merge_index_row(
             rows.append({c: row.get(c, "") or "" for c in INDEX_COLUMNS})
     # numero ausente (área de espera _unidentified): grava vazio até reconciliar.
     numero_s = "" if numero is None else str(numero)
+
     # No-op verdadeiro: mesma identidade+rendição+formato já registrada com estes
-    # bytes → preserva (re-anexar mudaria a posição e o "newest wins").
-    if existing_csv and any(
-        r["tipo"] == tipo
-        and r["numero"] == numero_s
-        and r["rendicao"] == rendicao
-        and r["formato"] == formato
-        and r["sha256"] == sha256
-        for r in rows
-    ):
+    # bytes → preserva (re-anexar mudaria a posição e o "newest wins"). Para linhas
+    # **não identificadas** (sem número, área de espera) `source` entra na chave: a
+    # reconciliação casa por `source`, então bytes iguais de origens distintas
+    # precisam coexistir — senão a 2ª origem (talvez a única promovível) some.
+    def _is_noop(r: dict[str, str]) -> bool:
+        same = (
+            r["tipo"] == tipo
+            and r["numero"] == numero_s
+            and r["rendicao"] == rendicao
+            and r["formato"] == formato
+            and r["sha256"] == sha256
+        )
+        if numero_s == "":
+            same = same and r.get("source", "") == source
+        return same
+
+    if existing_csv and any(_is_noop(r) for r in rows):
         return existing_csv
     rows.append(
         {
