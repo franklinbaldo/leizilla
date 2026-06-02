@@ -1002,9 +1002,10 @@ def cmd_parse_all(
                 if not item_tipo or not num_part.isdigit():
                     continue
                 num = int(num_part)
-                if fonte == "assembleia" and item_tipo != "coddoc":
-                    continue
-                if fonte != "assembleia" and item_tipo != tipo:
+                # Items na coleção são identity-keyed (ADR-0011); casa pelo tipo
+                # normativo para qualquer fonte. (assembleia só terá itens aqui
+                # quando expor tipo+número — ver follow-up de identidade ALRO.)
+                if item_tipo != tipo:
                     continue
                 if start_coddoc <= num <= end_coddoc:
                     target_items.append((num, raw_id))
