@@ -124,16 +124,24 @@ Implicações que decorrem disso (e estão em outras seções):
 > ia-id="…">`); ele não é mais o identificador do item IA — é resolvido para a URL
 > real via o `index.csv` do item.
 
-**raw_id lógico**: `leizilla-raw-{ente}-{fonte}-{chave}`, onde `{chave}` deve
-identificar a norma como `{tipo}-{número:05d}` (ex.: `lei-05120`, `lc-00042`,
-`decreto-01234`). **Reject-until-identified**: chaves não-identificantes (`coddoc`,
-`seq`, `fallback`, `documento`) não entram na coleção.
+**raw_id lógico**: `leizilla-raw-{ente}-{fonte}-{chave}`, onde `{chave}` identifica
+a norma como `{tipo}-{número:05d}` (ex.: `lei-05120`, `lc-00042`, `decreto-01234`).
+
+**Identidade é evidência, não catraca de ingestão** (ADR-0011, §1 revisada): a
+captura é decidida pelo **contexto da descoberta** (uma estratégia ciente de
+legislação apontou para o recurso), não pela leitura do documento. Tudo o que se
+descobre é **preservado** content-addressed; a identidade `(tipo, número)` é uma
+hipótese refinada a jusante (padrão → listagem → OCR/parse) que **promove** o
+recurso ao item de range. Chaves não-identificantes (`coddoc`, `seq`, `fallback`,
+`documento`) ainda não entram no **catálogo navegável** — ficam na área de espera
+`leizilla_{ente}_{fonte}_unidentified` até a reconciliação, nunca descartadas.
 
 | ente | fonte | chave | Item IA (range) |
 |---|---|---|---|
 | `ro` | `casacivil` | `{tipo}-{N:05d}` (de `L{N}.pdf`) | `leizilla_ro_casacivil_lei_5001-6000` |
 | `federal` | `planalto` | `{tipo}-{N:05d}` | `leizilla_federal_planalto_lei_12001-13000` |
-| `ro` | `assembleia` | só `coddoc` hoje → **deferida** até expor tipo+número | — |
+| `ro` | `assembleia` | `{tipo}-{N:05d}` (título da página) | `leizilla_ro_assembleia_lei_5001-6000` |
+| (qualquer) | (qualquer) | sem número resolvido → **preservado**, aguardando reconciliação | `leizilla_{ente}_{fonte}_unidentified` |
 
 Dentro do item: `{uuid5}.pdf` / `{uuid5}_djvu.txt` (OCR derivado pelo IA) /
 `{uuid5}_meta.json`, e um `index.csv` mapeando `(tipo, número, rendição, formato)

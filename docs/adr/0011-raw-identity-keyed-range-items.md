@@ -1,11 +1,33 @@
-# ADR-0011 — Raw é identity-keyed por (ente, fonte, tipo, número); arquivos content-addressed dentro do item; só se admite o que sabemos identificar
+# ADR-0011 — Raw é capturado por contexto (content-addressed); o catálogo navegável é identity-keyed por (ente, fonte, tipo, número); identidade é evidência refinada a jusante, não catraca de ingestão
 
-**Status**: Aprovada
+**Status**: Aprovada (revisada 2026-06-02 — ver "Revisão" abaixo)
 **Data**: 2026-06-02
 **Contexto**: M4 — Internet Archive, revisão do esquema raw (decisão do owner)
 **Supersede**: a camada **Raw** de [ADR-0010](0010-raw-content-addressed-parsed-urn.md)
 (itens bucketizados por prefixo de hash). Mantém intacta a parte **Parsed é
 URN-keyed** de ADR-0010/[ADR-0005](0005-ia-identifiers.md).
+
+## Revisão (2026-06-02) — identidade é evidência, não catraca
+
+A primeira versão desta ADR tinha um **gate de ingestão "identidade ou nada"**:
+recursos sem `(tipo, número)` extraível na descoberta eram **descartados**. Isso
+foi revertido por confundir duas perguntas distintas e por contrariar o ethos de
+preservação de [ADR-0001](0001-projeto-estatico-duckdb-torrent.md) (arquivar tudo:
+storage do IA é grátis e permanente, fontes gov.br são frágeis):
+
+1. **"Devemos capturar?"** é respondido pelo **contexto da descoberta**, não pela
+   leitura do documento. Um recurso só aparece porque uma estratégia ciente de
+   legislação apontou para ele — logo já há **evidência positiva de que é norma**
+   antes de abrir o PDF.
+2. **"Que norma é esta (tipo, número)?"** é uma **hipótese refinada a jusante**
+   (padrão → listagem → OCR/parse), confidence-gated. Não é pré-condição de
+   captura — e *não pode* ser, já que o **próprio OCR do IA** é o que muitas vezes
+   revela o número.
+
+A decisão revisada (§1) preserva tudo o que se descobre e usa identidade para
+**promover** ao catálogo navegável, não para barrar a entrada. As seções §2–§5
+(itens navegáveis, arquivos content-addressed, `index.csv`, sem `-rN`) seguem
+válidas — passam a ser a camada de **saída classificada**, não a catraca.
 
 ## Contexto
 
@@ -38,13 +60,33 @@ coordenada nacional uniforme na camada raw — essa é a função da camada **pa
 
 ## Decisão
 
-### 1. Gate de ingestão — identidade ou nada
+### 1. Ingestão — capturar é dirigido por contexto; identidade é evidência, não catraca
 
-A identidade de ingestão é `(ente, fonte, tipo, número)`, extraída na descoberta.
-**Reject-until-identified**: recursos sem `(tipo, número)` — p.ex. o browse por
-`coddoc` puro da ALRO assembleia — **não** são adicionados; são descartados e
-logados até que a descoberta produza tipo+número. Isso **elimina os fallbacks de
-lixo** atuais (`("documento","fallback-…")`, `("lei","seq-NNNNN")`).
+Dois fatos distintos, que a versão original confundia num só "gate":
+
+- **"Devemos capturar este recurso?"** — respondido na **descoberta, pelo
+  contexto**. Um recurso só aparece porque uma estratégia ciente de legislação
+  apontou para ele: um padrão de URL do manifesto, um template sequencial, um
+  prefixo CDX, ou uma página de listagem cuja seção/âncora diz "Leis Ordinárias /
+  Lei nº 5120". **Por construção, a estratégia já afirma "isto é uma norma"** —
+  antes de abrir o PDF. Logo **capturamos os bytes** (content-addressed) e o
+  **contexto de descoberta** como proveniência. A captura **nunca** é condicionada
+  a extrair um número de uma chave.
+- **"Que norma é esta — tipo, número, com que confiança?"** — uma **hipótese
+  best-effort** derivada do mesmo contexto (nome de arquivo → número em casacivil;
+  título → número na ALRO; caminho de URL → número no Planalto; linha da listagem
+  → número), **refinada a jusante** (outro padrão, um detalhe da página, ou
+  OCR+parse) e **confidence-gated**. É *isto* que **promove** o recurso ao catálogo
+  navegável identity-keyed (§2).
+
+Falhar em ler o número de um nome de arquivo **não** rebaixa o recurso a "coisa
+desconhecida": ele segue sendo uma **norma-presumida com número ainda não lido**.
+Descartá-lo jogaria fora a evidência positiva que já tínhamos. Em vez disso, um
+recurso sem `(tipo, número)` resolvido fica **preservado** numa área de espera
+content-addressed (`leizilla_{ente}_{fonte}_unidentified`), onde o IA faz OCR; um
+passo de **reconciliação** o promove ao item de range assim que tipo+número são
+conhecidos. Os antigos fallbacks de lixo (`("documento","fallback-…")`,
+`("lei","seq-NNNNN")`) são substituídos por essa área de espera — não por descarte.
 
 ### 2. Item IA — range bucket por identidade
 
@@ -110,15 +152,25 @@ A camada parsed permanece **URN-keyed** (URN-LEX), conforme ADR-0010/ADR-0005.
   `casacivil` o número é o do arquivo `L{N}.pdf` (que ADR-0010 nota ser o `coddoc`
   da Ditel); aceitamos isso porque não há colisão entre fontes e a identidade
   normativa nacional vive no parsed (URN-LEX).
-- **ALRO assembleia (coddoc puro) fica deferida** até a descoberta extrair
-  tipo+número (ou até mapearmos coddoc→norma via parse).
+- **Nada com evidência de descoberta é perdido.** Recursos sem número resolvido
+  são preservados na área de espera `_unidentified` (content-addressed + OCR do
+  IA), não descartados — alinhado ao ethos de arquivo da ADR-0001.
+- **ALRO assembleia** entra normalmente: o título da página rende tipo+número na
+  descoberta, então vai direto ao catálogo; títulos não-parseáveis ficam na área
+  de espera até a reconciliação.
 - **Requer** um classificador de rendição por fonte (rótulos do portal → vocab) e
   reescrita de `ia_utils`, `publisher` (identificadores + index com rendição),
-  `parser` (resolução via index), `discovery` (gate + remoção dos fallbacks), e a
-  suíte de testes.
+  `parser` (resolução via index), `discovery` (captura por contexto, sem descarte),
+  e a suíte de testes.
 
 ## Em aberto
 
+- **Passo de reconciliação** (`_unidentified` → item de range): promove um recurso
+  preservado quando tipo+número passam a ser conhecidos (padrão melhor, detalhe da
+  listagem, ou OCR+parse). Os bytes, o `source` e o OCR já estão preservados, então
+  a promoção é uma operação de manifesto + (possível) cópia entre itens.
+- Capturar o **contexto de descoberta** como proveniência rica (estratégia/página
+  que encontrou o recurso, âncora, seção) — hoje `source` guarda só a URL.
 - Confirmar empiricamente se o número de `casacivil` (`L{N}.pdf`) coincide com o
   número da lei ou é o `coddoc` do CMS. Não bloqueia esta decisão (o item é
   namespaced por fonte), mas afeta a legibilidade dos ranges.

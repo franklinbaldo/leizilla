@@ -120,6 +120,16 @@ data/                # local DuckDB + artifacts (gitignored)
   SHA-256 (source-agnostic, dedup-by-construction); parsed norms are keyed by
   URN-LEX. The harvest key (`coddoc`, URL path, …) is metadata in an `index.csv`,
   never a path or range boundary. ADR-0010 supersedes ADR-0005's raw-item scheme.
+- **ADR-0011 — identity-keyed navigable catalog; identity is evidence, not an
+  ingestion gate.** The raw IA item is a navigable range bucket per `(ente, fonte,
+  tipo, número)` with content-addressed files inside. **Capturing a resource is
+  decided by discovery *context*** (a legislation-aware strategy targeted it —
+  pattern/listing/title), **not** by reading the document: everything discovered is
+  preserved content-addressed. `(tipo, número)` is a best-effort hypothesis refined
+  downstream (pattern → listing → OCR/parse) that *promotes* a resource into the
+  navigable catalog; un-numbered resources wait in a
+  `leizilla_{ente}_{fonte}_unidentified` holding area (IA still OCRs them), never
+  discarded. Reconciliation promotes them once tipo+número are known.
 
 The codebase is **fail-open by design**: Wayback save failures, missing
 robots.txt, and IA query errors return empty/None rather than aborting batch jobs.
