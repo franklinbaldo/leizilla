@@ -556,6 +556,55 @@ class TestListRawIds:
             list_raw_ids("ro", "casacivil")
         m.assert_called_once_with("leizilla_ro_casacivil_")
 
+    def test_transient_index_failure_returns_empty_all_or_nothing(self):
+        # A transient failure reading ANY range index must return empty (not a
+        # partial set), so cmd_parse_all falls back to the sequential range instead
+        # of treating a partial result as authoritative and dropping ranges.
+        from leizilla.publisher import IndexFetchError
+
+        good = (
+            "tipo,numero,rendicao,formato,uuid5,sha256,captured_at\n"
+            "lei,1,,pdf,u1,h1,2026-05-30T00:00:00+00:00\n"
+        )
+        with (
+            patch(
+                "leizilla.publisher._scrape_identifiers",
+                return_value=[
+                    "leizilla_ro_casacivil_lei_0001-1000",
+                    "leizilla_ro_casacivil_lei_1001-2000",
+                ],
+            ),
+            patch(
+                "leizilla.publisher._fetch_existing_index",
+                side_effect=[good, IndexFetchError("HTTP 503")],
+            ),
+        ):
+            assert list_raw_ids("ro", "casacivil") == set()
+
+    def test_confirmed_404_index_skips_only_that_item(self):
+        # A confirmed 404 (item without an index) is not transient: that item
+        # contributes nothing, but the others are still returned.
+        good = (
+            "tipo,numero,rendicao,formato,uuid5,sha256,captured_at\n"
+            "lei,5,,pdf,u5,h5,2026-05-30T00:00:00+00:00\n"
+        )
+        with (
+            patch(
+                "leizilla.publisher._scrape_identifiers",
+                return_value=[
+                    "leizilla_ro_casacivil_lei_0001-1000",
+                    "leizilla_ro_casacivil_lei_5001-6000",
+                ],
+            ),
+            patch(
+                "leizilla.publisher._fetch_existing_index",
+                side_effect=[None, good],  # first item has no index (404)
+            ),
+        ):
+            assert list_raw_ids("ro", "casacivil") == {
+                "leizilla-raw-ro-casacivil-lei-00005"
+            }
+
 
 class TestUploadToArchive:
     @patch("subprocess.run")

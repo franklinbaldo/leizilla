@@ -271,9 +271,13 @@ def list_raw_ids(ente: str, fonte: str) -> Set[str]:
     (``leizilla-raw-{ente}-{fonte}-{tipo}-{numero}``) the parser knows how to
     resolve.
 
-    Fail-open: returns the empty set when nothing exists yet or on any network
-    error, so the caller falls back to the sequential range — never skips due to
-    connectivity.
+    Fail-open **all-or-nothing**: returns the empty set when nothing exists yet or
+    on any network error, so the caller falls back to the sequential range — never
+    skips due to connectivity. Crucially, a transient failure reading *any single*
+    range index also returns empty (not a partial set): a partial non-empty result
+    would be treated as authoritative by ``cmd_parse_all`` and silently drop the
+    ranges whose index couldn't be read. A confirmed 404 (item without an index) is
+    not transient — that item simply contributes nothing.
     """
     prefix = f"leizilla_{ente.lower()}_{fonte.lower()}_"
     item_ids = _scrape_identifiers(prefix)
@@ -281,12 +285,14 @@ def list_raw_ids(ente: str, fonte: str) -> Set[str]:
         return set()
     out: Set[str] = set()
     for item_id in item_ids:
-        index_url = download_url(item_id, INDEX_FILENAME)
-        req = urllib.request.Request(index_url, headers={"User-Agent": _USER_AGENT})
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                index_csv = resp.read().decode("utf-8", errors="replace")
-        except (urllib.error.URLError, OSError, ValueError):
+            index_csv = _fetch_existing_index(item_id)
+        except IndexFetchError:
+            # Transitório (timeout/5xx): não sabemos os IDs deste range. All-or-
+            # nothing → devolve vazio para o caller cair no fallback sequencial,
+            # em vez de omitir ranges silenciosamente.
+            return set()
+        if index_csv is None:  # 404 confirmado: item sem index, nada a contribuir
             continue
         for identity in list_identities(index_csv):
             out.add(_raw_identifier(ente, fonte, identity))
