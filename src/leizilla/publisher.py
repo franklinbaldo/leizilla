@@ -922,7 +922,9 @@ class InternetArchivePublisher:
             {c: r.get(c, "") or "" for c in INDEX_COLUMNS}
             for r in csv.DictReader(io.StringIO(holding_index))
         ]
-        promoted_uuid5s: Set[str] = set()
+        # Chaveamos por (uuid5, source): bytes idênticos de origens distintas
+        # compartilham o uuid5, mas só a origem identificável deve sair da espera.
+        promoted_keys: Set[tuple[str, str]] = set()
         for row in rows:
             if row["numero"]:  # já identificado nesta área (não deveria ocorrer)
                 continue
@@ -940,24 +942,26 @@ class InternetArchivePublisher:
             tipo, numero = ident
             promoted = self._promote_to_range(ente, fonte, tipo, numero, content, row)
             if promoted is not None:
-                promoted_uuid5s.add(row["uuid5"])
+                promoted_keys.add((row["uuid5"], row["source"]))
 
         # As promoções ao range já aconteceram; só falta tirar essas linhas do
         # índice de espera. Se essa reescrita falhar, os arquivos seguem listados
         # na espera — reportamos erro (e contamos como remaining), senão o operador
         # acha que a limpeza terminou e a próxima reconciliação re-promove à toa.
         index_rewrite_ok = True
-        if promoted_uuid5s:
-            new_index = remove_index_rows(holding_index, promoted_uuid5s)
+        if promoted_keys:
+            new_index = remove_index_rows(holding_index, promoted_keys)
             index_rewrite_ok = self._upload_index_only(holding_id, new_index)
 
-        cleaned = promoted_uuid5s if index_rewrite_ok else set()
+        cleaned = promoted_keys if index_rewrite_ok else set()
         remaining = sum(
-            1 for r in rows if not r["numero"] and r["uuid5"] not in cleaned
+            1
+            for r in rows
+            if not r["numero"] and (r["uuid5"], r["source"]) not in cleaned
         )
         result: Dict[str, Any] = {
             "success": index_rewrite_ok,
-            "promoted": len(promoted_uuid5s),
+            "promoted": len(promoted_keys),
             "remaining": remaining,
             "item_id": holding_id,
         }

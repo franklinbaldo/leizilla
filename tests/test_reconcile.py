@@ -92,6 +92,42 @@ class TestReconcileUnidentified:
         assert res["promoted"] == 1
         assert res["remaining"] == 1  # still listed in holding → not cleaned
 
+    @patch("leizilla.publisher._ia_subprocess_env", return_value={})
+    @patch("subprocess.run")
+    @patch("leizilla.publisher._fetch_item_file_bytes", return_value=b"PDF-bytes")
+    @patch("leizilla.publisher._fetch_existing_index")
+    def test_aliased_sources_only_promotes_identified(
+        self, mock_idx, _mock_bytes, _run, _env
+    ):
+        # Two holding rows: same bytes/uuid5, different source URLs. Only srcA is
+        # identifiable → promote it, but srcB (still unidentified) must remain.
+        holding = merge_index_row(
+            None,
+            tipo="",
+            numero=None,
+            rendicao="",
+            formato="pdf",
+            uuid5="u1",
+            sha256="hsame",
+            source="http://alro/leis/7",
+        )
+        holding = merge_index_row(
+            holding,
+            tipo="",
+            numero=None,
+            rendicao="",
+            formato="pdf",
+            uuid5="u1",
+            sha256="hsame",
+            source="http://alro/leis/8",
+        )
+        # holding fetched once; range index fetched once (for the single promotion).
+        mock_idx.side_effect = [holding, None]
+        identity = {"http://alro/leis/7": ("lei", 7)}  # only src 7 is mappable
+        res = _pub().reconcile_unidentified("ro", "assembleia", identity)
+        assert res["promoted"] == 1
+        assert res["remaining"] == 1  # src 8 alias still preserved
+
     @patch("leizilla.publisher._fetch_existing_index", return_value=None)
     def test_empty_holding_is_noop(self, _mock_idx):
         res = _pub().reconcile_unidentified("ro", "assembleia", {"x": ("lei", 1)})

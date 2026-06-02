@@ -222,18 +222,19 @@ def merge_index_row(
     return out.getvalue()
 
 
-def remove_index_rows(index_csv: str, uuid5s: set[str]) -> str:
-    """Reescreve o index.csv sem as linhas cujos ``uuid5`` estão em ``uuid5s``.
+def remove_index_rows(index_csv: str, keys: set[tuple[str, str]]) -> str:
+    """Reescreve o index.csv sem as linhas cujo ``(uuid5, source)`` está em ``keys``.
 
     Usado pela reconciliação ao **promover** arquivos da área de espera
-    ``_unidentified`` para o item de range: a linha sai do índice de espera depois
-    que o arquivo passa a constar no índice do range (o arquivo content-addressed
-    pode permanecer fisicamente no item de espera — dedup por hash o torna inócuo).
+    ``_unidentified`` para o item de range. Removemos por ``(uuid5, source)``, não
+    só por ``uuid5``: dois arquivos de bytes idênticos mas origens distintas
+    compartilham o ``uuid5`` (dedup por conteúdo), e promover só uma origem **não**
+    pode apagar o alias ainda não identificado da outra.
     """
     rows = [
         {c: r.get(c, "") or "" for c in INDEX_COLUMNS}
         for r in csv.DictReader(io.StringIO(index_csv))
-        if r.get("uuid5") not in uuid5s
+        if (r.get("uuid5", ""), r.get("source", "")) not in keys
     ]
     out = io.StringIO()
     writer = csv.DictWriter(out, fieldnames=INDEX_COLUMNS)

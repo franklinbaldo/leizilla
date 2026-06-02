@@ -210,7 +210,7 @@ class TestMergeIndexRow:
 
 
 class TestRemoveIndexRows:
-    def test_drops_named_uuid5_keeps_others(self):
+    def test_drops_named_key_keeps_others(self):
         from leizilla.ia_utils import remove_index_rows
 
         idx = merge_index_row(
@@ -221,6 +221,7 @@ class TestRemoveIndexRows:
             formato="pdf",
             uuid5="keep1",
             sha256="h1",
+            source="srcA",
         )
         idx = merge_index_row(
             idx,
@@ -230,11 +231,42 @@ class TestRemoveIndexRows:
             formato="pdf",
             uuid5="drop1",
             sha256="h2",
+            source="srcB",
         )
-        out = remove_index_rows(idx, {"drop1"})
+        out = remove_index_rows(idx, {("drop1", "srcB")})
         assert "drop1" not in out
         assert "keep1" in out
         assert out.splitlines()[0] == ",".join(INDEX_COLUMNS)  # header intact
+        assert len(out.strip().splitlines()) == 2  # header + 1 kept row
+
+    def test_same_uuid5_different_source_only_drops_matched(self):
+        # Aliased rows (same bytes/uuid5, different source): removing one (uuid5,
+        # source) must NOT delete the other alias.
+        from leizilla.ia_utils import remove_index_rows
+
+        idx = merge_index_row(
+            None,
+            tipo="",
+            numero=None,
+            rendicao="",
+            formato="pdf",
+            uuid5="u1",
+            sha256="hsame",
+            source="srcA",
+        )
+        idx = merge_index_row(
+            idx,
+            tipo="",
+            numero=None,
+            rendicao="",
+            formato="pdf",
+            uuid5="u1",
+            sha256="hsame",
+            source="srcB",
+        )
+        out = remove_index_rows(idx, {("u1", "srcA")})
+        assert "srcA" not in out
+        assert "srcB" in out  # the still-unidentified alias survives
         assert len(out.strip().splitlines()) == 2  # header + 1 kept row
 
 
