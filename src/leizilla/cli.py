@@ -957,6 +957,7 @@ def cmd_parse_all(
             list_parsed_raw_ids,
             list_raw_ids,
         )
+        from leizilla.ia_utils import parse_raw_id
 
         already_parsed: set[str] = set()
         if skip_existing:
@@ -990,19 +991,23 @@ def cmd_parse_all(
         target_items = []
         if raw_items_on_ia:
             for raw_id in sorted(raw_items_on_ia):
-                parts = raw_id.split("-")
-                if len(parts) >= 6:
-                    try:
-                        num = int(parts[-1])
-                        item_tipo = parts[-2]
-                        if fonte == "assembleia" and item_tipo != "coddoc":
-                            continue
-                        if fonte != "assembleia" and item_tipo != tipo:
-                            continue
-                        if start_coddoc <= num <= end_coddoc:
-                            target_items.append((num, raw_id))
-                    except ValueError:
-                        continue
+                # Parse via the ente catalog (handles hyphenated entes like
+                # ro-porto-velho) and split the chave on its LAST hyphen so
+                # hyphenated tipos (lei-complementar) survive intact.
+                parsed = parse_raw_id(raw_id)
+                if parsed is None:
+                    continue
+                _ente, _fonte, chave = parsed
+                item_tipo, _, num_part = chave.rpartition("-")
+                if not item_tipo or not num_part.isdigit():
+                    continue
+                num = int(num_part)
+                if fonte == "assembleia" and item_tipo != "coddoc":
+                    continue
+                if fonte != "assembleia" and item_tipo != tipo:
+                    continue
+                if start_coddoc <= num <= end_coddoc:
+                    target_items.append((num, raw_id))
         else:
             for num in range(start_coddoc, end_coddoc + 1):
                 if fonte == "assembleia":

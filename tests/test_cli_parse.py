@@ -578,6 +578,41 @@ class TestCmdParseAll:
             "leizilla-raw-ro-casacivil-lc-00002",
         ]
 
+    def test_hyphenated_tipo_from_ia_listing_not_skipped(self):
+        """Regression (ADR-0011): list_raw_ids may return a hyphenated tipo such
+        as lei-complementar. cmd_parse_all must preserve the full tipo (not read
+        it as 'complementar' via split('-')[-2]) or it skips every such law.
+        """
+        raw_id = "leizilla-raw-ro-casacivil-lei-complementar-00042"
+        fetched: list[str] = []
+
+        def track_ocr(rid: str) -> str:
+            fetched.append(rid)
+            return None  # type: ignore[return-value]
+
+        with (
+            patch("leizilla.publisher.list_raw_ids", return_value={raw_id}),
+            patch("leizilla.parser.fetch_ocr", side_effect=track_ocr),
+        ):
+            runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--ente",
+                    "ro",
+                    "--fonte",
+                    "casacivil",
+                    "--tipo",
+                    "lei-complementar",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "100",
+                    "--no-upload",
+                ],
+            )
+        assert fetched == [raw_id]
+
     def test_invalid_input_type_exits_1(self):
         """Valor inválido para --input-type retorna exit 1 antes de processar qualquer item."""
         with patch("leizilla.parser.fetch_ocr") as mock_ocr:
