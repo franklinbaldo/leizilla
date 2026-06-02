@@ -110,8 +110,6 @@ class TestSourceMatchesDiscoveryURL:
             "url_original": "http://alro/legislacao/leis/77",  # listing page
             "url_pdf_original": "http://alro/files/L99.pdf",  # the PDF (res['url'])
         }
-        with patch(
-            "leizilla.publisher._resolve_uuid5_and_index", side_effect=_capture
-        ):
+        with patch("leizilla.publisher._resolve_uuid5_and_index", side_effect=_capture):
             _pub().upload_raw(pdf, lei_data, b"x")
         assert captured["source"] == "http://alro/files/L99.pdf"
