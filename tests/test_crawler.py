@@ -22,6 +22,16 @@ class TestParseTituloIdentity:
     def test_resolucao_accented(self):
         assert parse_titulo_identity("Resolução nº 7, de 2020") == ("resolucao", 7)
 
+    def test_n_dot_ordinal_abbreviation(self):
+        # "N.º" (dot + ordinal marker) is common on ALRO; must not fall back.
+        assert parse_titulo_identity("LEI N.º 6.084, DE 12 DE JANEIRO DE 2000") == (
+            "lei",
+            6084,
+        )
+
+    def test_n_dot_only(self):
+        assert parse_titulo_identity("Decreto n. 1.234") == ("decreto", 1234)
+
     def test_number_anchored_to_n_not_year(self):
         # The year (1999) must not be mistaken for the law number.
         assert parse_titulo_identity("Lei nº 5120, de 1999") == ("lei", 5120)

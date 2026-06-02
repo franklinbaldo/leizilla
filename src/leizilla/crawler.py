@@ -52,8 +52,10 @@ def parse_titulo_identity(titulo: str) -> Optional[Tuple[str, int]]:
     tipo = next((vocab for needle, vocab in _TITULO_TIPOS if needle in t), None)
     if tipo is None:
         return None
-    # Número ancorado em "nº"/"n°"/"n." seguido de dígitos (com pontos de milhar).
-    m = re.search(r"n[º°o.]?\s*(\d[\d.]*)", t)
+    # Número ancorado no marcador ordinal seguido de dígitos (com pontos de
+    # milhar). Aceita qualquer combinação de "º/°/o", ponto e espaço entre o "n" e
+    # o número — cobre "nº", "n°", "n.", e a abreviação "n.º" (ex.: "LEI N.º 6.084").
+    m = re.search(r"n[º°o.\s]*(\d[\d.]*)", t)
     if not m:
         return None
     numero = int(m.group(1).replace(".", ""))
