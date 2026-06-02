@@ -114,18 +114,34 @@ Implicações que decorrem disso (e estão em outras seções):
 
 (Carregado da v1 — esta parte funciona inalterada.)
 
-### 1.1 Raw items — individual por PDF
+### 1.1 Raw items — identity-keyed range buckets (ADR-0011)
 
-**Pattern**: `leizilla-raw-{ente}-{fonte}-{chave}`
+> **Atualizado por [ADR-0011](adr/0011-raw-identity-keyed-range-items.md).** A
+> camada raw deixou de ter "um item IA por PDF". Hoje o item IA é um *range
+> bucket* por **identidade** `(ente, fonte, tipo, número)`, e os arquivos dentro
+> dele são content-addressed (UUIDv5 truncado). O `leizilla-raw-{ente}-{fonte}-{chave}`
+> abaixo permanece como o **raw_id lógico** (chave no DuckDB/CLI e em `<fonte
+> ia-id="…">`); ele não é mais o identificador do item IA — é resolvido para a URL
+> real via o `index.csv` do item.
 
-| ente | fonte | chave | Exemplo |
+**raw_id lógico**: `leizilla-raw-{ente}-{fonte}-{chave}`, onde `{chave}` deve
+identificar a norma como `{tipo}-{número:05d}` (ex.: `lei-05120`, `lc-00042`,
+`decreto-01234`). **Reject-until-identified**: chaves não-identificantes (`coddoc`,
+`seq`, `fallback`, `documento`) não entram na coleção.
+
+| ente | fonte | chave | Item IA (range) |
 |---|---|---|---|
-| `ro` | `casacivil` | `coddoc-{N:05d}` | `leizilla-raw-ro-casacivil-coddoc-00042` |
-| `ro` | `assembleia` | `coddoc-{N:05d}` | `leizilla-raw-ro-assembleia-coddoc-00042` |
-| `ro` | `diario` | `{YYYY-MM-DD}-p{pagina:04d}` | `leizilla-raw-ro-diario-2003-06-15-p0012` |
-| `federal` | `planalto` | `{tipo}-{numero:05d}` | `leizilla-raw-federal-planalto-lei-12345` |
+| `ro` | `casacivil` | `{tipo}-{N:05d}` (de `L{N}.pdf`) | `leizilla_ro_casacivil_lei_5001-6000` |
+| `federal` | `planalto` | `{tipo}-{N:05d}` | `leizilla_federal_planalto_lei_12001-13000` |
+| `ro` | `assembleia` | só `coddoc` hoje → **deferida** até expor tipo+número | — |
 
-**Justificativa**: IA faz OCR **apenas** em PDFs individuais (não em PDFs dentro de ZIP). Permalink por PDF facilita citação. Manifest CSV escala para milhares de items.
+Dentro do item: `{uuid5}.pdf` / `{uuid5}_djvu.txt` (OCR derivado pelo IA) /
+`{uuid5}_meta.json`, e um `index.csv` mapeando `(tipo, número, rendição, formato)
+→ {uuid5, sha256, captured_at}` (newest-wins). Versões e rendições coexistem como
+arquivos hash distintos; dedup e detecção de colisão usam o `sha256` completo.
+
+**Justificativa**: IA faz OCR **apenas** em PDFs individuais (não em ZIP), e
+agrupar por range mantém o catálogo navegável e o número de items sob controle.
 
 ### 1.2 Raw items — bundle ZIP semanal (redundância)
 
