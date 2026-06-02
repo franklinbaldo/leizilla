@@ -70,6 +70,7 @@ def cmd_reconcile(
         pub = InternetArchivePublisher()
         total_promoted = 0
         total_remaining = 0
+        failed_fontes: list[str] = []
         for f in sorted(fontes_seen):
             by_source = {
                 r["url"]: identity_by_source[r["url"]]
@@ -79,6 +80,7 @@ def cmd_reconcile(
             result = pub.reconcile_unidentified(ente, f, by_source)
             if not result.get("success"):
                 echo(f"  {f}: erro — {result.get('error')}")
+                failed_fontes.append(f)
                 continue
             total_promoted += result["promoted"]
             total_remaining += result["remaining"]
@@ -90,6 +92,13 @@ def cmd_reconcile(
             f"Reconciliação concluída: {total_promoted} promovidos, "
             f"{total_remaining} aguardando."
         )
+        if failed_fontes:
+            # Sai nonzero para a automação detectar a limpeza parcial (rows
+            # promovidas podem seguir na espera).
+            echo(f"Falha em: {', '.join(failed_fontes)}")
+            raise typer.Exit(1)
+    except typer.Exit:
+        raise
     except Exception as e:
         echo(f"Erro: {e}")
         raise typer.Exit(1)

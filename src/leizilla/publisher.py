@@ -662,6 +662,12 @@ class InternetArchivePublisher:
                     check=True,
                     env=_ia_subprocess_env(self.access_key, self.secret_key),
                 )
+            except FileNotFoundError:
+                return {
+                    "success": False,
+                    "error": "ia CLI não encontrado — instale 'internetarchive'",
+                    "ia_id": ia_id,
+                }
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
 

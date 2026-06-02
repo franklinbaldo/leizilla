@@ -44,3 +44,25 @@ def test_reconcile_builds_identity_map_and_calls_publisher():
     identity_map = args[2]
     assert identity_map == {"http://alro/leis/99": ("lei", 99)}
     assert "1 promovidos" in result.output
+
+
+def test_reconcile_exits_nonzero_when_a_fonte_fails():
+    # A failed reconcile (e.g. holding-index rewrite error) must exit nonzero so
+    # automation detects the partial cleanup.
+    resources = [
+        {"url": "http://alro/leis/99", "fonte": "assembleia", "chave": "lei-00099"},
+    ]
+    pub = MagicMock()
+    pub.reconcile_unidentified.return_value = {
+        "success": False,
+        "error": "holding index rewrite failed",
+        "item_id": "leizilla_ro_assembleia_unidentified",
+    }
+    with (
+        patch("leizilla.discovery.discover_resources", return_value=resources),
+        patch("leizilla.publisher.InternetArchivePublisher", return_value=pub),
+    ):
+        result = runner.invoke(app, ["reconcile", "--ente", "ro"])
+
+    assert result.exit_code == 1
+    assert "erro" in result.output.lower()

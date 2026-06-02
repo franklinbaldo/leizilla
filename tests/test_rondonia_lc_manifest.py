@@ -140,3 +140,20 @@ class TestRondoniaLCIdentityKeyed:
         assert res["success"] is False
         assert "could not read existing index" in res["error"]
         mock_run.assert_not_called()
+
+    @patch("leizilla.publisher._fetch_existing_index", return_value=None)
+    @patch("subprocess.run", side_effect=FileNotFoundError())
+    def test_missing_ia_cli_returns_structured_error(self, _run, _idx, tmp_path):
+        # When the `ia` executable is absent, the PDF path must return the same
+        # structured error as the HTML/parsed/dataset paths — not crash.
+        pub = InternetArchivePublisher()
+        pub.access_key = "fake-key"
+        pub.secret_key = "fake-secret"
+
+        pdf_path = tmp_path / "LC42.pdf"
+        pdf_path.write_bytes(b"PDF")
+        lei_data = {"ente": "ro", "fonte": "casacivil", "chave": "lc-00042"}
+
+        res = pub.upload_raw(pdf_path, lei_data, b"PDF")
+        assert res["success"] is False
+        assert "ia CLI não encontrado" in res["error"]
