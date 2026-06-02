@@ -1010,11 +1010,12 @@ def cmd_parse_all(
                 if start_coddoc <= num <= end_coddoc:
                     target_items.append((num, raw_id))
         else:
+            # Fallback sequencial: a coleção é identity-keyed (ADR-0011), então
+            # iteramos por {tipo}-{número} para qualquer fonte. O range agora é de
+            # números normativos (não de coddoc); assembleia usa a identidade real
+            # extraída na descoberta, igual às demais fontes.
             for num in range(start_coddoc, end_coddoc + 1):
-                if fonte == "assembleia":
-                    chave = f"coddoc-{num:05d}"
-                else:
-                    chave = f"{tipo}-{num:05d}"
+                chave = f"{tipo}-{num:05d}"
                 raw_id = f"leizilla-raw-{ente}-{fonte}-{chave}"
                 target_items.append((num, raw_id))
 

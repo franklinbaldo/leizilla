@@ -3,9 +3,10 @@
 import asyncio
 import logging
 import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin
 
 import requests
@@ -15,6 +16,50 @@ from leizilla import config
 
 _CASACIVIL_FILES_BASE = "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files"
 _CASACIVIL_FONTE_URL = "http://ditel.casacivil.ro.gov.br/COTEL/Livros/"
+
+# Tipos normativos reconhecíveis no título de uma página de norma, do mais
+# específico para o mais genérico (ordem importa: "lei complementar" antes de
+# "lei", "decreto-lei" antes de "decreto"). Mapeia para o vocabulário de tipo.
+_TITULO_TIPOS: List[Tuple[str, str]] = [
+    ("lei complementar", "lc"),
+    ("decreto-lei", "decreto-lei"),
+    ("decreto lei", "decreto-lei"),
+    ("emenda constitucional", "emenda-constitucional"),
+    ("medida provisoria", "medida-provisoria"),
+    ("decreto", "decreto"),
+    ("resolucao", "resolucao"),
+    ("portaria", "portaria"),
+    ("lei", "lei"),
+]
+
+
+def _strip_accents(text: str) -> str:
+    return "".join(
+        c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn"
+    )
+
+
+def parse_titulo_identity(titulo: str) -> Optional[Tuple[str, int]]:
+    """Extrai ``(tipo, número)`` do título de uma página de norma, ou ``None``.
+
+    Ex.: ``"LEI Nº 5.120, DE 22 DE JUNHO DE 1999" → ("lei", 5120)``;
+    ``"LEI COMPLEMENTAR Nº 42…" → ("lc", 42)``. O número é ancorado no ``Nº``
+    para não confundir com o ano. Retorna ``None`` quando o tipo ou o número não
+    podem ser determinados com confiança — o chamador trata como não-identificado
+    (reject-until-identified, ADR-0011).
+    """
+    t = _strip_accents(titulo or "").lower()
+    tipo = next((vocab for needle, vocab in _TITULO_TIPOS if needle in t), None)
+    if tipo is None:
+        return None
+    # Número ancorado em "nº"/"n°"/"n." seguido de dígitos (com pontos de milhar).
+    m = re.search(r"n[º°o.]?\s*(\d[\d.]*)", t)
+    if not m:
+        return None
+    numero = int(m.group(1).replace(".", ""))
+    if numero <= 0:
+        return None
+    return tipo, numero
 
 
 def discover_casacivil_laws(
@@ -109,11 +154,23 @@ class LeisCrawler:
                         if pdf_url and not pdf_url.startswith("http"):
                             pdf_url = urljoin(base_url, pdf_url)
 
+                    # Identidade normativa (ADR-0011): extraímos tipo+número do
+                    # título. coddoc é só o índice de navegação da ALRO. Sem
+                    # identidade, a chave fica como coddoc (será adiada na coleta).
+                    identity = parse_titulo_identity(title)
+                    if identity is not None:
+                        tipo, numero = identity
+                        chave = f"{tipo}-{numero:05d}"
+                    else:
+                        tipo = "documento"
+                        chave = f"coddoc-{coddoc:05d}"
+
                     law: Dict[str, Any] = {
-                        "id": f"ro-assembleia-coddoc-{coddoc:05d}",
+                        "id": f"ro-assembleia-{chave}",
                         "ente": "ro",
                         "fonte": "assembleia",
-                        "chave": f"coddoc-{coddoc:05d}",
+                        "tipo": tipo,
+                        "chave": chave,
                         "titulo": title.strip(),
                         "url_original": url,
                         "url_pdf_original": pdf_url,

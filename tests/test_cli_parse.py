@@ -506,8 +506,10 @@ class TestCmdParseAll:
             "leizilla-raw-federal-planalto-lcp-00002",
         ]
 
-    def test_non_planalto_uses_coddoc_chave(self):
-        """Assembleia usa coddoc-NNNNN (identificador de coddoc sequencial da ALRO)."""
+    def test_assembleia_uses_tipo_chave_like_other_fontes(self):
+        """ADR-0011: assembleia é identity-keyed (tipo+número extraído do título na
+        descoberta), então parse-all sequencial usa {tipo}-NNNNN como qualquer
+        fonte — não mais coddoc."""
         fetched_ids: list[str] = []
 
         def track_ocr(raw_id: str) -> str:
@@ -531,6 +533,8 @@ class TestCmdParseAll:
                     "ro",
                     "--fonte",
                     "assembleia",
+                    "--tipo",
+                    "lei",
                     "--start-coddoc",
                     "5",
                     "--end-coddoc",
@@ -539,8 +543,8 @@ class TestCmdParseAll:
                 ],
             )
         assert fetched_ids == [
-            "leizilla-raw-ro-assembleia-coddoc-00005",
-            "leizilla-raw-ro-assembleia-coddoc-00006",
+            "leizilla-raw-ro-assembleia-lei-00005",
+            "leizilla-raw-ro-assembleia-lei-00006",
         ]
 
     def test_casacivil_uses_tipo_chave(self):
@@ -704,7 +708,7 @@ class TestCmdParseAllSkipExisting:
 
     def test_skip_existing_skips_already_parsed_items(self):
         """Items cujo raw_id está em already_parsed são pulados sem fetch/parse."""
-        raw_id = "leizilla-raw-ro-assembleia-coddoc-00001"
+        raw_id = "leizilla-raw-ro-assembleia-lei-00001"
         with (
             patch(
                 "leizilla.publisher.list_parsed_raw_ids",
@@ -732,8 +736,8 @@ class TestCmdParseAllSkipExisting:
 
     def test_skip_existing_reports_skipped_count_in_summary(self):
         raw_ids = {
-            "leizilla-raw-ro-assembleia-coddoc-00001",
-            "leizilla-raw-ro-assembleia-coddoc-00002",
+            "leizilla-raw-ro-assembleia-lei-00001",
+            "leizilla-raw-ro-assembleia-lei-00002",
         }
         with (
             patch("leizilla.publisher.list_parsed_raw_ids", return_value=raw_ids),
@@ -811,9 +815,9 @@ class TestCmdParseAllSkipExisting:
         to stall after first run (all items in limit window already parsed, 51+ never reached).
         """
         already_parsed = {
-            "leizilla-raw-ro-assembleia-coddoc-00001",
-            "leizilla-raw-ro-assembleia-coddoc-00002",
-            "leizilla-raw-ro-assembleia-coddoc-00003",
+            "leizilla-raw-ro-assembleia-lei-00001",
+            "leizilla-raw-ro-assembleia-lei-00002",
+            "leizilla-raw-ro-assembleia-lei-00003",
         }
         fetched: list[str] = []
 
@@ -844,8 +848,8 @@ class TestCmdParseAllSkipExisting:
         assert result.exit_code == 0
         # items 1-3 skipped; items 4 and 5 are the first 2 non-skipped → fetched
         assert fetched == [
-            "leizilla-raw-ro-assembleia-coddoc-00004",
-            "leizilla-raw-ro-assembleia-coddoc-00005",
+            "leizilla-raw-ro-assembleia-lei-00004",
+            "leizilla-raw-ro-assembleia-lei-00005",
         ]
 
 

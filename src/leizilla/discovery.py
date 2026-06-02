@@ -180,7 +180,9 @@ class PlaywrightCrawlerDiscovery(DiscoveryStrategy):
                         "url": pdf_url,
                         "ente": self.ente,
                         "fonte": self.fonte,
-                        "tipo_documento": "lei",  # ALRO scrape padrão é lei
+                        # tipo/chave da identidade extraída do título (ADR-0011);
+                        # fallback para coddoc quando não identificável (adiado).
+                        "tipo_documento": law.get("tipo", "documento"),
                         "chave": law.get("chave", f"coddoc-{law.get('coddoc'):05d}"),
                         "status": "pending",
                         "wayback_snapshot": None,
