@@ -19,10 +19,10 @@ storage do IA é grátis e permanente, fontes gov.br são frágeis):
    leitura do documento. Um recurso só aparece porque uma estratégia ciente de
    legislação apontou para ele — logo já há **evidência positiva de que é norma**
    antes de abrir o PDF.
-2. **"Que norma é esta (tipo, número)?"** é uma **hipótese refinada a jusante**
-   (padrão → listagem → OCR/parse), confidence-gated. Não é pré-condição de
-   captura — e *não pode* ser, já que o **próprio OCR do IA** é o que muitas vezes
-   revela o número.
+2. **"Que norma é esta (tipo, número)?"** é extraído do **contexto da descoberta**
+   (metadados / páginas que levam ao PDF) na grande maioria dos casos (>90%). Não é
+   pré-condição de captura — e *não pode* ser no resíduo, já que aí o **próprio OCR
+   do IA** é o que revela o número (galinha-e-ovo: sem upload não há OCR).
 
 A decisão revisada (§1) preserva tudo o que se descobre e usa identidade para
 **promover** ao catálogo navegável, não para barrar a entrada. As seções §2–§5
@@ -72,21 +72,28 @@ Dois fatos distintos, que a versão original confundia num só "gate":
   antes de abrir o PDF. Logo **capturamos os bytes** (content-addressed) e o
   **contexto de descoberta** como proveniência. A captura **nunca** é condicionada
   a extrair um número de uma chave.
-- **"Que norma é esta — tipo, número, com que confiança?"** — uma **hipótese
-  best-effort** derivada do mesmo contexto (nome de arquivo → número em casacivil;
-  título → número na ALRO; caminho de URL → número no Planalto; linha da listagem
-  → número), **refinada a jusante** (outro padrão, um detalhe da página, ou
-  OCR+parse) e **confidence-gated**. É *isto* que **promove** o recurso ao catálogo
-  navegável identity-keyed (§2).
+- **"Que norma é esta — tipo, número?"** — extraído do **mesmo contexto**: nome de
+  arquivo → número em casacivil; título da página → número na ALRO; caminho de URL
+  → número no Planalto; linha/metadado da listagem → número. É *isto* que **promove**
+  o recurso ao catálogo navegável identity-keyed (§2).
 
-Falhar em ler o número de um nome de arquivo **não** rebaixa o recurso a "coisa
-desconhecida": ele segue sendo uma **norma-presumida com número ainda não lido**.
-Descartá-lo jogaria fora a evidência positiva que já tínhamos. Em vez disso, um
-recurso sem `(tipo, número)` resolvido fica **preservado** numa área de espera
-content-addressed (`leizilla_{ente}_{fonte}_unidentified`), onde o IA faz OCR; um
-passo de **reconciliação** o promove ao item de range assim que tipo+número são
-conhecidos. Os antigos fallbacks de lixo (`("documento","fallback-…")`,
-`("lei","seq-NNNNN")`) são substituídos por essa área de espera — não por descarte.
+**Extrair a identidade do contexto é a tarefa primária da descoberta — e resolve a
+grande maioria dos casos (>90%).** O número está nos **metadados ou nas páginas que
+levam ao PDF**; a estratégia de descoberta **deve ler esse contexto** — não é um
+sweep cego de URLs. Quando o contexto rende `(tipo, número)`, o recurso vai **direto
+ao catálogo**. **"Sem número" não deveria acontecer na rota normal**; se acontece com
+frequência numa fonte, é sinal de que a estratégia de descoberta daquela fonte
+precisa ser **reforçada**, não de que devemos relaxar o catálogo.
+
+O resíduo (<10%) — fontes cujo número **não** está no contexto — exige uma
+**estratégia especial** por fonte (p.ex. baixar → OCR do IA → parse para ler o
+número, ou heurística específica). Até resolver, esses bytes ficam **preservados**
+numa área de espera content-addressed (`leizilla_{ente}_{fonte}_unidentified`),
+onde o IA faz OCR; um passo de **reconciliação** os promove ao item de range. A
+área de espera é a **exceção** (rede de segurança), não um depósito de rotina —
+nunca há descarte. Os antigos fallbacks de lixo (`("documento","fallback-…")`,
+`("lei","seq-NNNNN")`) somem: ou a identidade é extraída do contexto, ou o recurso
+fica preservado aguardando reconciliação.
 
 ### 2. Item IA — range bucket por identidade
 

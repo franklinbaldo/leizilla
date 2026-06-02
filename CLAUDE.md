@@ -122,14 +122,17 @@ data/                # local DuckDB + artifacts (gitignored)
   never a path or range boundary. ADR-0010 supersedes ADR-0005's raw-item scheme.
 - **ADR-0011 — identity-keyed navigable catalog; identity is evidence, not an
   ingestion gate.** The raw IA item is a navigable range bucket per `(ente, fonte,
-  tipo, número)` with content-addressed files inside. **Capturing a resource is
-  decided by discovery *context*** (a legislation-aware strategy targeted it —
-  pattern/listing/title), **not** by reading the document: everything discovered is
-  preserved content-addressed. `(tipo, número)` is a best-effort hypothesis refined
-  downstream (pattern → listing → OCR/parse) that *promotes* a resource into the
-  navigable catalog; un-numbered resources wait in a
-  `leizilla_{ente}_{fonte}_unidentified` holding area (IA still OCRs them), never
-  discarded. Reconciliation promotes them once tipo+número are known.
+  tipo, número)` with content-addressed files inside. **Extracting `(tipo, número)`
+  from discovery *context* is the primary job and resolves >90%** — the number lives
+  in the page metadata / lead-in listing pages / URL-filename pattern (ALRO title,
+  casacivil `L{N}.pdf`, Planalto URL path), read *before* fetching the PDF; the
+  identified resource goes straight to the catalog. "Un-numbered" shouldn't happen
+  on the normal path — if it does often for a source, strengthen that source's
+  discovery strategy. The residual <10% needs a deliberate **special strategy** per
+  source (e.g. fetch → IA OCR → parse); meanwhile those bytes are **preserved** in a
+  `leizilla_{ente}_{fonte}_unidentified` holding area (the exception, never
+  discarded) and promoted by reconciliation. Capture is decided by context, not by
+  reading the document.
 
 The codebase is **fail-open by design**: Wayback save failures, missing
 robots.txt, and IA query errors return empty/None rather than aborting batch jobs.

@@ -127,14 +127,15 @@ Implicações que decorrem disso (e estão em outras seções):
 **raw_id lógico**: `leizilla-raw-{ente}-{fonte}-{chave}`, onde `{chave}` identifica
 a norma como `{tipo}-{número:05d}` (ex.: `lei-05120`, `lc-00042`, `decreto-01234`).
 
-**Identidade é evidência, não catraca de ingestão** (ADR-0011, §1 revisada): a
-captura é decidida pelo **contexto da descoberta** (uma estratégia ciente de
-legislação apontou para o recurso), não pela leitura do documento. Tudo o que se
-descobre é **preservado** content-addressed; a identidade `(tipo, número)` é uma
-hipótese refinada a jusante (padrão → listagem → OCR/parse) que **promove** o
-recurso ao item de range. Chaves não-identificantes (`coddoc`, `seq`, `fallback`,
-`documento`) ainda não entram no **catálogo navegável** — ficam na área de espera
-`leizilla_{ente}_{fonte}_unidentified` até a reconciliação, nunca descartadas.
+**Identidade é evidência, não catraca de ingestão** (ADR-0011, §1 revisada):
+**extrair `(tipo, número)` do contexto da descoberta** (metadados / páginas que
+levam ao PDF, padrão de URL/nome) é a tarefa primária e resolve >90% dos casos —
+o recurso identificado vai direto ao catálogo. "Sem número" **não deveria acontecer
+na rota normal**; o resíduo (<10%) exige uma **estratégia especial** por fonte e,
+até resolver, fica **preservado** na área de espera content-addressed
+`leizilla_{ente}_{fonte}_unidentified` (o IA faz OCR), promovido por reconciliação.
+A área de espera é a **exceção**, nunca um descarte — capturar é decidido pelo
+contexto, não pela leitura do documento.
 
 | ente | fonte | chave | Item IA (range) |
 |---|---|---|---|
