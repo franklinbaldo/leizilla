@@ -590,8 +590,11 @@ class InternetArchivePublisher:
         # Proveniência (ADR-0010): mapeia o arquivo de volta à sua origem de
         # colheita (URL original; coddoc/path embutido). É como descartamos o
         # coddoc da identidade sem perder a rastreabilidade.
+        # Proveniência == URL do recurso que a descoberta usa como chave
+        # (`res["url"]`), para a reconciliação casar. Para a ALRO esse é o PDF
+        # (`url_pdf_original`), não a página de listagem (`url_original`).
         source = str(
-            lei_data.get("url_original") or lei_data.get("url_pdf_original") or ""
+            lei_data.get("url_pdf_original") or lei_data.get("url_original") or ""
         )
 
         raw_meta = build_raw_meta(lei_data, pdf_bytes, fetched_from, wayback_url)
@@ -704,8 +707,11 @@ class InternetArchivePublisher:
             item_id = range_item_identifier(ente, fonte, tipo, numero)
             title = _range_title(ente, fonte, tipo, numero)
         rendicao = str(lei_data.get("rendicao", ""))
+        # Proveniência == URL do recurso que a descoberta usa como chave
+        # (`res["url"]`), para a reconciliação casar. Para a ALRO esse é o PDF
+        # (`url_pdf_original`), não a página de listagem (`url_original`).
         source = str(
-            lei_data.get("url_original") or lei_data.get("url_pdf_original") or ""
+            lei_data.get("url_pdf_original") or lei_data.get("url_original") or ""
         )
 
         html_bytes = html_content.encode("utf-8")

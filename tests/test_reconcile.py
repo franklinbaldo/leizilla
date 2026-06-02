@@ -84,3 +84,34 @@ class TestReconcileUnidentified:
         pub.secret_key = None
         res = pub.reconcile_unidentified("ro", "assembleia", {})
         assert res["success"] is False
+
+
+class TestSourceMatchesDiscoveryURL:
+    """Regression: the index `source` must equal discovery's res['url'] (the PDF
+    URL) so reconcile can match — not the ALRO listing-page url_original."""
+
+    @patch("leizilla.publisher._ia_subprocess_env", return_value={})
+    @patch("subprocess.run")
+    def test_upload_raw_records_pdf_url_as_source(self, _run, _env, tmp_path):
+        from pathlib import Path
+
+        captured = {}
+
+        def _capture(item_id, content, **kw):
+            captured.update(kw)
+            return "uuid5x", "tipo,numero\n"
+
+        pdf = Path(tmp_path) / "doc.pdf"
+        pdf.write_bytes(b"x")
+        lei_data = {
+            "ente": "ro",
+            "fonte": "assembleia",
+            "chave": "lei-00099",
+            "url_original": "http://alro/legislacao/leis/77",  # listing page
+            "url_pdf_original": "http://alro/files/L99.pdf",  # the PDF (res['url'])
+        }
+        with patch(
+            "leizilla.publisher._resolve_uuid5_and_index", side_effect=_capture
+        ):
+            _pub().upload_raw(pdf, lei_data, b"x")
+        assert captured["source"] == "http://alro/files/L99.pdf"
