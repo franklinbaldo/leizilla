@@ -10,6 +10,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from leizilla.ia_utils import parse_identity
 from leizilla.storage import DuckDBStorage
 
 logger = logging.getLogger(__name__)
@@ -80,9 +81,10 @@ class WaybackCdxDiscovery(DiscoveryStrategy):
                 filename = orig_url.split("/")[-1]
                 tipo, chave = parse_filename(filename)
                 if not tipo or not chave:
-                    # Se não casar com os padrões comuns, use fallback baseado no nome limpo
-                    name_clean = filename.rsplit(".", 1)[0].replace(" ", "_")
-                    tipo, chave = "documento", f"fallback-{name_clean}"
+                    # Reject-until-identified (ADR-0011): sem (tipo, número) não
+                    # enfileiramos — não inserir mantém o recurso redescobrível
+                    # numa próxima passada que saiba identificá-lo.
+                    continue
 
                 wayback_url = f"https://web.archive.org/web/{timestamp}/{orig_url}"
                 resources.append(
@@ -120,7 +122,8 @@ class SequentialDiscovery(DiscoveryStrategy):
                 filename = url.split("/")[-1]
                 tipo, chave = parse_filename(filename)
                 if not tipo or not chave:
-                    tipo, chave = "lei", f"seq-{num:05d}"
+                    # Reject-until-identified (ADR-0011): pula URLs sem identidade.
+                    continue
                 resources.append(
                     {
                         "url": url,
@@ -174,7 +177,11 @@ class PlaywrightCrawlerDiscovery(DiscoveryStrategy):
         resources = []
         for law in laws:
             pdf_url = law.get("url_pdf_original")
-            if pdf_url:
+            chave = law.get("chave", "")
+            # Reject-until-identified (ADR-0011): a ALRO é navegada por coddoc,
+            # mas só entram normas cujo título rendeu (tipo, número). Títulos não
+            # parseáveis ficam de fora — redescobríveis numa próxima passada.
+            if pdf_url and parse_identity(chave) is not None:
                 resources.append(
                     {
                         "url": pdf_url,

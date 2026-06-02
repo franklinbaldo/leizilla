@@ -277,24 +277,6 @@ class TestHarvestPendingResources:
         assert stats["success"] == 1
         pub.upload_raw.assert_called_once()
 
-    def test_unidentified_resource_is_deferred(self, temp_db: DuckDBStorage) -> None:
-        # ADR-0011: a resource without a normative (tipo, número) — e.g. ALRO's
-        # bare coddoc — is deferred, never downloaded or uploaded.
-        from leizilla.scraper import harvest_pending_resources
-
-        temp_db.insert_resource(
-            _make_resource(
-                url="http://x/coddoc.pdf", fonte="assembleia", chave="coddoc-00007"
-            )
-        )
-        pub = MagicMock()
-        with patch("leizilla.scraper.robots.is_allowed", return_value=True):
-            stats = harvest_pending_resources(temp_db, pub, limit=10)
-
-        assert stats["deferred"] == 1
-        assert stats["success"] == 0
-        pub.upload_raw.assert_not_called()
-
     def test_limit_respected(self, temp_db: DuckDBStorage) -> None:
         from leizilla.scraper import harvest_pending_resources
 

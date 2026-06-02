@@ -12,7 +12,6 @@ from typing import Any, Callable, Dict, Optional
 from urllib.parse import urlparse
 
 from leizilla import robots, wayback
-from leizilla.ia_utils import parse_identity
 from leizilla.parser import fetch_html
 from leizilla.publisher import InternetArchivePublisher
 from leizilla.storage import DuckDBStorage
@@ -180,7 +179,7 @@ def harvest_pending_resources(
     Se `ente` for fornecido, processa apenas recursos desse ente.
     """
     pending = storage.get_pending_resources(limit=limit, ente=ente)
-    stats = {"success": 0, "failed": 0, "robots-blocked": 0, "deferred": 0}
+    stats = {"success": 0, "failed": 0, "robots-blocked": 0}
     rate_limiter = make_rate_limiter()
 
     for res in pending:
@@ -190,14 +189,6 @@ def harvest_pending_resources(
         tipo = res["tipo_documento"]
         chave = res["chave"]
         wb_url = res["wayback_snapshot"]
-
-        # Reject-until-identified (ADR-0011): recursos sem (tipo, número)
-        # normativo — ex. coddoc puro da ALRO — são adiados, não baixados nem
-        # enviados (evita uploads que o gate de upload_raw recusaria).
-        if parse_identity(chave) is None:
-            storage.update_resource_status(url, "deferred")
-            stats["deferred"] += 1
-            continue
 
         # Robots check
         if not robots.is_allowed(url):

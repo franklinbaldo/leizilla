@@ -110,6 +110,41 @@ def test_wayback_cdx_discovery():
     )
 
 
+def test_sequential_discovery_skips_unidentifiable():
+    # ADR-0011: filenames that don't yield (tipo, número) are not enqueued, so a
+    # later pass that can identify them re-evaluates fresh (no stuck rows).
+    config = {
+        "strategy": "sequential",
+        "templates": ["http://example.com/page{num}.pdf"],
+        "start": 1,
+        "end": 3,
+    }
+    resources = SequentialDiscovery(config, "ro", "casacivil").run()
+    assert resources == []
+
+
+def test_wayback_cdx_skips_unidentifiable_filenames():
+    config = {"strategy": "wayback-cdx", "prefix": "http://example.com/Files/"}
+    cdx_response = [
+        ["urlkey", "timestamp", "original", "mimetype", "statuscode", "digest", "len"],
+        [
+            "com,example)/files/relatorio.pdf",
+            "20220824115429",
+            "http://example.com/Files/relatorio_anual.pdf",
+            "application/pdf",
+            "200",
+            "DIGEST",
+            "1234",
+        ],
+    ]
+    mock_resp = MagicMock()
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.read.return_value = json.dumps(cdx_response).encode("utf-8")
+    with patch("urllib.request.urlopen", return_value=mock_resp):
+        resources = WaybackCdxDiscovery(config, "ro", "casacivil").run()
+    assert resources == []
+
+
 @pytest.fixture
 def temp_db(tmp_path):
     db_path = tmp_path / "test.duckdb"
