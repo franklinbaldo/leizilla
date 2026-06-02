@@ -78,11 +78,16 @@ discriminador) — nunca um overwrite silencioso.
 
 ### 4. `index.csv` por item — o mapa identidade → arquivo
 
-Mapeia `(tipo, número, rendição, formato) → {uuid5_8, sha256, captured_at}`,
+Mapeia `(tipo, número, rendição, formato) → {uuid5_8, sha256, captured_at, source}`,
 append-only, **newest-wins**. Rendição (`original`, `compilada`, `atual`, …) e
 formato (`pdf`, `docx`, `html`) são **metadados no índice, não no nome do
 arquivo**. Quando a rendição não puder ser classificada pela fonte, fica vazia
 (`unclassified`) — o arquivo ainda é admitido (já é content-addressed).
+
+A coluna **`source`** guarda a chave de colheita / URL de origem (ADR-0010): é
+o que mapeia cada arquivo de volta à sua fonte. É justamente por o índice
+preservar a proveniência que a **identidade pode descartar o `coddoc`** — o
+índice de navegação da ALRO vira metadado em `source`, nunca a chave de identidade.
 
 ### 5. Sem `-rN`
 

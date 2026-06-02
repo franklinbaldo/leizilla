@@ -55,6 +55,7 @@ INDEX_COLUMNS = [
     "uuid5",  # nome content-addressed do arquivo (UUIDv5 truncado)
     "sha256",  # hash completo — dedup + detecção de colisão de uuid5
     "captured_at",  # ISO-8601 — ordena versões (newest wins)
+    "source",  # chave de colheita / URL de origem (ADR-0010): mapeia arquivo→fonte
 ]
 
 
@@ -151,6 +152,7 @@ def merge_index_row(
     uuid5: str,
     sha256: str,
     captured_at: Optional[str] = None,
+    source: str = "",
 ) -> str:
     """Devolve o index.csv com a captura anexada (append-only, newest-wins).
 
@@ -185,6 +187,7 @@ def merge_index_row(
             "uuid5": uuid5,
             "sha256": sha256,
             "captured_at": captured_at,
+            "source": source,
         }
     )
     out = io.StringIO()

@@ -233,6 +233,7 @@ def harvest_pending_resources(
             "fonte": fonte,
             "chave": chave,
             "titulo": f"{tipo.upper()} {chave} ({ente.upper()})",
+            "url_original": url,  # proveniência: mapeia o arquivo → fonte (ADR-0010)
         }
 
         try:

@@ -443,6 +443,7 @@ def _resolve_uuid5_and_index(
     numero: int,
     rendicao: str,
     formato: str,
+    source: str = "",
 ) -> tuple[str, str]:
     """Resolve o nome de arquivo (UUIDv5) e o index.csv mesclado do item (ADR-0011).
 
@@ -464,6 +465,7 @@ def _resolve_uuid5_and_index(
         formato=formato,
         uuid5=uuid5,
         sha256=sha256,
+        source=source,
     )
     return uuid5, merged
 
@@ -554,6 +556,12 @@ class InternetArchivePublisher:
         tipo, numero = identity
         item_id = range_item_identifier(ente, fonte, tipo, numero)
         rendicao = str(lei_data.get("rendicao", ""))
+        # Proveniência (ADR-0010): mapeia o arquivo de volta à sua origem de
+        # colheita (URL original; coddoc/path embutido). É como descartamos o
+        # coddoc da identidade sem perder a rastreabilidade.
+        source = str(
+            lei_data.get("url_original") or lei_data.get("url_pdf_original") or ""
+        )
 
         raw_meta = build_raw_meta(lei_data, pdf_bytes, fetched_from, wayback_url)
 
@@ -567,6 +575,7 @@ class InternetArchivePublisher:
                 numero=numero,
                 rendicao=rendicao,
                 formato="pdf",
+                source=source,
             )
         except IndexFetchError as e:
             return {
@@ -661,6 +670,9 @@ class InternetArchivePublisher:
         tipo, numero = identity
         item_id = range_item_identifier(ente, fonte, tipo, numero)
         rendicao = str(lei_data.get("rendicao", ""))
+        source = str(
+            lei_data.get("url_original") or lei_data.get("url_pdf_original") or ""
+        )
 
         html_bytes = html_content.encode("utf-8")
         raw_meta = build_raw_meta_html(
@@ -675,6 +687,7 @@ class InternetArchivePublisher:
                 numero=numero,
                 rendicao=rendicao,
                 formato="html",
+                source=source,
             )
         except IndexFetchError as e:
             return {

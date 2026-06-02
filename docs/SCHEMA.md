@@ -137,8 +137,10 @@ identificar a norma como `{tipo}-{número:05d}` (ex.: `lei-05120`, `lc-00042`,
 
 Dentro do item: `{uuid5}.pdf` / `{uuid5}_djvu.txt` (OCR derivado pelo IA) /
 `{uuid5}_meta.json`, e um `index.csv` mapeando `(tipo, número, rendição, formato)
-→ {uuid5, sha256, captured_at}` (newest-wins). Versões e rendições coexistem como
-arquivos hash distintos; dedup e detecção de colisão usam o `sha256` completo.
+→ {uuid5, sha256, captured_at, source}` (newest-wins). A coluna `source` é a
+chave de colheita / URL de origem (ADR-0010), mapeando cada arquivo à sua fonte
+— é o que permite à identidade descartar o `coddoc`. Versões e rendições coexistem
+como arquivos hash distintos; dedup e detecção de colisão usam o `sha256` completo.
 
 **Justificativa**: IA faz OCR **apenas** em PDFs individuais (não em ZIP), e
 agrupar por range mantém o catálogo navegável e o número de items sob controle.

@@ -159,6 +159,17 @@ class TestMergeIndexRow:
         assert second == first  # truly no-op: unchanged bytes → unchanged CSV
         assert "2026-05-31" not in second
 
+    def test_records_source_provenance(self):
+        # ADR-0010: the manifest maps each file back to its harvest source — this
+        # is what lets identity drop coddoc without losing traceability.
+        csv_out = self._row(None, source="http://alro.ro.gov.br/legislacao/leis/7")
+        assert "source" in INDEX_COLUMNS
+        assert (
+            csv_out.strip()
+            .splitlines()[1]
+            .endswith(",http://alro.ro.gov.br/legislacao/leis/7")
+        )
+
 
 class TestUuid5Collision:
     def test_detects_same_name_different_bytes(self):
