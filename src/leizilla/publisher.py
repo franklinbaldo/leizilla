@@ -820,24 +820,32 @@ class InternetArchivePublisher:
         fonte: str,
         tipo: str,
         numero: int,
+        meta: Optional[tuple[str, bytes]] = None,
     ) -> bool:
         """Escreve o arquivo + o ``index.csv`` (já mesclado pelo chamador) e sobe ao
-        item de range. O index vem pronto para que promoções ao MESMO range numa
-        execução acumulem num único índice — evita o lost-update de releituras
-        sucessivas contra o IA eventualmente-consistente."""
+        item de range. ``meta`` é o sidecar ``(_meta.json nome, bytes)`` de
+        proveniência preservado da espera, para o item de range não ficar sem o
+        ``raw_meta`` que a captura direta publica. O index vem pronto para que
+        promoções ao MESMO range numa execução acumulem num único índice — evita o
+        lost-update de releituras sucessivas contra o IA eventualmente-consistente."""
         with tempfile.TemporaryDirectory() as tmp:
             fdst = Path(tmp) / filename
             fdst.write_bytes(content)
             index_path = Path(tmp) / INDEX_FILENAME
             index_path.write_text(index_csv, encoding="utf-8")
+            files = [str(fdst)]
+            if meta is not None:
+                meta_dst = Path(tmp) / meta[0]
+                meta_dst.write_bytes(meta[1])
+                files.append(str(meta_dst))
+            files.append(str(index_path))
             try:
                 subprocess.run(
                     [
                         "ia",
                         "upload",
                         range_id,
-                        str(fdst),
-                        str(index_path),
+                        *files,
                         "--metadata",
                         f"title:{_range_title(ente, fonte, tipo, numero)}",
                         "--metadata",
@@ -954,6 +962,14 @@ class InternetArchivePublisher:
             except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
                 logger.warning("reconcile: download de %s falhou: %s", row["uuid5"], e)
                 continue
+            # Sidecar de proveniência (_meta.json) — best-effort: preserva a
+            # proveniência Wayback/fonte no item de range (paridade com upload_raw).
+            try:
+                meta_bytes: Optional[bytes] = _fetch_item_file_bytes(
+                    holding_id, raw_filename(row["uuid5"], "_meta.json")
+                )
+            except (urllib.error.URLError, urllib.error.HTTPError, OSError):
+                meta_bytes = None
             range_id = range_item_identifier(ente, fonte, tipo, numero)
             if range_id in failed_ranges:
                 continue
@@ -981,6 +997,11 @@ class InternetArchivePublisher:
                 sha256=sha256,
                 source=row["source"],
             )
+            meta = (
+                (raw_filename(uuid5, "_meta.json"), meta_bytes)
+                if meta_bytes is not None
+                else None
+            )
             if self._upload_to_range(
                 range_id,
                 content,
@@ -990,6 +1011,7 @@ class InternetArchivePublisher:
                 fonte,
                 tipo,
                 numero,
+                meta,
             ):
                 range_index_cache[range_id] = merged  # acumula só em sucesso
                 promoted_keys.add((row["uuid5"], row["source"]))

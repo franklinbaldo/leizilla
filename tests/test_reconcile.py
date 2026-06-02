@@ -56,6 +56,13 @@ class TestReconcileUnidentified:
         assert "leizilla_ro_assembleia_lei_0001-1000" in uploaded_items
         # ... and the holding index was rewritten (promoted row removed).
         assert "leizilla_ro_assembleia_unidentified" in uploaded_items
+        # ... carrying the provenance _meta.json sidecar (parity with upload_raw).
+        range_call = next(
+            c
+            for c in mock_run.call_args_list
+            if c.args[0][2] == "leizilla_ro_assembleia_lei_0001-1000"
+        )
+        assert any(str(a).endswith("_meta.json") for a in range_call.args[0])
 
     @patch("leizilla.publisher._ia_subprocess_env", return_value={})
     @patch("subprocess.run")
