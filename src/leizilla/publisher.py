@@ -942,19 +942,31 @@ class InternetArchivePublisher:
             if promoted is not None:
                 promoted_uuid5s.add(row["uuid5"])
 
+        # As promoções ao range já aconteceram; só falta tirar essas linhas do
+        # índice de espera. Se essa reescrita falhar, os arquivos seguem listados
+        # na espera — reportamos erro (e contamos como remaining), senão o operador
+        # acha que a limpeza terminou e a próxima reconciliação re-promove à toa.
+        index_rewrite_ok = True
         if promoted_uuid5s:
             new_index = remove_index_rows(holding_index, promoted_uuid5s)
-            self._upload_index_only(holding_id, new_index)
+            index_rewrite_ok = self._upload_index_only(holding_id, new_index)
 
+        cleaned = promoted_uuid5s if index_rewrite_ok else set()
         remaining = sum(
-            1 for r in rows if not r["numero"] and r["uuid5"] not in promoted_uuid5s
+            1 for r in rows if not r["numero"] and r["uuid5"] not in cleaned
         )
-        return {
-            "success": True,
+        result: Dict[str, Any] = {
+            "success": index_rewrite_ok,
             "promoted": len(promoted_uuid5s),
             "remaining": remaining,
             "item_id": holding_id,
         }
+        if not index_rewrite_ok:
+            result["error"] = (
+                "arquivos promovidos ao range, mas a reescrita do índice de espera "
+                "falhou — linhas promovidas ainda constam em _unidentified"
+            )
+        return result
 
     def upload_parsed(
         self,

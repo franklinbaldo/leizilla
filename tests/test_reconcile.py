@@ -72,6 +72,26 @@ class TestReconcileUnidentified:
         assert res["remaining"] == 1
         mock_run.assert_not_called()  # nothing uploaded, holding untouched
 
+    @patch("leizilla.publisher._ia_subprocess_env", return_value={})
+    @patch("subprocess.run")
+    @patch("leizilla.publisher._fetch_item_file_bytes", return_value=b"PDF-bytes")
+    @patch("leizilla.publisher._fetch_existing_index")
+    def test_holding_index_rewrite_failure_is_surfaced(
+        self, mock_idx, _mock_bytes, _run, _env
+    ):
+        # Range upload succeeds, but rewriting the holding index fails → report the
+        # failure (success False) and keep the promoted row counted as remaining,
+        # so the operator sees cleanup didn't finish.
+        mock_idx.side_effect = [_holding_index_one_unidentified(), None]
+        identity = {"http://alro.ro.gov.br/legislacao/leis/99": ("lei", 99)}
+        pub = _pub()
+        with patch.object(pub, "_upload_index_only", return_value=False):
+            res = pub.reconcile_unidentified("ro", "assembleia", identity)
+        assert res["success"] is False
+        assert "error" in res
+        assert res["promoted"] == 1
+        assert res["remaining"] == 1  # still listed in holding → not cleaned
+
     @patch("leizilla.publisher._fetch_existing_index", return_value=None)
     def test_empty_holding_is_noop(self, _mock_idx):
         res = _pub().reconcile_unidentified("ro", "assembleia", {"x": ("lei", 1)})
