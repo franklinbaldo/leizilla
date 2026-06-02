@@ -22,11 +22,14 @@ from leizilla.ia_utils import (
     INDEX_FILENAME,
     compute_hash,
     download_url,
-    list_source_keys,
+    list_identities,
     merge_index_row,
+    parse_identity,
+    range_bounds,
+    range_item_identifier,
     raw_filename,
-    raw_index_identifier,
-    raw_range_identifier,
+    uuid5_collision,
+    uuid5_name,
 )
 
 _DATASET_IDENTIFIER_RE = (
@@ -218,31 +221,68 @@ def count_ia_items(identifier_prefix: str) -> Optional[int]:
     return total
 
 
+def _scrape_identifiers(identifier_prefix: str) -> Optional[list[str]]:
+    """Lista os identifiers de itens IA que começam com o prefixo (scrape API).
+
+    ``None`` em erro de rede. Pagina via cursor até esgotar.
+    """
+    q = f"identifier:{identifier_prefix}*"
+    base_url = (
+        f"{_IA_SCRAPE_URL}?q={urllib.parse.quote(q)}&count=10000&fields=identifier"
+    )
+    ids: list[str] = []
+    cursor: Optional[str] = None
+    while True:
+        url = base_url
+        if cursor:
+            url += f"&cursor={urllib.parse.quote(cursor)}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read())
+            ids.extend(
+                item["identifier"]
+                for item in data.get("items", [])
+                if item.get("identifier")
+            )
+            cursor = data.get("cursor")
+            if not cursor:
+                break
+        except Exception:
+            return None
+    return ids
+
+
 def list_raw_ids(ente: str, fonte: str) -> Set[str]:
     """Return set of legacy raw IDs already captured to IA for this ente/fonte.
 
-    Under the content-addressed layer (ADR-0010), raw bytes live in hash-prefix
-    range items whose identifiers carry no source_key — only the per-(ente,fonte)
-    ``index.csv`` maps source_keys to content. So discovery reads the index and
-    reconstructs the legacy raw IDs (``leizilla-raw-{ente}-{fonte}-{source_key}``)
-    that the parser knows how to resolve.
+    Under ADR-0011 the raw bytes live in identity range items
+    (``leizilla_{ente}_{fonte}_{tipo}_{start}-{end}``), each carrying its own
+    ``index.csv``. So we enumerate those items via the scrape API, read each
+    index, and reconstruct the legacy raw IDs
+    (``leizilla-raw-{ente}-{fonte}-{tipo}-{numero}``) the parser knows how to
+    resolve.
 
-    Fail-open: returns the empty set when the index doesn't exist yet or on any
-    network error, so the caller falls back to the sequential range — never skips
-    due to connectivity.
+    Fail-open: returns the empty set when nothing exists yet or on any network
+    error, so the caller falls back to the sequential range — never skips due to
+    connectivity.
     """
-    index_url = download_url(raw_index_identifier(ente, fonte), INDEX_FILENAME)
-    req = urllib.request.Request(index_url, headers={"User-Agent": _USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            index_csv = resp.read().decode("utf-8", errors="replace")
-    except (urllib.error.URLError, OSError, ValueError):
+    prefix = f"leizilla_{ente.lower()}_{fonte.lower()}_"
+    item_ids = _scrape_identifiers(prefix)
+    if not item_ids:
         return set()
-
-    return {
-        _raw_identifier(ente, fonte, source_key)
-        for source_key in list_source_keys(index_csv)
-    }
+    out: Set[str] = set()
+    for item_id in item_ids:
+        index_url = download_url(item_id, INDEX_FILENAME)
+        req = urllib.request.Request(index_url, headers={"User-Agent": _USER_AGENT})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                index_csv = resp.read().decode("utf-8", errors="replace")
+        except (urllib.error.URLError, OSError, ValueError):
+            continue
+        for identity in list_identities(index_csv):
+            out.add(_raw_identifier(ente, fonte, identity))
+    return out
 
 
 def list_parsed_raw_ids(ente: str, fonte: str) -> Set[str]:
@@ -371,15 +411,15 @@ class IndexFetchError(Exception):
     """
 
 
-def _fetch_existing_index(ente: str, fonte: str) -> Optional[str]:
-    """Baixa o index.csv corrente do (ente, fonte) do IA.
+def _fetch_existing_index(item_id: str) -> Optional[str]:
+    """Baixa o index.csv corrente de um item de range do IA.
 
-    Retorna o CSV se existir, ``None`` se for um 404 confirmado (índice ainda não
-    publicado — seguro começar vazio), e levanta ``IndexFetchError`` em falhas
+    Retorna o CSV se existir, ``None`` se for um 404 confirmado (item/índice ainda
+    não publicado — seguro começar vazio), e levanta ``IndexFetchError`` em falhas
     transitórias (timeout, 5xx, rede) para que o chamador não sobrescreva o
     histórico existente com um índice vazio.
     """
-    url = download_url(raw_index_identifier(ente, fonte), INDEX_FILENAME)
+    url = download_url(item_id, INDEX_FILENAME)
     req = urllib.request.Request(url)
     req.add_header("User-Agent", _USER_AGENT)
     try:
@@ -395,71 +435,46 @@ def _fetch_existing_index(ente: str, fonte: str) -> Optional[str]:
         raise IndexFetchError(str(e)) from e
 
 
-def update_raw_index(
-    ente: str,
-    fonte: str,
+def _resolve_uuid5_and_index(
+    item_id: str,
+    content_bytes: bytes,
     *,
-    source_key: str,
-    content_hash: str,
-    content_type: str,
-    source_url: str,
-) -> Dict[str, Any]:
-    """Anexa uma captura ao index.csv do (ente, fonte) e re-publica o item índice.
+    tipo: str,
+    numero: int,
+    rendicao: str,
+    formato: str,
+) -> tuple[str, str]:
+    """Resolve o nome de arquivo (UUIDv5) e o index.csv mesclado do item (ADR-0011).
 
-    O índice (``leizilla-raw-{ente}-{fonte}-index``) é a ponte source_key →
-    content_hash da camada raw (ADR-0010). Append-only e idempotente em
-    (source_key, content_hash). Item separado do range que guarda os bytes, para
-    que a resolução de leitura precise de um único fetch por (ente, fonte).
-
-    WARNING: download+upload incremental por captura é O(n²) em ingestão massiva.
-    Para backfill offline, acumular o index.csv localmente e publicar uma vez.
+    Busca o index.csv corrente do item, detecta colisão de UUIDv5 truncado (estende
+    para o UUID completo se necessário), e mescla a captura (append-only,
+    newest-wins). Levanta ``IndexFetchError`` em falha transitória de leitura — o
+    chamador aborta em vez de sobrescrever o histórico do item.
     """
-    try:
-        existing = _fetch_existing_index(ente, fonte)
-    except IndexFetchError as e:
-        # Falha transitória ao ler o índice atual: abortar em vez de sobrescrever
-        # o histórico com uma única linha (perderia mapeamentos prévios).
-        return {
-            "success": False,
-            "error": f"could not read existing index (aborting to avoid data loss): {e}",
-            "index_id": raw_index_identifier(ente, fonte),
-        }
-    updated = merge_index_row(
+    sha256 = compute_hash(content_bytes)
+    uuid5 = uuid5_name(content_bytes)
+    existing = _fetch_existing_index(item_id)
+    if existing and uuid5_collision(existing, uuid5=uuid5, sha256=sha256):
+        uuid5 = uuid5_name(content_bytes, length=32)  # estende: garante unicidade
+    merged = merge_index_row(
         existing,
-        source_key=source_key,
-        content_hash=content_hash,
-        content_type=content_type,
-        source_url=source_url,
+        tipo=tipo,
+        numero=numero,
+        rendicao=rendicao,
+        formato=formato,
+        uuid5=uuid5,
+        sha256=sha256,
     )
-    index_id = raw_index_identifier(ente, fonte)
-    with tempfile.TemporaryDirectory() as tmp:
-        index_path = Path(tmp) / INDEX_FILENAME
-        index_path.write_text(updated, encoding="utf-8")
-        try:
-            subprocess.run(
-                [
-                    "ia",
-                    "upload",
-                    index_id,
-                    str(index_path),
-                    "--metadata",
-                    f"title:Leizilla Raw Index {ente.upper()} {fonte.upper()}",
-                    "--metadata",
-                    "mediatype:data",
-                    "--metadata",
-                    f"subject:leizilla;index;{ente};{fonte}",
-                    "--metadata",
-                    "creator:leizilla-crawler",
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-                env=_ia_subprocess_env(config.IA_ACCESS_KEY, config.IA_SECRET_KEY),
-            )
-            return {"success": True, "index_id": index_id}
-        except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            err = getattr(e, "stderr", str(e))
-            return {"success": False, "error": err, "index_id": index_id}
+    return uuid5, merged
+
+
+def _range_title(ente: str, fonte: str, tipo: str, numero: int) -> str:
+    """Título legível do item de range (ex.: 'Leizilla Raw RO CASACIVIL LEI 5001-6000')."""
+    start, end = range_bounds(numero)
+    return (
+        f"Leizilla Raw {ente.upper()} {fonte.upper()} "
+        f"{tipo.upper()} {start:04d}-{end:04d}"
+    )
 
 
 _ia_config_cache: Dict[tuple[str, str], str] = {}
@@ -527,24 +542,47 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
-        # Endereço de conteúdo (ADR-0010): o arquivo raw é nomeado pelo SHA-256
-        # dos seus bytes e bucketizado por prefixo de hash. A chave de colheita
-        # (chave) é metadado no índice, nunca path nem fronteira de range.
-        content_hash = compute_hash(pdf_bytes)
-        range_ia_id = raw_range_identifier(ente, fonte, content_hash)
-        title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {content_hash[:2]}"
+        # Reject-until-identified (ADR-0011): só entram na coleção normas com
+        # (tipo, número) conhecidos. coddoc/seq/fallback não identificam.
+        identity = parse_identity(chave)
+        if identity is None:
+            return {
+                "success": False,
+                "error": f"unidentified resource (no tipo+número): {chave}",
+                "ia_id": ia_id,
+            }
+        tipo, numero = identity
+        item_id = range_item_identifier(ente, fonte, tipo, numero)
+        rendicao = str(lei_data.get("rendicao", ""))
 
         raw_meta = build_raw_meta(lei_data, pdf_bytes, fetched_from, wayback_url)
-        url_original = str(lei_data.get("url_original") or fetched_from)
+
+        # Nome content-addressed (UUIDv5) + index.csv do item. Aborta se não
+        # conseguir ler o índice atual (não sobrescreve histórico do item).
+        try:
+            uuid5, index_csv = _resolve_uuid5_and_index(
+                item_id,
+                pdf_bytes,
+                tipo=tipo,
+                numero=numero,
+                rendicao=rendicao,
+                formato="pdf",
+            )
+        except IndexFetchError as e:
+            return {
+                "success": False,
+                "error": f"could not read existing index (aborting to avoid data loss): {e}",
+                "ia_id": ia_id,
+            }
 
         with tempfile.TemporaryDirectory() as tmp:
-            pdf_name = raw_filename(content_hash, ".pdf")
-            meta_name = raw_filename(content_hash, "_meta.json")
-            pdf_dst = Path(tmp) / pdf_name
-            meta_path = Path(tmp) / meta_name
+            pdf_dst = Path(tmp) / raw_filename(uuid5, ".pdf")
+            meta_path = Path(tmp) / raw_filename(uuid5, "_meta.json")
+            index_path = Path(tmp) / INDEX_FILENAME
 
             shutil.copy2(str(pdf_path), str(pdf_dst))
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
+            index_path.write_text(index_csv, encoding="utf-8")
 
             coverage = _entity_coverage(ente)
             desc = (
@@ -557,11 +595,12 @@ class InternetArchivePublisher:
                     [
                         "ia",
                         "upload",
-                        range_ia_id,
+                        item_id,
                         str(pdf_dst),
                         str(meta_path),
+                        str(index_path),
                         "--metadata",
-                        f"title:{title}",
+                        f"title:{_range_title(ente, fonte, tipo, numero)}",
                         "--metadata",
                         "mediatype:texts",
                         "--metadata",
@@ -583,28 +622,11 @@ class InternetArchivePublisher:
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
 
-        # Anexa a captura ao índice source_key → content_hash do (ente, fonte).
-        # A leitura (fetch_ocr) resolve exclusivamente via índice; se este upload
-        # falhar, a captura existe nos bytes mas o parser nunca a localiza —
-        # então propagamos a falha em vez de reportar sucesso.
-        index_result = update_raw_index(
-            ente,
-            fonte,
-            source_key=chave,
-            content_hash=content_hash,
-            content_type="application/pdf",
-            source_url=url_original,
-        )
-        if not index_result.get("success"):
-            return {
-                "success": False,
-                "error": f"index update failed: {index_result.get('error')}",
-                "ia_id": ia_id,
-            }
         return {
             "success": True,
             "ia_id": ia_id,
-            "ia_url": f"https://archive.org/details/{range_ia_id}",
+            "ia_url": f"https://archive.org/details/{item_id}",
+            "uuid5": uuid5,
         }
 
     def upload_raw_html(
@@ -628,24 +650,47 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
-        html_bytes = html_content.encode("utf-8")
-        content_hash = compute_hash(html_bytes)
-        range_ia_id = raw_range_identifier(ente, fonte, content_hash)
-        title = f"Leizilla Raw {ente.upper()} {fonte.upper()} {content_hash[:2]}"
+        # Reject-until-identified (ADR-0011).
+        identity = parse_identity(chave)
+        if identity is None:
+            return {
+                "success": False,
+                "error": f"unidentified resource (no tipo+número): {chave}",
+                "ia_id": ia_id,
+            }
+        tipo, numero = identity
+        item_id = range_item_identifier(ente, fonte, tipo, numero)
+        rendicao = str(lei_data.get("rendicao", ""))
 
+        html_bytes = html_content.encode("utf-8")
         raw_meta = build_raw_meta_html(
             html_content, lei_data, fetched_from, wayback_url
         )
-        url_original = str(lei_data.get("url_original") or fetched_from)
+
+        try:
+            uuid5, index_csv = _resolve_uuid5_and_index(
+                item_id,
+                html_bytes,
+                tipo=tipo,
+                numero=numero,
+                rendicao=rendicao,
+                formato="html",
+            )
+        except IndexFetchError as e:
+            return {
+                "success": False,
+                "error": f"could not read existing index (aborting to avoid data loss): {e}",
+                "ia_id": ia_id,
+            }
 
         with tempfile.TemporaryDirectory() as tmp:
-            html_name = raw_filename(content_hash, ".html")
-            meta_name = raw_filename(content_hash, "_meta.json")
-            html_dst = Path(tmp) / html_name
-            meta_path = Path(tmp) / meta_name
+            html_dst = Path(tmp) / raw_filename(uuid5, ".html")
+            meta_path = Path(tmp) / raw_filename(uuid5, "_meta.json")
+            index_path = Path(tmp) / INDEX_FILENAME
 
             html_dst.write_text(html_content, encoding="utf-8")
             meta_path.write_text(json.dumps(raw_meta, indent=2, ensure_ascii=False))
+            index_path.write_text(index_csv, encoding="utf-8")
 
             coverage = _entity_coverage(ente)
             desc = (
@@ -658,11 +703,12 @@ class InternetArchivePublisher:
                     [
                         "ia",
                         "upload",
-                        range_ia_id,
+                        item_id,
                         str(html_dst),
                         str(meta_path),
+                        str(index_path),
                         "--metadata",
-                        f"title:{title}",
+                        f"title:{_range_title(ente, fonte, tipo, numero)}",
                         "--metadata",
                         "mediatype:texts",
                         "--metadata",
@@ -690,24 +736,11 @@ class InternetArchivePublisher:
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
 
-        index_result = update_raw_index(
-            ente,
-            fonte,
-            source_key=chave,
-            content_hash=content_hash,
-            content_type="text/html",
-            source_url=url_original,
-        )
-        if not index_result.get("success"):
-            return {
-                "success": False,
-                "error": f"index update failed: {index_result.get('error')}",
-                "ia_id": ia_id,
-            }
         return {
             "success": True,
             "ia_id": ia_id,
-            "ia_url": f"https://archive.org/details/{range_ia_id}",
+            "ia_url": f"https://archive.org/details/{item_id}",
+            "uuid5": uuid5,
         }
 
     def upload_parsed(

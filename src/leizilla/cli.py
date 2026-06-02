@@ -714,9 +714,10 @@ def cmd_stats(
 
     if ia:
         echo("Internet Archive:")
-        raw_count = count_ia_items(f"leizilla-raw-{ente}-")
-        # Prefix leizilla-{ente}- matches ONLY parsed items: raw/bundle/dataset
-        # all have an extra word before the ente slug (leizilla-raw-ro-, etc.)
+        # Raw items são range buckets identity-keyed com underscore (ADR-0011):
+        # leizilla_{ente}_{fonte}_{tipo}_{range}. Parsed/dataset usam hífen, então
+        # o prefixo underscore casa só com raw, e leizilla-{ente}- só com parsed.
+        raw_count = count_ia_items(f"leizilla_{ente}_")
         parsed_count = count_ia_items(f"leizilla-{ente}-")
         dataset_count = count_ia_items(f"leizilla-dataset-{ente}-")
 

@@ -986,7 +986,7 @@ class TestCmdStats:
         # parsed shown directly, not raw-count subtracted from it
         assert "42" in result.output
         prefixes = [c[0][0] for c in mock_count.call_args_list]
-        assert "leizilla-raw-ro-" in prefixes
+        assert "leizilla_ro_" in prefixes  # raw range items (ADR-0011, underscores)
         assert "leizilla-ro-" in prefixes
         assert "leizilla-dataset-ro-" in prefixes
 
@@ -1008,4 +1008,4 @@ class TestCmdStats:
             result = runner.invoke(app, ["stats"])
         assert result.exit_code == 0
         first_call_prefix = mock_count.call_args_list[0][0][0]
-        assert "leizilla-raw-ro-" == first_call_prefix
+        assert "leizilla_ro_" == first_call_prefix

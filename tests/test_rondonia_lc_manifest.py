@@ -1,57 +1,62 @@
-"""Pipeline validation for the content-addressed raw layer (ADR-0010).
+"""Pipeline validation for the identity-keyed raw layer (ADR-0011).
 
-Rondônia Lei Complementar example: upload names the file by content hash, the
-range item buckets by hash prefix, and the (ente, fonte) index records the
-source_key → content_hash mapping. The source's harvest key (coddoc/lc number)
-is metadata, never a path.
+Rondônia Lei Complementar example: ingestion is gated on a known identity
+(tipo, número); the IA item is an identity range bucket
+(``leizilla_ro_casacivil_lc_0001-1000``); the file inside is content-addressed
+(truncated UUIDv5); and the item's ``index.csv`` maps the identity to the file.
 """
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from leizilla.publisher import InternetArchivePublisher
+from leizilla.publisher import InternetArchivePublisher, IndexFetchError
 from leizilla.ia_utils import (
-    compute_hash,
-    lookup_current_hash,
+    lookup_current,
+    merge_index_row,
+    range_item_identifier,
     raw_filename,
-    raw_range_identifier,
     resolve_raw_url,
+    uuid5_name,
 )
 
 
-class TestRondoniaLCContentAddressed:
-    def test_filename_and_range_are_content_addressed(self):
+class TestRondoniaLCIdentityKeyed:
+    def test_item_and_filename_are_identity_keyed(self):
         pdf_bytes = b"PDF content for LC 42"
-        h = compute_hash(pdf_bytes)
-
-        # Range item buckets by hash prefix — no coddoc, no lc number in the path.
-        assert raw_range_identifier("ro", "casacivil", h) == (
-            f"leizilla-raw-ro-casacivil-{h[:2]}"
+        u = uuid5_name(pdf_bytes)
+        # Item is the identity range bucket — tipo + número range, no hash, no coddoc.
+        assert (
+            range_item_identifier("ro", "casacivil", "lc", 42)
+            == "leizilla_ro_casacivil_lc_0001-1000"
         )
-        # File is named purely by the content hash.
-        assert raw_filename(h, ".pdf") == f"{h}.pdf"
+        # File inside the item is content-addressed (truncated UUIDv5).
+        assert raw_filename(u, ".pdf") == f"{u}.pdf"
 
     def test_resolve_via_index_roundtrip(self):
         pdf_bytes = b"PDF content for LC 42"
-        h = compute_hash(pdf_bytes)
-        # Index maps the legacy source_key (lc-00042) to the content hash.
-        index_csv = (
-            "source_key,content_hash,content_type,source_url,captured_at\n"
-            f"lc-00042,{h},application/pdf,http://ditel/LC42.pdf,2026-05-30T00:00:00+00:00\n"
+        u = uuid5_name(pdf_bytes)
+        index_csv = merge_index_row(
+            None,
+            tipo="lc",
+            numero=42,
+            rendicao="",
+            formato="pdf",
+            uuid5=u,
+            sha256="hpdf",
+            captured_at="2026-05-30T00:00:00+00:00",
         )
-        assert lookup_current_hash(index_csv, "lc-00042") == (h, "application/pdf")
+        assert lookup_current(index_csv, "lc", 42, formato="pdf")["uuid5"] == u
 
         with patch("leizilla.ia_utils._fetch_text", return_value=index_csv):
             url = resolve_raw_url("leizilla-raw-ro-casacivil-lc-00042", "_djvu.txt")
         assert url == (
-            f"https://archive.org/download/leizilla-raw-ro-casacivil-{h[:2]}/"
-            f"{h}_djvu.txt"
+            "https://archive.org/download/leizilla_ro_casacivil_lc_0001-1000/"
+            f"{u}_djvu.txt"
         )
 
-    @patch("leizilla.publisher.update_raw_index")
+    @patch("leizilla.publisher._fetch_existing_index", return_value=None)
     @patch("subprocess.run")
-    def test_complete_upload_raw_lc_rondonia(self, mock_run, mock_index, tmp_path):
+    def test_complete_upload_raw_lc_rondonia(self, mock_run, _mock_idx, tmp_path):
         mock_run.return_value = MagicMock(returncode=0)
-        mock_index.return_value = {"success": True}
 
         pub = InternetArchivePublisher()
         pub.access_key = "fake-key"
@@ -60,7 +65,7 @@ class TestRondoniaLCContentAddressed:
         pdf_path = tmp_path / "LC42.pdf"
         pdf_bytes = b"PDF content for LC 42"
         pdf_path.write_bytes(pdf_bytes)
-        h = compute_hash(pdf_bytes)
+        u = uuid5_name(pdf_bytes)
 
         lei_data = {
             "ente": "ro",
@@ -72,49 +77,51 @@ class TestRondoniaLCContentAddressed:
         res = pub.upload_raw(pdf_path, lei_data, pdf_bytes, fetched_from="wayback")
 
         assert res["success"] is True
+        assert res["uuid5"] == u
         assert (
             res["ia_url"]
-            == f"https://archive.org/details/leizilla-raw-ro-casacivil-{h[:2]}"
+            == "https://archive.org/details/leizilla_ro_casacivil_lc_0001-1000"
         )
 
-        # Upload targeted the hash-prefix range item with the hash-named file.
+        # Upload targeted the identity range item with the uuid5-named file + index.
         args = mock_run.call_args[0][0]
         assert "ia" in args and "upload" in args
-        assert f"leizilla-raw-ro-casacivil-{h[:2]}" in args
-        assert any(a.endswith(f"{h}.pdf") for a in args)
+        assert "leizilla_ro_casacivil_lc_0001-1000" in args
+        assert any(a.endswith(f"{u}.pdf") for a in args)
+        assert any(a.endswith("index.csv") for a in args)
 
-        # The index was updated with source_key → content_hash (coddoc/lc as metadata).
-        _, kwargs = mock_index.call_args
-        assert kwargs["source_key"] == "lc-00042"
-        assert kwargs["content_hash"] == h
-        assert kwargs["content_type"] == "application/pdf"
-
-    @patch("leizilla.publisher.update_raw_index")
     @patch("subprocess.run")
-    def test_index_failure_propagates_as_upload_failure(
-        self, mock_run, mock_index, tmp_path
-    ):
-        # Reads resolve exclusively through the index; if the index write fails,
-        # the capture would be unreachable. upload_raw must NOT report success.
-        mock_run.return_value = MagicMock(returncode=0)
-        mock_index.return_value = {"success": False, "error": "IA 503"}
+    def test_unidentified_chave_is_rejected(self, mock_run, tmp_path):
+        # coddoc is a harvest key, not an identity → reject-until-identified.
+        pub = InternetArchivePublisher()
+        pub.access_key = "fake-key"
+        pub.secret_key = "fake-secret"
 
+        pdf_path = tmp_path / "doc.pdf"
+        pdf_path.write_bytes(b"x")
+        lei_data = {"ente": "ro", "fonte": "assembleia", "chave": "coddoc-00099"}
+
+        res = pub.upload_raw(pdf_path, lei_data, b"x")
+        assert res["success"] is False
+        assert "unidentified" in res["error"]
+        mock_run.assert_not_called()
+
+    @patch(
+        "leizilla.publisher._fetch_existing_index",
+        side_effect=IndexFetchError("IA 503"),
+    )
+    @patch("subprocess.run")
+    def test_index_fetch_error_aborts(self, mock_run, _mock_idx, tmp_path):
+        # A transient failure reading the item's index must abort, not overwrite.
         pub = InternetArchivePublisher()
         pub.access_key = "fake-key"
         pub.secret_key = "fake-secret"
 
         pdf_path = tmp_path / "LC42.pdf"
-        pdf_bytes = b"PDF content for LC 42"
-        pdf_path.write_bytes(pdf_bytes)
+        pdf_path.write_bytes(b"PDF content for LC 42")
+        lei_data = {"ente": "ro", "fonte": "casacivil", "chave": "lc-00042"}
 
-        lei_data = {
-            "ente": "ro",
-            "fonte": "casacivil",
-            "chave": "lc-00042",
-            "url_original": "http://ditel/LC42.pdf",
-        }
-
-        res = pub.upload_raw(pdf_path, lei_data, pdf_bytes, fetched_from="wayback")
-
+        res = pub.upload_raw(pdf_path, lei_data, b"PDF content for LC 42")
         assert res["success"] is False
-        assert "index update failed" in res["error"]
+        assert "could not read existing index" in res["error"]
+        mock_run.assert_not_called()

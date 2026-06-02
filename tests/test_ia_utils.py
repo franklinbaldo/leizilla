@@ -1,4 +1,4 @@
-"""Tests for the content-addressed raw layer utilities (ADR-0010)."""
+"""Tests for the identity-keyed raw layer utilities (ADR-0011)."""
 
 from unittest.mock import patch
 
@@ -6,13 +6,17 @@ from leizilla.ia_utils import (
     INDEX_COLUMNS,
     compute_hash,
     download_url,
-    lookup_current_hash,
+    list_identities,
+    lookup_current,
     merge_index_row,
+    parse_identity,
     parse_raw_id,
+    range_bounds,
+    range_item_identifier,
     raw_filename,
-    raw_index_identifier,
-    raw_range_identifier,
     resolve_raw_url,
+    uuid5_collision,
+    uuid5_name,
 )
 
 
@@ -27,33 +31,56 @@ class TestComputeHash:
         assert compute_hash(b"a") != compute_hash(b"b")
 
 
+class TestUuid5Name:
+    def test_deterministic_and_truncated(self):
+        name = uuid5_name(b"PDF bytes")
+        assert name == uuid5_name(b"PDF bytes")
+        assert len(name) == 8
+
+    def test_distinct_bytes_distinct_name(self):
+        assert uuid5_name(b"a") != uuid5_name(b"b")
+
+    def test_custom_length(self):
+        assert len(uuid5_name(b"x", length=32)) == 32
+
+
+class TestParseIdentity:
+    def test_extracts_tipo_and_numero(self):
+        assert parse_identity("lei-05120") == ("lei", 5120)
+
+    def test_hyphenated_tipo(self):
+        assert parse_identity("lei-complementar-00042") == ("lei-complementar", 42)
+
+    def test_coddoc_is_not_identifying(self):
+        assert parse_identity("coddoc-00099") is None
+
+    def test_seq_and_fallback_not_identifying(self):
+        assert parse_identity("seq-00042") is None
+        assert parse_identity("fallback-foo") is None
+
+    def test_non_numeric_returns_none(self):
+        assert parse_identity("documento") is None
+        assert parse_identity("lei-abc") is None
+
+
 class TestParseRawId:
     def test_simple_ente(self):
-        assert parse_raw_id("leizilla-raw-ro-casacivil-coddoc-05120") == (
+        assert parse_raw_id("leizilla-raw-ro-casacivil-lei-05120") == (
             "ro",
             "casacivil",
-            "coddoc-05120",
+            "lei-05120",
         )
 
     def test_hyphenated_ente_longest_match(self):
-        # When a hyphenated municipal slug is in the catalog, longest-match must
-        # pick it over the bare state slug (ro-porto-velho before ro).
         with patch(
             "leizilla.ia_utils.list_slugs",
             return_value=["ro", "ro-porto-velho", "federal"],
         ):
-            assert parse_raw_id("leizilla-raw-ro-porto-velho-camara-doc-7") == (
+            assert parse_raw_id("leizilla-raw-ro-porto-velho-camara-lei-7") == (
                 "ro-porto-velho",
                 "camara",
-                "doc-7",
+                "lei-7",
             )
-
-    def test_source_key_may_contain_hyphens(self):
-        assert parse_raw_id("leizilla-raw-federal-planalto-lei-complementar-42") == (
-            "federal",
-            "planalto",
-            "lei-complementar-42",
-        )
 
     def test_non_raw_id_returns_none(self):
         assert parse_raw_id("external-archive-item") is None
@@ -61,32 +88,32 @@ class TestParseRawId:
     def test_unknown_ente_returns_none(self):
         assert parse_raw_id("leizilla-raw-xx-fonte-key") is None
 
-    def test_missing_source_key_returns_none(self):
+    def test_missing_chave_returns_none(self):
         assert parse_raw_id("leizilla-raw-ro-casacivil") is None
 
 
-class TestIdentifiers:
-    def test_index_identifier(self):
+class TestRanges:
+    def test_range_bounds(self):
+        assert range_bounds(5120) == (5001, 6000)
+        assert range_bounds(1) == (1, 1000)
+        assert range_bounds(1000) == (1, 1000)
+        assert range_bounds(1001) == (1001, 2000)
+
+    def test_range_item_identifier(self):
         assert (
-            raw_index_identifier("ro", "casacivil") == "leizilla-raw-ro-casacivil-index"
+            range_item_identifier("ro", "casacivil", "lei", 5120)
+            == "leizilla_ro_casacivil_lei_5001-6000"
         )
 
-    def test_range_identifier_buckets_by_hash_prefix(self):
-        h = "3f8a" + "0" * 60
+    def test_range_item_identifier_lowercases_and_keeps_hyphen_in_tipo(self):
         assert (
-            raw_range_identifier("ro", "casacivil", h) == "leizilla-raw-ro-casacivil-3f"
+            range_item_identifier("RO", "CasaCivil", "lei-complementar", 42)
+            == "leizilla_ro_casacivil_lei-complementar_0001-1000"
         )
 
-    def test_range_identifier_lowercases(self):
-        h = "AB" + "0" * 62
-        assert (
-            raw_range_identifier("RO", "CasaCivil", h) == "leizilla-raw-ro-casacivil-ab"
-        )
-
-    def test_raw_filename_is_content_addressed(self):
-        h = "3f8a" + "0" * 60
-        assert raw_filename(h, ".pdf") == f"{h}.pdf"
-        assert raw_filename(h, "_djvu.txt") == f"{h}_djvu.txt"
+    def test_raw_filename(self):
+        assert raw_filename("a1b2c3d4", ".pdf") == "a1b2c3d4.pdf"
+        assert raw_filename("a1b2c3d4", "_djvu.txt") == "a1b2c3d4_djvu.txt"
 
     def test_download_url(self):
         assert (
@@ -96,154 +123,132 @@ class TestIdentifiers:
 
 
 class TestMergeIndexRow:
-    def test_creates_header_and_row(self):
-        csv_out = merge_index_row(
-            None,
-            source_key="coddoc-05120",
-            content_hash="abc",
-            content_type="application/pdf",
-            source_url="http://src/1",
+    def _row(self, existing, **kw):
+        defaults = dict(
+            tipo="lei",
+            numero=5120,
+            rendicao="",
+            formato="pdf",
+            uuid5="aaaa1111",
+            sha256="h1",
             captured_at="2026-05-30T00:00:00+00:00",
         )
+        defaults.update(kw)
+        return merge_index_row(existing, **defaults)
+
+    def test_creates_header_and_row(self):
+        csv_out = self._row(None)
         lines = csv_out.strip().splitlines()
         assert lines[0] == ",".join(INDEX_COLUMNS)
-        assert lines[1].startswith("coddoc-05120,abc,application/pdf,http://src/1,")
+        assert lines[1].startswith("lei,5120,,pdf,aaaa1111,h1,")
 
     def test_append_only_keeps_history(self):
-        first = merge_index_row(
-            None,
-            source_key="coddoc-1",
-            content_hash="h1",
-            content_type="application/pdf",
-            source_url="http://src/1",
-            captured_at="2026-05-30T00:00:00+00:00",
-        )
-        second = merge_index_row(
+        first = self._row(None)
+        second = self._row(
             first,
-            source_key="coddoc-1",
-            content_hash="h2",
-            content_type="application/pdf",
-            source_url="http://src/1",
+            uuid5="bbbb2222",
+            sha256="h2",
             captured_at="2026-05-31T00:00:00+00:00",
         )
-        rows = [ln for ln in second.strip().splitlines()[1:]]
-        assert len(rows) == 2  # both captures retained
+        rows = second.strip().splitlines()[1:]
+        assert len(rows) == 2
 
-    def test_idempotent_same_key_and_hash(self):
-        first = merge_index_row(
-            None,
-            source_key="coddoc-1",
-            content_hash="h1",
-            content_type="application/pdf",
-            source_url="http://src/1",
-            captured_at="2026-05-30T00:00:00+00:00",
-        )
-        second = merge_index_row(
-            first,
-            source_key="coddoc-1",
-            content_hash="h1",
-            content_type="application/pdf",
-            source_url="http://src/1",
-            captured_at="2026-05-31T00:00:00+00:00",
-        )
-        rows = [ln for ln in second.strip().splitlines()[1:]]
-        assert len(rows) == 1  # re-crawl, identical bytes → no duplicate
-
-    def test_idempotent_preserves_original_captured_at(self):
-        # A re-crawl of unchanged bytes must NOT rewrite the provenance timestamp.
-        # Re-appending with a newer captured_at would also push the row to the end,
-        # making lookup_current_hash see it as "newer" and silently rolling back any
-        # capture that was added between the two crawls.
-        first = merge_index_row(
-            None,
-            source_key="coddoc-1",
-            content_hash="h1",
-            content_type="application/pdf",
-            source_url="http://src/1",
-            captured_at="2026-05-30T00:00:00+00:00",
-        )
-        second = merge_index_row(
-            first,
-            source_key="coddoc-1",
-            content_hash="h1",
-            content_type="application/pdf",
-            source_url="http://src/1",
-            captured_at="2026-05-31T00:00:00+00:00",  # newer timestamp must be ignored
-        )
-        assert second == first  # truly no-op: CSV unchanged
-        assert "2026-05-30T00:00:00+00:00" in second
-        assert "2026-05-31T00:00:00+00:00" not in second
+    def test_idempotent_same_identity_and_bytes(self):
+        first = self._row(None)
+        second = self._row(first, captured_at="2026-05-31T00:00:00+00:00")
+        assert second == first  # truly no-op: unchanged bytes → unchanged CSV
+        assert "2026-05-31" not in second
 
 
-class TestLookupCurrentHash:
-    def _two_version_index(self) -> str:
+class TestUuid5Collision:
+    def test_detects_same_name_different_bytes(self):
         idx = merge_index_row(
             None,
-            source_key="coddoc-1",
-            content_hash="h1",
-            content_type="application/pdf",
-            source_url="http://src/1",
+            tipo="lei",
+            numero=5120,
+            rendicao="",
+            formato="pdf",
+            uuid5="dup",
+            sha256="h1",
+        )
+        assert uuid5_collision(idx, uuid5="dup", sha256="h2") is True
+        assert uuid5_collision(idx, uuid5="dup", sha256="h1") is False
+        assert uuid5_collision(idx, uuid5="other", sha256="h2") is False
+
+
+class TestLookupCurrent:
+    def _mixed_index(self) -> str:
+        idx = merge_index_row(
+            None,
+            tipo="lc",
+            numero=42,
+            rendicao="original",
+            formato="pdf",
+            uuid5="pdf1",
+            sha256="hpdf",
             captured_at="2026-05-30T00:00:00+00:00",
         )
         return merge_index_row(
             idx,
-            source_key="coddoc-1",
-            content_hash="h2",
-            content_type="application/pdf",
-            source_url="http://src/1",
-            captured_at="2026-05-31T00:00:00+00:00",
+            tipo="lc",
+            numero=42,
+            rendicao="atual",
+            formato="html",
+            uuid5="html1",
+            sha256="hhtml",
+            captured_at="2026-05-30T01:00:00+00:00",
         )
 
-    def test_returns_latest_capture(self):
-        idx = self._two_version_index()
-        assert lookup_current_hash(idx, "coddoc-1") == ("h2", "application/pdf")
+    def test_returns_latest_for_identity(self):
+        idx = self._mixed_index()
+        # No filter → last-appended matching row (html).
+        assert lookup_current(idx, "lc", 42)["uuid5"] == "html1"
 
-    def test_missing_key_returns_none(self):
-        idx = self._two_version_index()
-        assert lookup_current_hash(idx, "coddoc-999") is None
+    def test_formato_filter(self):
+        idx = self._mixed_index()
+        assert lookup_current(idx, "lc", 42, formato="pdf")["uuid5"] == "pdf1"
+        assert lookup_current(idx, "lc", 42, formato="html")["uuid5"] == "html1"
 
-    def test_content_type_filter_picks_correct_component(self):
-        # Same source_key has a PDF row and an HTML row.
-        pdf_hash = "pdf_hash"
-        html_hash = "html_hash"
+    def test_rendicao_filter(self):
+        idx = self._mixed_index()
+        assert lookup_current(idx, "lc", 42, rendicao="original")["uuid5"] == "pdf1"
+
+    def test_missing_returns_none(self):
+        idx = self._mixed_index()
+        assert lookup_current(idx, "lc", 999) is None
+        assert lookup_current(idx, "lc", 42, formato="docx") is None
+
+
+class TestListIdentities:
+    def test_distinct_tipo_numero_keys(self):
         idx = merge_index_row(
             None,
-            source_key="lc-00042",
-            content_hash=pdf_hash,
-            content_type="application/pdf",
-            source_url="http://src/pdf",
-            captured_at="2026-05-30T00:00:00+00:00",
+            tipo="lei",
+            numero=5120,
+            rendicao="",
+            formato="pdf",
+            uuid5="a",
+            sha256="h1",
         )
         idx = merge_index_row(
             idx,
-            source_key="lc-00042",
-            content_hash=html_hash,
-            content_type="text/html",
-            source_url="http://src/html",
-            captured_at="2026-05-30T01:00:00+00:00",
+            tipo="lei",
+            numero=5120,
+            rendicao="atual",
+            formato="html",
+            uuid5="b",
+            sha256="h2",
         )
-        # Without filter, returns last-appended row (HTML).
-        assert lookup_current_hash(idx, "lc-00042") == (html_hash, "text/html")
-        # With filter, each component resolves independently.
-        assert lookup_current_hash(idx, "lc-00042", "application/pdf") == (
-            pdf_hash,
-            "application/pdf",
-        )
-        assert lookup_current_hash(idx, "lc-00042", "text/html") == (
-            html_hash,
-            "text/html",
-        )
-
-    def test_content_type_filter_returns_none_when_type_absent(self):
         idx = merge_index_row(
-            None,
-            source_key="lc-00042",
-            content_hash="h1",
-            content_type="application/pdf",
-            source_url="http://src/1",
+            idx,
+            tipo="lc",
+            numero=42,
+            rendicao="",
+            formato="pdf",
+            uuid5="c",
+            sha256="h3",
         )
-        # Requesting HTML for a source that only has a PDF entry → None.
-        assert lookup_current_hash(idx, "lc-00042", "text/html") is None
+        assert list_identities(idx) == {"lei-05120", "lc-00042"}
 
 
 class TestResolveRawUrl:
@@ -253,62 +258,69 @@ class TestResolveRawUrl:
             == "https://archive.org/download/external-archive-item/external-archive-item_djvu.txt"
         )
 
-    def test_resolves_via_index_to_content_addressed_url(self):
-        content_hash = "3f8a" + "0" * 60
-        index_csv = merge_index_row(
-            None,
-            source_key="coddoc-05120",
-            content_hash=content_hash,
-            content_type="application/pdf",
-            source_url="http://src/1",
+    def test_unidentified_chave_returns_none(self):
+        # coddoc is not an identity → not in the collection, regardless of index.
+        assert (
+            resolve_raw_url("leizilla-raw-ro-assembleia-coddoc-00099", ".pdf") is None
         )
-        with patch("leizilla.ia_utils._fetch_text", return_value=index_csv):
-            url = resolve_raw_url("leizilla-raw-ro-casacivil-coddoc-05120", "_djvu.txt")
+
+    def test_resolves_via_index_to_uuid5_url(self):
+        idx = merge_index_row(
+            None,
+            tipo="lei",
+            numero=5120,
+            rendicao="",
+            formato="pdf",
+            uuid5="a1b2c3d4",
+            sha256="h1",
+        )
+        with patch("leizilla.ia_utils._fetch_text", return_value=idx):
+            url = resolve_raw_url("leizilla-raw-ro-casacivil-lei-05120", "_djvu.txt")
         assert url == (
             "https://archive.org/download/"
-            "leizilla-raw-ro-casacivil-3f/"
-            f"{content_hash}_djvu.txt"
+            "leizilla_ro_casacivil_lei_5001-6000/a1b2c3d4_djvu.txt"
         )
 
     def test_no_index_yet_returns_none(self):
         with patch("leizilla.ia_utils._fetch_text", return_value=None):
-            assert resolve_raw_url("leizilla-raw-ro-casacivil-coddoc-1", ".pdf") is None
+            assert resolve_raw_url("leizilla-raw-ro-casacivil-lei-1", ".pdf") is None
 
-    def test_source_key_not_in_index_returns_none(self):
-        index_csv = merge_index_row(
-            None,
-            source_key="coddoc-OTHER",
-            content_hash="h1",
-            content_type="application/pdf",
-            source_url="http://src/1",
-        )
-        with patch("leizilla.ia_utils._fetch_text", return_value=index_csv):
-            assert resolve_raw_url("leizilla-raw-ro-casacivil-coddoc-1", ".pdf") is None
-
-    def test_suffix_content_type_filters_mixed_components(self):
-        # source_key has both PDF and HTML components; suffix drives which hash is used.
-        pdf_hash = "aa" + "0" * 62
-        html_hash = "bb" + "0" * 62
+    def test_identity_not_in_index_returns_none(self):
         idx = merge_index_row(
             None,
-            source_key="lc-00042",
-            content_hash=pdf_hash,
-            content_type="application/pdf",
-            source_url="http://src/pdf",
+            tipo="lei",
+            numero=999,
+            rendicao="",
+            formato="pdf",
+            uuid5="x",
+            sha256="h1",
+        )
+        with patch("leizilla.ia_utils._fetch_text", return_value=idx):
+            assert resolve_raw_url("leizilla-raw-ro-casacivil-lei-1", ".pdf") is None
+
+    def test_suffix_formato_filters_mixed_components(self):
+        idx = merge_index_row(
+            None,
+            tipo="lc",
+            numero=42,
+            rendicao="original",
+            formato="pdf",
+            uuid5="pdf1",
+            sha256="hpdf",
         )
         idx = merge_index_row(
             idx,
-            source_key="lc-00042",
-            content_hash=html_hash,
-            content_type="text/html",
-            source_url="http://src/html",
+            tipo="lc",
+            numero=42,
+            rendicao="atual",
+            formato="html",
+            uuid5="html1",
+            sha256="hhtml",
         )
         ia_id = "leizilla-raw-ro-casacivil-lc-00042"
         with patch("leizilla.ia_utils._fetch_text", return_value=idx):
-            # OCR suffix → PDF hash (IA derives djvu.txt from the PDF)
             ocr_url = resolve_raw_url(ia_id, "_djvu.txt")
-            assert ocr_url and f"{pdf_hash}_djvu.txt" in ocr_url
+            assert ocr_url and "pdf1_djvu.txt" in ocr_url
         with patch("leizilla.ia_utils._fetch_text", return_value=idx):
-            # .html suffix → HTML hash
             html_url = resolve_raw_url(ia_id, ".html")
-            assert html_url and f"{html_hash}.html" in html_url
+            assert html_url and "html1.html" in html_url
