@@ -38,6 +38,63 @@ def cmd_discover(
         raise typer.Exit(1)
 
 
+@app.command("reconcile")
+def cmd_reconcile(
+    ente: str = typer.Option("ro", help="Ente federativo"),
+    fonte: Optional[str] = typer.Option(
+        None, help="Fonte específica (None = todas as fontes do manifesto)"
+    ),
+) -> None:
+    """Promove recursos da área de espera `_unidentified` para o item de range.
+
+    Re-roda a descoberta com os extratores atuais (ADR-0011 §1, re-derivação por
+    contexto), monta o mapa URL→(tipo, número) e promove os arquivos preservados
+    cuja identidade agora é conhecida — sem re-baixar do portal de origem.
+    """
+    echo(f"Reconciliando área de espera para {ente}" + (f"/{fonte}" if fonte else ""))
+    try:
+        from leizilla.discovery import discover_resources
+        from leizilla.ia_utils import parse_identity
+        from leizilla.publisher import InternetArchivePublisher
+
+        resources = discover_resources(ente, fonte)
+        # Mapa de identidade por URL de origem, só para recursos agora identificáveis.
+        identity_by_source: dict[str, tuple[str, int]] = {}
+        fontes_seen: set[str] = set()
+        for res in resources:
+            fontes_seen.add(res["fonte"])
+            ident = parse_identity(res.get("chave", ""))
+            if ident is not None:
+                identity_by_source[res["url"]] = ident
+
+        pub = InternetArchivePublisher()
+        total_promoted = 0
+        total_remaining = 0
+        for f in sorted(fontes_seen):
+            by_source = {
+                r["url"]: identity_by_source[r["url"]]
+                for r in resources
+                if r["fonte"] == f and r["url"] in identity_by_source
+            }
+            result = pub.reconcile_unidentified(ente, f, by_source)
+            if not result.get("success"):
+                echo(f"  {f}: erro — {result.get('error')}")
+                continue
+            total_promoted += result["promoted"]
+            total_remaining += result["remaining"]
+            echo(
+                f"  {f}: {result['promoted']} promovidos, "
+                f"{result['remaining']} ainda na espera"
+            )
+        echo(
+            f"Reconciliação concluída: {total_promoted} promovidos, "
+            f"{total_remaining} aguardando."
+        )
+    except Exception as e:
+        echo(f"Erro: {e}")
+        raise typer.Exit(1)
+
+
 @app.command("harvest")
 def cmd_harvest(
     ente: Optional[str] = typer.Option(

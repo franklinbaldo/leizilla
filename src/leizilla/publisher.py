@@ -2,8 +2,11 @@
 
 import atexit
 import configparser
+import csv
 import hashlib
+import io
 import json
+import logging
 import os
 import re
 import shutil
@@ -19,6 +22,7 @@ from typing import Any, Dict, Optional, Set
 from leizilla import config
 from leizilla import storage as storage_module
 from leizilla.ia_utils import (
+    INDEX_COLUMNS,
     INDEX_FILENAME,
     compute_hash,
     download_url,
@@ -28,6 +32,7 @@ from leizilla.ia_utils import (
     range_bounds,
     range_item_identifier,
     raw_filename,
+    remove_index_rows,
     unidentified_item_identifier,
     uuid5_collision,
     uuid5_name,
@@ -38,6 +43,8 @@ _DATASET_IDENTIFIER_RE = (
 )
 
 _USER_AGENT = "leizilla-crawler/0.1"
+
+logger = logging.getLogger(__name__)
 
 
 def _entity_coverage(ente: str) -> str:
@@ -436,6 +443,22 @@ def _fetch_existing_index(item_id: str) -> Optional[str]:
         raise IndexFetchError(str(e)) from e
 
 
+# formato (coluna do index) → sufixo de arquivo dentro do item.
+_FORMATO_SUFFIX: Dict[str, str] = {"pdf": ".pdf", "html": ".html", "docx": ".docx"}
+
+
+def _fetch_item_file_bytes(item_id: str, filename: str) -> bytes:
+    """Baixa os bytes de um arquivo de dentro de um IA item (sem re-buscar a fonte).
+
+    A reconciliação promove arquivos já preservados no item de espera usando os
+    bytes do **IA**, nunca re-baixando do portal frágil (ADR-0004).
+    """
+    url = download_url(item_id, filename)
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read()  # type: ignore[no-any-return]
+
+
 def _resolve_uuid5_and_index(
     item_id: str,
     content_bytes: bytes,
@@ -767,6 +790,164 @@ class InternetArchivePublisher:
             "uuid5": uuid5,
             "item_id": item_id,
             "identified": identity is not None,
+        }
+
+    def _promote_to_range(
+        self,
+        ente: str,
+        fonte: str,
+        tipo: str,
+        numero: int,
+        content: bytes,
+        row: Dict[str, str],
+    ) -> Optional[str]:
+        """Sobe um arquivo preservado para o item de range com a identidade agora
+        conhecida. Devolve o ``uuid5`` promovido, ou ``None`` em falha."""
+        range_id = range_item_identifier(ente, fonte, tipo, numero)
+        try:
+            uuid5, index_csv = _resolve_uuid5_and_index(
+                range_id,
+                content,
+                tipo=tipo,
+                numero=numero,
+                rendicao=row.get("rendicao", ""),
+                formato=row.get("formato", "pdf"),
+                source=row.get("source", ""),
+            )
+        except IndexFetchError as e:
+            logger.warning("reconcile: índice do range ilegível (%s): %s", range_id, e)
+            return None
+        suffix = _FORMATO_SUFFIX.get(row.get("formato", "pdf"), ".pdf")
+        with tempfile.TemporaryDirectory() as tmp:
+            fdst = Path(tmp) / raw_filename(uuid5, suffix)
+            fdst.write_bytes(content)
+            index_path = Path(tmp) / INDEX_FILENAME
+            index_path.write_text(index_csv, encoding="utf-8")
+            try:
+                subprocess.run(
+                    [
+                        "ia",
+                        "upload",
+                        range_id,
+                        str(fdst),
+                        str(index_path),
+                        "--metadata",
+                        f"title:{_range_title(ente, fonte, tipo, numero)}",
+                        "--metadata",
+                        "mediatype:texts",
+                        "--metadata",
+                        f"subject:leis;leizilla;{ente};{fonte}",
+                        "--metadata",
+                        "language:pt",
+                        "--metadata",
+                        f"coverage:{_entity_coverage(ente)}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    env=_ia_subprocess_env(self.access_key, self.secret_key),
+                )
+            except subprocess.CalledProcessError as e:
+                logger.warning(
+                    "reconcile: upload ao range falhou (%s): %s", range_id, e
+                )
+                return None
+        return uuid5
+
+    def _upload_index_only(self, item_id: str, index_csv: str) -> bool:
+        """Reescreve o index.csv de um item (usado para tirar do índice de espera o
+        que foi promovido)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            index_path = Path(tmp) / INDEX_FILENAME
+            index_path.write_text(index_csv, encoding="utf-8")
+            try:
+                subprocess.run(
+                    [
+                        "ia",
+                        "upload",
+                        item_id,
+                        str(index_path),
+                        "--metadata",
+                        "mediatype:texts",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    env=_ia_subprocess_env(self.access_key, self.secret_key),
+                )
+            except subprocess.CalledProcessError as e:
+                logger.warning("reconcile: reescrita do índice de espera falhou: %s", e)
+                return False
+        return True
+
+    def reconcile_unidentified(
+        self,
+        ente: str,
+        fonte: str,
+        identity_by_source: Dict[str, tuple[str, int]],
+    ) -> Dict[str, Any]:
+        """Promove arquivos da área de espera ``_unidentified`` para o item de range
+        cuja identidade ``(tipo, número)`` foi (re-)derivada do contexto da fonte.
+
+        ``identity_by_source`` mapeia URL de origem → ``(tipo, número)`` — montado
+        pela CLI a partir de uma passada de descoberta com os extratores atuais. Os
+        bytes vêm do **IA** (item de espera), nunca do portal frágil (ADR-0004).
+        """
+        if not self.access_key or not self.secret_key:
+            return {"success": False, "error": "IA credentials not configured"}
+        holding_id = unidentified_item_identifier(ente, fonte)
+        try:
+            holding_index = _fetch_existing_index(holding_id)
+        except IndexFetchError as e:
+            return {
+                "success": False,
+                "error": f"could not read holding index: {e}",
+                "item_id": holding_id,
+            }
+        if not holding_index:
+            return {
+                "success": True,
+                "promoted": 0,
+                "remaining": 0,
+                "item_id": holding_id,
+            }
+
+        rows = [
+            {c: r.get(c, "") or "" for c in INDEX_COLUMNS}
+            for r in csv.DictReader(io.StringIO(holding_index))
+        ]
+        promoted_uuid5s: Set[str] = set()
+        for row in rows:
+            if row["numero"]:  # já identificado nesta área (não deveria ocorrer)
+                continue
+            ident = identity_by_source.get(row["source"])
+            if ident is None:
+                continue
+            suffix = _FORMATO_SUFFIX.get(row["formato"], ".pdf")
+            try:
+                content = _fetch_item_file_bytes(
+                    holding_id, raw_filename(row["uuid5"], suffix)
+                )
+            except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
+                logger.warning("reconcile: download de %s falhou: %s", row["uuid5"], e)
+                continue
+            tipo, numero = ident
+            promoted = self._promote_to_range(ente, fonte, tipo, numero, content, row)
+            if promoted is not None:
+                promoted_uuid5s.add(row["uuid5"])
+
+        if promoted_uuid5s:
+            new_index = remove_index_rows(holding_index, promoted_uuid5s)
+            self._upload_index_only(holding_id, new_index)
+
+        remaining = sum(
+            1 for r in rows if not r["numero"] and r["uuid5"] not in promoted_uuid5s
+        )
+        return {
+            "success": True,
+            "promoted": len(promoted_uuid5s),
+            "remaining": remaining,
+            "item_id": holding_id,
         }
 
     def upload_parsed(

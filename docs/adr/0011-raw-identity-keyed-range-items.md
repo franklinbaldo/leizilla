@@ -170,12 +170,20 @@ A camada parsed permanece **URN-keyed** (URN-LEX), conforme ADR-0010/ADR-0005.
   `parser` (resolução via index), `discovery` (captura por contexto, sem descarte),
   e a suíte de testes.
 
+## Implementado
+
+- **Passo de reconciliação** (`_unidentified` → item de range): o comando
+  `leizilla reconcile` re-roda a descoberta com os extratores atuais (re-derivação
+  **por contexto**), monta o mapa `source-URL → (tipo, número)` e promove os
+  arquivos preservados agora identificáveis. Os bytes vêm do **IA** (item de
+  espera), nunca do portal de origem (ADR-0004); a linha promovida sai do índice de
+  espera via `remove_index_rows`.
+
 ## Em aberto
 
-- **Passo de reconciliação** (`_unidentified` → item de range): promove um recurso
-  preservado quando tipo+número passam a ser conhecidos (padrão melhor, detalhe da
-  listagem, ou OCR+parse). Os bytes, o `source` e o OCR já estão preservados, então
-  a promoção é uma operação de manifesto + (possível) cópia entre itens.
+- **Reconciliação por OCR+parse** para o resíduo cujo número só existe no corpo do
+  documento (o `<10%` que a re-derivação por contexto não cobre). A re-derivação
+  por contexto já está implementada; falta a variante que lê o `_djvu.txt`.
 - Capturar o **contexto de descoberta** como proveniência rica (estratégia/página
   que encontrou o recurso, âncora, seção) — hoje `source` guarda só a URL.
 - Confirmar empiricamente se o número de `casacivil` (`L{N}.pdf`) coincide com o

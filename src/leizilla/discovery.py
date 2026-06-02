@@ -215,36 +215,39 @@ def load_manifest(ente: str) -> Dict[str, Any]:
     return data
 
 
-def run_discovery(ente: str, storage: DuckDBStorage) -> int:
-    """Lê o manifesto do ente, executa todas as estratégias de descoberta e salva os resources."""
+def discover_resources(ente: str, fonte: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Roda as estratégias do manifesto e **retorna** os resources (sem inserir).
+
+    Diferente de ``run_discovery`` (que persiste), serve à reconciliação: re-deriva
+    identidades com os extratores *atuais* (possivelmente melhorados), independente
+    das linhas já gravadas em ``discovered_resources``. ``fonte`` filtra para uma
+    fonte específica.
+    """
     manifest = load_manifest(ente)
-    total_added = 0
-
-    for fonte, fonte_cfg in manifest.get("fontes", {}).items():
+    out: List[Dict[str, Any]] = []
+    for f, fonte_cfg in manifest.get("fontes", {}).items():
+        if fonte is not None and f != fonte:
+            continue
         for discovery_cfg in fonte_cfg.get("discovery", []):
-            strategy_name = discovery_cfg.get("strategy")
-            strategy_cls = STRATEGIES.get(strategy_name)
-
+            strategy_cls = STRATEGIES.get(discovery_cfg.get("strategy"))
             if not strategy_cls:
                 logger.warning(
-                    f"Estratégia de descoberta '{strategy_name}' não suportada/encontrada."
+                    f"Estratégia '{discovery_cfg.get('strategy')}' não suportada."
                 )
                 continue
-
             try:
-                runner = strategy_cls(discovery_cfg, ente, fonte)
-                resources = runner.run()
-                logger.info(
-                    f"Estratégia '{strategy_name}' descobriu {len(resources)} resources."
-                )
-
-                for res in resources:
-                    storage.insert_resource(res)
-                    total_added += 1
-
+                out.extend(strategy_cls(discovery_cfg, ente, f).run())
             except Exception as e:
                 logger.error(
-                    f"Falha ao executar estratégia '{strategy_name}' para {ente}/{fonte}: {e}"
+                    f"Falha na estratégia '{discovery_cfg.get('strategy')}' "
+                    f"para {ente}/{f}: {e}"
                 )
+    return out
 
-    return total_added
+
+def run_discovery(ente: str, storage: DuckDBStorage) -> int:
+    """Lê o manifesto do ente, executa todas as estratégias e salva os resources."""
+    resources = discover_resources(ente)
+    for res in resources:
+        storage.insert_resource(res)
+    return len(resources)

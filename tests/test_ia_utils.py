@@ -171,6 +171,35 @@ class TestMergeIndexRow:
         )
 
 
+class TestRemoveIndexRows:
+    def test_drops_named_uuid5_keeps_others(self):
+        from leizilla.ia_utils import remove_index_rows
+
+        idx = merge_index_row(
+            None,
+            tipo="lei",
+            numero=5120,
+            rendicao="",
+            formato="pdf",
+            uuid5="keep1",
+            sha256="h1",
+        )
+        idx = merge_index_row(
+            idx,
+            tipo="lei",
+            numero=5121,
+            rendicao="",
+            formato="pdf",
+            uuid5="drop1",
+            sha256="h2",
+        )
+        out = remove_index_rows(idx, {"drop1"})
+        assert "drop1" not in out
+        assert "keep1" in out
+        assert out.splitlines()[0] == ",".join(INDEX_COLUMNS)  # header intact
+        assert len(out.strip().splitlines()) == 2  # header + 1 kept row
+
+
 class TestUuid5Collision:
     def test_detects_same_name_different_bytes(self):
         idx = merge_index_row(
