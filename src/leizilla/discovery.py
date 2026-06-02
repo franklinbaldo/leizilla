@@ -10,7 +10,6 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from leizilla.ia_utils import parse_identity
 from leizilla.storage import DuckDBStorage
 
 logger = logging.getLogger(__name__)
@@ -81,10 +80,11 @@ class WaybackCdxDiscovery(DiscoveryStrategy):
                 filename = orig_url.split("/")[-1]
                 tipo, chave = parse_filename(filename)
                 if not tipo or not chave:
-                    # Reject-until-identified (ADR-0011): sem (tipo, número) não
-                    # enfileiramos — não inserir mantém o recurso redescobrível
-                    # numa próxima passada que saiba identificá-lo.
-                    continue
+                    # Identidade é evidência, não catraca (ADR-0011 §1): capturamos
+                    # mesmo sem (tipo, número) no nome. tipo desconhecido (""), chave
+                    # = harvest key (nome do arquivo); o upload roteia para a área de
+                    # espera _unidentified, preservando os bytes (nunca descarte).
+                    tipo, chave = "", filename.rsplit(".", 1)[0]
 
                 wayback_url = f"https://web.archive.org/web/{timestamp}/{orig_url}"
                 resources.append(
@@ -122,8 +122,9 @@ class SequentialDiscovery(DiscoveryStrategy):
                 filename = url.split("/")[-1]
                 tipo, chave = parse_filename(filename)
                 if not tipo or not chave:
-                    # Reject-until-identified (ADR-0011): pula URLs sem identidade.
-                    continue
+                    # Captura mesmo sem identidade (ADR-0011 §1): vai à área de
+                    # espera _unidentified; chave = harvest key (nome do arquivo).
+                    tipo, chave = "", filename.rsplit(".", 1)[0]
                 resources.append(
                     {
                         "url": url,
@@ -177,11 +178,10 @@ class PlaywrightCrawlerDiscovery(DiscoveryStrategy):
         resources = []
         for law in laws:
             pdf_url = law.get("url_pdf_original")
-            chave = law.get("chave", "")
-            # Reject-until-identified (ADR-0011): a ALRO é navegada por coddoc,
-            # mas só entram normas cujo título rendeu (tipo, número). Títulos não
-            # parseáveis ficam de fora — redescobríveis numa próxima passada.
-            if pdf_url and parse_identity(chave) is not None:
+            # Captura por contexto (ADR-0011 §1): o título da página rende
+            # (tipo, número) em >90% (parse_titulo_identity) → vai ao catálogo;
+            # o resíduo (coddoc puro) é preservado na área de espera _unidentified.
+            if pdf_url:
                 resources.append(
                     {
                         "url": pdf_url,

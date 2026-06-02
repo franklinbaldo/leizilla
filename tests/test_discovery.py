@@ -110,9 +110,10 @@ def test_wayback_cdx_discovery():
     )
 
 
-def test_sequential_discovery_skips_unidentifiable():
-    # ADR-0011: filenames that don't yield (tipo, número) are not enqueued, so a
-    # later pass that can identify them re-evaluates fresh (no stuck rows).
+def test_sequential_discovery_captures_unidentifiable():
+    # ADR-0011 §1: filenames that don't yield (tipo, número) are still CAPTURED
+    # (preserved, not discarded) — tipo unknown (""), chave = harvest key — so the
+    # upload routes them to the _unidentified holding area.
     config = {
         "strategy": "sequential",
         "templates": ["http://example.com/page{num}.pdf"],
@@ -120,10 +121,12 @@ def test_sequential_discovery_skips_unidentifiable():
         "end": 3,
     }
     resources = SequentialDiscovery(config, "ro", "casacivil").run()
-    assert resources == []
+    assert len(resources) == 3
+    assert resources[0]["tipo_documento"] == ""
+    assert resources[0]["chave"] == "page1"  # harvest key, non-identifying
 
 
-def test_wayback_cdx_skips_unidentifiable_filenames():
+def test_wayback_cdx_captures_unidentifiable_filenames():
     config = {"strategy": "wayback-cdx", "prefix": "http://example.com/Files/"}
     cdx_response = [
         ["urlkey", "timestamp", "original", "mimetype", "statuscode", "digest", "len"],
@@ -142,7 +145,9 @@ def test_wayback_cdx_skips_unidentifiable_filenames():
     mock_resp.read.return_value = json.dumps(cdx_response).encode("utf-8")
     with patch("urllib.request.urlopen", return_value=mock_resp):
         resources = WaybackCdxDiscovery(config, "ro", "casacivil").run()
-    assert resources == []
+    assert len(resources) == 1
+    assert resources[0]["tipo_documento"] == ""
+    assert resources[0]["chave"] == "relatorio_anual"  # harvest key, preserved
 
 
 @pytest.fixture

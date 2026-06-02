@@ -7,10 +7,12 @@ número)``: o item IA é um *range bucket* por identidade
 ``index.csv`` por item mapeia ``(tipo, número, rendição, formato)`` → arquivo,
 newest-wins.
 
-Só se admite o que sabemos identificar: uma chave de colheita sem ``(tipo,
-número)`` normativo (ex.: ``coddoc`` puro) **não** produz identidade — o chamador
-deve descartá-la (reject-until-identified). A identidade jurídica pan-Brasil
-continua na camada *parsed* (URN-LEX, ADR-0005/0010).
+Identidade é evidência, não catraca (ADR-0011 §1): uma chave de colheita sem
+``(tipo, número)`` normativo (ex.: ``coddoc`` puro) não produz identidade — o
+recurso não vai ao catálogo navegável, mas é **preservado** na área de espera
+``leizilla_{ente}_{fonte}_unidentified`` (o IA faz OCR) até a reconciliação, nunca
+descartado. A identidade jurídica pan-Brasil continua na camada *parsed* (URN-LEX,
+ADR-0005/0010).
 """
 
 import csv
@@ -35,7 +37,8 @@ _UUID5_LEN = (
 )
 
 # Tipos que NÃO identificam uma norma: são chaves de colheita idiossincráticas da
-# fonte (ADR-0011). Uma chave com esses tipos não entra na coleção raw.
+# fonte (ADR-0011). Uma chave com esses tipos não entra no catálogo navegável —
+# é preservada na área de espera _unidentified até a reconciliação.
 _NON_IDENTIFYING_TIPOS = {"coddoc", "documento", "fallback", "seq"}
 
 # OCR (_djvu.txt) é derivado pelo IA a partir do PDF; resolvê-lo usa o arquivo PDF.
@@ -78,7 +81,7 @@ def parse_identity(chave: str) -> Optional[tuple[str, int]]:
 
     ``'lei-05120' → ('lei', 5120)``. Retorna ``None`` se a chave não casar com
     ``{tipo}-{número}`` ou se o tipo for não-identificante (``coddoc`` etc.) —
-    nesse caso a norma não tem identidade conhecida e não deve ser adicionada.
+    nesse caso o recurso é preservado na área de espera, não promovido ao catálogo.
     """
     m = re.match(r"^([a-z][a-z0-9-]*)-(\d+)$", chave.strip().lower())
     if not m:
@@ -114,6 +117,17 @@ def raw_filename(uuid5: str, suffix: str) -> str:
     return f"{uuid5}{suffix}"
 
 
+def unidentified_item_identifier(ente: str, fonte: str) -> str:
+    """Item IA de espera para recursos sem ``(tipo, número)`` resolvido (ADR-0011 §1).
+
+    ``leizilla_{ente}_{fonte}_unidentified``. Rede de segurança (exceção, não rota
+    normal): bytes capturados por contexto mas ainda sem número são **preservados**
+    aqui — o IA faz OCR — até a reconciliação extrair a identidade e promovê-los ao
+    item de range. Nunca há descarte.
+    """
+    return f"leizilla_{ente.lower()}_{fonte.lower()}_unidentified"
+
+
 def download_url(item_id: str, filename: str) -> str:
     """URL de download direto de um arquivo dentro de um IA item."""
     return f"{_IA_DOWNLOAD}/{item_id}/{filename}"
@@ -146,7 +160,7 @@ def merge_index_row(
     existing_csv: Optional[str],
     *,
     tipo: str,
-    numero: int,
+    numero: Optional[int],
     rendicao: str,
     formato: str,
     uuid5: str,
@@ -166,7 +180,8 @@ def merge_index_row(
     if existing_csv:
         for row in csv.DictReader(io.StringIO(existing_csv)):
             rows.append({c: row.get(c, "") or "" for c in INDEX_COLUMNS})
-    numero_s = str(numero)
+    # numero ausente (área de espera _unidentified): grava vazio até reconciliar.
+    numero_s = "" if numero is None else str(numero)
     # No-op verdadeiro: mesma identidade+rendição+formato já registrada com estes
     # bytes → preserva (re-anexar mudaria a posição e o "newest wins").
     if existing_csv and any(

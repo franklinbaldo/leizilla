@@ -90,21 +90,36 @@ class TestRondoniaLCIdentityKeyed:
         assert any(a.endswith(f"{u}.pdf") for a in args)
         assert any(a.endswith("index.csv") for a in args)
 
+    @patch("leizilla.publisher._fetch_existing_index", return_value=None)
     @patch("subprocess.run")
-    def test_unidentified_chave_is_rejected(self, mock_run, tmp_path):
-        # coddoc is a harvest key, not an identity → reject-until-identified.
+    def test_unidentified_chave_is_preserved_in_holding(
+        self, mock_run, _mock_idx, tmp_path
+    ):
+        # ADR-0011 §1: coddoc has no resolved (tipo, número), but we PRESERVE it —
+        # the bytes go to the _unidentified holding item (IA still OCRs them), never
+        # discarded. Reconciliation promotes it later.
         pub = InternetArchivePublisher()
         pub.access_key = "fake-key"
         pub.secret_key = "fake-secret"
 
         pdf_path = tmp_path / "doc.pdf"
         pdf_path.write_bytes(b"x")
-        lei_data = {"ente": "ro", "fonte": "assembleia", "chave": "coddoc-00099"}
+        lei_data = {
+            "ente": "ro",
+            "fonte": "assembleia",
+            "chave": "coddoc-00099",
+            "url_original": "http://alro.ro.gov.br/legislacao/leis/99",
+        }
 
         res = pub.upload_raw(pdf_path, lei_data, b"x")
-        assert res["success"] is False
-        assert "unidentified" in res["error"]
-        mock_run.assert_not_called()
+        assert res["success"] is True
+        assert res["identified"] is False
+        assert res["item_id"] == "leizilla_ro_assembleia_unidentified"
+
+        # Uploaded to the holding item (not discarded); index.csv carries source.
+        args = mock_run.call_args[0][0]
+        assert "leizilla_ro_assembleia_unidentified" in args
+        assert any(a.endswith("index.csv") for a in args)
 
     @patch(
         "leizilla.publisher._fetch_existing_index",

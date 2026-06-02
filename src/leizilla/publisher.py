@@ -28,6 +28,7 @@ from leizilla.ia_utils import (
     range_bounds,
     range_item_identifier,
     raw_filename,
+    unidentified_item_identifier,
     uuid5_collision,
     uuid5_name,
 )
@@ -440,7 +441,7 @@ def _resolve_uuid5_and_index(
     content_bytes: bytes,
     *,
     tipo: str,
-    numero: int,
+    numero: Optional[int],
     rendicao: str,
     formato: str,
     source: str = "",
@@ -477,6 +478,11 @@ def _range_title(ente: str, fonte: str, tipo: str, numero: int) -> str:
         f"Leizilla Raw {ente.upper()} {fonte.upper()} "
         f"{tipo.upper()} {start:04d}-{end:04d}"
     )
+
+
+def _unidentified_title(ente: str, fonte: str) -> str:
+    """Título do item de espera (ex.: 'Leizilla Raw RO ASSEMBLEIA UNIDENTIFIED')."""
+    return f"Leizilla Raw {ente.upper()} {fonte.upper()} UNIDENTIFIED"
 
 
 _ia_config_cache: Dict[tuple[str, str], str] = {}
@@ -544,17 +550,19 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
-        # Reject-until-identified (ADR-0011): só entram na coleção normas com
-        # (tipo, número) conhecidos. coddoc/seq/fallback não identificam.
+        # Identidade é evidência, não catraca (ADR-0011 §1): capturamos sempre. Se
+        # o contexto rendeu (tipo, número), o item é o range navegável; senão, os
+        # bytes ficam **preservados** na área de espera _unidentified (o IA faz OCR)
+        # até a reconciliação — nunca há descarte.
         identity = parse_identity(chave)
         if identity is None:
-            return {
-                "success": False,
-                "error": f"unidentified resource (no tipo+número): {chave}",
-                "ia_id": ia_id,
-            }
-        tipo, numero = identity
-        item_id = range_item_identifier(ente, fonte, tipo, numero)
+            tipo, numero = "", None
+            item_id = unidentified_item_identifier(ente, fonte)
+            title = _unidentified_title(ente, fonte)
+        else:
+            tipo, numero = identity
+            item_id = range_item_identifier(ente, fonte, tipo, numero)
+            title = _range_title(ente, fonte, tipo, numero)
         rendicao = str(lei_data.get("rendicao", ""))
         # Proveniência (ADR-0010): mapeia o arquivo de volta à sua origem de
         # colheita (URL original; coddoc/path embutido). É como descartamos o
@@ -609,7 +617,7 @@ class InternetArchivePublisher:
                         str(meta_path),
                         str(index_path),
                         "--metadata",
-                        f"title:{_range_title(ente, fonte, tipo, numero)}",
+                        f"title:{title}",
                         "--metadata",
                         "mediatype:texts",
                         "--metadata",
@@ -636,6 +644,8 @@ class InternetArchivePublisher:
             "ia_id": ia_id,
             "ia_url": f"https://archive.org/details/{item_id}",
             "uuid5": uuid5,
+            "item_id": item_id,
+            "identified": identity is not None,
         }
 
     def upload_raw_html(
@@ -659,16 +669,17 @@ class InternetArchivePublisher:
         chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
         ia_id = _raw_identifier(ente, fonte, chave)
 
-        # Reject-until-identified (ADR-0011).
+        # Identidade é evidência, não catraca (ADR-0011 §1): identificados vão ao
+        # range navegável; o resíduo fica preservado na área de espera _unidentified.
         identity = parse_identity(chave)
         if identity is None:
-            return {
-                "success": False,
-                "error": f"unidentified resource (no tipo+número): {chave}",
-                "ia_id": ia_id,
-            }
-        tipo, numero = identity
-        item_id = range_item_identifier(ente, fonte, tipo, numero)
+            tipo, numero = "", None
+            item_id = unidentified_item_identifier(ente, fonte)
+            title = _unidentified_title(ente, fonte)
+        else:
+            tipo, numero = identity
+            item_id = range_item_identifier(ente, fonte, tipo, numero)
+            title = _range_title(ente, fonte, tipo, numero)
         rendicao = str(lei_data.get("rendicao", ""))
         source = str(
             lei_data.get("url_original") or lei_data.get("url_pdf_original") or ""
@@ -721,7 +732,7 @@ class InternetArchivePublisher:
                         str(meta_path),
                         str(index_path),
                         "--metadata",
-                        f"title:{_range_title(ente, fonte, tipo, numero)}",
+                        f"title:{title}",
                         "--metadata",
                         "mediatype:texts",
                         "--metadata",
@@ -754,6 +765,8 @@ class InternetArchivePublisher:
             "ia_id": ia_id,
             "ia_url": f"https://archive.org/details/{item_id}",
             "uuid5": uuid5,
+            "item_id": item_id,
+            "identified": identity is not None,
         }
 
     def upload_parsed(
