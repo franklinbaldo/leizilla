@@ -5,6 +5,7 @@ Princípio #10: robots.txt é permanente (sem retry em URL bloqueada); rate-limi
                em fallback direto, por host (não global).
 """
 
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -208,7 +209,19 @@ def harvest_pending_resources(
             wb_url = None
 
         if pdf_bytes is None:
+            print(f"[WARN] fetch returned None for {chave} ({url})", file=sys.stderr)
             storage.update_resource_status(url, "failed")
+            stats["failed"] += 1
+            continue
+
+        # Validate PDF magic bytes — source may serve HTML error pages with .pdf URLs
+        if not pdf_bytes[:4] == b"%PDF":
+            print(
+                f"[WARN] not a valid PDF for {chave} ({url}): "
+                f"header={pdf_bytes[:32]!r}",
+                file=sys.stderr,
+            )
+            storage.update_resource_status(url, "not-pdf")
             stats["failed"] += 1
             continue
 
@@ -254,9 +267,17 @@ def harvest_pending_resources(
                 storage.insert_lei(lei_record)
                 stats["success"] += 1
             else:
+                print(
+                    f"[WARN] upload failed for {chave}: {result.get('error', '?')}",
+                    file=sys.stderr,
+                )
                 storage.update_resource_status(url, "failed")
                 stats["failed"] += 1
-        except Exception:
+        except Exception as exc:
+            print(
+                f"[ERROR] exception for {chave}: {exc}",
+                file=sys.stderr,
+            )
             storage.update_resource_status(url, "failed")
             stats["failed"] += 1
         finally:

@@ -454,6 +454,10 @@ class InternetArchivePublisher:
 
         cmd = cmd_prefix + ["upload", ia_id]
         cmd.extend(files)
+        # --no-derive: skip IA's PDF/media processing pipeline which can reject
+        #   valid government PDFs with "Uploaded content is unacceptable".
+        # --checksum: skip files already uploaded (idempotent re-runs).
+        cmd += ["--no-derive", "--checksum"]
         for item in metadata:
             cmd += ["--metadata", item]
         return cmd
