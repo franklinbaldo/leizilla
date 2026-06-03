@@ -120,6 +120,19 @@ data/                # local DuckDB + artifacts (gitignored)
   SHA-256 (source-agnostic, dedup-by-construction); parsed norms are keyed by
   URN-LEX. The harvest key (`coddoc`, URL path, …) is metadata in an `index.csv`,
   never a path or range boundary. ADR-0010 supersedes ADR-0005's raw-item scheme.
+- **ADR-0011 — identity-keyed navigable catalog; identity is evidence, not an
+  ingestion gate.** The raw IA item is a navigable range bucket per `(ente, fonte,
+  tipo, número)` with content-addressed files inside. **Extracting `(tipo, número)`
+  from discovery *context* is the primary job and resolves >90%** — the number lives
+  in the page metadata / lead-in listing pages / URL-filename pattern (ALRO title,
+  casacivil `L{N}.pdf`, Planalto URL path), read *before* fetching the PDF; the
+  identified resource goes straight to the catalog. "Un-numbered" shouldn't happen
+  on the normal path — if it does often for a source, strengthen that source's
+  discovery strategy. The residual <10% needs a deliberate **special strategy** per
+  source (e.g. fetch → IA OCR → parse); meanwhile those bytes are **preserved** in a
+  `leizilla_{ente}_{fonte}_unidentified` holding area (the exception, never
+  discarded) and promoted by reconciliation. Capture is decided by context, not by
+  reading the document.
 
 The codebase is **fail-open by design**: Wayback save failures, missing
 robots.txt, and IA query errors return empty/None rather than aborting batch jobs.
@@ -132,6 +145,7 @@ All commands run as `uv run leizilla <command>`. Most take `--ente` (default `ro
 |---|---|
 | `discover --ente ro` | run manifest discovery → enqueue resources |
 | `harvest --ente ro --limit 100` | process the pending queue (scrape + upload) |
+| `reconcile --ente ro [--fonte assembleia]` | promote `_unidentified` holding files into range items once discovery context yields `(tipo, número)` (ADR-0011 §1) |
 | `scrape --ente ro --fonte casacivil --tipo lei --start-coddoc 1 --end-coddoc 10` | range scrape one source |
 | `bundle-raw --ente ro --fonte casacivil` | consolidate raw PDFs into one IA item (torrents) |
 | `fetch-ocr --ente ro --limit 100` | pull IA OCR text into DuckDB |

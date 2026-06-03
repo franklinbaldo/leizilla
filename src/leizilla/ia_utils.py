@@ -1,66 +1,150 @@
-"""Internet Archive content-addressed raw layer (ADR-0010).
+"""Internet Archive raw layer — identity-keyed items, content-addressed files (ADR-0011).
 
-Raw files are addressed by the SHA-256 of their content; range items bucket by
-hash prefix; a per-`(ente, fonte)` index maps the source's idiosyncratic harvest
-key (``coddoc-05120``, a Planalto URL path, ...) to the current content hash.
+A camada raw é endereçada pela **identidade da norma** ``(ente, fonte, tipo,
+número)``: o item IA é um *range bucket* por identidade
+(``leizilla_{ente}_{fonte}_{tipo}_{start}-{end}``), e cada arquivo dentro do item
+é nomeado por um hash determinístico do conteúdo (UUIDv5 truncado). Um
+``index.csv`` por item mapeia ``(tipo, número, rendição, formato)`` → arquivo,
+newest-wins.
 
-The harvest key is **metadata** — it never appears in a path or a range
-boundary. That keeps the catalog source-agnostic: the same code addresses bytes
-from any fonte in Brazil, and dedup/immutability fall out of content-addressing.
-
-Coordinate systems (ADR-0010):
-  - raw   → content hash   (this module)
-  - parsed → URN-LEX        (publisher.upload_parsed / ADR-0005)
-The map between them is data (the index + parsed_meta), never a formula.
+Identidade é evidência, não catraca (ADR-0011 §1): uma chave de colheita sem
+``(tipo, número)`` normativo (ex.: ``coddoc`` puro) não produz identidade — o
+recurso não vai ao catálogo navegável, mas é **preservado** na área de espera
+``leizilla_{ente}_{fonte}_unidentified`` (o IA faz OCR) até a reconciliação, nunca
+descartado. A identidade jurídica pan-Brasil continua na camada *parsed* (URN-LEX,
+ADR-0005/0010).
 """
 
 import csv
 import hashlib
 import io
+import re
 import urllib.error
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
 from leizilla.entes import list_slugs
 
 _USER_AGENT = "leizilla-crawler/0.1"
-
-_RAW_PREFIX = "leizilla-raw-"
-# OCR (_djvu.txt) is IA-derived from the PDF, so resolving it requires the
-# PDF hash. HTML captures are stored as a separate text/html component.
-_SUFFIX_TO_CONTENT_TYPE: dict[str, str] = {
-    "_djvu.txt": "application/pdf",
-    ".html": "text/html",
-    ".pdf": "application/pdf",
-}
-_HASH_BUCKET_LEN = 2  # hex chars → 256 range items per (ente, fonte)
+_RAW_PREFIX = "leizilla-raw-"  # forma legada do raw_id (chave no DuckDB/CLI)
 _IA_DOWNLOAD = "https://archive.org/download"
+
+_RANGE_SIZE = 1000
+_UUID5_LEN = (
+    8  # colisão só importa dentro de um item (~1000 leis); sha256 no index detecta
+)
+
+# Tipos que NÃO identificam uma norma: são chaves de colheita idiossincráticas da
+# fonte (ADR-0011). Uma chave com esses tipos não entra no catálogo navegável —
+# é preservada na área de espera _unidentified até a reconciliação.
+_NON_IDENTIFYING_TIPOS = {"coddoc", "documento", "fallback", "seq"}
+
+# OCR (_djvu.txt) é derivado pelo IA a partir do PDF; resolvê-lo usa o arquivo PDF.
+_SUFFIX_TO_FORMATO: dict[str, str] = {
+    "_djvu.txt": "pdf",
+    ".pdf": "pdf",
+    ".html": "html",
+    ".docx": "docx",
+}
 
 INDEX_FILENAME = "index.csv"
 INDEX_COLUMNS = [
-    "source_key",  # harvest key da fonte (ex: coddoc-05120) — metadado, nunca path
-    "content_hash",  # SHA-256 hex — endereço do arquivo raw
-    "content_type",  # distingue componentes (application/pdf vs text/html)
-    "source_url",  # URL original (Ditel/Planalto/Wayback)
+    "tipo",  # tipo normativo (lei, lc, decreto, ...)
+    "numero",  # número da norma na fonte
+    "rendicao",  # original | compilada | atual | "" (unclassified)
+    "formato",  # pdf | html | docx
+    "uuid5",  # nome content-addressed do arquivo (UUIDv5 truncado)
+    "sha256",  # hash completo — dedup + detecção de colisão de uuid5
     "captured_at",  # ISO-8601 — ordena versões (newest wins)
+    "source",  # chave de colheita / URL de origem (ADR-0010): mapeia arquivo→fonte
 ]
 
 
 def compute_hash(data: bytes) -> str:
-    """SHA-256 hex digest — o endereço de conteúdo de um arquivo raw."""
+    """SHA-256 hex digest — discriminador de conteúdo (dedup + detecção de colisão)."""
     return hashlib.sha256(data).hexdigest()
 
 
+def uuid5_name(data: bytes, length: int = _UUID5_LEN) -> str:
+    """Nome de arquivo content-addressed: UUIDv5(SHA-256) truncado.
+
+    Determinístico nos bytes; bytes idênticos → mesmo nome (dedup por construção).
+    """
+    sha = compute_hash(data)
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, sha))[:length]
+
+
+def parse_identity(chave: str) -> Optional[tuple[str, int]]:
+    """Extrai ``(tipo, número)`` de uma chave de colheita, ou ``None``.
+
+    ``'lei-05120' → ('lei', 5120)``. Retorna ``None`` se a chave não casar com
+    ``{tipo}-{número}`` ou se o tipo for não-identificante (``coddoc`` etc.) —
+    nesse caso o recurso é preservado na área de espera, não promovido ao catálogo.
+    """
+    m = re.match(r"^([a-z][a-z0-9-]*)-(\d+)$", chave.strip().lower())
+    if not m:
+        return None
+    tipo, numero = m.group(1), int(m.group(2))
+    # Rejeita se o PRIMEIRO segmento for não-identificante (ex.: "coddoc",
+    # "documento-oficio-123"). O grupo de tipo no regex é guloso e engloba hífens,
+    # então sem checar o primeiro segmento um stem de fallback com forma
+    # "{palavra}-{dígitos}" (ex.: "documento-oficio-123") escaparia da área de
+    # espera para um range navegável sob um tipo espúrio.
+    if tipo.split("-", 1)[0] in _NON_IDENTIFYING_TIPOS:
+        return None
+    return tipo, numero
+
+
+def range_bounds(num: int, size: int = _RANGE_SIZE) -> tuple[int, int]:
+    """Limites do range de ``num`` (ex.: 5120 → (5001, 6000))."""
+    if num <= 0:
+        return 1, size
+    start = ((num - 1) // size) * size + 1
+    return start, start + size - 1
+
+
+def range_item_identifier(ente: str, fonte: str, tipo: str, num: int) -> str:
+    """Item IA (range bucket) por identidade: ``leizilla_{ente}_{fonte}_{tipo}_{start}-{end}``.
+
+    Ex.: ``leizilla_ro_casacivil_lei_5001-6000``. Namespaced por ``(ente, fonte,
+    tipo)`` — a numeração é da fonte; a identidade nacional vive no parsed.
+    """
+    start, end = range_bounds(num)
+    return (
+        f"leizilla_{ente.lower()}_{fonte.lower()}_{tipo.lower()}_{start:04d}-{end:04d}"
+    )
+
+
+def raw_filename(uuid5: str, suffix: str) -> str:
+    """Nome do arquivo dentro do item: ``{uuid5}{suffix}`` (ex.: ``a1b2c3d4_djvu.txt``)."""
+    return f"{uuid5}{suffix}"
+
+
+def unidentified_item_identifier(ente: str, fonte: str) -> str:
+    """Item IA de espera para recursos sem ``(tipo, número)`` resolvido (ADR-0011 §1).
+
+    ``leizilla_{ente}_{fonte}_unidentified``. Rede de segurança (exceção, não rota
+    normal): bytes capturados por contexto mas ainda sem número são **preservados**
+    aqui — o IA faz OCR — até a reconciliação extrair a identidade e promovê-los ao
+    item de range. Nunca há descarte.
+    """
+    return f"leizilla_{ente.lower()}_{fonte.lower()}_unidentified"
+
+
+def download_url(item_id: str, filename: str) -> str:
+    """URL de download direto de um arquivo dentro de um IA item."""
+    return f"{_IA_DOWNLOAD}/{item_id}/{filename}"
+
+
 def parse_raw_id(ia_id: str) -> Optional[tuple[str, str, str]]:
-    """Divide um raw_id legado em ``(ente, fonte, source_key)``.
+    """Divide um raw_id legado em ``(ente, fonte, chave)``.
 
-    ``leizilla-raw-{ente}-{fonte}-{source_key}`` →
-    ``('ro', 'casacivil', 'coddoc-05120')``.
-
-    Usa o catálogo de entes (maior match primeiro) para que entes com hífen como
-    ``ro-porto-velho`` sejam resolvidos deterministicamente. Retorna ``None`` se
-    não casar com um ente conhecido ou se faltar fonte/source_key.
+    ``leizilla-raw-{ente}-{fonte}-{chave}`` → ``('ro', 'casacivil', 'lei-05120')``.
+    Usa o catálogo de entes (maior match primeiro) para resolver entes com hífen
+    (``ro-porto-velho``). Retorna ``None`` se não casar com ente conhecido ou se
+    faltar fonte/chave.
     """
     if not ia_id.startswith(_RAW_PREFIX):
         return None
@@ -70,78 +154,70 @@ def parse_raw_id(ia_id: str) -> Optional[tuple[str, str, str]]:
             rest = content[len(slug) + 1 :]
             if "-" not in rest:
                 return None
-            fonte, source_key = rest.split("-", 1)
-            if not fonte or not source_key:
+            fonte, chave = rest.split("-", 1)
+            if not fonte or not chave:
                 return None
-            return slug, fonte, source_key
+            return slug, fonte, chave
     return None
-
-
-def raw_index_identifier(ente: str, fonte: str) -> str:
-    """IA item que guarda o índice ``source_key → content_hash`` de um (ente, fonte)."""
-    return f"{_RAW_PREFIX}{ente.lower()}-{fonte.lower()}-index"
-
-
-def raw_range_identifier(ente: str, fonte: str, hash_hex: str) -> str:
-    """IA range item que armazena um arquivo raw, bucketizado por prefixo de hash.
-
-    Ex: ``leizilla-raw-ro-casacivil-3f``. O bucket é derivado do hash (ADR-0010),
-    nunca de uma chave de fonte — generaliza para qualquer fonte do Brasil.
-    """
-    bucket = hash_hex[:_HASH_BUCKET_LEN].lower()
-    return f"{_RAW_PREFIX}{ente.lower()}-{fonte.lower()}-{bucket}"
-
-
-def raw_filename(hash_hex: str, suffix: str) -> str:
-    """Nome de arquivo content-addressed dentro do range item.
-
-    Ex: ``raw_filename(h, '_djvu.txt')`` → ``'3f8a…d21c_djvu.txt'``. O OCR
-    derivado pelo IA (``derive``) fica em ``{hash}_djvu.txt`` ao lado do PDF.
-    """
-    return f"{hash_hex.lower()}{suffix}"
-
-
-def download_url(item_id: str, filename: str) -> str:
-    """URL de download direto de um arquivo dentro de um IA item."""
-    return f"{_IA_DOWNLOAD}/{item_id}/{filename}"
 
 
 def merge_index_row(
     existing_csv: Optional[str],
     *,
-    source_key: str,
-    content_hash: str,
-    content_type: str,
-    source_url: str,
+    tipo: str,
+    numero: Optional[int],
+    rendicao: str,
+    formato: str,
+    uuid5: str,
+    sha256: str,
     captured_at: Optional[str] = None,
+    source: str = "",
 ) -> str:
-    """Devolve o índice CSV com uma linha de captura anexada (append-only).
+    """Devolve o index.csv com a captura anexada (append-only, newest-wins).
 
-    O índice é histórico: re-capturar o mesmo ``source_key`` com bytes diferentes
-    adiciona uma nova linha; a linha mais recente de um source_key é a captura
-    corrente. Idempotente em ``(source_key, content_hash)`` idênticos — não gera
-    linha duplicada (re-crawl sem mudança de bytes é no-op).
+    Idempotente em ``(tipo, numero, rendicao, formato, sha256)`` — re-capturar os
+    mesmos bytes é no-op (preserva a ordem/proveniência). Bytes diferentes para a
+    mesma ``(tipo, numero, rendicao, formato)`` anexam uma linha nova; a mais
+    recente é a corrente. Para linhas **não identificadas** (sem número), ``source``
+    também entra na chave de idempotência, pois a reconciliação casa por ``source``.
     """
     captured_at = captured_at or datetime.now(tz=timezone.utc).isoformat()
     rows: list[dict[str, str]] = []
     if existing_csv:
         for row in csv.DictReader(io.StringIO(existing_csv)):
             rows.append({c: row.get(c, "") or "" for c in INDEX_COLUMNS})
-    # True no-op: (source_key, content_hash) already recorded → preserve provenance.
-    # Re-appending would change the row's position, which affects the "newest wins"
-    # ordering in lookup_current_hash and can silently roll back newer captures.
-    if existing_csv and any(
-        r["source_key"] == source_key and r["content_hash"] == content_hash
-        for r in rows
-    ):
+    # numero ausente (área de espera _unidentified): grava vazio até reconciliar.
+    numero_s = "" if numero is None else str(numero)
+
+    # No-op verdadeiro: mesma identidade+rendição+formato já registrada com estes
+    # bytes → preserva (re-anexar mudaria a posição e o "newest wins"). Para linhas
+    # **não identificadas** (sem número, área de espera) `source` entra na chave: a
+    # reconciliação casa por `source`, então bytes iguais de origens distintas
+    # precisam coexistir — senão a 2ª origem (talvez a única promovível) some.
+    def _is_noop(r: dict[str, str]) -> bool:
+        same = (
+            r["tipo"] == tipo
+            and r["numero"] == numero_s
+            and r["rendicao"] == rendicao
+            and r["formato"] == formato
+            and r["sha256"] == sha256
+        )
+        if numero_s == "":
+            same = same and r.get("source", "") == source
+        return same
+
+    if existing_csv and any(_is_noop(r) for r in rows):
         return existing_csv
     rows.append(
         {
-            "source_key": source_key,
-            "content_hash": content_hash,
-            "content_type": content_type,
-            "source_url": source_url,
+            "tipo": tipo,
+            "numero": numero_s,
+            "rendicao": rendicao,
+            "formato": formato,
+            "uuid5": uuid5,
+            "sha256": sha256,
             "captured_at": captured_at,
+            "source": source,
         }
     )
     out = io.StringIO()
@@ -151,46 +227,79 @@ def merge_index_row(
     return out.getvalue()
 
 
-def list_source_keys(index_csv: str) -> set[str]:
-    """Conjunto de source_keys distintos presentes no índice.
+def remove_index_rows(index_csv: str, keys: set[tuple[str, str]]) -> str:
+    """Reescreve o index.csv sem as linhas cujo ``(uuid5, source)`` está em ``keys``.
 
-    Usado pela descoberta (list_raw_ids) para reconstruir os raw_ids legados
-    (``leizilla-raw-{ente}-{fonte}-{source_key}``) que o parser sabe resolver —
-    os identifiers dos itens IA (buckets de hash, item ``index``) não carregam o
-    source_key e não servem para a descoberta.
+    Usado pela reconciliação ao **promover** arquivos da área de espera
+    ``_unidentified`` para o item de range. Removemos por ``(uuid5, source)``, não
+    só por ``uuid5``: dois arquivos de bytes idênticos mas origens distintas
+    compartilham o ``uuid5`` (dedup por conteúdo), e promover só uma origem **não**
+    pode apagar o alias ainda não identificado da outra.
+    """
+    rows = [
+        {c: r.get(c, "") or "" for c in INDEX_COLUMNS}
+        for r in csv.DictReader(io.StringIO(index_csv))
+        if (r.get("uuid5", ""), r.get("source", "")) not in keys
+    ]
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=INDEX_COLUMNS)
+    writer.writeheader()
+    writer.writerows(rows)
+    return out.getvalue()
+
+
+def uuid5_collision(index_csv: str, *, uuid5: str, sha256: str) -> bool:
+    """True se ``uuid5`` já existe no índice com um SHA-256 diferente.
+
+    Detecta a colisão rara de UUIDv5 truncado dentro de um item (mesmo nome curto,
+    bytes diferentes) — o chamador trata em vez de sobrescrever silenciosamente.
+    """
+    for row in csv.DictReader(io.StringIO(index_csv)):
+        if row.get("uuid5") == uuid5 and row.get("sha256") != sha256:
+            return True
+    return False
+
+
+def lookup_current(
+    index_csv: str,
+    tipo: str,
+    numero: int,
+    *,
+    rendicao: Optional[str] = None,
+    formato: Optional[str] = None,
+) -> Optional[dict[str, str]]:
+    """Retorna a linha corrente (mais recente) para ``(tipo, numero[, rendição][, formato])``.
+
+    Filtra por rendição/formato quando especificados (necessário porque uma norma
+    pode ter componentes distintos — pdf/original, html/atual). A corrente é a
+    última linha que casa no índice append-only. ``None`` se nada casar.
+    """
+    numero_s = str(numero)
+    found: Optional[dict[str, str]] = None
+    for row in csv.DictReader(io.StringIO(index_csv)):
+        if row.get("tipo") != tipo or row.get("numero") != numero_s:
+            continue
+        if rendicao is not None and row.get("rendicao", "") != rendicao:
+            continue
+        if formato is not None and row.get("formato", "") != formato:
+            continue
+        found = {c: row.get(c, "") or "" for c in INDEX_COLUMNS}
+    return found
+
+
+def list_identities(index_csv: str) -> set[str]:
+    """Conjunto de chaves ``{tipo}-{numero:05d}`` distintas no índice.
+
+    Usado pela descoberta (list_raw_ids) para reconstruir os raw_ids legados que o
+    parser sabe resolver. O identifier do item (range) não carrega norma a norma.
     """
     keys: set[str] = set()
     for row in csv.DictReader(io.StringIO(index_csv)):
-        sk = row.get("source_key")
-        if sk:
-            keys.add(sk)
+        tipo = row.get("tipo")
+        numero = row.get("numero")
+        if tipo and numero and numero.isdigit():
+            keys.add(f"{tipo}-{int(numero):05d}")
     return keys
-
-
-def lookup_current_hash(
-    index_csv: str,
-    source_key: str,
-    content_type: Optional[str] = None,
-) -> Optional[tuple[str, str]]:
-    """Retorna ``(content_hash, content_type)`` da captura corrente (mais recente).
-
-    Se ``content_type`` for especificado, restringe à linha desse tipo antes de
-    escolher a mais recente — necessário quando um source_key tem componentes
-    distintos (``application/pdf`` e ``text/html``) no mesmo índice.
-
-    A captura corrente é a última linha do source_key (filtrado) no índice
-    append-only. Retorna ``None`` se o source_key não estiver no índice ou se
-    nenhuma linha corresponder ao tipo requisitado.
-    """
-    found: Optional[tuple[str, str]] = None
-    for row in csv.DictReader(io.StringIO(index_csv)):
-        if row.get("source_key") != source_key:
-            continue
-        row_ct = row.get("content_type", "")
-        if content_type is not None and row_ct != content_type:
-            continue
-        found = (row.get("content_hash", ""), row_ct)
-    return found
 
 
 def _fetch_text(url: str, timeout: int = 30) -> Optional[str]:
@@ -204,33 +313,44 @@ def _fetch_text(url: str, timeout: int = 30) -> Optional[str]:
         return None
 
 
-def resolve_raw_url(ia_id: str, suffix: str, timeout: int = 30) -> Optional[str]:
-    """Resolve um raw_id legado para a URL content-addressed do arquivo derivado.
+def resolve_raw_url(
+    ia_id: str,
+    suffix: str,
+    timeout: int = 30,
+    rendicao: Optional[str] = None,
+) -> Optional[str]:
+    """Resolve um raw_id legado para a URL content-addressed do arquivo (ADR-0011).
 
-    Passos (ADR-0010): parse do raw_id → fetch do índice do (ente, fonte) → lookup
-    do hash corrente do source_key → monta a URL no range item por prefixo de hash.
+    Passos: parse do raw_id → identidade ``(tipo, número)`` → item de range →
+    fetch do index.csv → lookup do arquivo corrente → monta a URL.
 
     IDs que não casam com o padrão raw (itens externos/legados) caem no
-    pass-through clássico ``{ia_id}/{ia_id}{suffix}``. Retorna ``None`` quando o
-    índice não existe ainda ou o source_key não foi capturado — o chamador trata
-    como "OCR ainda não disponível", preservando o contrato de fetch_ocr.
+    pass-through clássico ``{ia_id}/{ia_id}{suffix}``. Retorna ``None`` quando a
+    chave não tem identidade (não está na coleção), o índice não existe ainda, ou
+    a norma/rendição não foi capturada — o chamador trata como "ainda indisponível".
     """
     parsed = parse_raw_id(ia_id)
     if parsed is None:
         return download_url(ia_id, f"{ia_id}{suffix}")
 
-    ente, fonte, source_key = parsed
-    index_url = download_url(raw_index_identifier(ente, fonte), INDEX_FILENAME)
-    index_csv = _fetch_text(index_url, timeout=timeout)
+    ente, fonte, chave = parsed
+    identity = parse_identity(chave)
+    if identity is None:
+        return None  # sem (tipo, número) → não está na coleção
+
+    tipo, numero = identity
+    item_id = range_item_identifier(ente, fonte, tipo, numero)
+    index_csv = _fetch_text(download_url(item_id, INDEX_FILENAME), timeout=timeout)
     if not index_csv:
         return None
 
-    current = lookup_current_hash(
-        index_csv, source_key, content_type=_SUFFIX_TO_CONTENT_TYPE.get(suffix)
+    row = lookup_current(
+        index_csv,
+        tipo,
+        numero,
+        rendicao=rendicao,
+        formato=_SUFFIX_TO_FORMATO.get(suffix),
     )
-    if current is None:
+    if row is None:
         return None
-
-    content_hash, _content_type = current
-    range_id = raw_range_identifier(ente, fonte, content_hash)
-    return download_url(range_id, raw_filename(content_hash, suffix))
+    return download_url(item_id, raw_filename(row["uuid5"], suffix))

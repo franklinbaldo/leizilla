@@ -25,12 +25,15 @@ def scrape_one(
     lei_data: Dict[str, Any],
     publisher: InternetArchivePublisher,
     rate_limiter: Optional[Callable[[str], None]] = None,
+    index_cache: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Scrape um PDF: robots check → wayback save → fetch → upload_raw.
 
     Retorna dict com 'success' + ('ia_id', 'ia_url') ou ('reason') em falha.
     Robots bloqueado é permanente — caller NÃO deve re-tentar a mesma URL.
     rate_limiter recebe a URL do fallback para tracking por host.
+    ``index_cache`` (acumulador por item do lote) repassa-se ao ``upload_raw``
+    para evitar lost-update do index.csv entre uploads ao mesmo item de range.
     """
     if not robots.is_allowed(fonte_url):
         return {"success": False, "reason": "robots-blocked", "url": fonte_url}
@@ -80,6 +83,7 @@ def scrape_one(
             pdf_bytes,
             fetched_from=fetched_from,
             wayback_url=wb_url,
+            index_cache=index_cache,
         )
     except Exception as exc:
         return {"success": False, "reason": "upload-failed", "error": str(exc)}
@@ -92,12 +96,14 @@ def scrape_one_html(
     lei_data: dict,
     publisher: InternetArchivePublisher,
     rate_limiter: Optional[Callable[[str], None]] = None,
+    index_cache: Optional[Dict[str, str]] = None,
 ) -> dict:
     """Scrape de uma página HTML: robots → wayback save → fetch → upload_raw_html.
 
     Para fontes sem PDF (ex: Planalto federal) que servem HTML compilado vigente.
     Retorna dict com 'success' + ('ia_id', 'ia_url') ou ('reason') em falha.
     Robots bloqueado é permanente — caller NÃO deve re-tentar a mesma URL.
+    ``index_cache`` (acumulador por item do lote) repassa-se ao ``upload_raw_html``.
     """
     if not robots.is_allowed(fonte_url):
         return {"success": False, "reason": "robots-blocked", "url": fonte_url}
@@ -136,6 +142,7 @@ def scrape_one_html(
             lei_data,
             fetched_from=fetched_from,
             wayback_url=wb_url,
+            index_cache=index_cache,
         )
     except Exception as exc:
         return {"success": False, "reason": "upload-failed", "error": str(exc)}
@@ -151,9 +158,16 @@ def make_rate_limiter(min_interval: float = _RATE_LIMIT_S) -> Callable[[str], No
 
     def limiter(url: str) -> None:
         host = urlparse(url).hostname or ""
-        elapsed = time.monotonic() - last.get(host, 0.0)
-        if elapsed < min_interval:
-            time.sleep(min_interval - elapsed)
+        # Primeira batida em um host nunca espera. Usamos um sentinela explícito
+        # (host ausente no dict) em vez de 0.0: o epoch de time.monotonic() é
+        # arbitrário, então `monotonic() - 0.0` pode ser < min_interval logo após
+        # o boot e provocar um sleep espúrio na primeira chamada (hosts distintos
+        # devem permanecer independentes).
+        previous = last.get(host)
+        if previous is not None:
+            elapsed = time.monotonic() - previous
+            if elapsed < min_interval:
+                time.sleep(min_interval - elapsed)
         last[host] = time.monotonic()
 
     return limiter
@@ -174,6 +188,10 @@ def harvest_pending_resources(
     pending = storage.get_pending_resources(limit=limit, ente=ente)
     stats = {"success": 0, "failed": 0, "robots-blocked": 0}
     rate_limiter = make_rate_limiter()
+    # Índice acumulado por item de range neste lote: vários recursos do mesmo
+    # (ente, fonte, tipo) caem no mesmo item; sem isto cada upload releria do IA
+    # (sem read-after-write) e sobrescreveria a linha do upload anterior.
+    index_cache: Dict[str, str] = {}
 
     for res in pending:
         url = res["url"]
@@ -226,6 +244,7 @@ def harvest_pending_resources(
             "fonte": fonte,
             "chave": chave,
             "titulo": f"{tipo.upper()} {chave} ({ente.upper()})",
+            "url_original": url,  # proveniência: mapeia o arquivo → fonte (ADR-0010)
         }
 
         try:
@@ -235,6 +254,7 @@ def harvest_pending_resources(
                 pdf_bytes,
                 fetched_from=fetched_from,
                 wayback_url=wb_url,
+                index_cache=index_cache,
             )
             if result.get("success"):
                 storage.update_resource_status(

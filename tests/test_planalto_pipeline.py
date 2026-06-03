@@ -331,10 +331,7 @@ class TestUploadRawHtml:
         mock_result = MagicMock(returncode=0, stdout="", stderr="")
         with (
             patch("subprocess.run", return_value=mock_result),
-            patch(
-                "leizilla.publisher.update_raw_index",
-                return_value={"success": True},
-            ),
+            patch("leizilla.publisher._fetch_existing_index", return_value=None),
         ):
             result = pub.upload_raw_html("<html>lei</html>", _lei_data_html())
         assert result["success"] is True
@@ -352,14 +349,20 @@ class TestUploadRawHtml:
     def test_subprocess_failure_returns_error(self) -> None:
         pub = _publisher()
         err = subprocess.CalledProcessError(1, "ia", stderr="quota exceeded")
-        with patch("subprocess.run", side_effect=err):
+        with (
+            patch("leizilla.publisher._fetch_existing_index", return_value=None),
+            patch("subprocess.run", side_effect=err),
+        ):
             result = pub.upload_raw_html("<html/>", _lei_data_html())
         assert result["success"] is False
         assert "quota exceeded" in result["error"]
 
     def test_missing_ia_cli_returns_error(self) -> None:
         pub = _publisher()
-        with patch("subprocess.run", side_effect=FileNotFoundError):
+        with (
+            patch("leizilla.publisher._fetch_existing_index", return_value=None),
+            patch("subprocess.run", side_effect=FileNotFoundError),
+        ):
             result = pub.upload_raw_html("<html/>", _lei_data_html())
         assert result["success"] is False
         assert "ia CLI" in result["error"]
@@ -367,7 +370,10 @@ class TestUploadRawHtml:
     def test_ia_called_with_html_extension(self) -> None:
         pub = _publisher()
         mock_result = MagicMock(returncode=0, stdout="", stderr="")
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
+        with (
+            patch("leizilla.publisher._fetch_existing_index", return_value=None),
+            patch("subprocess.run", return_value=mock_result) as mock_run,
+        ):
             pub.upload_raw_html("<html>lei</html>", _lei_data_html())
         call_args = mock_run.call_args_list[0][0][0]
         html_files = [
@@ -378,7 +384,10 @@ class TestUploadRawHtml:
     def test_mediatype_is_texts(self) -> None:
         pub = _publisher()
         mock_result = MagicMock(returncode=0, stdout="", stderr="")
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
+        with (
+            patch("leizilla.publisher._fetch_existing_index", return_value=None),
+            patch("subprocess.run", return_value=mock_result) as mock_run,
+        ):
             pub.upload_raw_html("<html/>", _lei_data_html())
         call_args = mock_run.call_args_list[0][0][0]
         assert "mediatype:texts" in call_args
@@ -428,10 +437,7 @@ class TestScrapeOneHtml:
             patch("leizilla.wayback.check_available", return_value=wb_url),
             patch("leizilla.scraper.fetch_html", return_value="<html>lei</html>"),
             patch("subprocess.run", return_value=mock_run),
-            patch(
-                "leizilla.publisher.update_raw_index",
-                return_value={"success": True},
-            ),
+            patch("leizilla.publisher._fetch_existing_index", return_value=None),
         ):
             result = scrape_one_html(self._url(), _lei_data_html(), pub)
         assert result["success"] is True
@@ -453,10 +459,7 @@ class TestScrapeOneHtml:
             patch("leizilla.wayback.check_available", return_value=None),
             patch("leizilla.scraper.fetch_html", side_effect=fake_fetch),
             patch("subprocess.run", return_value=mock_run) as _mock,
-            patch(
-                "leizilla.publisher.update_raw_index",
-                return_value={"success": True},
-            ),
+            patch("leizilla.publisher._fetch_existing_index", return_value=None),
         ):
             result = scrape_one_html(self._url(), _lei_data_html(), pub)
         assert result["success"] is True, result

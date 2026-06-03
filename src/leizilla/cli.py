@@ -6,7 +6,7 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 import typer
 from typer import echo
@@ -33,6 +33,72 @@ def cmd_discover(
         db = DuckDBStorage()
         added = run_discovery(ente, db)
         echo(f"Descoberta concluída. Adicionados/ignorados recursos: {added} total.")
+    except Exception as e:
+        echo(f"Erro: {e}")
+        raise typer.Exit(1)
+
+
+@app.command("reconcile")
+def cmd_reconcile(
+    ente: str = typer.Option("ro", help="Ente federativo"),
+    fonte: Optional[str] = typer.Option(
+        None, help="Fonte específica (None = todas as fontes do manifesto)"
+    ),
+) -> None:
+    """Promove recursos da área de espera `_unidentified` para o item de range.
+
+    Re-roda a descoberta com os extratores atuais (ADR-0011 §1, re-derivação por
+    contexto), monta o mapa URL→(tipo, número) e promove os arquivos preservados
+    cuja identidade agora é conhecida — sem re-baixar do portal de origem.
+    """
+    echo(f"Reconciliando área de espera para {ente}" + (f"/{fonte}" if fonte else ""))
+    try:
+        from leizilla.discovery import discover_resources
+        from leizilla.ia_utils import parse_identity
+        from leizilla.publisher import InternetArchivePublisher
+
+        resources = discover_resources(ente, fonte)
+        # Mapa de identidade por URL de origem, só para recursos agora identificáveis.
+        identity_by_source: dict[str, tuple[str, int]] = {}
+        fontes_seen: set[str] = set()
+        for res in resources:
+            fontes_seen.add(res["fonte"])
+            ident = parse_identity(res.get("chave", ""))
+            if ident is not None:
+                identity_by_source[res["url"]] = ident
+
+        pub = InternetArchivePublisher()
+        total_promoted = 0
+        total_remaining = 0
+        failed_fontes: list[str] = []
+        for f in sorted(fontes_seen):
+            by_source = {
+                r["url"]: identity_by_source[r["url"]]
+                for r in resources
+                if r["fonte"] == f and r["url"] in identity_by_source
+            }
+            result = pub.reconcile_unidentified(ente, f, by_source)
+            if not result.get("success"):
+                echo(f"  {f}: erro — {result.get('error')}")
+                failed_fontes.append(f)
+                continue
+            total_promoted += result["promoted"]
+            total_remaining += result["remaining"]
+            echo(
+                f"  {f}: {result['promoted']} promovidos, "
+                f"{result['remaining']} ainda na espera"
+            )
+        echo(
+            f"Reconciliação concluída: {total_promoted} promovidos, "
+            f"{total_remaining} aguardando."
+        )
+        if failed_fontes:
+            # Sai nonzero para a automação detectar a limpeza parcial (rows
+            # promovidas podem seguir na espera).
+            echo(f"Falha em: {', '.join(failed_fontes)}")
+            raise typer.Exit(1)
+    except typer.Exit:
+        raise
     except Exception as e:
         echo(f"Erro: {e}")
         raise typer.Exit(1)
@@ -283,6 +349,9 @@ def cmd_upload(
             return
 
         uploaded = 0
+        # Índice acumulado por item de range no lote (evita lost-update do
+        # index.csv entre uploads ao mesmo item — IA não tem read-after-write).
+        index_cache: Dict[str, str] = {}
         for law in to_upload[:limit]:
             try:
                 pdf_path = Path(law["local_pdf_path"])
@@ -290,7 +359,11 @@ def cmd_upload(
                     continue
                 pdf_bytes = pdf_path.read_bytes()
                 result = publisher.upload_raw(
-                    pdf_path, law, pdf_bytes, fetched_from="source-fallback"
+                    pdf_path,
+                    law,
+                    pdf_bytes,
+                    fetched_from="source-fallback",
+                    index_cache=index_cache,
                 )
                 if result.get("success"):
                     db.update_lei(law["id"], {"url_pdf_ia": result["ia_url"]})
@@ -371,6 +444,9 @@ def cmd_scrape(
             )
             ok = 0
             skipped_ok = 0
+            # Índice acumulado por item de range no lote (evita lost-update do
+            # index.csv entre uploads ao mesmo item — IA não tem read-after-write).
+            index_cache: Dict[str, str] = {}
             for law in laws:
                 fonte_url = law.get("url_original")
                 if not fonte_url:
@@ -382,7 +458,9 @@ def cmd_scrape(
                     if ia_id in already_scraped:
                         skipped_ok += 1
                         continue
-                result = scrape_one_html(fonte_url, law, publisher, rate_limiter)
+                result = scrape_one_html(
+                    fonte_url, law, publisher, rate_limiter, index_cache
+                )
                 if result.get("success"):
                     echo(f"  OK: {result.get('ia_id', '?')}")
                     ok += 1
@@ -469,6 +547,9 @@ def cmd_scrape(
 
             ok = 0
             skipped_ok = 0
+            # Índice acumulado por item de range no lote (evita lost-update do
+            # index.csv entre uploads ao mesmo item — IA não tem read-after-write).
+            index_cache: Dict[str, str] = {}
             for law in laws:
                 pdf_url = law.get("url_pdf_original")
                 fonte_url = law.get("url_original")
@@ -481,7 +562,9 @@ def cmd_scrape(
                     if ia_id in already_scraped:
                         skipped_ok += 1
                         continue
-                result = scrape_one(fonte_url, pdf_url, law, publisher, rate_limiter)
+                result = scrape_one(
+                    fonte_url, pdf_url, law, publisher, rate_limiter, index_cache
+                )
                 if result.get("success"):
                     echo(f"  OK: {result.get('ia_id', '?')}")
                     ok += 1
@@ -714,9 +797,10 @@ def cmd_stats(
 
     if ia:
         echo("Internet Archive:")
-        raw_count = count_ia_items(f"leizilla-raw-{ente}-")
-        # Prefix leizilla-{ente}- matches ONLY parsed items: raw/bundle/dataset
-        # all have an extra word before the ente slug (leizilla-raw-ro-, etc.)
+        # Raw items são range buckets identity-keyed com underscore (ADR-0011):
+        # leizilla_{ente}_{fonte}_{tipo}_{range}. Parsed/dataset usam hífen, então
+        # o prefixo underscore casa só com raw, e leizilla-{ente}- só com parsed.
+        raw_count = count_ia_items(f"leizilla_{ente}_")
         parsed_count = count_ia_items(f"leizilla-{ente}-")
         dataset_count = count_ia_items(f"leizilla-dataset-{ente}-")
 
@@ -956,6 +1040,7 @@ def cmd_parse_all(
             list_parsed_raw_ids,
             list_raw_ids,
         )
+        from leizilla.ia_utils import parse_raw_id
 
         already_parsed: set[str] = set()
         if skip_existing:
@@ -989,25 +1074,31 @@ def cmd_parse_all(
         target_items = []
         if raw_items_on_ia:
             for raw_id in sorted(raw_items_on_ia):
-                parts = raw_id.split("-")
-                if len(parts) >= 6:
-                    try:
-                        num = int(parts[-1])
-                        item_tipo = parts[-2]
-                        if fonte == "assembleia" and item_tipo != "coddoc":
-                            continue
-                        if fonte != "assembleia" and item_tipo != tipo:
-                            continue
-                        if start_coddoc <= num <= end_coddoc:
-                            target_items.append((num, raw_id))
-                    except ValueError:
-                        continue
+                # Parse via the ente catalog (handles hyphenated entes like
+                # ro-porto-velho) and split the chave on its LAST hyphen so
+                # hyphenated tipos (lei-complementar) survive intact.
+                parsed = parse_raw_id(raw_id)
+                if parsed is None:
+                    continue
+                _ente, _fonte, chave = parsed
+                item_tipo, _, num_part = chave.rpartition("-")
+                if not item_tipo or not num_part.isdigit():
+                    continue
+                num = int(num_part)
+                # Items na coleção são identity-keyed (ADR-0011); casa pelo tipo
+                # normativo para qualquer fonte. (assembleia só terá itens aqui
+                # quando expor tipo+número — ver follow-up de identidade ALRO.)
+                if item_tipo != tipo:
+                    continue
+                if start_coddoc <= num <= end_coddoc:
+                    target_items.append((num, raw_id))
         else:
+            # Fallback sequencial: a coleção é identity-keyed (ADR-0011), então
+            # iteramos por {tipo}-{número} para qualquer fonte. O range agora é de
+            # números normativos (não de coddoc); assembleia usa a identidade real
+            # extraída na descoberta, igual às demais fontes.
             for num in range(start_coddoc, end_coddoc + 1):
-                if fonte == "assembleia":
-                    chave = f"coddoc-{num:05d}"
-                else:
-                    chave = f"{tipo}-{num:05d}"
+                chave = f"{tipo}-{num:05d}"
                 raw_id = f"leizilla-raw-{ente}-{fonte}-{chave}"
                 target_items.append((num, raw_id))
 

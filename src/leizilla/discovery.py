@@ -80,9 +80,13 @@ class WaybackCdxDiscovery(DiscoveryStrategy):
                 filename = orig_url.split("/")[-1]
                 tipo, chave = parse_filename(filename)
                 if not tipo or not chave:
-                    # Se não casar com os padrões comuns, use fallback baseado no nome limpo
-                    name_clean = filename.rsplit(".", 1)[0].replace(" ", "_")
-                    tipo, chave = "documento", f"fallback-{name_clean}"
+                    # Identidade é evidência, não catraca (ADR-0011 §1): capturamos
+                    # mesmo sem (tipo, número) no nome. Prefixo NÃO-identificante
+                    # "documento-" garante que parse_identity devolva None — senão um
+                    # stem com forma "{palavra}-{dígitos}" (ex.: "oficio-123") seria
+                    # promovido a um range navegável espúrio em vez da área de espera
+                    # _unidentified. O harvest key (nome do arquivo) fica preservado.
+                    tipo, chave = "", f"documento-{filename.rsplit('.', 1)[0]}"
 
                 wayback_url = f"https://web.archive.org/web/{timestamp}/{orig_url}"
                 resources.append(
@@ -120,7 +124,10 @@ class SequentialDiscovery(DiscoveryStrategy):
                 filename = url.split("/")[-1]
                 tipo, chave = parse_filename(filename)
                 if not tipo or not chave:
-                    tipo, chave = "lei", f"seq-{num:05d}"
+                    # Captura mesmo sem identidade (ADR-0011 §1): vai à área de
+                    # espera _unidentified. Prefixo NÃO-identificante "documento-"
+                    # garante parse_identity → None mesmo para stems "{palavra}-{díg}".
+                    tipo, chave = "", f"documento-{filename.rsplit('.', 1)[0]}"
                 resources.append(
                     {
                         "url": url,
@@ -174,13 +181,18 @@ class PlaywrightCrawlerDiscovery(DiscoveryStrategy):
         resources = []
         for law in laws:
             pdf_url = law.get("url_pdf_original")
+            # Captura por contexto (ADR-0011 §1): o título da página rende
+            # (tipo, número) em >90% (parse_titulo_identity) → vai ao catálogo;
+            # o resíduo (coddoc puro) é preservado na área de espera _unidentified.
             if pdf_url:
                 resources.append(
                     {
                         "url": pdf_url,
                         "ente": self.ente,
                         "fonte": self.fonte,
-                        "tipo_documento": "lei",  # ALRO scrape padrão é lei
+                        # tipo/chave da identidade extraída do título (ADR-0011);
+                        # fallback para coddoc quando não identificável (adiado).
+                        "tipo_documento": law.get("tipo", "documento"),
                         "chave": law.get("chave", f"coddoc-{law.get('coddoc'):05d}"),
                         "status": "pending",
                         "wayback_snapshot": None,
@@ -206,36 +218,39 @@ def load_manifest(ente: str) -> Dict[str, Any]:
     return data
 
 
-def run_discovery(ente: str, storage: DuckDBStorage) -> int:
-    """Lê o manifesto do ente, executa todas as estratégias de descoberta e salva os resources."""
+def discover_resources(ente: str, fonte: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Roda as estratégias do manifesto e **retorna** os resources (sem inserir).
+
+    Diferente de ``run_discovery`` (que persiste), serve à reconciliação: re-deriva
+    identidades com os extratores *atuais* (possivelmente melhorados), independente
+    das linhas já gravadas em ``discovered_resources``. ``fonte`` filtra para uma
+    fonte específica.
+    """
     manifest = load_manifest(ente)
-    total_added = 0
-
-    for fonte, fonte_cfg in manifest.get("fontes", {}).items():
+    out: List[Dict[str, Any]] = []
+    for f, fonte_cfg in manifest.get("fontes", {}).items():
+        if fonte is not None and f != fonte:
+            continue
         for discovery_cfg in fonte_cfg.get("discovery", []):
-            strategy_name = discovery_cfg.get("strategy")
-            strategy_cls = STRATEGIES.get(strategy_name)
-
+            strategy_cls = STRATEGIES.get(discovery_cfg.get("strategy"))
             if not strategy_cls:
                 logger.warning(
-                    f"Estratégia de descoberta '{strategy_name}' não suportada/encontrada."
+                    f"Estratégia '{discovery_cfg.get('strategy')}' não suportada."
                 )
                 continue
-
             try:
-                runner = strategy_cls(discovery_cfg, ente, fonte)
-                resources = runner.run()
-                logger.info(
-                    f"Estratégia '{strategy_name}' descobriu {len(resources)} resources."
-                )
-
-                for res in resources:
-                    storage.insert_resource(res)
-                    total_added += 1
-
+                out.extend(strategy_cls(discovery_cfg, ente, f).run())
             except Exception as e:
                 logger.error(
-                    f"Falha ao executar estratégia '{strategy_name}' para {ente}/{fonte}: {e}"
+                    f"Falha na estratégia '{discovery_cfg.get('strategy')}' "
+                    f"para {ente}/{f}: {e}"
                 )
+    return out
 
-    return total_added
+
+def run_discovery(ente: str, storage: DuckDBStorage) -> int:
+    """Lê o manifesto do ente, executa todas as estratégias e salva os resources."""
+    resources = discover_resources(ente)
+    for res in resources:
+        storage.insert_resource(res)
+    return len(resources)

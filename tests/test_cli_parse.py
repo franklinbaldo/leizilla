@@ -506,8 +506,10 @@ class TestCmdParseAll:
             "leizilla-raw-federal-planalto-lcp-00002",
         ]
 
-    def test_non_planalto_uses_coddoc_chave(self):
-        """Assembleia usa coddoc-NNNNN (identificador de coddoc sequencial da ALRO)."""
+    def test_assembleia_uses_tipo_chave_like_other_fontes(self):
+        """ADR-0011: assembleia é identity-keyed (tipo+número extraído do título na
+        descoberta), então parse-all sequencial usa {tipo}-NNNNN como qualquer
+        fonte — não mais coddoc."""
         fetched_ids: list[str] = []
 
         def track_ocr(raw_id: str) -> str:
@@ -531,6 +533,8 @@ class TestCmdParseAll:
                     "ro",
                     "--fonte",
                     "assembleia",
+                    "--tipo",
+                    "lei",
                     "--start-coddoc",
                     "5",
                     "--end-coddoc",
@@ -539,8 +543,8 @@ class TestCmdParseAll:
                 ],
             )
         assert fetched_ids == [
-            "leizilla-raw-ro-assembleia-coddoc-00005",
-            "leizilla-raw-ro-assembleia-coddoc-00006",
+            "leizilla-raw-ro-assembleia-lei-00005",
+            "leizilla-raw-ro-assembleia-lei-00006",
         ]
 
     def test_casacivil_uses_tipo_chave(self):
@@ -577,6 +581,41 @@ class TestCmdParseAll:
             "leizilla-raw-ro-casacivil-lc-00001",
             "leizilla-raw-ro-casacivil-lc-00002",
         ]
+
+    def test_hyphenated_tipo_from_ia_listing_not_skipped(self):
+        """Regression (ADR-0011): list_raw_ids may return a hyphenated tipo such
+        as lei-complementar. cmd_parse_all must preserve the full tipo (not read
+        it as 'complementar' via split('-')[-2]) or it skips every such law.
+        """
+        raw_id = "leizilla-raw-ro-casacivil-lei-complementar-00042"
+        fetched: list[str] = []
+
+        def track_ocr(rid: str) -> str:
+            fetched.append(rid)
+            return None  # type: ignore[return-value]
+
+        with (
+            patch("leizilla.publisher.list_raw_ids", return_value={raw_id}),
+            patch("leizilla.parser.fetch_ocr", side_effect=track_ocr),
+        ):
+            runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--ente",
+                    "ro",
+                    "--fonte",
+                    "casacivil",
+                    "--tipo",
+                    "lei-complementar",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "100",
+                    "--no-upload",
+                ],
+            )
+        assert fetched == [raw_id]
 
     def test_invalid_input_type_exits_1(self):
         """Valor inválido para --input-type retorna exit 1 antes de processar qualquer item."""
@@ -669,7 +708,7 @@ class TestCmdParseAllSkipExisting:
 
     def test_skip_existing_skips_already_parsed_items(self):
         """Items cujo raw_id está em already_parsed são pulados sem fetch/parse."""
-        raw_id = "leizilla-raw-ro-assembleia-coddoc-00001"
+        raw_id = "leizilla-raw-ro-assembleia-lei-00001"
         with (
             patch(
                 "leizilla.publisher.list_parsed_raw_ids",
@@ -697,8 +736,8 @@ class TestCmdParseAllSkipExisting:
 
     def test_skip_existing_reports_skipped_count_in_summary(self):
         raw_ids = {
-            "leizilla-raw-ro-assembleia-coddoc-00001",
-            "leizilla-raw-ro-assembleia-coddoc-00002",
+            "leizilla-raw-ro-assembleia-lei-00001",
+            "leizilla-raw-ro-assembleia-lei-00002",
         }
         with (
             patch("leizilla.publisher.list_parsed_raw_ids", return_value=raw_ids),
@@ -776,9 +815,9 @@ class TestCmdParseAllSkipExisting:
         to stall after first run (all items in limit window already parsed, 51+ never reached).
         """
         already_parsed = {
-            "leizilla-raw-ro-assembleia-coddoc-00001",
-            "leizilla-raw-ro-assembleia-coddoc-00002",
-            "leizilla-raw-ro-assembleia-coddoc-00003",
+            "leizilla-raw-ro-assembleia-lei-00001",
+            "leizilla-raw-ro-assembleia-lei-00002",
+            "leizilla-raw-ro-assembleia-lei-00003",
         }
         fetched: list[str] = []
 
@@ -809,8 +848,8 @@ class TestCmdParseAllSkipExisting:
         assert result.exit_code == 0
         # items 1-3 skipped; items 4 and 5 are the first 2 non-skipped → fetched
         assert fetched == [
-            "leizilla-raw-ro-assembleia-coddoc-00004",
-            "leizilla-raw-ro-assembleia-coddoc-00005",
+            "leizilla-raw-ro-assembleia-lei-00004",
+            "leizilla-raw-ro-assembleia-lei-00005",
         ]
 
 
@@ -986,7 +1025,7 @@ class TestCmdStats:
         # parsed shown directly, not raw-count subtracted from it
         assert "42" in result.output
         prefixes = [c[0][0] for c in mock_count.call_args_list]
-        assert "leizilla-raw-ro-" in prefixes
+        assert "leizilla_ro_" in prefixes  # raw range items (ADR-0011, underscores)
         assert "leizilla-ro-" in prefixes
         assert "leizilla-dataset-ro-" in prefixes
 
@@ -1008,4 +1047,4 @@ class TestCmdStats:
             result = runner.invoke(app, ["stats"])
         assert result.exit_code == 0
         first_call_prefix = mock_count.call_args_list[0][0][0]
-        assert "leizilla-raw-ro-" == first_call_prefix
+        assert "leizilla_ro_" == first_call_prefix

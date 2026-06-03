@@ -1,9 +1,14 @@
 # ADR-0010 — Raw é content-addressed, Parsed é URN-keyed, chaves de fonte são metadados
 
-**Status**: Aprovada
+**Status**: Parcialmente superada (camada Raw) — ver [ADR-0011](0011-raw-identity-keyed-range-items.md)
 **Data**: 2026-05-30
 **Contexto**: M4 — Internet Archive consolidation (pós PR #74)
 **Supersede**: linha "Raw (individual)" e "Raw (bundle ZIP)" de [ADR-0005](0005-ia-identifiers.md)
+**Superada por**: a camada **Raw** desta ADR (content-addressed, itens
+bucketizados por hash) foi substituída por
+[ADR-0011](0011-raw-identity-keyed-range-items.md) — raw identity-keyed por
+`(ente, fonte, tipo, número)`, arquivos content-addressed dentro do item. A parte
+**Parsed é URN-keyed** permanece vigente.
 
 ## Contexto
 
