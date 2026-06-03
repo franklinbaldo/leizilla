@@ -25,12 +25,15 @@ def scrape_one(
     lei_data: Dict[str, Any],
     publisher: InternetArchivePublisher,
     rate_limiter: Optional[Callable[[str], None]] = None,
+    index_cache: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Scrape um PDF: robots check → wayback save → fetch → upload_raw.
 
     Retorna dict com 'success' + ('ia_id', 'ia_url') ou ('reason') em falha.
     Robots bloqueado é permanente — caller NÃO deve re-tentar a mesma URL.
     rate_limiter recebe a URL do fallback para tracking por host.
+    ``index_cache`` (acumulador por item do lote) repassa-se ao ``upload_raw``
+    para evitar lost-update do index.csv entre uploads ao mesmo item de range.
     """
     if not robots.is_allowed(fonte_url):
         return {"success": False, "reason": "robots-blocked", "url": fonte_url}
@@ -80,6 +83,7 @@ def scrape_one(
             pdf_bytes,
             fetched_from=fetched_from,
             wayback_url=wb_url,
+            index_cache=index_cache,
         )
     except Exception as exc:
         return {"success": False, "reason": "upload-failed", "error": str(exc)}
@@ -92,12 +96,14 @@ def scrape_one_html(
     lei_data: dict,
     publisher: InternetArchivePublisher,
     rate_limiter: Optional[Callable[[str], None]] = None,
+    index_cache: Optional[Dict[str, str]] = None,
 ) -> dict:
     """Scrape de uma página HTML: robots → wayback save → fetch → upload_raw_html.
 
     Para fontes sem PDF (ex: Planalto federal) que servem HTML compilado vigente.
     Retorna dict com 'success' + ('ia_id', 'ia_url') ou ('reason') em falha.
     Robots bloqueado é permanente — caller NÃO deve re-tentar a mesma URL.
+    ``index_cache`` (acumulador por item do lote) repassa-se ao ``upload_raw_html``.
     """
     if not robots.is_allowed(fonte_url):
         return {"success": False, "reason": "robots-blocked", "url": fonte_url}
@@ -136,6 +142,7 @@ def scrape_one_html(
             lei_data,
             fetched_from=fetched_from,
             wayback_url=wb_url,
+            index_cache=index_cache,
         )
     except Exception as exc:
         return {"success": False, "reason": "upload-failed", "error": str(exc)}
@@ -181,6 +188,10 @@ def harvest_pending_resources(
     pending = storage.get_pending_resources(limit=limit, ente=ente)
     stats = {"success": 0, "failed": 0, "robots-blocked": 0}
     rate_limiter = make_rate_limiter()
+    # Índice acumulado por item de range neste lote: vários recursos do mesmo
+    # (ente, fonte, tipo) caem no mesmo item; sem isto cada upload releria do IA
+    # (sem read-after-write) e sobrescreveria a linha do upload anterior.
+    index_cache: Dict[str, str] = {}
 
     for res in pending:
         url = res["url"]
@@ -243,6 +254,7 @@ def harvest_pending_resources(
                 pdf_bytes,
                 fetched_from=fetched_from,
                 wayback_url=wb_url,
+                index_cache=index_cache,
             )
             if result.get("success"):
                 storage.update_resource_status(

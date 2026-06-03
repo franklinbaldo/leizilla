@@ -6,7 +6,7 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 import typer
 from typer import echo
@@ -349,6 +349,9 @@ def cmd_upload(
             return
 
         uploaded = 0
+        # Índice acumulado por item de range no lote (evita lost-update do
+        # index.csv entre uploads ao mesmo item — IA não tem read-after-write).
+        index_cache: Dict[str, str] = {}
         for law in to_upload[:limit]:
             try:
                 pdf_path = Path(law["local_pdf_path"])
@@ -356,7 +359,11 @@ def cmd_upload(
                     continue
                 pdf_bytes = pdf_path.read_bytes()
                 result = publisher.upload_raw(
-                    pdf_path, law, pdf_bytes, fetched_from="source-fallback"
+                    pdf_path,
+                    law,
+                    pdf_bytes,
+                    fetched_from="source-fallback",
+                    index_cache=index_cache,
                 )
                 if result.get("success"):
                     db.update_lei(law["id"], {"url_pdf_ia": result["ia_url"]})
@@ -437,6 +444,9 @@ def cmd_scrape(
             )
             ok = 0
             skipped_ok = 0
+            # Índice acumulado por item de range no lote (evita lost-update do
+            # index.csv entre uploads ao mesmo item — IA não tem read-after-write).
+            index_cache: Dict[str, str] = {}
             for law in laws:
                 fonte_url = law.get("url_original")
                 if not fonte_url:
@@ -448,7 +458,9 @@ def cmd_scrape(
                     if ia_id in already_scraped:
                         skipped_ok += 1
                         continue
-                result = scrape_one_html(fonte_url, law, publisher, rate_limiter)
+                result = scrape_one_html(
+                    fonte_url, law, publisher, rate_limiter, index_cache
+                )
                 if result.get("success"):
                     echo(f"  OK: {result.get('ia_id', '?')}")
                     ok += 1
@@ -535,6 +547,9 @@ def cmd_scrape(
 
             ok = 0
             skipped_ok = 0
+            # Índice acumulado por item de range no lote (evita lost-update do
+            # index.csv entre uploads ao mesmo item — IA não tem read-after-write).
+            index_cache: Dict[str, str] = {}
             for law in laws:
                 pdf_url = law.get("url_pdf_original")
                 fonte_url = law.get("url_original")
@@ -547,7 +562,9 @@ def cmd_scrape(
                     if ia_id in already_scraped:
                         skipped_ok += 1
                         continue
-                result = scrape_one(fonte_url, pdf_url, law, publisher, rate_limiter)
+                result = scrape_one(
+                    fonte_url, pdf_url, law, publisher, rate_limiter, index_cache
+                )
                 if result.get("success"):
                     echo(f"  OK: {result.get('ia_id', '?')}")
                     ok += 1

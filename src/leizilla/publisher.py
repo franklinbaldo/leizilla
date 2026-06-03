@@ -474,6 +474,7 @@ def _resolve_uuid5_and_index(
     rendicao: str,
     formato: str,
     source: str = "",
+    index_cache: Optional[Dict[str, str]] = None,
 ) -> tuple[str, str]:
     """Resolve o nome de arquivo (UUIDv5) e o index.csv mesclado do item (ADR-0011).
 
@@ -481,10 +482,20 @@ def _resolve_uuid5_and_index(
     para o UUID completo se necessário), e mescla a captura (append-only,
     newest-wins). Levanta ``IndexFetchError`` em falha transitória de leitura — o
     chamador aborta em vez de sobrescrever o histórico do item.
+
+    ``index_cache`` (opcional) é o índice acumulado por item DENTRO de um lote: se
+    presente e já tiver o item, usamos a versão local em vez de reler do IA. Isso
+    evita o lost-update quando uploads sucessivos do MESMO lote caem no mesmo item
+    de range — o IA não garante read-after-write, então uma releitura veria um
+    índice sem a linha do upload anterior e a sobrescreveria. O chamador grava o
+    índice mesclado de volta no cache **só após o upload bem-sucedido**.
     """
     sha256 = compute_hash(content_bytes)
     uuid5 = uuid5_name(content_bytes)
-    existing = _fetch_existing_index(item_id)
+    if index_cache is not None and item_id in index_cache:
+        existing: Optional[str] = index_cache[item_id]
+    else:
+        existing = _fetch_existing_index(item_id)
     if existing and uuid5_collision(existing, uuid5=uuid5, sha256=sha256):
         uuid5 = uuid5_name(content_bytes, length=32)  # estende: garante unicidade
     merged = merge_index_row(
@@ -565,11 +576,16 @@ class InternetArchivePublisher:
         pdf_bytes: bytes,
         fetched_from: str = "source-fallback",
         wayback_url: Optional[str] = None,
+        index_cache: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Upload raw PDF + raw_meta.json sidecar para IA.
 
         Identifier: leizilla-raw-{ente}-{fonte}-{chave} (SCHEMA.md §1.2).
         Retorna dict com 'success', 'ia_id', 'ia_url'.
+
+        ``index_cache`` acumula o ``index.csv`` por item dentro de um lote para que
+        uploads sucessivos ao mesmo item de range não se sobrescrevam (ver
+        ``_resolve_uuid5_and_index``).
         """
         if not self.access_key or not self.secret_key:
             return {"success": False, "error": "IA credentials not configured"}
@@ -616,6 +632,7 @@ class InternetArchivePublisher:
                 rendicao=rendicao,
                 formato="pdf",
                 source=source,
+                index_cache=index_cache,
             )
         except IndexFetchError as e:
             return {
@@ -677,6 +694,11 @@ class InternetArchivePublisher:
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
 
+        # Upload OK: acumula o índice mesclado para o próximo upload do MESMO lote
+        # ao mesmo item ver esta linha em vez de reler um índice obsoleto do IA.
+        if index_cache is not None:
+            index_cache[item_id] = index_csv
+
         return {
             "success": True,
             "ia_id": ia_id,
@@ -692,12 +714,15 @@ class InternetArchivePublisher:
         lei_data: Dict[str, Any],
         fetched_from: str = "source-fallback",
         wayback_url: Optional[str] = None,
+        index_cache: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Upload raw HTML + raw_meta.json sidecar para IA.
 
         Identifier: leizilla-raw-{ente}-{fonte}-{chave} (SCHEMA.md §1.2).
         Análogo a upload_raw mas para fontes que servem HTML (ex: Planalto).
         IA não faz OCR em HTML — Etapa 2 usa fetch_html direto da fonte_url.
+        ``index_cache`` acumula o ``index.csv`` por item dentro de um lote
+        (ver ``_resolve_uuid5_and_index``).
         """
         if not self.access_key or not self.secret_key:
             return {"success": False, "error": "IA credentials not configured"}
@@ -740,6 +765,7 @@ class InternetArchivePublisher:
                 rendicao=rendicao,
                 formato="html",
                 source=source,
+                index_cache=index_cache,
             )
         except IndexFetchError as e:
             return {
@@ -800,6 +826,10 @@ class InternetArchivePublisher:
                 }
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
+
+        # Upload OK: acumula o índice mesclado para o próximo upload do mesmo lote.
+        if index_cache is not None:
+            index_cache[item_id] = index_csv
 
         return {
             "success": True,

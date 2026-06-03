@@ -6,6 +6,7 @@ Rondônia Lei Complementar example: ingestion is gated on a known identity
 (truncated UUIDv5); and the item's ``index.csv`` maps the identity to the file.
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from leizilla.publisher import InternetArchivePublisher, IndexFetchError
@@ -120,6 +121,70 @@ class TestRondoniaLCIdentityKeyed:
         args = mock_run.call_args[0][0]
         assert "leizilla_ro_assembleia_unidentified" in args
         assert any(a.endswith("index.csv") for a in args)
+
+    @patch("leizilla.publisher._fetch_existing_index", return_value=None)
+    @patch("subprocess.run")
+    def test_batch_index_cache_accumulates_same_range(
+        self, mock_run, mock_idx, tmp_path
+    ):
+        # Two uploads into the SAME range bucket within one batch must accumulate
+        # the index.csv via the shared cache: the IA index is read once (the 2nd
+        # upload reuses the cached merge), and the 2nd index.csv carries BOTH rows.
+        # Without the cache, the 2nd upload re-reads a stale (None) index and
+        # publishes an index with only its own row — clobbering the first.
+        import csv as _csv
+        import io as _io
+
+        captured: list[str] = []
+
+        def fake_run(cmd, *a, **kw):
+            for arg in cmd:
+                if str(arg).endswith("index.csv"):
+                    captured.append(Path(str(arg)).read_text(encoding="utf-8"))
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_run.side_effect = fake_run
+
+        pub = InternetArchivePublisher()
+        pub.access_key = "fake-key"
+        pub.secret_key = "fake-secret"
+
+        cache: dict[str, str] = {}
+        pdf1 = tmp_path / "L1.pdf"
+        pdf1.write_bytes(b"AAA")
+        pdf2 = tmp_path / "L2.pdf"
+        pdf2.write_bytes(b"BBB")
+
+        r1 = pub.upload_raw(
+            pdf1,
+            {
+                "ente": "ro",
+                "fonte": "casacivil",
+                "chave": "lei-00001",
+                "url_original": "u1",
+            },
+            b"AAA",
+            index_cache=cache,
+        )
+        r2 = pub.upload_raw(
+            pdf2,
+            {
+                "ente": "ro",
+                "fonte": "casacivil",
+                "chave": "lei-00002",
+                "url_original": "u2",
+            },
+            b"BBB",
+            index_cache=cache,
+        )
+
+        assert r1["success"] and r2["success"]
+        assert r1["item_id"] == r2["item_id"]  # same 0001-1000 range bucket
+        # IA index read exactly once — the 2nd upload was served from the cache.
+        assert mock_idx.call_count == 1
+        # The 2nd upload's index.csv carries BOTH captures (no lost update).
+        rows = list(_csv.DictReader(_io.StringIO(captured[-1])))
+        assert {r["numero"] for r in rows} == {"1", "2"}
 
     @patch(
         "leizilla.publisher._fetch_existing_index",
