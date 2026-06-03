@@ -977,6 +977,7 @@ class InternetArchivePublisher:
         # subida e a sobrescreveria (lost update).
         range_index_cache: Dict[str, Optional[str]] = {}
         failed_ranges: Set[str] = set()
+        range_upload_failures = 0  # identidade conhecida, mas upload ao range falhou
         for row in rows:
             if row["numero"]:  # já identificado nesta área (não deveria ocorrer)
                 continue
@@ -1045,6 +1046,11 @@ class InternetArchivePublisher:
             ):
                 range_index_cache[range_id] = merged  # acumula só em sucesso
                 promoted_keys.add((row["uuid5"], row["source"]))
+            else:
+                # Tinha identidade mas o upload ao range falhou (IA/rede/CLI). Fica
+                # como remaining — mas isso é indistinguível de "ainda sem
+                # identidade"; sinalizamos como falha para a automação não ler exit 0.
+                range_upload_failures += 1
 
         # As promoções ao range já aconteceram; só falta tirar essas linhas do
         # índice de espera. Se essa reescrita falhar, os arquivos seguem listados
@@ -1062,7 +1068,7 @@ class InternetArchivePublisher:
             if not r["numero"] and (r["uuid5"], r["source"]) not in cleaned
         )
         result: Dict[str, Any] = {
-            "success": index_rewrite_ok,
+            "success": index_rewrite_ok and range_upload_failures == 0,
             "promoted": len(promoted_keys),
             "remaining": remaining,
             "item_id": holding_id,
@@ -1071,6 +1077,11 @@ class InternetArchivePublisher:
             result["error"] = (
                 "arquivos promovidos ao range, mas a reescrita do índice de espera "
                 "falhou — linhas promovidas ainda constam em _unidentified"
+            )
+        elif range_upload_failures:
+            result["error"] = (
+                f"{range_upload_failures} recurso(s) com identidade falharam no "
+                "upload ao item de range — ainda em _unidentified, re-tentar"
             )
         return result
 

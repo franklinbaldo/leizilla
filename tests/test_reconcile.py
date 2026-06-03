@@ -35,6 +35,24 @@ def _pub() -> InternetArchivePublisher:
 
 class TestReconcileUnidentified:
     @patch("leizilla.publisher._ia_subprocess_env", return_value={})
+    @patch("leizilla.publisher._fetch_item_file_bytes", return_value=b"PDF-bytes")
+    @patch("leizilla.publisher._fetch_existing_index")
+    def test_range_upload_failure_is_surfaced(self, mock_idx, _mock_bytes, _env):
+        # Identity is known but the range upload fails (IA/network/CLI). The row
+        # stays in _unidentified; reconcile must report success=False with an error
+        # so automation doesn't read exit 0 and miss the failed promotion (the row
+        # alone is indistinguishable from a still-unidentified one).
+        mock_idx.side_effect = [_holding_index_one_unidentified(), None]
+        identity = {"http://alro.ro.gov.br/legislacao/leis/99": ("lei", 99)}
+        pub = _pub()
+        with patch.object(pub, "_upload_to_range", return_value=False):
+            res = pub.reconcile_unidentified("ro", "assembleia", identity)
+        assert res["success"] is False
+        assert res["promoted"] == 0
+        assert res["remaining"] == 1
+        assert "range" in res["error"].lower()
+
+    @patch("leizilla.publisher._ia_subprocess_env", return_value={})
     @patch("subprocess.run")
     @patch("leizilla.publisher._fetch_item_file_bytes", return_value=b"PDF-bytes")
     @patch("leizilla.publisher._fetch_existing_index")
