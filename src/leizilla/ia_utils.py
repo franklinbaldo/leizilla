@@ -87,7 +87,12 @@ def parse_identity(chave: str) -> Optional[tuple[str, int]]:
     if not m:
         return None
     tipo, numero = m.group(1), int(m.group(2))
-    if tipo in _NON_IDENTIFYING_TIPOS:
+    # Rejeita se o PRIMEIRO segmento for não-identificante (ex.: "coddoc",
+    # "documento-oficio-123"). O grupo de tipo no regex é guloso e engloba hífens,
+    # então sem checar o primeiro segmento um stem de fallback com forma
+    # "{palavra}-{dígitos}" (ex.: "documento-oficio-123") escaparia da área de
+    # espera para um range navegável sob um tipo espúrio.
+    if tipo.split("-", 1)[0] in _NON_IDENTIFYING_TIPOS:
         return None
     return tipo, numero
 

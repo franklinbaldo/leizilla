@@ -13,6 +13,7 @@ from leizilla.discovery import (
     parse_filename,
     run_discovery,
 )
+from leizilla.ia_utils import parse_identity
 
 
 def test_parse_filename():
@@ -123,7 +124,10 @@ def test_sequential_discovery_captures_unidentifiable():
     resources = SequentialDiscovery(config, "ro", "casacivil").run()
     assert len(resources) == 3
     assert resources[0]["tipo_documento"] == ""
-    assert resources[0]["chave"] == "page1"  # harvest key, non-identifying
+    # harvest key preserved under a non-identifying prefix so it can never be
+    # mis-promoted to a navigable range (parse_identity must return None).
+    assert resources[0]["chave"] == "documento-page1"
+    assert parse_identity(resources[0]["chave"]) is None
 
 
 def test_wayback_cdx_captures_unidentifiable_filenames():
@@ -147,7 +151,34 @@ def test_wayback_cdx_captures_unidentifiable_filenames():
         resources = WaybackCdxDiscovery(config, "ro", "casacivil").run()
     assert len(resources) == 1
     assert resources[0]["tipo_documento"] == ""
-    assert resources[0]["chave"] == "relatorio_anual"  # harvest key, preserved
+    assert resources[0]["chave"] == "documento-relatorio_anual"
+    assert parse_identity(resources[0]["chave"]) is None
+
+
+def test_wayback_cdx_word_digit_stem_stays_unidentified():
+    # Regression: a fallback stem shaped "{letters}-{digits}" (e.g. oficio-123)
+    # must NOT satisfy parse_identity — otherwise it would be promoted to a bogus
+    # navigable range (oficio_0001-1000) instead of the _unidentified holding.
+    config = {"strategy": "wayback-cdx", "prefix": "http://example.com/Files/"}
+    cdx_response = [
+        ["urlkey", "timestamp", "original", "mimetype", "statuscode", "digest", "len"],
+        [
+            "com,example)/files/oficio-123.pdf",
+            "20220824115429",
+            "http://example.com/Files/oficio-123.pdf",
+            "application/pdf",
+            "200",
+            "DIGEST",
+            "1234",
+        ],
+    ]
+    mock_resp = MagicMock()
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.read.return_value = json.dumps(cdx_response).encode("utf-8")
+    with patch("urllib.request.urlopen", return_value=mock_resp):
+        resources = WaybackCdxDiscovery(config, "ro", "casacivil").run()
+    assert resources[0]["chave"] == "documento-oficio-123"
+    assert parse_identity(resources[0]["chave"]) is None
 
 
 @pytest.fixture

@@ -58,6 +58,15 @@ class TestParseIdentity:
         assert parse_identity("seq-00042") is None
         assert parse_identity("fallback-foo") is None
 
+    def test_non_identifying_first_segment_rejected(self):
+        # A fallback chave keeps the harvest stem after a non-identifying prefix;
+        # the leading segment must veto identity even though the regex tipo group
+        # greedily spans hyphens (else "documento-oficio-123" → bogus tipo).
+        assert parse_identity("documento-oficio-123") is None
+        assert parse_identity("documento-page1") is None
+        # ...but a genuine hyphenated tipo whose first segment is identifying stays.
+        assert parse_identity("lei-complementar-00042") == ("lei-complementar", 42)
+
     def test_non_numeric_returns_none(self):
         assert parse_identity("documento") is None
         assert parse_identity("lei-abc") is None

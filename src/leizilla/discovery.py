@@ -81,10 +81,12 @@ class WaybackCdxDiscovery(DiscoveryStrategy):
                 tipo, chave = parse_filename(filename)
                 if not tipo or not chave:
                     # Identidade é evidência, não catraca (ADR-0011 §1): capturamos
-                    # mesmo sem (tipo, número) no nome. tipo desconhecido (""), chave
-                    # = harvest key (nome do arquivo); o upload roteia para a área de
-                    # espera _unidentified, preservando os bytes (nunca descarte).
-                    tipo, chave = "", filename.rsplit(".", 1)[0]
+                    # mesmo sem (tipo, número) no nome. Prefixo NÃO-identificante
+                    # "documento-" garante que parse_identity devolva None — senão um
+                    # stem com forma "{palavra}-{dígitos}" (ex.: "oficio-123") seria
+                    # promovido a um range navegável espúrio em vez da área de espera
+                    # _unidentified. O harvest key (nome do arquivo) fica preservado.
+                    tipo, chave = "", f"documento-{filename.rsplit('.', 1)[0]}"
 
                 wayback_url = f"https://web.archive.org/web/{timestamp}/{orig_url}"
                 resources.append(
@@ -123,8 +125,9 @@ class SequentialDiscovery(DiscoveryStrategy):
                 tipo, chave = parse_filename(filename)
                 if not tipo or not chave:
                     # Captura mesmo sem identidade (ADR-0011 §1): vai à área de
-                    # espera _unidentified; chave = harvest key (nome do arquivo).
-                    tipo, chave = "", filename.rsplit(".", 1)[0]
+                    # espera _unidentified. Prefixo NÃO-identificante "documento-"
+                    # garante parse_identity → None mesmo para stems "{palavra}-{díg}".
+                    tipo, chave = "", f"documento-{filename.rsplit('.', 1)[0]}"
                 resources.append(
                     {
                         "url": url,
