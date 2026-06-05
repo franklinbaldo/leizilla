@@ -42,10 +42,20 @@ zero-cost local path).
 
 ```
 Phase 1  prep foundation (this repo)   ── DONE: sampler + ontology + tooling + ADR
-Phase 2  annotate (agent-driven)       ── pool → subagent labels → gold splits in git
+Phase 2  annotate (agent-driven)       ── DONE (v0): pool → subagent labels → gold splits in git
 Phase 3  train + eval (Colab GPU)      ── opf train → PT-BR eval → tune toward precision
 Phase 4  integrate                     ── reconstruct dispositivos from markers
 ```
+
+> **Phase 2 status — gold v0 landed.** A first `data/opf/gold/` seed (6 real federal
+> laws, 251 spans) was built with the `llm-work-via-subagents` flow: 6 labeling
+> subagents (one per law) returned ordered `finds`, the orchestrator resolved offsets
+> deterministically (sequential cursor — no subagent counts characters), and a 4-role
+> evaluator ensemble (strict-boundary / category-disambiguation / blind-relabel /
+> adversarial) verified the val+test slice. Because the IA has no published raw OCR yet,
+> the text came from Planalto federal HTML (a stopgap; swap to `opf-sample` over IA once
+> raw items exist). `manifest.json` records `test_verified_by` and the known limits.
+> Scale = feed more docs through the same flow.
 
 ### Phase 1 — build the annotation pool (here)
 

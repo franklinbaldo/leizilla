@@ -54,6 +54,7 @@
 | **M12.2** — Otimização de Scrape e Parse-All via Consultas em Lote (Vetorização) | 🟢 done | #67 | Evita iterações sequenciais longas fazendo buscas em lote via API do Internet Archive e CDX da Wayback Machine. Merged. |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 | **M14.1** — OPF fine-tune: fundação de prep de dados | 🟡 in-progress | — | ADR-0012 + ontologia `leizilla_normas_v1` + sampler estratificado (`opf-sample`) + helper `opf_annotate.py` vendorado + doc `docs/opf-finetune.md`. Fase 1 de 4 (prep → anotar → treinar Colab → integrar). |
+| **M14.2** — OPF gold v0 (anotação por subagentes) | 🟡 in-progress | — | Gold seed em `data/opf/gold/` (6 leis federais reais, 251 spans) via subagentes LLM (shard-por-doc) + resolução determinística de offset + ensemble de avaliadores (strict/category/blind/adversarial) no eval slice. Fase 2 de 4. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -137,11 +138,36 @@ em pós-processamento (skill Warning 2: atenção em banda favorece âncoras cur
 - 20 testes em `tests/test_opf.py` (sampler determinístico, estratificação, skip de OCR
   curto/ausente, manifest, label space, CLI, e smoke do helper vendorado).
 
-**Fases seguintes** (não nesta sessão): F2 anotação por subagentes LLM + ensemble de
-avaliadores no slice de ouro (erros decorrelacionados do anotador) → ouro no git; F3
-treino/eval em Colab GPU (`opf train`, eval PT-BR, ponto de operação para precision);
-F4 inferência (reconstruir dispositivos dos marcadores). Papel final no pipeline de
-produção decidido com métricas (ADR-0012, "fora de escopo").
+**Fases seguintes**: F3 treino/eval em Colab GPU (`opf train`, eval PT-BR, ponto de
+operação para precision); F4 inferência (reconstruir dispositivos dos marcadores).
+Papel final no pipeline de produção decidido com métricas (ADR-0012, "fora de escopo").
+
+### 2026-06-05 — M14.2: OPF gold v0 — anotação por subagentes (skill llm-work-via-subagents)
+
+IA ainda sem itens raw publicados (rede OK; `list_raw_ids` retorna vazio). Decisão:
+não bloquear o gold — montar o pool com **texto real** de normas direto da fonte
+oficial (Planalto federal HTML, `fetch_html`/UA de browser; leis públicas, ADR-0009).
+Pool de 6 leis federais curtas (texto inteiro, com a cláusula de vigência/revogação no
+fim) em `data/opf/pool/` (gitignored).
+
+**Anotação seguindo o skill `llm-work-via-subagents` (não script com API key)**:
+- **Shape 1 (shard)**: 6 subagentes em paralelo, um por lei, retornando `finds`
+  (categoria + surface exata) em ordem de documento. Offsets resolvidos
+  deterministicamente pelo orquestrador (cursor sequencial → ordem + não-overlap;
+  nenhum subagente conta caracteres).
+- **Shape 2 (ensemble)**: 4 subagentes-avaliadores com enquadramentos decorrelacionados
+  (strict-boundary, category-disambiguation, blind-relabel, adversarial) sobre o eval
+  slice (val=lei-9455, test=lei-9296). Convergências aplicadas: (a) reparo
+  length-preserving de bytes C1 do CP1252 mal-decodados como latin-1 (`\x96`→`–`, sem
+  deslocar offsets); (b) marcador `III –` consistente com irmãos; (c) remoção de 2
+  marcadores-fantasma de parágrafos **(VETADO)** — blind+adversarial concordaram que
+  texto vetado não é dispositivo da lei.
+
+**Gold v0 commitado** (`data/opf/gold/`, whitelist): train 4 docs/185 spans, val 1/24,
+test 1/42; total 251 spans (art 100, par 77, inc 49, ali 7, ementa/vig/revog 6 cada).
+`manifest.json` registra `test_verified_by` (o ensemble), `source_commit`, seed e
+`known_limitations` (seed v0 pequeno; só fonte planalto; texto limpo, sem ruído de OCR
+— caveat PT-BR do ADR-0012). Validado com `opf_annotate.py validate` (0 erros).
 
 ### 2026-05-25 — M12.1: DiscoveryStrategy base class + testes harvest pipeline
 
