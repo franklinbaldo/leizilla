@@ -98,9 +98,14 @@ PT-BR, in-domain, and leak-free (no same/near-duplicate doc across splits).
 
 ### Phase 3 — train + eval (Colab GPU)
 
-Training needs a GPU and the OPF CLI; CI does not run it. Use two notebooks joined by
-the frozen artifact set (`train/val/test.jsonl` + `label_space.json` + `manifest.json`),
-with Drive (or IA) as the persistence layer — see the skill's `colab-and-drive.md`.
+Training needs a GPU and the OPF CLI; CI does not run it. The ready-to-run notebook is
+**[`notebooks/opf_train_colab.ipynb`](../notebooks/opf_train_colab.ipynb)** — it pulls the
+gold from git (the frozen contract), restores/persists the base model and checkpoints on
+Drive, validates the gold, trains, evaluates the held-out PT-BR test slice, and writes a
+run manifest. It bakes in the skill's gotchas (mount Drive first; `sys.executable -m opf`,
+never `uv run`; persist base once; save checkpoint immediately; push `--n-ctx` up). It is
+safe to run on the v0 gold as a smoke test + baseline. See the skill's `colab-and-drive.md`
+for the Drive-layout rationale.
 
 ```bash
 git clone https://github.com/openai/privacy-filter && cd privacy-filter && pip install -e .
@@ -134,4 +139,5 @@ metrics in hand (ADR-0012, "fora de escopo").
 | `data/opf/pool/` | sampled annotation pool (gitignored cache) |
 | `src/leizilla/opf.py` | the stratified, seeded sampler → pool + manifest |
 | `scripts/opf_annotate.py` | vendored validate / from-spans / preview helper |
+| `notebooks/opf_train_colab.ipynb` | Phase 3 GPU training + eval notebook |
 | `docs/adr/0012-opf-structural-span-tagging.md` | the decision record |

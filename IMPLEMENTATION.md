@@ -55,6 +55,7 @@
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 | **M14.1** — OPF fine-tune: fundação de prep de dados | 🟡 in-progress | — | ADR-0012 + ontologia `leizilla_normas_v1` + sampler estratificado (`opf-sample`) + helper `opf_annotate.py` vendorado + doc `docs/opf-finetune.md`. Fase 1 de 4 (prep → anotar → treinar Colab → integrar). |
 | **M14.2** — OPF gold v0 (anotação por subagentes) | 🟡 in-progress | — | Gold seed em `data/opf/gold/` (6 leis federais reais, 251 spans) via subagentes LLM (shard-por-doc) + resolução determinística de offset + ensemble de avaliadores (strict/category/blind/adversarial) no eval slice. Fase 2 de 4. |
+| **M14.3** — OPF treino/eval (notebook Colab GPU) | 🟡 in-progress | — | `notebooks/opf_train_colab.ipynb`: puxa gold do git, base/checkpoints no Drive, valida → `opf train` → eval PT-BR (F1 exact/partial, por-categoria) → run manifest. Gotchas do skill embutidos. Fase 3 de 4 (smoke test no v0, depois escala). |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
