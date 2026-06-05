@@ -6,7 +6,7 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, cast
 
 import typer
 from typer import echo
@@ -1272,6 +1272,59 @@ def cmd_pipeline(
     except Exception as e:
         echo(f"Pipeline falhou: {e}")
         raise typer.Exit(1)
+
+
+@app.command("opf-sample")
+def cmd_opf_sample(
+    ente: str = typer.Option("ro", help="Ente federativo"),
+    fontes: str = typer.Option(
+        "assembleia,casacivil",
+        help="Fontes separadas por vírgula (cada uma é uma sub-distribuição)",
+    ),
+    n_per_source: int = typer.Option(
+        50, "--n", help="Alocação igual por fonte (cobre todo formato, não proporção)"
+    ),
+    seed: int = typer.Option(13, help="Seed do sorteio (reprodutibilidade)"),
+    min_chars: int = typer.Option(
+        200, help="Descarta OCR menor que isto (capas, scans falhos)"
+    ),
+    out_dir: Path = typer.Option(
+        Path("data/opf/pool"), help="Diretório de saída (pool.jsonl + manifest.json)"
+    ),
+) -> None:
+    """Amostrar pool de anotação OPF (OCR do IA, estratificado por fonte).
+
+    Produz `pool.jsonl` (registros com `label` vazio, prontos para anotação por
+    subagentes — fase 2) + `sample_manifest.json`. Ver ADR-0012 e docs/opf-finetune.md.
+    """
+    from leizilla import opf
+
+    sources = opf.parse_sources(ente, fontes)
+    if not sources:
+        echo("Nenhuma fonte válida em --fontes")
+        raise typer.Exit(1)
+
+    echo(
+        f"Amostrando {n_per_source}/fonte (seed={seed}) de: "
+        + ", ".join(s.label for s in sources)
+    )
+    result = opf.build_annotation_pool(
+        sources, n_per_source=n_per_source, seed=seed, min_chars=min_chars
+    )
+
+    pool_path = out_dir / "pool.jsonl"
+    manifest_path = out_dir / "sample_manifest.json"
+    n = opf.write_pool(result.records, pool_path)
+    opf.write_manifest(result.manifest, manifest_path)
+
+    echo(f"\n{n} registros -> {pool_path}")
+    per_source = cast(Dict[str, Dict[str, int]], result.manifest["per_source"])
+    for label, counts in per_source.items():
+        echo(
+            f"  {label}: kept={counts['kept']} skipped={counts['skipped']} "
+            f"(picked {counts['picked']}/{counts['available']})"
+        )
+    echo(f"manifest -> {manifest_path}")
 
 
 @dev_app.command("setup")

@@ -53,6 +53,7 @@
 | **M12.1** — DiscoveryStrategy base class + testes harvest pipeline | 🟢 done | #64 | `DiscoveryStrategy` base class elimina `type: ignore[attr-defined]`; 17 novos testes cobrem `storage.discovered_resources`, `SequentialDiscovery`, `run_discovery`, `harvest_pending_resources`. Merged. |
 | **M12.2** — Otimização de Scrape e Parse-All via Consultas em Lote (Vetorização) | 🟢 done | #67 | Evita iterações sequenciais longas fazendo buscas em lote via API do Internet Archive e CDX da Wayback Machine. Merged. |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
+| **M14.1** — OPF fine-tune: fundação de prep de dados | 🟡 in-progress | — | ADR-0012 + ontologia `leizilla_normas_v1` + sampler estratificado (`opf-sample`) + helper `opf_annotate.py` vendorado + doc `docs/opf-finetune.md`. Fase 1 de 4 (prep → anotar → treinar Colab → integrar). |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -107,6 +108,40 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-06-05 — M14.1: OPF fine-tune — fundação de prep de dados
+
+**Contexto**: anotar a estrutura das normas com um **token-classifier** treinado (OPF,
+`openai/privacy-filter`) em vez de só com o parser generativo do Claude. Segue o
+`opf-finetune` skill (franklinbaldo/skills), Pattern B (structural tagging of statutes).
+Decisão e enquadramento em **[ADR-0012](docs/adr/0012-opf-structural-span-tagging.md)**:
+OPF é **complementar**, não substituto — marca *marcadores* curtos (`Art. 5º`, `§ 2º`,
+`III -`, `a)`) + cues (ementa/vigência/revogação); o corpo do dispositivo é reconstruído
+em pós-processamento (skill Warning 2: atenção em banda favorece âncoras curtas).
+
+**Fase 1 de 4 (esta sessão — fundação committável)**:
+- `data/opf/label_space.json` — ontologia `leizilla_normas_v1` (`O` + ementa + 4
+  marcadores + vigencia + revogacao). Encaixa no token-map dispositivo→rótulo (SCHEMA §4.2).
+- `src/leizilla/opf.py` — sampler **estratificado por fonte** (cada fonte é
+  sub-distribuição; skill Warning 1: corpus PT-BR é out-of-distribution para OPF, eval
+  PT-BR é obrigatório), alocação igual por fonte, seed fixo. Reusa `list_raw_ids` +
+  `fetch_and_clean_ocr` (OCR raw já no IA, ADR-0010). Produz pool + `sample_manifest.json`.
+  IO atrás de seams injetáveis (`list_fn`/`fetch_fn`) → testes offline.
+- CLI `leizilla opf-sample --ente ro --fontes assembleia,casacivil --n 50 --seed 13`.
+- `scripts/opf_annotate.py` — helper vendorado (validate/from-spans/preview): gate de CI
+  sobre offsets de char do ouro.
+- `.gitignore` — whitelist do ouro (`data/opf/label_space.json`, `data/opf/gold/`);
+  pool fica ignorado. Corrigido `data/` → `data/*` (o `!data/.gitkeep` existente era
+  inócuo — diretório com `/` no fim bloqueia re-inclusão de filhos).
+- `docs/opf-finetune.md` — recipe Leizilla das 4 fases.
+- 20 testes em `tests/test_opf.py` (sampler determinístico, estratificação, skip de OCR
+  curto/ausente, manifest, label space, CLI, e smoke do helper vendorado).
+
+**Fases seguintes** (não nesta sessão): F2 anotação por subagentes LLM + ensemble de
+avaliadores no slice de ouro (erros decorrelacionados do anotador) → ouro no git; F3
+treino/eval em Colab GPU (`opf train`, eval PT-BR, ponto de operação para precision);
+F4 inferência (reconstruir dispositivos dos marcadores). Papel final no pipeline de
+produção decidido com métricas (ADR-0012, "fora de escopo").
 
 ### 2026-05-25 — M12.1: DiscoveryStrategy base class + testes harvest pipeline
 

@@ -173,9 +173,19 @@ cython_debug/
 .cursorindexingignore
 .claude/settings.local.json
 
-# Leizilla specific
-data/
+# Leizilla specific. `data/*` (not `data/`) ignores the contents while still
+# allowing specific children to be re-included below — a directory ignored with a
+# trailing slash blocks re-inclusion of anything beneath it.
+data/*
 !data/.gitkeep
+
+# OPF fine-tune: commit the gold (label space + reviewed splits + manifest); the
+# sampled pool and runtime caches stay ignored (ADR-0012, docs/opf-finetune.md).
+!data/opf/
+data/opf/*
+!data/opf/label_space.json
+!data/opf/gold/
+data/opf/pool/
 
 # Temporary files
 temp/

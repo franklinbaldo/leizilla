@@ -1,0 +1,97 @@
+# ADR-0012 — OPF (token-classifier) como caminho de anotação estrutural das normas, complementar ao parser generativo
+
+**Status**: Aprovada
+**Data**: 2026-06-05
+**Contexto**: Anotação estrutural de normas — fine-tune do OpenAI Privacy Filter (OPF)
+**Relaciona-se com**: [ADR-0010](0010-raw-content-addressed-parsed-urn.md) (raw OCR
+content-addressed é o insumo), `parser.py` (parser generativo via Claude Haiku),
+[SCHEMA.md](../SCHEMA.md) (modelo dispositivo-cêntrico, rótulo derivado do `path`).
+
+## Contexto
+
+A Etapa 2 do pipeline (princípio load-bearing #3) é **pluggable**: hoje o default é
+o Claude Haiku transformando OCR/HTML em Leizilla XML (`parser.py`). É um parser
+**generativo** — escreve a estrutura inteira (ementa, artigos, parágrafos, incisos)
+e devolve XML validado contra o XSD. Funciona, mas tem custo por chamada de API e
+depende de um modelo remoto.
+
+Existe um segundo caminho, ortogonal e barato: **marcar regiões** do texto com um
+classificador de tokens treinado, em vez de gerar texto. O `opf-finetune` skill
+(franklinbaldo/skills) descreve fazer isso com o **OPF** (`openai/privacy-filter`,
+Apache 2.0): um modelo bidirecional com cabeça de token-classification e decodificação
+de spans BIOES via Viterbi. Propriedades relevantes:
+
+- **Pequeno e local** (1.5B total / 50M ativos, MoE). Treina num GPU modesto, inferência
+  viável em CPU para ETL em lote — alinhado ao princípio **custo-zero** do projeto.
+- **Contexto longo** (128k tokens): uma norma inteira cabe sem chunking.
+- **Data-efficient**: poucas milhares de anotações já movem F1.
+- **Licença permissiva** (Apache 2.0).
+
+O modelo dispositivo-cêntrico do Leizilla encaixa de forma natural: o **rótulo**
+(`Art. 1º`, `§ 2º`, `I`, `a)`) é derivado de `(tipo, path)` em render-time
+(SCHEMA.md §4.2). Os mesmos **marcadores estruturais** são exatamente os *short
+anchors* que o OPF marca bem.
+
+## Decisão
+
+**Adotar o OPF como um caminho de anotação estrutural — Pattern B do skill (structural
+tagging of statutes) — complementar ao parser generativo, não substituto dele.**
+
+1. **Escopo: tagging de regiões, não geração.** O OPF marca *marcadores* curtos
+   (`Art. 5º`, `§ 2º`, `III -`, `a)`) e cues curtos (ementa, vigência, revogação);
+   o **corpo** de cada dispositivo é reconstruído em pós-processamento como o texto
+   entre marcadores consecutivos. O OPF **não** escreve XML — para extração generativa
+   (resumir um dispositivo, normalizar texto) o modelo certo continua sendo um chat LLM.
+
+2. **Complementar, não competidor.** Claude Haiku continua sendo o default da Etapa 2.
+   O OPF é um candidato a (a) **pré-passo** barato que segmenta antes do LLM, (b)
+   **cross-check** da estrutura que o LLM produziu, (c) caminho **custo-zero** local
+   para fontes de alto volume. Qual desses papéis vence é decisão de uma fase futura,
+   após medir; esta ADR só fixa o *método* e a *ontologia*.
+
+3. **Ontologia v1 (`leizilla_normas_v1`)** em `data/opf/label_space.json`:
+   `["O", "ementa", "art_marcador", "par_marcador", "inc_marcador", "ali_marcador",
+   "vigencia", "revogacao"]`. Definições são o ativo durável; volume é incremental.
+   Categorias com pouco suporte podem ser *staged* (definidas mas fora do label space
+   treinado) até cruzarem ~25 spans — o `manifest.json` registra `active` vs `staged`,
+   e métricas são reportadas **por categoria com suporte**.
+
+4. **O ouro mora no git.** `label_space.json` + splits revisados (`data/opf/gold/`) +
+   `manifest.json` são versionados (whitelist no `.gitignore`); Drive/IA são caches de
+   runtime. Cada melhoria de anotação vira um diff revisável; cada checkpoint rastreia
+   o `category_version` + `source_commit` exatos.
+
+## Duas advertências load-bearing (do skill — mudam orçamento e desenho)
+
+1. **OPF é English-primary; nosso corpus é PT-BR.** Performance cai fora do inglês. A
+   validação em PT-BR é **obrigatória** (nunca confiar em número de eval inglês), o
+   orçamento de anotação é maior que o "few thousand" do benchmark inglês, e o eval
+   mede **erro de fronteira**, não só presença. Por isso a amostragem estratifica por
+   **fonte** (assembleia / casacivil / planalto) — cada uma é uma sub-distribuição com
+   formatação, cues e qualidade de OCR próprios.
+
+2. **Atenção em banda favorece âncoras curtas, não regiões gigantes.** Janela efetiva
+   ~257 tokens: pedir ao modelo para rotular um dispositivo inteiro token-a-token
+   fragmenta nas bordas. Por isso a ontologia é **marcador-cêntrica** e a reconstrução
+   da região é pós-processamento, não tarefa do modelo.
+
+## Consequências
+
+- **Positivas**: caminho custo-zero/local para anotar estrutura; reaproveita o OCR raw
+  já no IA (ADR-0010) como insumo; encaixa direto no `path`/token-map do SCHEMA;
+  ouro versionado é auditável e expansível.
+- **Custos/riscos**: risco PT-BR (mitigado por eval estratificado obrigatório);
+  precisa construir o dataset de anotação (subagentes LLM + ensemble de avaliadores no
+  slice de ouro, com erros decorrelacionados do anotador); treino precisa de GPU
+  (notebook Colab, não CI). OPF é **auxílio de detecção, não garantia** — manter
+  caminho de revisão para o que for consequente.
+- **Reversível**: tudo novo (módulo `opf.py`, dir `data/opf/`, comando `opf-sample`,
+  doc) e desligado do caminho de produção; abandonar é remover arquivos. Não altera
+  o parser, o schema, nem o pipeline existente.
+
+## Fora de escopo desta ADR
+
+O papel final no pipeline de produção (pré-passo vs. cross-check vs. substituto por
+fonte), o ponto de operação (precision/recall) e a integração de inferência ficam para
+fases posteriores, decididas com métricas em mãos. Aqui fixamos método + ontologia +
+a fundação de preparação de dados.
