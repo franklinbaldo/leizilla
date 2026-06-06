@@ -138,6 +138,26 @@ metrics in hand (ADR-0012, "fora de escopo").
 | `data/opf/gold/` | reviewed `train/val/test.jsonl` + `manifest.json` (committed, Phase 2) |
 | `data/opf/pool/` | sampled annotation pool (gitignored cache) |
 | `src/leizilla/opf.py` | the stratified, seeded sampler → pool + manifest |
+| `src/leizilla/segmenter.py` | regex baseline segmenter + `evaluate_against_gold` |
 | `scripts/opf_annotate.py` | vendored validate / from-spans / preview helper |
 | `notebooks/opf_train_colab.ipynb` | Phase 3 GPU training + eval notebook |
 | `docs/adr/0012-opf-structural-span-tagging.md` | the decision record |
+
+## Regex baseline — the bar OPF must beat
+
+Pattern B is explicit that a **regex baseline on the markers is strong** for a known
+formatting regime; OPF only earns its keep on the messy cases. `src/leizilla/segmenter.py`
+is that baseline, scored against the same gold:
+
+```bash
+uv run leizilla opf-regex-eval --splits val,test     # per-category exact + overlap P/R/F1
+```
+
+On the v0 held-out clean laws it already gets **exact micro-F1 0.87 / overlap 0.98** —
+`art`/`inc`/`ali`/`ementa` at exact 1.00. The residual is the model's territory, and the
+eval makes it precise: `par_marcador` cross-reference `§` (precision ~0.89), clause
+*boundaries* (vigência/revogação detected at overlap 1.00 but exact ~0.50), and — on
+**compiled texts** — `revogacao` precision collapsing because `(Revogado pela Lei…)`
+amendment notes fire the cue. Read it two ways: a zero-cost segmenter that already suffices
+for the easy markers (use it as a pre-filter / cross-check), and a quantified target the
+fine-tuned model has to clear to justify itself.

@@ -56,6 +56,7 @@
 | **M14.1** — OPF fine-tune: fundação de prep de dados | 🟡 in-progress | — | ADR-0012 + ontologia `leizilla_normas_v1` + sampler estratificado (`opf-sample`) + helper `opf_annotate.py` vendorado + doc `docs/opf-finetune.md`. Fase 1 de 4 (prep → anotar → treinar Colab → integrar). |
 | **M14.2** — OPF gold v0 (anotação por subagentes) | 🟡 in-progress | — | Gold seed em `data/opf/gold/` (6 leis federais reais, 251 spans) via subagentes LLM (shard-por-doc) + resolução determinística de offset + ensemble de avaliadores (strict/category/blind/adversarial) no eval slice. Fase 2 de 4. |
 | **M14.3** — OPF treino/eval (notebook Colab GPU) | 🟡 in-progress | — | `notebooks/opf_train_colab.ipynb`: puxa gold do git, base/checkpoints no Drive, valida → `opf train` → eval PT-BR (F1 exact/partial, por-categoria) → run manifest. Gotchas do skill embutidos. Fase 3 de 4 (smoke test no v0, depois escala). |
+| **M14.4** — Segmentador regex baseline + eval vs gold | 🟢 done | — | `segmenter.py` (Pattern B) + CLI `opf-regex-eval` + `evaluate_against_gold` (exact/overlap P/R/F1 por categoria). v0 held-out: exact micro-F1 0.87 / overlap 0.98. Mapeia onde regex basta vs onde OPF "earns its keep" (xref §, fronteiras de cláusula, notas (Revogado) em textos compilados). 12 testes. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 

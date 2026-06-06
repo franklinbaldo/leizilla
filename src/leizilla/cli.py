@@ -1327,6 +1327,43 @@ def cmd_opf_sample(
     echo(f"manifest -> {manifest_path}")
 
 
+@app.command("opf-regex-eval")
+def cmd_opf_regex_eval(
+    gold_dir: Path = typer.Option(
+        Path("data/opf/gold"), help="Diretório do gold (train/val/test.jsonl)"
+    ),
+    splits: str = typer.Option(
+        "train,val,test", help="Splits a avaliar (separados por vírgula)"
+    ),
+) -> None:
+    """Avaliar o segmentador regex baseline contra o gold (P/R/F1 por categoria).
+
+    Baseline Pattern-B (ontology-recipes.md): regex forte nos marcadores; o modelo OPF
+    'earns its keep' nos casos difíceis. Mostra exato vs overlap por categoria.
+    """
+    import json as _json
+
+    from leizilla.segmenter import evaluate_against_gold, format_report
+
+    docs = []
+    for split in (s.strip() for s in splits.split(",") if s.strip()):
+        path = gold_dir / f"{split}.jsonl"
+        if not path.exists():
+            echo(f"split ausente: {path}")
+            continue
+        with path.open(encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    rec = _json.loads(line)
+                    docs.append((rec["text"], rec["label"]))
+    if not docs:
+        echo("Nenhum doc carregado — verifique --gold-dir/--splits")
+        raise typer.Exit(1)
+    echo(f"Segmentador regex vs gold ({len(docs)} docs):\n")
+    echo(format_report(evaluate_against_gold(docs)))
+
+
 @dev_app.command("setup")
 def dev_setup() -> None:
     """Configurar ambiente de desenvolvimento."""
