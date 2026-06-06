@@ -1,11 +1,33 @@
 # ADR-0012 — OPF (token-classifier) como caminho de anotação estrutural das normas, complementar ao parser generativo
 
-**Status**: Aprovada
+**Status**: Aprovada — **fine-tune adiado (2026-06-06, ver atualização abaixo)**
 **Data**: 2026-06-05
 **Contexto**: Anotação estrutural de normas — fine-tune do OpenAI Privacy Filter (OPF)
 **Relaciona-se com**: [ADR-0010](0010-raw-content-addressed-parsed-urn.md) (raw OCR
 content-addressed é o insumo), `parser.py` (parser generativo via Claude Haiku),
 [SCHEMA.md](../SCHEMA.md) (modelo dispositivo-cêntrico, rótulo derivado do `path`).
+
+## Atualização (2026-06-06) — fine-tune (Fase 3) ADIADO; ferramentas model-free mantidas
+
+A ingestão da DITEL (PR #85, mergeada) confirmou empiricamente o pressuposto desta ADR:
+as **leis de RO são born-digital** com estrutura **LC 95/1998 altamente regular**, e o
+**segmentador regex** (`segmenter.py`) já atinge **exact micro-F1 0.95 / overlap 0.99** no
+gold. Entre o baseline determinístico e o parse generativo do Claude (Etapa 2), a estrutura
+está coberta **sem treinar modelo**. Portanto:
+
+- **O fine-tune do OPF (Fase 3, GPU) está ADIADO** — não há evidência de que regex + Claude
+  fiquem aquém no regime regular/born-digital. Revisitar **quando** houver dados que o
+  justifiquem: fontes **OCR-ruidosas** (ex.: decretos antigos escaneados), formatação
+  **irregular**, ou **outros entes** (SP etc.) — e medindo contra o baseline 0.95/0.99.
+- **As partes model-free permanecem ativos e úteis** (não dependem do fine-tune): o
+  `segmenter.py` (baseline + pré-filtro/cross-check), `evaluate_against_gold`/`find_errors`
+  (harness de avaliação) e `validate_structure` (validação da norma inteira — "achamos todos
+  os artigos?", usável como gate de completude da ingestão). O gold + esta ADR seguem como
+  ativo versionado e decisão registrada.
+
+O método e a ontologia abaixo seguem válidos; o que muda é o **gatilho de ativação** do
+treino — passa a ser orientado por evidência, não pré-agendado.
+
 
 ## Contexto
 

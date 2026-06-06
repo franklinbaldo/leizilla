@@ -1,5 +1,13 @@
 # Fine-tuning OPF to annotate Leizilla normas
 
+> **Status (2026-06-06): the GPU fine-tune (Phase 3) is DEFERRED.** The DITEL ingestion work
+> (PR #85) confirmed RO laws are born-digital and LC 95-regular, and the deterministic
+> `segmenter.py` already scores exact 0.95 / overlap 0.99 — so regex + the Claude parser
+> cover the regular case without a model. The **model-free tooling here is active and
+> useful** (segmenter, `evaluate_against_gold`/`find_errors`, `validate_structure`); only the
+> *training* is on hold, to be revisited with evidence from OCR-noisy/irregular sources or
+> other entes. See ADR-0012 "Atualização (2026-06-06)".
+
 This is Leizilla's concrete recipe for the [`opf-finetune`
 skill](https://github.com/franklinbaldo/skills/tree/main/opf-finetune). Read the skill
 for the general method and the two load-bearing warnings; read [ADR-0012](adr/0012-opf-structural-span-tagging.md)
