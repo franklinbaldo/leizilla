@@ -223,8 +223,8 @@ def test_run_discovery(temp_db):
     ):
         total = run_discovery("ro", temp_db)
 
-    # casacivil: 1 cdx + 2 sequential (lei + lc) = 3; playwright returns 0
-    assert total == 3
+    # casacivil: 1 cdx + 3 sequential (lei + lc + decreto) = 4; playwright returns 0
+    assert total == 4
     pending = temp_db.get_pending_resources()
     assert len(pending) == 2  # lei-00001 (cdx) + lei-00002 (sequential, deduplicated)
     urls = [p["url"] for p in pending]

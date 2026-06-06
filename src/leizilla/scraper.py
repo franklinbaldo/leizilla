@@ -207,9 +207,14 @@ def harvest_pending_resources(
             stats["robots-blocked"] += 1
             continue
 
-        # Se não temos snapshot pré-descoberto, tenta Wayback Machine
+        # Se não temos snapshot pré-descoberto, resolve via Wayback com proveniência:
+        # SPN-first, reusa QUALQUER captura existente (ensure_archived) — a URL do
+        # snapshot carrega o timestamp imutável que serve de chave de versão (ADR-0004,
+        # docs/ditel-ingestion.md).
         if not wb_url:
-            wb_url = wayback.check_available(url)
+            snap = wayback.ensure_archived(url)
+            if snap is not None:
+                wb_url = snap[0]
 
         pdf_bytes = None
         fetched_from = "source-fallback"

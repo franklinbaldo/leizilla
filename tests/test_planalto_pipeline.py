@@ -532,10 +532,26 @@ class TestCmdScrapeTipoValidation:
         assert result.exit_code != 0
         assert "planalto" in result.output
 
-    def test_decreto_blocked_for_casacivil(self) -> None:
-        result = self._invoke("--tipo", "decreto", "--fonte", "casacivil")
-        assert result.exit_code != 0
-        assert "planalto" in result.output
+    def test_decreto_accepted_for_casacivil(self) -> None:
+        # DITEL publishes decretos (D{n}.pdf); decreto is now valid for casacivil.
+        with (
+            patch("leizilla.robots.is_allowed", return_value=False),
+            patch("leizilla.wayback.save_page"),
+        ):
+            result = self._invoke(
+                "--ente",
+                "ro",
+                "--fonte",
+                "casacivil",
+                "--tipo",
+                "decreto",
+                "--start-coddoc",
+                "1",
+                "--end-coddoc",
+                "1",
+            )
+        assert result.exit_code == 0
+        assert "inválido" not in result.output and "só é válido" not in result.output
 
     def test_lcp_accepted_for_planalto(self) -> None:
         with (

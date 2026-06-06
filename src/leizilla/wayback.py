@@ -8,7 +8,7 @@ import json
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Tuple
 
 _AVAILABILITY_API = "https://archive.org/wayback/available"
 _SAVE_URL_TMPL = "https://web.archive.org/save/{}"
@@ -50,6 +50,48 @@ def check_available(url: str, max_age_seconds: int = _MAX_AGE_SECONDS) -> Option
     except ValueError:
         pass
     return None
+
+
+def closest_snapshot(url: str) -> Optional[Tuple[str, str]]:
+    """Retorna ``(snapshot_url, timestamp)`` da captura 200 mais próxima — **qualquer idade**.
+
+    Diferente de :func:`check_available` (que exige um snapshot fresco, < 24 h), serve à
+    **proveniência**: reusa uma captura já existente (mesmo antiga) como chave de versão
+    imutável (ADR-0004). O ``timestamp`` é a string ``YYYYMMDDHHMMSS`` do Wayback. Retorna
+    ``None`` se não há captura 200 ou a API falha (fail-open).
+    """
+    try:
+        api_url = f"{_AVAILABILITY_API}?url={urllib.parse.quote(url, safe='')}"
+        req = urllib.request.Request(api_url)
+        req.add_header("User-Agent", _USER_AGENT)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data: dict = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+
+    snapshot = data.get("archived_snapshots", {}).get("closest", {})
+    if not snapshot or snapshot.get("status") != "200":
+        return None
+    snap_url = str(snapshot.get("url", ""))
+    timestamp = str(snapshot.get("timestamp", ""))
+    if not snap_url or not timestamp:
+        return None
+    return snap_url, timestamp
+
+
+def ensure_archived(url: str, timeout: int = 60) -> Optional[Tuple[str, str]]:
+    """Garante uma captura Wayback e devolve ``(snapshot_url, timestamp)``, ou ``None``.
+
+    Política **SPN-first, reusa qualquer snapshot** (decisão de proveniência da DITEL,
+    docs/ditel-ingestion.md): se já há captura, reusa-a (sem re-arquivar); senão, dispara
+    Save Page Now e re-consulta. Fail-open: ``None`` se nada puder ser arquivado/encontrado
+    — o chamador cai no fetch direto (princípio #9).
+    """
+    existing = closest_snapshot(url)
+    if existing is not None:
+        return existing
+    save_page(url, timeout=timeout)
+    return closest_snapshot(url)
 
 
 def save_page(url: str, timeout: int = 60) -> bool:

@@ -412,9 +412,10 @@ def cmd_scrape(
     if tipo == "lcp" and fonte != "planalto":
         echo(f"--tipo lcp só é válido com --fonte planalto (recebido: --fonte {fonte})")
         raise typer.Exit(1)
-    if tipo == "decreto" and fonte != "planalto":
+    if tipo == "decreto" and fonte not in ("planalto", "casacivil"):
         echo(
-            f"--tipo decreto só é válido com --fonte planalto (recebido: --fonte {fonte})"
+            f"--tipo decreto só é válido com --fonte planalto/casacivil "
+            f"(recebido: --fonte {fonte})"
         )
         raise typer.Exit(1)
 
@@ -499,7 +500,7 @@ def cmd_scrape(
                             f"Consultando API CDX da Wayback Machine para {ente}/{fonte}..."
                         )
                         cdx_cfg = {
-                            "prefix": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/"
+                            "prefix": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/"
                         }
                         discovery = WaybackCdxDiscovery(cdx_cfg, ente, fonte)
                         discovered = discovery.run()
@@ -518,7 +519,7 @@ def cmd_scrape(
                                             "fonte": fonte,
                                             "chave": item["chave"],
                                             "titulo": f"{tipo.upper()} {item['chave'].split('-')[-1]} ({ente.upper()})",
-                                            "url_original": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/",
+                                            "url_original": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/",
                                             "url_pdf_original": item["url"],
                                         }
                                     )

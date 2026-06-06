@@ -250,7 +250,7 @@ class TestHarvestPendingResources:
 
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.check_available", return_value=None),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch("leizilla.scraper.wayback.fetch_bytes", return_value=None),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=10)
@@ -269,7 +269,7 @@ class TestHarvestPendingResources:
 
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.check_available", return_value=None),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch("leizilla.scraper.wayback.fetch_bytes", return_value=b"PDF_CONTENT"),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=10)
@@ -288,7 +288,7 @@ class TestHarvestPendingResources:
         pub = MagicMock()
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.check_available", return_value=None),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch("leizilla.scraper.wayback.fetch_bytes", return_value=None),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=2)
