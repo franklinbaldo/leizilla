@@ -1,0 +1,2 @@
+# Gold OPF annotations land here in Phase 2 (train/val/test.jsonl + manifest.json).
+# Committed to git per ADR-0012; see docs/opf-finetune.md.

@@ -1,0 +1,13 @@
+{
+  "category_version": "leizilla_normas_v1",
+  "span_class_names": [
+    "O",
+    "ementa",
+    "art_marcador",
+    "par_marcador",
+    "inc_marcador",
+    "ali_marcador",
+    "vigencia",
+    "revogacao"
+  ]
+}

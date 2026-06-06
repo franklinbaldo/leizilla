@@ -1,0 +1,40 @@
+{
+  "category_version": "leizilla_normas_v1",
+  "seed": 13,
+  "source_commit": "396345e",
+  "source": "planalto federal HTML (stopgap: IA raw items not yet published; see ADR-0011/0012)",
+  "ente_fonte": [
+    {
+      "ente": "federal",
+      "fonte": "planalto"
+    }
+  ],
+  "counts": {
+    "test": 1,
+    "val": 1,
+    "train": 4
+  },
+  "per_class": {
+    "ali_marcador": 7,
+    "art_marcador": 100,
+    "ementa": 6,
+    "inc_marcador": 49,
+    "par_marcador": 77,
+    "revogacao": 6,
+    "vigencia": 6
+  },
+  "total_spans": 251,
+  "conventions": "markers (art/par) exclude the trailing period — normalized for consistency across docs after the regex-baseline error finder surfaced the drift (segmenter.py)",
+  "annotation_method": "llm_subagents(shard-per-doc) -> deterministic sequential-cursor offset resolution -> opf_annotate.validate",
+  "test_verified_by": "prompt_ensemble:strict_boundary+category_disambiguation+blind_relabel+adversarial",
+  "eval_slice": [
+    "val/lei-9455-1997",
+    "test/lei-9296-1996"
+  ],
+  "known_limitations": [
+    "tiny v0 seed (6 docs) to lock the ontology + prove the subagent pipeline; scale by feeding more docs through the same flow",
+    "single fonte (federal/planalto) — stratification across fontes pending IA raw publication",
+    "clean official text, not OCR _djvu.txt: lacks OCR noise the production OPF will see (PT-BR distribution caveat, ADR-0012 warning 1)"
+  ],
+  "generated_at": "2026-06-05T17:27:18.151083+00:00"
+}
