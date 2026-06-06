@@ -8,7 +8,7 @@ import logging
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from leizilla.storage import DuckDBStorage
 
@@ -280,6 +280,37 @@ STRATEGIES: Dict[str, type[DiscoveryStrategy]] = {
 }
 
 
+_manifest_cache: Dict[str, Set[str]] = {}
+
+
+def _is_in_ia_manifest(range_ia_id: str, prefix: str) -> bool:
+    """Retorna True se o prefixo existe no manifest.csv do item do IA (com cache)."""
+    if range_ia_id not in _manifest_cache:
+        prefixes = set()
+        try:
+            import csv
+            import urllib.request
+
+            url_manifest = f"https://archive.org/download/{range_ia_id}/manifest.csv"
+            req = urllib.request.Request(
+                url_manifest, headers={"User-Agent": "leizilla-crawler/0.1"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                lines = resp.read().decode("utf-8", errors="replace").splitlines()
+                reader = csv.reader(lines)
+                next(reader, None)  # cabeçalho
+                for row in reader:
+                    if row and row[0]:
+                        filename = row[0]
+                        parts = filename.split("_", 1)
+                        if len(parts) == 2:
+                            prefixes.add(parts[0])
+        except Exception:
+            pass
+        _manifest_cache[range_ia_id] = prefixes
+    return prefix in _manifest_cache[range_ia_id]
+
+
 def load_manifest(ente: str) -> Dict[str, Any]:
     """Carrega o arquivo de manifesto de um ente federativo."""
     manifest_path = Path(__file__).parent / "manifests" / f"{ente}.json"
@@ -320,6 +351,26 @@ def run_discovery(ente: str, storage: DuckDBStorage) -> int:
                 )
 
                 for res in resources:
+                    # Check if already in IA manifest
+                    try:
+                        from leizilla.ia_utils import parse_chave_numeric, get_range_identifier
+                        chave = res["chave"]
+                        ente_res = res["ente"]
+                        fonte_res = res["fonte"]
+                        tipo, num = parse_chave_numeric(chave)
+                        if num > 0:
+                            range_ia_id = get_range_identifier(ente_res, fonte_res, tipo, num)
+                            prefix = f"{num:06d}"
+                        else:
+                            range_ia_id = f"leizilla_{ente_res.lower()}_{fonte_res.lower()}_fallback"
+                            prefix = chave.lower()
+
+                        if _is_in_ia_manifest(range_ia_id, prefix):
+                            res["status"] = "downloaded"
+                            logger.info(f"Resource {chave} is already in IA item {range_ia_id} (marked as downloaded)")
+                    except Exception as e:
+                        logger.warning(f"Error checking IA manifest for resource {res.get('chave')}: {e}")
+
                     storage.insert_resource(res)
                     total_added += 1
 

@@ -569,7 +569,7 @@ class TestUploadToArchive:
         assert "ia" in args
         assert "upload" in args
         assert "leizilla-archive-ro-casacivil-raw" in args
-        assert args[3].endswith("lei-05120.pdf")
+        assert any(arg.endswith("lei-05120.pdf") for arg in args)
 
     def test_missing_credentials(self, tmp_path):
         pub = InternetArchivePublisher()

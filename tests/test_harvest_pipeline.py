@@ -270,7 +270,7 @@ class TestHarvestPendingResources:
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
             patch("leizilla.scraper.wayback.check_available", return_value=None),
-            patch("leizilla.scraper.wayback.fetch_bytes", return_value=b"PDF_CONTENT"),
+            patch("leizilla.scraper.wayback.fetch_bytes", return_value=b"%PDF-1.4\nPDF_CONTENT"),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=10)
 
