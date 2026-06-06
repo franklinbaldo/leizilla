@@ -24,6 +24,7 @@
     "vigencia": 6
   },
   "total_spans": 251,
+  "conventions": "markers (art/par) exclude the trailing period — normalized for consistency across docs after the regex-baseline error finder surfaced the drift (segmenter.py)",
   "annotation_method": "llm_subagents(shard-per-doc) -> deterministic sequential-cursor offset resolution -> opf_annotate.validate",
   "test_verified_by": "prompt_ensemble:strict_boundary+category_disambiguation+blind_relabel+adversarial",
   "eval_slice": [

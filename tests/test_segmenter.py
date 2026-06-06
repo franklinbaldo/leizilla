@@ -3,8 +3,11 @@
 from leizilla.segmenter import (
     Span,
     evaluate_against_gold,
+    find_errors,
     format_report,
+    format_structure,
     segment,
+    validate_structure,
 )
 
 
@@ -111,10 +114,15 @@ class TestEvaluateAgainstGold:
         assert s["exact_tp"] == 1
         assert s["overlap_tp_pred"] == 1 and s["overlap_tp_gold"] == 1
 
-    def test_boundary_drift_is_overlap_not_exact(self):
-        # gold tags "Art. 10" (no period); regex emits "Art. 10." — detected, not exact.
+    def test_marker_excludes_trailing_period(self):
+        # The regex emits the marker WITHOUT the trailing period (gold convention).
         text = "Art. 10. Disposições finais."
-        gold: list[Span] = [{"category": "art_marcador", "start": 0, "end": 7}]
+        assert any(c == "art_marcador" and s == "Art. 10" for c, s in _cats(text))
+
+    def test_boundary_drift_is_overlap_not_exact(self):
+        # gold tags "Art. 10." (with period); regex emits "Art. 10" — detected, not exact.
+        text = "Art. 10. Disposições finais."
+        gold: list[Span] = [{"category": "art_marcador", "start": 0, "end": 8}]
         scores = evaluate_against_gold([(text, gold)])
         s = scores["art_marcador"]
         assert s["exact_tp"] == 0
@@ -134,3 +142,68 @@ class TestEvaluateAgainstGold:
         gold: list[Span] = [{"category": "art_marcador", "start": 0, "end": 7}]
         report = format_report(evaluate_against_gold([(text, gold)]))
         assert "art_marcador" in report and "MICRO" in report
+
+
+class TestFindErrors:
+    def test_false_positive_is_reported(self):
+        # gold has only "a)"; the segmenter also tags "b)" — a spurious prediction.
+        text = "a) primeiro; b) segundo."
+        gold: list[Span] = [{"category": "ali_marcador", "start": 0, "end": 2}]
+        errs = find_errors([(text, gold)], ids=["doc"])
+        fps = [e for e in errs if e["kind"] == "false_positive"]
+        assert len(fps) == 1 and fps[0]["pred"] == "b)"
+        assert fps[0]["doc"] == "doc"
+
+    def test_boundary_is_reported_with_both_surfaces(self):
+        text = "Art. 10. Foo."
+        gold: list[Span] = [{"category": "art_marcador", "start": 0, "end": 8}]
+        errs = find_errors([(text, gold)])
+        boundary = [e for e in errs if e["kind"] == "boundary"]
+        assert len(boundary) == 1
+        assert boundary[0]["pred"] == "Art. 10" and boundary[0]["gold"] == "Art. 10."
+
+    def test_false_negative_when_marker_missing(self):
+        # gold claims an article the text doesn't actually open as a marker.
+        text = "uma referência ao art. 99 da outra lei."
+        gold: list[Span] = [{"category": "art_marcador", "start": 18, "end": 25}]
+        errs = find_errors([(text, gold)])
+        assert any(e["kind"] == "false_negative" for e in errs)
+
+
+class TestValidateStructure:
+    def test_detects_missing_article(self):
+        text = "Art. 1º um. Art. 3º três."
+        findings = validate_structure(text)
+        kinds = {f["kind"]: f["detail"] for f in findings}
+        assert "missing_articles" in kinds and "2" in kinds["missing_articles"]
+
+    def test_contiguous_articles_have_no_gap(self):
+        text = "Art. 1º um. Art. 2º dois. Art. 3º três."
+        assert not any(
+            f["kind"] == "missing_articles" for f in validate_structure(text)
+        )
+
+    def test_letter_suffix_is_not_a_gap(self):
+        # "Art. 1º-A" shares base number 1 — must not create a gap or out-of-order.
+        text = "Art. 1º um. Art. 1º-A inserido. Art. 2º dois."
+        findings = validate_structure(text)
+        assert not any(f["kind"] == "missing_articles" for f in findings)
+        assert not any(f["kind"] == "out_of_order" for f in findings)
+
+    def test_out_of_order_flagged(self):
+        text = "Art. 1º a. Art. 2º b. Art. 1º c."
+        assert any(f["kind"] == "out_of_order" for f in validate_structure(text))
+
+    def test_no_articles(self):
+        findings = validate_structure("Apenas um texto sem dispositivos.")
+        assert any(f["kind"] == "no_articles" for f in findings)
+
+    def test_clean_norma_formats_ok(self):
+        text = (
+            "LEI Nº 1, DE 1 DE JANEIRO DE 2020. Dispõe sobre algo. Faço saber "
+            "Art. 1º Fica criado. Art. 2º Esta Lei entra em vigor na data de sua "
+            "publicação."
+        )
+        findings = validate_structure(text)
+        assert not any(f["kind"] == "missing_articles" for f in findings)
+        assert "✅" in format_structure([])

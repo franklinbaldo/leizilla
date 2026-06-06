@@ -29,7 +29,7 @@ Design choices that matter:
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Tuple, TypedDict
+from typing import Dict, List, Optional, Tuple, TypedDict
 
 
 class Span(TypedDict):
@@ -43,9 +43,11 @@ class Span(TypedDict):
 # carry a letter suffix ("Art. 8º-A", "§ 2º-B"); a trailing period may or may not be
 # present in the source (we capture it when adjacent, then note boundary drift in eval).
 _ORD = r"(?:\s*[ºo°ªa])?"
-_ART = re.compile(rf"Art\.\s*\d+{_ORD}(?:-[A-Z])?\.?")
+# Markers are short anchors and exclude the trailing period (the period is the clause
+# separator, not part of the marker) — the gold follows the same convention.
+_ART = re.compile(rf"Art\.\s*\d+{_ORD}(?:-[A-Z])?")
 _PAR_NUM = re.compile(rf"§\s*\d+{_ORD}(?:-[A-Z])?")
-_PAR_UNICO = re.compile(r"Parágrafo\s+único\.?")
+_PAR_UNICO = re.compile(r"Parágrafo\s+único")
 _INC = re.compile(r"\b[IVXLCDM]+\b\s*[-–—]+")
 _ALI = re.compile(r"\b[a-z]\)")
 
@@ -72,8 +74,6 @@ _ABBREV = {
     "p",
     "pp",
     "cf",
-    "lei",
-    "leis",
     "ec",
     "lc",
     "par",
@@ -158,7 +158,7 @@ def _sentence_spans(text: str) -> List[Tuple[int, int]]:
             k += 1
         nxt = text[k] if k < n else ""
         terminal = word not in _ABBREV and (
-            k >= n or (k > i + 1 and (nxt.isupper() or nxt == "§"))
+            k >= n or (k > i + 1 and (nxt.isupper() or nxt in "§("))
         )
         if terminal:
             raw.append((start, i + 1))
@@ -324,3 +324,207 @@ def format_report(scores: Dict[str, CatScore]) -> str:
         f"      {op:.2f}  {orr:.2f}  {of:.2f}"
     )
     return "\n".join(rows)
+
+
+# --- error finder ---------------------------------------------------------------------
+class SpanError(TypedDict):
+    doc: str
+    category: str
+    kind: str  # "false_positive" | "false_negative" | "boundary"
+    pred: str  # predicted surface ("" when a miss)
+    gold: str  # gold surface ("" when a spurious prediction)
+    context: str
+
+
+def _ctx(text: str, start: int, end: int, pad: int = 30) -> str:
+    """A one-line context window with the span bracketed: …left⟦span⟧right…."""
+    left = text[max(0, start - pad) : start].replace("\n", " ")
+    right = text[end : end + pad].replace("\n", " ")
+    lead = "…" if start - pad > 0 else ""
+    tail = "…" if end + pad < len(text) else ""
+    return f"{lead}{left}⟦{text[start:end]}⟧{right}{tail}"
+
+
+def find_errors(
+    docs: List[Tuple[str, List[Span]]],
+    ids: Optional[List[str]] = None,
+) -> List[SpanError]:
+    """Diff `segment()` against gold and return the concrete disagreements.
+
+    Per document and category, exact (start, end) matches are correct and dropped; what
+    remains is classified as:
+
+    - **boundary**: a gold span and a prediction overlap but their offsets differ (right
+      region, wrong edges);
+    - **false_negative**: a gold span no prediction overlaps (a miss);
+    - **false_positive**: a prediction no gold span overlaps (a spurious tag).
+
+    `ids[i]` labels doc *i* (e.g. the raw_id); falls back to "doc{i}".
+    """
+    errors: List[SpanError] = []
+    for di, (text, gold) in enumerate(docs):
+        doc_id = ids[di] if ids and di < len(ids) else f"doc{di}"
+        pred = segment(text)
+        cats = {s["category"] for s in gold} | {s["category"] for s in pred}
+        for cat in sorted(cats):
+            g = [s for s in gold if s["category"] == cat]
+            p = [s for s in pred if s["category"] == cat]
+            gkeys = {(s["start"], s["end"]) for s in g}
+            pkeys = {(s["start"], s["end"]) for s in p}
+            g_left = [s for s in g if (s["start"], s["end"]) not in pkeys]
+            p_left = [s for s in p if (s["start"], s["end"]) not in gkeys]
+            used: set[int] = set()
+            for gs in g_left:
+                hit = next(
+                    (
+                        idx
+                        for idx, ps in enumerate(p_left)
+                        if idx not in used and _overlaps(gs, ps)
+                    ),
+                    None,
+                )
+                if hit is not None:
+                    used.add(hit)
+                    ps = p_left[hit]
+                    errors.append(
+                        {
+                            "doc": doc_id,
+                            "category": cat,
+                            "kind": "boundary",
+                            "pred": text[ps["start"] : ps["end"]],
+                            "gold": text[gs["start"] : gs["end"]],
+                            "context": _ctx(text, gs["start"], gs["end"]),
+                        }
+                    )
+                else:
+                    errors.append(
+                        {
+                            "doc": doc_id,
+                            "category": cat,
+                            "kind": "false_negative",
+                            "pred": "",
+                            "gold": text[gs["start"] : gs["end"]],
+                            "context": _ctx(text, gs["start"], gs["end"]),
+                        }
+                    )
+            for idx, ps in enumerate(p_left):
+                if idx in used:
+                    continue
+                errors.append(
+                    {
+                        "doc": doc_id,
+                        "category": cat,
+                        "kind": "false_positive",
+                        "pred": text[ps["start"] : ps["end"]],
+                        "gold": "",
+                        "context": _ctx(text, ps["start"], ps["end"]),
+                    }
+                )
+    return errors
+
+
+def format_errors(errors: List[SpanError]) -> str:
+    """Render found errors grouped by (kind, category) with counts and context."""
+    if not errors:
+        return "no errors — predictions match the gold exactly 🎯"
+    order = {"false_positive": 0, "false_negative": 1, "boundary": 2}
+    by_group: Dict[Tuple[str, str], List[SpanError]] = {}
+    for e in errors:
+        by_group.setdefault((e["kind"], e["category"]), []).append(e)
+    rows: List[str] = []
+    counts: Dict[str, int] = {}
+    for kind, cat in sorted(by_group, key=lambda kc: (order.get(kc[0], 9), kc[1])):
+        group = by_group[(kind, cat)]
+        counts[kind] = counts.get(kind, 0) + len(group)
+        rows.append(f"\n### {kind}  [{cat}]  ×{len(group)}")
+        for e in group:
+            if kind == "boundary":
+                rows.append(f"  pred={e['pred']!r}  gold={e['gold']!r}")
+            elif kind == "false_positive":
+                rows.append(f"  spurious={e['pred']!r}")
+            else:
+                rows.append(f"  missed={e['gold']!r}")
+            rows.append(f"    {e['doc']}: {e['context']}")
+    head = "  ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+    return f"{len(errors)} error(s) — {head}\n" + "\n".join(rows)
+
+
+# --- whole-norma structural validation (no gold needed) -------------------------------
+class StructuralFinding(TypedDict):
+    kind: str
+    detail: str
+
+
+_ART_NUMBER = re.compile(r"Art\.\s*(\d+)")
+
+
+def validate_structure(text: str) -> List[StructuralFinding]:
+    """Sanity-check a whole norma's segmentation *without* a gold reference.
+
+    Answers "did we find all the article boundaries?" and a few sibling questions from
+    the sequence of detected markers alone:
+
+    - **missing_articles**: gaps in the article numbering 1..max — a boundary we failed
+      to find (or one genuinely absent from the source);
+    - **out_of_order**: an article number lower than an earlier one — a misparse, or a
+      reference mis-tagged as a marker;
+    - **no_articles / no_ementa / no_vigencia**: expected structure absent.
+
+    Heuristics, not proof: an `-A` renumbering (`Art. 8º-A`) shares its base number, so it
+    is not flagged. Use the findings to flag a norma for review, not to reject it.
+    """
+    spans = segment(text)
+    findings: List[StructuralFinding] = []
+
+    numbers: List[int] = []
+    for s in spans:
+        if s["category"] != "art_marcador":
+            continue
+        m = _ART_NUMBER.match(text[s["start"] : s["end"]])
+        if m:
+            numbers.append(int(m.group(1)))
+
+    if not numbers:
+        findings.append(
+            {"kind": "no_articles", "detail": "nenhum art_marcador detectado"}
+        )
+    else:
+        mx = max(numbers)
+        present = set(numbers)
+        missing = [n for n in range(1, mx + 1) if n not in present]
+        if missing:
+            findings.append(
+                {
+                    "kind": "missing_articles",
+                    "detail": f"lacunas em Art. 1..{mx}: {missing}",
+                }
+            )
+        running = 0
+        out_of_order: List[int] = []
+        for n in numbers:
+            if n < running:
+                out_of_order.append(n)
+            else:
+                running = n
+        if out_of_order:
+            findings.append(
+                {
+                    "kind": "out_of_order",
+                    "detail": f"artigos fora de ordem: {out_of_order}",
+                }
+            )
+
+    if not any(s["category"] == "ementa" for s in spans):
+        findings.append({"kind": "no_ementa", "detail": "nenhuma ementa detectada"})
+    if not any(s["category"] == "vigencia" for s in spans):
+        findings.append(
+            {"kind": "no_vigencia", "detail": "nenhuma cláusula de vigência detectada"}
+        )
+    return findings
+
+
+def format_structure(findings: List[StructuralFinding]) -> str:
+    """Render structural findings (or a clean-bill line when there are none)."""
+    if not findings:
+        return "estrutura OK — sem lacunas/anomalias detectadas ✅"
+    return "\n".join(f"  [{f['kind']}] {f['detail']}" for f in findings)

@@ -153,18 +153,29 @@ is that baseline, scored against the same gold:
 uv run leizilla opf-regex-eval --splits val,test     # per-category exact + overlap P/R/F1
 ```
 
-On the v0 held-out clean laws it gets **exact micro-F1 0.91 / overlap 0.99** —
-`art`/`inc`/`ali`/`ementa` *and* `vigencia`/`revogacao` at exact 1.00. That clause accuracy
-comes from three rules beyond naive matching: an **abbreviation/number-aware sentence
-splitter** (so `art.`, `nº 8.069`, `13.07.1990` don't end a clause), an **operative-verb
-filter** on revogação (so compiled-text `(Revogado pela Lei…)` history notes are excluded —
-precision 0.33 → 1.00 on compiled statutes), and a **leading-marker strip** (so
-`Art. 3º Esta Lei entra em vigor…` yields the clause, not the marker). A right-context guard
-also drops `§ 7º do art. 226` / `§ 2º (VETADO)`.
+On all six v0 gold docs it gets **exact micro-F1 0.95 / overlap 0.99** — `art`/`par`/`inc`/
+`ali` *and* `vigencia`/`revogacao` at or near exact 1.00. That comes from rules beyond naive
+matching: markers exclude the trailing period (a consistent gold convention), an
+**abbreviation/number-aware sentence splitter** (so `art.`, `nº 8.069`, `13.07.1990` don't
+end a clause), an **operative-verb filter** on revogação (compiled-text `(Revogado pela
+Lei…)` history notes excluded — precision 0.33 → 1.00 on compiled statutes), a
+**leading-marker strip** (so `Art. 3º Esta Lei entra em vigor…` yields the clause), and a
+right-context guard (`§ 7º do art. 226`, `§ 2º (VETADO)`).
 
-The residual is exactly the model's territory, and the eval makes it precise:
-`par_marcador` cross-reference `§` (precision ~0.76 — references mid-sentence that no local
-guard catches), and on **compiled/amended texts** the `art` period-drift, `ementa` header
-noise, and clauses split mid-sentence. Read it two ways: a zero-cost segmenter that already
-suffices for the easy markers (use it as a pre-filter / cross-check), and a quantified
-target the fine-tuned model has to clear to justify itself.
+Two companion tools turn the eval into a debugging loop:
+
+```bash
+uv run leizilla opf-regex-eval --splits train,val,test --errors   # list every FP/FN/boundary with context
+uv run leizilla opf-segment-check --splits train,val,test         # whole-norma sanity: did we find every Art. boundary?
+```
+
+`--errors` drove the rule improvements above (it surfaced the trailing-period gold drift and
+even a probable gold omission). `opf-segment-check` validates a whole norma *without* gold —
+it flags gaps in the article numbering (`missing_articles`), `out_of_order` numbers, and
+absent ementa/vigência — so a freshly-segmented law can be triaged for review on its own.
+
+The residual is exactly the model's territory: `par_marcador` `§` in citation lists (`§ 1º e
+alíneas e § 2º`), and the `ementa` preamble over-capture (`Mensagem de veto …`) — references
+and boundaries that need sentence understanding, not a local pattern. Read it two ways: a
+zero-cost segmenter that already suffices for the easy markers (a pre-filter / cross-check),
+and a quantified target the fine-tuned model has to clear to justify itself.

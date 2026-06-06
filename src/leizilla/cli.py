@@ -1335,17 +1335,29 @@ def cmd_opf_regex_eval(
     splits: str = typer.Option(
         "train,val,test", help="Splits a avaliar (separados por vírgula)"
     ),
+    errors: bool = typer.Option(
+        False,
+        "--errors",
+        help="Listar os erros concretos (FP/FN/boundary) com contexto",
+    ),
 ) -> None:
     """Avaliar o segmentador regex baseline contra o gold (P/R/F1 por categoria).
 
     Baseline Pattern-B (ontology-recipes.md): regex forte nos marcadores; o modelo OPF
     'earns its keep' nos casos difíceis. Mostra exato vs overlap por categoria.
+    Com `--errors`, lista cada discordância (falso positivo, miss, fronteira) com contexto.
     """
     import json as _json
 
-    from leizilla.segmenter import evaluate_against_gold, format_report
+    from leizilla.segmenter import (
+        evaluate_against_gold,
+        find_errors,
+        format_errors,
+        format_report,
+    )
 
     docs = []
+    ids: list[str] = []
     for split in (s.strip() for s in splits.split(",") if s.strip()):
         path = gold_dir / f"{split}.jsonl"
         if not path.exists():
@@ -1357,11 +1369,71 @@ def cmd_opf_regex_eval(
                 if line:
                     rec = _json.loads(line)
                     docs.append((rec["text"], rec["label"]))
+                    ids.append(rec.get("info", {}).get("raw_id", f"{split}:{len(ids)}"))
     if not docs:
         echo("Nenhum doc carregado — verifique --gold-dir/--splits")
         raise typer.Exit(1)
     echo(f"Segmentador regex vs gold ({len(docs)} docs):\n")
     echo(format_report(evaluate_against_gold(docs)))
+    if errors:
+        echo("\n" + format_errors(find_errors(docs, ids)))
+
+
+@app.command("opf-segment-check")
+def cmd_opf_segment_check(
+    text: Optional[Path] = typer.Option(
+        None, help="Arquivo de texto de uma norma (alternativa ao gold)"
+    ),
+    gold_dir: Path = typer.Option(
+        Path("data/opf/gold"), help="Diretório do gold (train/val/test.jsonl)"
+    ),
+    splits: str = typer.Option("train,val,test", help="Splits (separados por vírgula)"),
+    strict: bool = typer.Option(
+        False, "--strict", help="Sai com código 1 se alguma norma tiver achados"
+    ),
+) -> None:
+    """Validar a estrutura de uma norma sem gold (achou todos os artigos?).
+
+    Roda `validate_structure` sobre a saída do segmentador: lacunas na numeração de
+    artigos, artigos fora de ordem, ausência de ementa/vigência. Útil como sanity-check
+    de uma norma recém-segmentada. Ver docs/opf-finetune.md.
+    """
+    import json as _json
+
+    from leizilla.segmenter import format_structure, validate_structure
+
+    docs: list[tuple[str, str]] = []
+    if text is not None:
+        if not text.exists():
+            echo(f"arquivo não encontrado: {text}")
+            raise typer.Exit(1)
+        docs.append((text.stem, text.read_text(encoding="utf-8")))
+    else:
+        for split in (s.strip() for s in splits.split(",") if s.strip()):
+            path = gold_dir / f"{split}.jsonl"
+            if not path.exists():
+                continue
+            with path.open(encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        rec = _json.loads(line)
+                        name = rec.get("info", {}).get("raw_id", f"{split}:{len(docs)}")
+                        docs.append((name, rec["text"]))
+    if not docs:
+        echo("Nenhuma norma carregada — verifique --text/--gold-dir/--splits")
+        raise typer.Exit(1)
+
+    flagged = 0
+    for name, body in docs:
+        findings = validate_structure(body)
+        echo(f"\n{name}:")
+        echo(format_structure(findings))
+        if findings:
+            flagged += 1
+    echo(f"\n{flagged}/{len(docs)} norma(s) com achados estruturais.")
+    if strict and flagged:
+        raise typer.Exit(1)
 
 
 @dev_app.command("setup")
