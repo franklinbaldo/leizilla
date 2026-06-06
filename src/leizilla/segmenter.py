@@ -50,12 +50,45 @@ _INC = re.compile(r"\b[IVXLCDM]+\b\s*[-–—]+")
 _ALI = re.compile(r"\b[a-z]\)")
 
 # --- clause patterns (cue-driven sentences) -------------------------------------------
-# Clauses (vigência/revogação) are detected by scanning sentence-ish units and keeping
-# the ones that carry the cue — more robust than one monster regex on legal punctuation
-# ("art.", "nº 8.069", "13.07.1990" all carry interior periods).
-_SENTENCE = re.compile(r"[^.]*\.")
-_VIGENCIA_CUE = re.compile(r"em\s+vigor", re.IGNORECASE)
-_REVOGACAO_CUE = re.compile(r"\brevoga", re.IGNORECASE)
+# Clauses (vigência/revogação) are detected by scanning sentence units (abbreviation- and
+# number-aware: "art.", "nº 8.069", "13.07.1990" carry interior periods that do NOT end a
+# sentence) and keeping the ones that carry the cue. Revogação additionally requires an
+# *operative* verb form, so compiled-text annotations "(Revogado pela Lei nº …)" — which
+# are amendment history, not a revocation dispositivo — are excluded.
+_ABBREV = {
+    "art",
+    "arts",
+    "inc",
+    "incs",
+    "n",
+    "no",
+    "dec",
+    "dr",
+    "sr",
+    "sra",
+    "al",
+    "fl",
+    "fls",
+    "p",
+    "pp",
+    "cf",
+    "lei",
+    "leis",
+    "ec",
+    "lc",
+    "par",
+    "cc",
+    "cpc",
+    "cpp",
+    "ctn",
+}
+_VIGENCIA_CUE = re.compile(r"\bem\s+vigor\b", re.IGNORECASE)
+_REVOGA_OPERATIVE = re.compile(
+    r"(?:Fica(?:m)?\s+revogad[oa]s?"
+    r"|Revoga(?:m)?-se"
+    r"|Revogad[oa]s?\s+(?:as\s+disposições|os\s+|o\s+art|a\s+Lei))",
+    re.IGNORECASE,
+)
 _EMENTA = re.compile(
     # text between the "... DE <ano>." header line and the enacting clause.
     r"DE\s+\d{4}\s*\.\s*(?P<ementa>.+?)\s*"
@@ -70,6 +103,27 @@ _XREF_LEFT = re.compile(
     r"termos\s+do|previsto\s+no|na\s+forma\s+do|§)\s*$",
     re.IGNORECASE,
 )
+# Right-context cues that mark a § occurrence as a reference ("§ 7º do art. 226",
+# "§ 2º deste artigo") or a vetoed placeholder ("§ 2º (VETADO).") — not a marker.
+_PAR_XREF_RIGHT = re.compile(
+    r"^\s*(?:(?:do|da|dos|das|deste|desta|destes|destas)\b|\(VETADO|\(Vetado)",
+    re.IGNORECASE,
+)
+# A clause sentence often opens with the article/§ marker it belongs to
+# ("Art. 3º Esta Lei entra em vigor…"); strip that leading marker so the clause span
+# starts at the clause itself (the marker is emitted separately by its own pass).
+_LEADING_MARKER = re.compile(
+    rf"^(?:Art\.\s*\d+{_ORD}(?:-[A-Z])?\.?|§\s*\d+{_ORD}(?:-[A-Z])?"
+    rf"|Parágrafo\s+único\.?)\s+"
+)
+
+
+def _strip_leading_marker(text: str, s: int, e: int) -> int:
+    """Return a start offset past a leading Art./§/Parágrafo marker, if any."""
+    m = _LEADING_MARKER.match(text[s:e])
+    if m and s + m.end() < e:
+        return s + m.end()
+    return s
 
 
 def _xref(text: str, start: int) -> bool:
@@ -77,14 +131,47 @@ def _xref(text: str, start: int) -> bool:
     return bool(_XREF_LEFT.search(text[max(0, start - 24) : start]))
 
 
-def _cue_sentences(text: str, cue: re.Pattern[str]) -> List[Tuple[int, int]]:
-    """Yield (start, end) of sentence-ish units carrying `cue`, leading space trimmed."""
+def _par_ref_right(text: str, end: int) -> bool:
+    """True if what follows a `§ N` match marks it as a reference / vetoed placeholder."""
+    return bool(_PAR_XREF_RIGHT.match(text[end : end + 14]))
+
+
+def _sentence_spans(text: str) -> List[Tuple[int, int]]:
+    """Split into sentence units, abbreviation- and number-aware (see clause comment).
+
+    A period ends a sentence only when it is not part of an abbreviation ("art.") or a
+    number ("8.069", "13.07.1990") and is followed by whitespace + a capital/§ (or end of
+    text). Leading/trailing whitespace is trimmed from each span.
+    """
+    raw: List[Tuple[int, int]] = []
+    start = 0
+    n = len(text)
+    for i, ch in enumerate(text):
+        if ch != ".":
+            continue
+        j = i - 1
+        while j >= 0 and text[j].isalpha():
+            j -= 1
+        word = text[j + 1 : i].lower()
+        k = i + 1
+        while k < n and text[k].isspace():
+            k += 1
+        nxt = text[k] if k < n else ""
+        terminal = word not in _ABBREV and (
+            k >= n or (k > i + 1 and (nxt.isupper() or nxt == "§"))
+        )
+        if terminal:
+            raw.append((start, i + 1))
+            start = i + 1
+    if text[start:].strip():
+        raw.append((start, n))
     out: List[Tuple[int, int]] = []
-    for m in _SENTENCE.finditer(text):
-        s, e = m.start(), m.end()
+    for s, e in raw:
         while s < e and text[s].isspace():
             s += 1
-        if s < e and cue.search(text[s:e]):
+        while e > s and text[e - 1].isspace():
+            e -= 1
+        if s < e:
             out.append((s, e))
     return out
 
@@ -104,7 +191,7 @@ def segment(text: str) -> List[Span]:
     for m in _ART.finditer(text):
         add("art_marcador", m)
     for m in _PAR_NUM.finditer(text):
-        if not _xref(text, m.start()):
+        if not _xref(text, m.start()) and not _par_ref_right(text, m.end()):
             add("par_marcador", m)
     for m in _PAR_UNICO.finditer(text):
         add("par_marcador", m)
@@ -113,10 +200,13 @@ def segment(text: str) -> List[Span]:
             add("inc_marcador", m)
     for m in _ALI.finditer(text):
         add("ali_marcador", m)
-    for s, e in _cue_sentences(text, _VIGENCIA_CUE):
-        spans.append({"category": "vigencia", "start": s, "end": e})
-    for s, e in _cue_sentences(text, _REVOGACAO_CUE):
-        spans.append({"category": "revogacao", "start": s, "end": e})
+    for s0, e in _sentence_spans(text):
+        s = _strip_leading_marker(text, s0, e)
+        sent = text[s:e]
+        if _VIGENCIA_CUE.search(sent):
+            spans.append({"category": "vigencia", "start": s, "end": e})
+        if _REVOGA_OPERATIVE.search(sent):
+            spans.append({"category": "revogacao", "start": s, "end": e})
     em = _EMENTA.search(text)
     if em and em.group("ementa"):
         spans.append(

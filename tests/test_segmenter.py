@@ -62,6 +62,45 @@ class TestSegmentClauses:
         assert ementas and "Define os crimes de tortura" in ementas[0]
 
 
+class TestComplexRules:
+    def test_compiled_revogado_annotation_is_excluded(self):
+        # "(Revogado pela Lei …)" is amendment history, not a revocation dispositivo.
+        text = "Art. 5º Os contratos. (Revogado pela Lei nº 12.288, de 2010)."
+        assert not any(c == "revogacao" for c, _ in _cats(text))
+
+    def test_operative_revogacao_is_included(self):
+        text = "Art. 9º Ficam revogados os arts. 5º a 8º desta Lei."
+        assert any(c == "revogacao" for c, _ in _cats(text))
+
+    def test_paragraph_right_context_reference_dropped(self):
+        # "§ 7º do art. 226" inside an ementa/body is a reference, not a marker.
+        text = "Regula o § 7º do art. 226 da Constituição Federal."
+        assert not any(c == "par_marcador" for c, _ in _cats(text))
+
+    def test_vetado_paragraph_dropped_keeps_real_one(self):
+        text = "§ 2º (VETADO). § 2º A instalação do dispositivo faz-se."
+        pars = [s for c, s in _cats(text) if c == "par_marcador"]
+        assert pars == ["§ 2º"]  # only the real opening, the VETADO placeholder dropped
+
+    def test_clause_span_strips_leading_marker(self):
+        text = "Art. 3º Esta Lei entra em vigor na data de sua publicação."
+        vig = [s for c, s in _cats(text) if c == "vigencia"]
+        assert vig == ["Esta Lei entra em vigor na data de sua publicação."]
+
+    def test_sentence_not_split_on_interior_abbreviations(self):
+        # "art.", "nº 8.069" and the date carry interior periods that must NOT end the
+        # sentence — the revogação clause is captured whole.
+        text = (
+            "Art. 4º Revoga-se o art. 233 da Lei nº 8.069, de 13 de julho de 1990 - "
+            "Estatuto da Criança e do Adolescente."
+        )
+        rev = [s for c, s in _cats(text) if c == "revogacao"]
+        assert rev == [
+            "Revoga-se o art. 233 da Lei nº 8.069, de 13 de julho de 1990 - "
+            "Estatuto da Criança e do Adolescente."
+        ]
+
+
 class TestEvaluateAgainstGold:
     def test_exact_and_overlap_counts(self):
         text = "Art. 1º Fica criado."
