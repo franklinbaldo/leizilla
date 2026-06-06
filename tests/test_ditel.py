@@ -13,7 +13,7 @@ import pytest
 
 from leizilla import wayback
 from leizilla.crawler import discover_casacivil_laws
-from leizilla.discovery import parse_filename
+from leizilla.discovery import WaybackCdxDiscovery, parse_filename
 
 MANIFEST = (
     Path(__file__).resolve().parents[1] / "src" / "leizilla" / "manifests" / "ro.json"
@@ -65,6 +65,37 @@ class TestManifest:
         assert any("/D{num}.pdf" in t for t in templates)
         assert any("/L{num}.pdf" in t for t in templates)
         assert any("/LC{num}.pdf" in t for t in templates)
+
+
+class TestCdxSchemeNormalization:
+    def test_http_capture_normalized_to_manifest_https_for_dedup(self):
+        # CDX returns DITEL's historical http capture; the dedup `url` must be normalized
+        # to the manifest https scheme (so it matches the sequential strategy and isn't
+        # harvested twice), while the http snapshot is kept in wayback_snapshot.
+        config = {"strategy": "wayback-cdx", "prefix": f"{_BASE}/"}
+        cdx = [
+            ["urlkey", "timestamp", "original", "mime", "statuscode", "digest", "len"],
+            [
+                "k",
+                "20241208215859",
+                f"http://{_BASE[len('https://') :]}/L5120.pdf",
+                "application/pdf",
+                "200",
+                "d",
+                "1",
+            ],
+        ]
+        resp = MagicMock()
+        resp.read.return_value = json.dumps(cdx).encode()
+        resp.__enter__ = lambda s: s
+        resp.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=resp):
+            resources = WaybackCdxDiscovery(config, "ro", "casacivil").run()
+        assert len(resources) == 1
+        assert resources[0]["url"] == f"{_BASE}/L5120.pdf"  # https dedup key
+        assert resources[0]["wayback_snapshot"].endswith(
+            f"/http://{_BASE[len('https://') :]}/L5120.pdf"  # http snapshot preserved
+        )
 
 
 def _avail_response(snapshot: dict | None) -> bytes:

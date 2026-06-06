@@ -80,7 +80,10 @@ no new format adapter (PDF is already handled), no Pydantic/structlog, no OPF.
   historical captures are http-keyed while live downloads need https); `ensure_archived` is
   SPN-first and reads the new snapshot **from the Save-Page-Now response** (`Content-Location`)
   rather than an immediate re-query (SPN exposes snapshots asynchronously). CDX discovery
-  queries scheme-agnostically (SURT urlkey) for the same reason.
+  queries scheme-agnostically (SURT urlkey) for the same reason, and **normalizes each
+  discovered URL's scheme to the manifest's** (https) so the http-keyed captures dedup
+  against the sequential strategy's URLs (the resource ledger is keyed by literal URL) —
+  the actual http snapshot is kept in `wayback_snapshot`.
 - carry the Wayback timestamp as provenance: `harvest` captures it explicitly (from the
   resolved pair or recovered from a pre-discovered ledger URL via `snapshot_timestamp`) and
   threads it into the raw-item metadata (`lei_data["wayback_timestamp"]`).
