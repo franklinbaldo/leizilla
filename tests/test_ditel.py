@@ -14,6 +14,8 @@ import pytest
 from leizilla import wayback
 from leizilla.crawler import discover_casacivil_laws
 from leizilla.discovery import WaybackCdxDiscovery, parse_filename
+from leizilla.publisher import build_raw_meta
+from leizilla.scraper import scrape_one
 
 MANIFEST = (
     Path(__file__).resolve().parents[1] / "src" / "leizilla" / "manifests" / "ro.json"
@@ -96,6 +98,66 @@ class TestCdxSchemeNormalization:
         assert resources[0]["wayback_snapshot"].endswith(
             f"/http://{_BASE[len('https://') :]}/L5120.pdf"  # http snapshot preserved
         )
+
+
+class TestRawMetaProvenance:
+    """The Wayback timestamp must land in the serialized _meta.json sidecar, not be dropped."""
+
+    def test_timestamp_from_explicit_field(self):
+        meta = build_raw_meta(
+            {
+                "ente": "ro",
+                "fonte": "casacivil",
+                "chave": "lei-05120",
+                "wayback_timestamp": "20241208215859",
+            },
+            b"PDF",
+            "wayback",
+            wayback_url="http://web.archive.org/web/20241208215859/http://x/L5120.pdf",
+        )
+        assert meta["provenance_wayback"]["wayback_timestamp"] == "20241208215859"
+
+    def test_timestamp_derived_from_snapshot_url(self):
+        # No explicit field (e.g. the CLI scrape path) → derived from the snapshot URL.
+        meta = build_raw_meta(
+            {"ente": "ro", "fonte": "casacivil", "chave": "decreto-01000"},
+            b"PDF",
+            "wayback",
+            wayback_url="https://web.archive.org/web/20220903083131/http://x/D1000.pdf",
+        )
+        assert meta["provenance_wayback"]["wayback_timestamp"] == "20220903083131"
+
+    def test_timestamp_none_on_direct_fetch(self):
+        meta = build_raw_meta(
+            {"ente": "ro"}, b"PDF", "source-fallback", wayback_url=None
+        )
+        assert meta["provenance_wayback"]["wayback_timestamp"] is None
+
+
+class TestScrapeOneSnapshot:
+    def test_uses_pre_discovered_snapshot(self):
+        # A CDX-discovered http snapshot is used directly — scheme-sensitive
+        # check_available is bypassed, preserving the historical capture + its timestamp.
+        snap = "http://web.archive.org/web/20241208215859/http://ditel/L5120.pdf"
+        pub = MagicMock()
+        pub.upload_raw.return_value = {"success": True, "ia_id": "x", "ia_url": "u"}
+        with (
+            patch("leizilla.scraper.robots.is_allowed", return_value=True),
+            patch("leizilla.scraper.wayback.save_page"),
+            patch("leizilla.scraper.wayback.check_available") as check,
+            patch("leizilla.scraper.wayback.fetch_bytes", return_value=b"PDF") as fetch,
+        ):
+            result = scrape_one(
+                "https://ditel/",
+                "https://ditel/L5120.pdf",
+                {"ente": "ro", "fonte": "casacivil", "chave": "lei-05120"},
+                pub,
+                wayback_snapshot=snap,
+            )
+        assert result["success"]
+        check.assert_not_called()  # provided snapshot bypasses the availability lookup
+        fetch.assert_called_with(snap)  # fetched from the http-keyed capture
+        assert pub.upload_raw.call_args.kwargs["wayback_url"] == snap
 
 
 def _avail_response(snapshot: dict | None) -> bytes:

@@ -521,6 +521,10 @@ def cmd_scrape(
                                             "titulo": f"{tipo.upper()} {item['chave'].split('-')[-1]} ({ente.upper()})",
                                             "url_original": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/",
                                             "url_pdf_original": item["url"],
+                                            # captura http-keyed descoberta (provenance)
+                                            "wayback_snapshot": item.get(
+                                                "wayback_snapshot"
+                                            ),
                                         }
                                     )
                             except ValueError:
@@ -564,7 +568,13 @@ def cmd_scrape(
                         skipped_ok += 1
                         continue
                 result = scrape_one(
-                    fonte_url, pdf_url, law, publisher, rate_limiter, index_cache
+                    fonte_url,
+                    pdf_url,
+                    law,
+                    publisher,
+                    rate_limiter,
+                    index_cache,
+                    wayback_snapshot=law.get("wayback_snapshot"),
                 )
                 if result.get("success"):
                     echo(f"  OK: {result.get('ia_id', '?')}")

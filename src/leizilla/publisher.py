@@ -70,6 +70,23 @@ def _bundle_identifier(ente: str, fonte: str, dt: Optional[datetime] = None) -> 
     return f"leizilla-bundle-{ente}-{fonte}-{iso[0]}-W{iso[1]:02d}"
 
 
+def _wayback_timestamp(
+    lei_data: Dict[str, Any], wayback_url: Optional[str]
+) -> Optional[str]:
+    """Timestamp imutável da captura Wayback (chave de versão, ADR-0004).
+
+    Preferimos o valor explícito em ``lei_data`` (vindo do harvest), com fallback para a
+    extração da própria URL do snapshot — assim o ``_meta.json`` sempre carrega o instante
+    da captura, não a hora do upload.
+    """
+    from leizilla.wayback import snapshot_timestamp
+
+    explicit = lei_data.get("wayback_timestamp")
+    if explicit:
+        return str(explicit)
+    return snapshot_timestamp(wayback_url) if wayback_url else None
+
+
 def build_raw_meta(
     lei_data: Dict[str, Any],
     pdf_bytes: bytes,
@@ -94,6 +111,7 @@ def build_raw_meta(
         "provenance_wayback": {
             "fetched_from": fetched_from,
             "wayback_url": wayback_url,
+            "wayback_timestamp": _wayback_timestamp(lei_data, wayback_url),
             "wayback_blocked_robots": wayback_blocked_robots,
         },
     }
@@ -125,6 +143,7 @@ def build_raw_meta_html(
         "provenance_wayback": {
             "fetched_from": fetched_from,
             "wayback_url": wayback_url,
+            "wayback_timestamp": _wayback_timestamp(lei_data, wayback_url),
             "wayback_blocked_robots": wayback_blocked_robots,
         },
     }

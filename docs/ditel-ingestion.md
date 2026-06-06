@@ -84,9 +84,12 @@ no new format adapter (PDF is already handled), no Pydantic/structlog, no OPF.
   discovered URL's scheme to the manifest's** (https) so the http-keyed captures dedup
   against the sequential strategy's URLs (the resource ledger is keyed by literal URL) —
   the actual http snapshot is kept in `wayback_snapshot`.
-- carry the Wayback timestamp as provenance: `harvest` captures it explicitly (from the
-  resolved pair or recovered from a pre-discovered ledger URL via `snapshot_timestamp`) and
-  threads it into the raw-item metadata (`lei_data["wayback_timestamp"]`).
+- carry the Wayback timestamp as provenance, **serialized into the raw-item `_meta.json`**
+  (`provenance_wayback.wayback_timestamp`): `harvest` captures it explicitly (from the
+  resolved pair or recovered from a pre-discovered ledger URL via `snapshot_timestamp`);
+  `build_raw_meta` writes it, falling back to extracting it from the snapshot URL. The CLI
+  `scrape` path carries the CDX-discovered http snapshot into `scrape_one` so its historical
+  capture (and timestamp) is reused rather than lost to a scheme-sensitive lookup.
 - `cmd_scrape`: decreto support for the CLI range path.
 - tests: discovery URL generation (incl. decreto + https), `parse_filename` decreto, and the
   Wayback provenance helper, all offline (IO seams mocked/injectable).

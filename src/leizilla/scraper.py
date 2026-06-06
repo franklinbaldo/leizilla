@@ -26,6 +26,7 @@ def scrape_one(
     publisher: InternetArchivePublisher,
     rate_limiter: Optional[Callable[[str], None]] = None,
     index_cache: Optional[Dict[str, str]] = None,
+    wayback_snapshot: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Scrape um PDF: robots check → wayback save → fetch → upload_raw.
 
@@ -34,6 +35,9 @@ def scrape_one(
     rate_limiter recebe a URL do fallback para tracking por host.
     ``index_cache`` (acumulador por item do lote) repassa-se ao ``upload_raw``
     para evitar lost-update do index.csv entre uploads ao mesmo item de range.
+    ``wayback_snapshot`` é um snapshot pré-descoberto (ex.: CDX) usado preferencialmente
+    — preserva capturas http-keyed que ``check_available`` (scheme-sensitive) perderia
+    na URL normalizada https; o timestamp da captura serve de chave de versão (ADR-0004).
     """
     if not robots.is_allowed(fonte_url):
         return {"success": False, "reason": "robots-blocked", "url": fonte_url}
@@ -49,8 +53,9 @@ def scrape_one(
     except Exception:
         pass
 
-    # Wayback fetch (primário)
-    wb_url = wayback.check_available(pdf_url)
+    # Wayback fetch (primário): snapshot pré-descoberto (CDX) tem prioridade — preserva
+    # a captura http-keyed; senão consulta a API de disponibilidade.
+    wb_url = wayback_snapshot or wayback.check_available(pdf_url)
     fetched_from: str
     pdf_bytes: Optional[bytes]
 
