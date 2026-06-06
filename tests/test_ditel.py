@@ -108,28 +108,53 @@ class TestWaybackProvenance:
         ):
             assert wayback.closest_snapshot("http://ditel/x.pdf") is None
 
+    def test_closest_snapshot_tries_both_schemes(self):
+        # https query misses (DITEL captures are http-keyed); http query finds it.
+        hit = (
+            "http://web.archive.org/web/20241208215859/http://ditel/L5120.pdf",
+            "20241208215859",
+        )
+        with patch("leizilla.wayback._query_available", side_effect=[None, hit]) as q:
+            result = wayback.closest_snapshot("https://ditel/L5120.pdf")
+        assert result == hit
+        assert q.call_count == 2  # tried https, then flipped to http
+
+    def test_save_and_locate_reads_content_location(self):
+        resp = MagicMock()
+        resp.headers.get.return_value = "/web/20260606010101/https://ditel/x.pdf"
+        resp.geturl.return_value = "https://web.archive.org/save/https://ditel/x.pdf"
+        resp.__enter__ = lambda s: s
+        resp.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=resp):
+            result = wayback.save_and_locate("https://ditel/x.pdf")
+        assert result == (
+            "https://web.archive.org/web/20260606010101/https://ditel/x.pdf",
+            "20260606010101",
+        )
+
     def test_ensure_archived_reuses_existing_without_saving(self):
         existing = ("http://web.archive.org/web/2022/x", "20220101000000")
         with (
             patch("leizilla.wayback.closest_snapshot", return_value=existing),
-            patch("leizilla.wayback.save_page") as save,
+            patch("leizilla.wayback.save_and_locate") as save,
         ):
             assert wayback.ensure_archived("http://ditel/x.pdf") == existing
             save.assert_not_called()  # SPN-first means "don't re-archive what exists"
 
-    def test_ensure_archived_saves_then_resolves_when_missing(self):
-        saved = ("http://web.archive.org/web/2026/x", "20260101000000")
+    def test_ensure_archived_saves_and_locates_from_response(self):
+        # SPN exposes the snapshot asynchronously → we read it from the save response.
+        saved = ("https://web.archive.org/web/2026/x", "20260101000000")
         with (
-            patch("leizilla.wayback.closest_snapshot", side_effect=[None, saved]),
-            patch("leizilla.wayback.save_page", return_value=True) as save,
+            patch("leizilla.wayback.closest_snapshot", return_value=None),
+            patch("leizilla.wayback.save_and_locate", return_value=saved) as save,
         ):
             assert wayback.ensure_archived("http://ditel/x.pdf") == saved
             save.assert_called_once()
 
     def test_ensure_archived_none_when_save_and_lookup_fail(self):
         with (
-            patch("leizilla.wayback.closest_snapshot", side_effect=[None, None]),
-            patch("leizilla.wayback.save_page", return_value=False),
+            patch("leizilla.wayback.closest_snapshot", return_value=None),
+            patch("leizilla.wayback.save_and_locate", return_value=None),
         ):
             assert wayback.ensure_archived("http://ditel/x.pdf") is None
 

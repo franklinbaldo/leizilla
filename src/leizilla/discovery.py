@@ -5,6 +5,7 @@ Lê manifestos declarativos por ente e popula a tabela de discovered_resources.
 
 import json
 import logging
+import re
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -54,7 +55,11 @@ class WaybackCdxDiscovery(DiscoveryStrategy):
 
     def run(self) -> List[Dict[str, Any]]:
         logger.info(f"Rodando Wayback CDX Discovery para {self.ente}/{self.fonte}...")
-        url = f"https://web.archive.org/cdx/search/cdx?url={urllib.parse.quote(self.prefix)}&matchType=prefix&output=json"
+        # Consulta sem esquema (urlkey é SURT, scheme-agnóstico): casa capturas http E
+        # https — as históricas da DITEL são http-keyed, o download ao vivo é https
+        # (Codex P1). Sem isto, um prefixo só-https perderia os snapshots antigos.
+        prefix_key = re.sub(r"^https?://", "", self.prefix)
+        url = f"https://web.archive.org/cdx/search/cdx?url={urllib.parse.quote(prefix_key)}&matchType=prefix&output=json"
         req = urllib.request.Request(
             url, headers={"User-Agent": "leizilla-crawler/0.1"}
         )

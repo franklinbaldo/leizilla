@@ -75,10 +75,15 @@ no new format adapter (PDF is already handled), no Pydantic/structlog, no OPF.
   the wayback-cdx prefix.
 - `crawler.py`: `_CASACIVIL_*` base URLs → `https`; `discover_casacivil_laws` accepts
   `decreto` (prefix `D`).
-- `wayback.py`: a provenance helper returning the **closest snapshot (URL + timestamp),
-  any age**, plus save-then-resolve — so the harvest reuses an existing archive and records
-  its timestamp; SPN when none exists.
-- carry the Wayback timestamp as provenance into the scrape ledger / parsed metadata.
+- `wayback.py`: provenance helpers — `closest_snapshot` returns **(URL + timestamp), any
+  age, querying both http and https** (the availability API is scheme-sensitive and DITEL's
+  historical captures are http-keyed while live downloads need https); `ensure_archived` is
+  SPN-first and reads the new snapshot **from the Save-Page-Now response** (`Content-Location`)
+  rather than an immediate re-query (SPN exposes snapshots asynchronously). CDX discovery
+  queries scheme-agnostically (SURT urlkey) for the same reason.
+- carry the Wayback timestamp as provenance: `harvest` captures it explicitly (from the
+  resolved pair or recovered from a pre-discovered ledger URL via `snapshot_timestamp`) and
+  threads it into the raw-item metadata (`lei_data["wayback_timestamp"]`).
 - `cmd_scrape`: decreto support for the CLI range path.
 - tests: discovery URL generation (incl. decreto + https), `parse_filename` decreto, and the
   Wayback provenance helper, all offline (IO seams mocked/injectable).
