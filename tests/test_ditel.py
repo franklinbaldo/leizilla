@@ -132,3 +132,16 @@ class TestWaybackProvenance:
             patch("leizilla.wayback.save_page", return_value=False),
         ):
             assert wayback.ensure_archived("http://ditel/x.pdf") is None
+
+    def test_snapshot_timestamp_extracted_from_url(self):
+        url = "http://web.archive.org/web/20220903083131/http://ditel/D1.pdf"
+        assert wayback.snapshot_timestamp(url) == "20220903083131"
+
+    def test_snapshot_timestamp_handles_modifier_suffix(self):
+        # Wayback URLs may carry a modifier like /web/<ts>id_/<orig>.
+        url = "https://web.archive.org/web/20241208221945id_/https://ditel/L5121.pdf"
+        assert wayback.snapshot_timestamp(url) == "20241208221945"
+
+    def test_snapshot_timestamp_none_for_non_wayback(self):
+        assert wayback.snapshot_timestamp("https://ditel/L5121.pdf") is None
+        assert wayback.snapshot_timestamp("") is None

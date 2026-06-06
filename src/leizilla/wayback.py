@@ -5,6 +5,7 @@ direto se Wayback falhar.
 """
 
 import json
+import re
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -16,6 +17,19 @@ _USER_AGENT = (
     "leizilla-crawler/0.1 (legal-indexer; https://github.com/franklinbaldo/leizilla)"
 )
 _MAX_AGE_SECONDS = 24 * 3600
+
+# A Wayback snapshot URL embeds its capture timestamp: …/web/<YYYYMMDDhhmmss>/<orig>.
+_SNAPSHOT_TS_RE = re.compile(r"/web/(\d{14})(?:[a-z_]*)?/")
+
+
+def snapshot_timestamp(snapshot_url: str) -> Optional[str]:
+    """Extrai o timestamp ``YYYYMMDDHHMMSS`` de uma URL de snapshot Wayback, ou ``None``.
+
+    Permite recuperar a chave de versão de proveniência quando só se tem a URL do snapshot
+    (ex.: pré-descoberta no ledger ``discovered_resources``), sem nova consulta à API.
+    """
+    m = _SNAPSHOT_TS_RE.search(snapshot_url or "")
+    return m.group(1) if m else None
 
 
 def check_available(url: str, max_age_seconds: int = _MAX_AGE_SECONDS) -> Optional[str]:

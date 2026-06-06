@@ -207,14 +207,16 @@ def harvest_pending_resources(
             stats["robots-blocked"] += 1
             continue
 
-        # Se não temos snapshot pré-descoberto, resolve via Wayback com proveniência:
-        # SPN-first, reusa QUALQUER captura existente (ensure_archived) — a URL do
-        # snapshot carrega o timestamp imutável que serve de chave de versão (ADR-0004,
-        # docs/ditel-ingestion.md).
+        # Resolve via Wayback com proveniência: SPN-first, reusa QUALQUER captura
+        # existente (ensure_archived). O timestamp do snapshot é a chave de versão
+        # imutável (ADR-0004, docs/ditel-ingestion.md) — preservado explicitamente, não
+        # descartado: vem do par (url, ts) quando resolvido agora, ou é extraído da URL
+        # do snapshot pré-descoberto no ledger.
+        wb_ts: Optional[str] = wayback.snapshot_timestamp(wb_url) if wb_url else None
         if not wb_url:
             snap = wayback.ensure_archived(url)
             if snap is not None:
-                wb_url = snap[0]
+                wb_url, wb_ts = snap
 
         pdf_bytes = None
         fetched_from = "source-fallback"
@@ -229,6 +231,7 @@ def harvest_pending_resources(
             pdf_bytes = wayback.fetch_bytes(url)
             fetched_from = "source-fallback"
             wb_url = None
+            wb_ts = None
 
         if pdf_bytes is None:
             storage.update_resource_status(url, "failed")
@@ -250,6 +253,9 @@ def harvest_pending_resources(
             "chave": chave,
             "titulo": f"{tipo.upper()} {chave} ({ente.upper()})",
             "url_original": url,  # proveniência: mapeia o arquivo → fonte (ADR-0010)
+            # chave de versão de proveniência (ADR-0004): o instante da captura Wayback
+            # que materializa "a norma como estava" naquela data.
+            "wayback_timestamp": wb_ts,
         }
 
         try:
