@@ -21,6 +21,15 @@ def test_parse_filename():
     assert parse_filename("D9.pdf") == ("decreto", "decreto-00009")
     assert parse_filename("L100012.pdf") == ("lei", "lei-100012")
     assert parse_filename("invalid_name.pdf") == (None, None)
+    # New tipos
+    assert parse_filename("EC10.pdf") == ("ec", "ec-00010")
+    assert parse_filename("Res50.pdf") == ("resolucao", "resolucao-00050")
+    assert parse_filename("Port100.pdf") == ("portaria", "portaria-00100")
+    assert parse_filename("DEC1026.pdf") == ("decreto", "decreto-01026")
+    assert parse_filename("DL11.pdf") == ("decreto-lei", "decreto-lei-00011")
+    # Port must not match P alone or conflict with LC/L prefix ordering
+    assert parse_filename("LC5.pdf") == ("lc", "lc-00005")  # not "l"
+    assert parse_filename("EC1.PDF") == ("ec", "ec-00001")  # case insensitive
 
 
 def test_load_manifest():
@@ -54,6 +63,31 @@ def test_sequential_discovery():
     assert resources[0]["fonte"] == "casacivil"
     assert resources[0]["tipo_documento"] == "lei"
     assert resources[0]["chave"] == "lei-00001"
+
+
+def test_sequential_discovery_head_check():
+    """SequentialDiscovery with head_check=True only includes URLs that pass HEAD."""
+    config = {
+        "strategy": "sequential",
+        "templates": ["http://example.com/Files/D{num}.pdf"],
+        "start": 1,
+        "end": 5,
+        "head_check": True,
+    }
+
+    # Simulate: only D2 and D4 exist
+    def fake_head(url: str, timeout: float = 10.0) -> bool:
+        return any(f"/D{n}.pdf" in url for n in [2, 4])
+
+    with patch("leizilla.discovery._head_exists", side_effect=fake_head):
+        discoverer = SequentialDiscovery(config, "ro", "casacivil")
+        resources = discoverer.run()
+
+    assert len(resources) == 2
+    urls = [r["url"] for r in resources]
+    assert "http://example.com/Files/D2.pdf" in urls
+    assert "http://example.com/Files/D4.pdf" in urls
+    assert all(r["tipo_documento"] == "decreto" for r in resources)
 
 
 def test_wayback_cdx_discovery():
@@ -152,8 +186,9 @@ def test_run_discovery(temp_db):
     ):
         total = run_discovery("ro", temp_db)
 
-    # casacivil: 1 cdx + 2 sequential (lei + lc) = 3; playwright returns 0
-    assert total == 3
+    # casacivil: 1 cdx + 8 sequential strategies (each mocked to return 1 item) = 9
+    assert total == 9
+
     pending = temp_db.get_pending_resources()
     assert len(pending) == 2  # lei-00001 (cdx) + lei-00002 (sequential, deduplicated)
     urls = [p["url"] for p in pending]
