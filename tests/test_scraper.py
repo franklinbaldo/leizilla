@@ -15,6 +15,7 @@ _LEI = {
 _FONTE_URL = "https://www.al.ro.leg.br/legislacao/leis/1"
 _PDF_URL = "https://www.al.ro.leg.br/legislacao/leis/1.pdf"
 _WB_URL = "https://web.archive.org/web/20260101000000/" + _PDF_URL
+_WB_TS = "20260101000000"
 _PDF_BYTES = b"%PDF-fake"
 
 
@@ -46,7 +47,7 @@ class TestScrapeOne:
         result = scrape_one(_FONTE_URL, _PDF_URL, _LEI, _make_publisher())
         assert result == {"success": False, "reason": "robots-blocked", "url": _PDF_URL}
 
-    @patch("leizilla.scraper.wayback.check_available", return_value=_WB_URL)
+    @patch("leizilla.scraper.wayback.ensure_archived", return_value=(_WB_URL, _WB_TS))
     @patch("leizilla.scraper.wayback.fetch_bytes", return_value=_PDF_BYTES)
     @patch("leizilla.scraper.wayback.save_page", return_value=True)
     @patch("leizilla.scraper.robots.is_allowed", return_value=True)
@@ -58,7 +59,7 @@ class TestScrapeOne:
         assert call_kwargs.kwargs["fetched_from"] == "wayback"
         assert call_kwargs.kwargs["wayback_url"] == _WB_URL
 
-    @patch("leizilla.scraper.wayback.check_available", return_value=None)
+    @patch("leizilla.scraper.wayback.ensure_archived", return_value=None)
     @patch("leizilla.scraper.wayback.fetch_bytes", return_value=_PDF_BYTES)
     @patch("leizilla.scraper.wayback.save_page", return_value=False)
     @patch("leizilla.scraper.robots.is_allowed", return_value=True)
@@ -70,7 +71,7 @@ class TestScrapeOne:
         assert call_kwargs.kwargs["fetched_from"] == "source-fallback"
         assert call_kwargs.kwargs["wayback_url"] is None
 
-    @patch("leizilla.scraper.wayback.check_available", return_value=None)
+    @patch("leizilla.scraper.wayback.ensure_archived", return_value=None)
     @patch("leizilla.scraper.wayback.fetch_bytes", return_value=None)
     @patch("leizilla.scraper.wayback.save_page", return_value=False)
     @patch("leizilla.scraper.robots.is_allowed", return_value=True)
@@ -80,7 +81,7 @@ class TestScrapeOne:
         assert result == {"success": False, "reason": "fetch-failed", "url": _PDF_URL}
         pub.upload_raw.assert_not_called()
 
-    @patch("leizilla.scraper.wayback.check_available", return_value=_WB_URL)
+    @patch("leizilla.scraper.wayback.ensure_archived", return_value=(_WB_URL, _WB_TS))
     @patch("leizilla.scraper.wayback.fetch_bytes", return_value=_PDF_BYTES)
     @patch("leizilla.scraper.wayback.save_page", return_value=True)
     @patch("leizilla.scraper.robots.is_allowed", return_value=True)
@@ -92,7 +93,7 @@ class TestScrapeOne:
         assert result["success"] is False
         assert "error" in result
 
-    @patch("leizilla.scraper.wayback.check_available", return_value=_WB_URL)
+    @patch("leizilla.scraper.wayback.ensure_archived", return_value=(_WB_URL, _WB_TS))
     @patch("leizilla.scraper.wayback.fetch_bytes", side_effect=[None, _PDF_BYTES])
     @patch("leizilla.scraper.wayback.save_page", return_value=True)
     @patch("leizilla.scraper.robots.is_allowed", return_value=True)
@@ -106,7 +107,7 @@ class TestScrapeOne:
         call_kwargs = pub.upload_raw.call_args
         assert call_kwargs.kwargs["fetched_from"] == "source-fallback"
 
-    @patch("leizilla.scraper.wayback.check_available", return_value=None)
+    @patch("leizilla.scraper.wayback.ensure_archived", return_value=None)
     @patch("leizilla.scraper.wayback.fetch_bytes", return_value=_PDF_BYTES)
     @patch("leizilla.scraper.wayback.save_page", return_value=False)
     @patch("leizilla.scraper.robots.is_allowed", return_value=True)

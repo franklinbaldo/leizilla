@@ -26,6 +26,7 @@ def scrape_one(
     publisher: InternetArchivePublisher,
     rate_limiter: Optional[Callable[[str], None]] = None,
     index_cache: Optional[Dict[str, str]] = None,
+    wayback_snapshot: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Scrape um PDF: robots check → wayback save → fetch → upload_raw.
 
@@ -34,23 +35,33 @@ def scrape_one(
     rate_limiter recebe a URL do fallback para tracking por host.
     ``index_cache`` (acumulador por item do lote) repassa-se ao ``upload_raw``
     para evitar lost-update do index.csv entre uploads ao mesmo item de range.
+    ``wayback_snapshot`` é um snapshot pré-descoberto (ex.: CDX) usado preferencialmente
+    — preserva capturas http-keyed que ``check_available`` (scheme-sensitive) perderia
+    na URL normalizada https; o timestamp da captura serve de chave de versão (ADR-0004).
     """
     if not robots.is_allowed(fonte_url):
         return {"success": False, "reason": "robots-blocked", "url": fonte_url}
     if not robots.is_allowed(pdf_url):
         return {"success": False, "reason": "robots-blocked", "url": pdf_url}
 
-    # Wayback save — fire-and-forget; exceções swallowadas explicitamente
-    # para que falhas de rede (DNS, timeout) não abortem o scrape
-    # das URLs que importam (fetch + upload).
+    # Wayback save do índice/fonte — fire-and-forget; exceções swallowadas para que
+    # falhas de rede não abortem fetch+upload. A captura do PDF em si é feita por
+    # ensure_archived abaixo (que lê o snapshot da resposta do save).
     try:
         wayback.save_page(fonte_url)
-        wayback.save_page(pdf_url)
     except Exception:
         pass
 
-    # Wayback fetch (primário)
-    wb_url = wayback.check_available(pdf_url)
+    # Resolução do snapshot com proveniência: um snapshot pré-descoberto (CDX) tem
+    # prioridade; senão ensure_archived (SPN-first, dual-scheme, lê a resposta do save —
+    # não a re-consulta imediata que o SPN assíncrono não satisfaz). Vale também para o
+    # caminho sequencial/não-arquivado da CLI, não só para itens já no CDX.
+    wb_url: Optional[str]
+    if wayback_snapshot:
+        wb_url = wayback_snapshot
+    else:
+        snap = wayback.ensure_archived(pdf_url)
+        wb_url = snap[0] if snap is not None else None
     fetched_from: str
     pdf_bytes: Optional[bytes]
 
@@ -207,9 +218,16 @@ def harvest_pending_resources(
             stats["robots-blocked"] += 1
             continue
 
-        # Se não temos snapshot pré-descoberto, tenta Wayback Machine
+        # Resolve via Wayback com proveniência: SPN-first, reusa QUALQUER captura
+        # existente (ensure_archived). O timestamp do snapshot é a chave de versão
+        # imutável (ADR-0004, docs/ditel-ingestion.md) — preservado explicitamente, não
+        # descartado: vem do par (url, ts) quando resolvido agora, ou é extraído da URL
+        # do snapshot pré-descoberto no ledger.
+        wb_ts: Optional[str] = wayback.snapshot_timestamp(wb_url) if wb_url else None
         if not wb_url:
-            wb_url = wayback.check_available(url)
+            snap = wayback.ensure_archived(url)
+            if snap is not None:
+                wb_url, wb_ts = snap
 
         pdf_bytes = None
         fetched_from = "source-fallback"
@@ -224,6 +242,7 @@ def harvest_pending_resources(
             pdf_bytes = wayback.fetch_bytes(url)
             fetched_from = "source-fallback"
             wb_url = None
+            wb_ts = None
 
         if pdf_bytes is None:
             storage.update_resource_status(url, "failed")
@@ -245,6 +264,9 @@ def harvest_pending_resources(
             "chave": chave,
             "titulo": f"{tipo.upper()} {chave} ({ente.upper()})",
             "url_original": url,  # proveniência: mapeia o arquivo → fonte (ADR-0010)
+            # chave de versão de proveniência (ADR-0004): o instante da captura Wayback
+            # que materializa "a norma como estava" naquela data.
+            "wayback_timestamp": wb_ts,
         }
 
         try:

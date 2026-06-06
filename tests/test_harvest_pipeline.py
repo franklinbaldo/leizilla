@@ -250,7 +250,7 @@ class TestHarvestPendingResources:
 
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.check_available", return_value=None),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch("leizilla.scraper.wayback.fetch_bytes", return_value=None),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=10)
@@ -269,13 +269,60 @@ class TestHarvestPendingResources:
 
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.check_available", return_value=None),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch("leizilla.scraper.wayback.fetch_bytes", return_value=b"PDF_CONTENT"),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=10)
 
         assert stats["success"] == 1
         pub.upload_raw.assert_called_once()
+
+    def test_wayback_timestamp_threaded_into_upload(
+        self, temp_db: DuckDBStorage
+    ) -> None:
+        # The provenance key (snapshot timestamp) must reach upload_raw, not be discarded.
+        from leizilla.scraper import harvest_pending_resources
+
+        temp_db.insert_resource(_make_resource())
+        pub = MagicMock()
+        pub.upload_raw.return_value = {"success": True, "ia_url": "https://ia/x"}
+        snap = (
+            "http://web.archive.org/web/20220903083131/http://x/lei.pdf",
+            "20220903083131",
+        )
+
+        with (
+            patch("leizilla.scraper.robots.is_allowed", return_value=True),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=snap),
+            patch("leizilla.scraper.wayback.fetch_bytes", return_value=b"PDF"),
+        ):
+            harvest_pending_resources(temp_db, pub, limit=10)
+
+        lei_data = pub.upload_raw.call_args.args[1]
+        assert lei_data["wayback_timestamp"] == "20220903083131"
+
+    def test_predicovered_snapshot_timestamp_recovered_from_url(
+        self, temp_db: DuckDBStorage
+    ) -> None:
+        # A pre-discovered ledger snapshot URL still yields its provenance timestamp.
+        from leizilla.scraper import harvest_pending_resources
+
+        res = _make_resource()
+        res["wayback_snapshot"] = (
+            "http://web.archive.org/web/20241208221945/http://x/lei.pdf"
+        )
+        temp_db.insert_resource(res)
+        pub = MagicMock()
+        pub.upload_raw.return_value = {"success": True, "ia_url": "https://ia/x"}
+
+        with (
+            patch("leizilla.scraper.robots.is_allowed", return_value=True),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
+            patch("leizilla.scraper.wayback.fetch_bytes", return_value=b"PDF"),
+        ):
+            harvest_pending_resources(temp_db, pub, limit=10)
+
+        assert pub.upload_raw.call_args.args[1]["wayback_timestamp"] == "20241208221945"
 
     def test_limit_respected(self, temp_db: DuckDBStorage) -> None:
         from leizilla.scraper import harvest_pending_resources
@@ -288,7 +335,7 @@ class TestHarvestPendingResources:
         pub = MagicMock()
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.check_available", return_value=None),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch("leizilla.scraper.wayback.fetch_bytes", return_value=None),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=2)

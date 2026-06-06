@@ -5,6 +5,7 @@ Lê manifestos declarativos por ente e popula a tabela de discovered_resources.
 
 import json
 import logging
+import re
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -49,12 +50,21 @@ class WaybackCdxDiscovery(DiscoveryStrategy):
 
     def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
         self.prefix = config["prefix"]
+        # Esquema canônico (do manifesto): normalizamos as URLs descobertas para ele de
+        # modo que casem com as da estratégia sequencial — discovered_resources é keyed
+        # pela URL literal, então http://…/L1.pdf e https://…/L1.pdf seriam duas linhas
+        # (mesma norma colhida duas vezes). O snapshot http real fica em wayback_snapshot.
+        self.canonical_scheme = "https" if self.prefix.startswith("https") else "http"
         self.ente = ente
         self.fonte = fonte
 
     def run(self) -> List[Dict[str, Any]]:
         logger.info(f"Rodando Wayback CDX Discovery para {self.ente}/{self.fonte}...")
-        url = f"https://web.archive.org/cdx/search/cdx?url={urllib.parse.quote(self.prefix)}&matchType=prefix&output=json"
+        # Consulta sem esquema (urlkey é SURT, scheme-agnóstico): casa capturas http E
+        # https — as históricas da DITEL são http-keyed, o download ao vivo é https
+        # (Codex P1). Sem isto, um prefixo só-https perderia os snapshots antigos.
+        prefix_key = re.sub(r"^https?://", "", self.prefix)
+        url = f"https://web.archive.org/cdx/search/cdx?url={urllib.parse.quote(prefix_key)}&matchType=prefix&output=json"
         req = urllib.request.Request(
             url, headers={"User-Agent": "leizilla-crawler/0.1"}
         )
@@ -88,10 +98,15 @@ class WaybackCdxDiscovery(DiscoveryStrategy):
                     # _unidentified. O harvest key (nome do arquivo) fica preservado.
                     tipo, chave = "", f"documento-{filename.rsplit('.', 1)[0]}"
 
+                # snapshot real (preserva o esquema arquivado, p.ex. http); a chave de
+                # dedup (url) é normalizada para o esquema canônico do manifesto.
                 wayback_url = f"https://web.archive.org/web/{timestamp}/{orig_url}"
+                dedup_url = re.sub(
+                    r"^https?://", f"{self.canonical_scheme}://", orig_url
+                )
                 resources.append(
                     {
-                        "url": orig_url,
+                        "url": dedup_url,
                         "ente": self.ente,
                         "fonte": self.fonte,
                         "tipo_documento": tipo,

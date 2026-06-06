@@ -56,8 +56,9 @@ class TestDiscoverCasacivilLaws:
         assert laws == []
 
     def test_invalid_tipo_raises(self) -> None:
+        # decreto is now valid (lei/lc/decreto); only genuinely unknown types raise.
         with pytest.raises(ValueError, match="tipo deve ser"):
-            discover_casacivil_laws(tipo="decreto", start_num=1, end_num=1)
+            discover_casacivil_laws(tipo="portaria", start_num=1, end_num=1)
 
     def test_titulo_lei(self) -> None:
         laws = discover_casacivil_laws(tipo="lei", start_num=3830, end_num=3830)

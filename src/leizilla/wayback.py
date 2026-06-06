@@ -5,10 +5,11 @@ direto se Wayback falhar.
 """
 
 import json
+import re
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Tuple
 
 _AVAILABILITY_API = "https://archive.org/wayback/available"
 _SAVE_URL_TMPL = "https://web.archive.org/save/{}"
@@ -16,6 +17,19 @@ _USER_AGENT = (
     "leizilla-crawler/0.1 (legal-indexer; https://github.com/franklinbaldo/leizilla)"
 )
 _MAX_AGE_SECONDS = 24 * 3600
+
+# A Wayback snapshot URL embeds its capture timestamp: …/web/<YYYYMMDDhhmmss>/<orig>.
+_SNAPSHOT_TS_RE = re.compile(r"/web/(\d{14})(?:[a-z_]*)?/")
+
+
+def snapshot_timestamp(snapshot_url: str) -> Optional[str]:
+    """Extrai o timestamp ``YYYYMMDDHHMMSS`` de uma URL de snapshot Wayback, ou ``None``.
+
+    Permite recuperar a chave de versão de proveniência quando só se tem a URL do snapshot
+    (ex.: pré-descoberta no ledger ``discovered_resources``), sem nova consulta à API.
+    """
+    m = _SNAPSHOT_TS_RE.search(snapshot_url or "")
+    return m.group(1) if m else None
 
 
 def check_available(url: str, max_age_seconds: int = _MAX_AGE_SECONDS) -> Optional[str]:
@@ -50,6 +64,107 @@ def check_available(url: str, max_age_seconds: int = _MAX_AGE_SECONDS) -> Option
     except ValueError:
         pass
     return None
+
+
+def _flip_scheme(url: str) -> Optional[str]:
+    """http↔https variant of ``url`` (or ``None`` if it has no http(s) scheme)."""
+    if url.startswith("https://"):
+        return "http://" + url[len("https://") :]
+    if url.startswith("http://"):
+        return "https://" + url[len("http://") :]
+    return None
+
+
+def _query_available(url: str) -> Optional[Tuple[str, str]]:
+    """One availability-API call → ``(snapshot_url, timestamp)`` for a 200 closest, or None."""
+    try:
+        api_url = f"{_AVAILABILITY_API}?url={urllib.parse.quote(url, safe='')}"
+        req = urllib.request.Request(api_url)
+        req.add_header("User-Agent", _USER_AGENT)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data: dict = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+    snapshot = data.get("archived_snapshots", {}).get("closest", {})
+    if not snapshot or snapshot.get("status") != "200":
+        return None
+    snap_url = str(snapshot.get("url", ""))
+    timestamp = str(snapshot.get("timestamp", ""))
+    if not snap_url or not timestamp:
+        return None
+    return snap_url, timestamp
+
+
+def closest_snapshot(url: str) -> Optional[Tuple[str, str]]:
+    """Retorna ``(snapshot_url, timestamp)`` da captura 200 mais próxima — **qualquer idade**.
+
+    Diferente de :func:`check_available` (que exige um snapshot fresco, < 24 h), serve à
+    **proveniência**: reusa uma captura já existente (mesmo antiga) como chave de versão
+    imutável (ADR-0004). O ``timestamp`` é ``YYYYMMDDHHMMSS``. ``None`` se não há captura.
+
+    A API de disponibilidade é **sensível ao esquema** (http vs https são chaves distintas);
+    as capturas históricas da DITEL são chaveadas em ``http`` enquanto o download ao vivo
+    exige ``https`` (WAF). Por isso consultamos **ambos os esquemas** e reusamos a primeira
+    captura 200 encontrada — senão perderíamos os snapshots históricos (Codex P1).
+    """
+    for candidate in (url, _flip_scheme(url)):
+        if candidate:
+            found = _query_available(candidate)
+            if found is not None:
+                return found
+    return None
+
+
+def save_and_locate(url: str, timeout: int = 90) -> Optional[Tuple[str, str]]:
+    """Dispara Save Page Now e devolve ``(snapshot_url, timestamp)`` da captura recém-feita.
+
+    Save Page Now **expõe o snapshot de forma assíncrona** — uma re-consulta imediata à API
+    de disponibilidade quase sempre retorna ``None`` (Codex P1). Em vez de poll, lemos a
+    própria resposta do SPN: o snapshot recém-criado aparece no header ``Content-Location``
+    (``/web/<ts>/<orig>``) ou na URL final após o redirect. ``None`` se o save falhar ou não
+    expuser um snapshot (fail-open).
+    """
+    save_url = _SAVE_URL_TMPL.format(urllib.parse.quote(url, safe=":/"))
+    req = urllib.request.Request(save_url)
+    req.add_header("User-Agent", _USER_AGENT)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            content_location = resp.headers.get("Content-Location", "") or ""
+            final_url = resp.geturl() or ""
+    except Exception:
+        return None
+
+    for candidate in (content_location, final_url):
+        ts = snapshot_timestamp(candidate)
+        if ts:
+            snap_url = (
+                candidate
+                if candidate.startswith("http")
+                else f"https://web.archive.org{candidate}"
+            )
+            return snap_url, ts
+    return None
+
+
+def ensure_archived(url: str, timeout: int = 90) -> Optional[Tuple[str, str]]:
+    """Garante uma captura Wayback e devolve ``(snapshot_url, timestamp)``, ou ``None``.
+
+    Política **SPN-first, reusa qualquer snapshot** (decisão de proveniência da DITEL,
+    docs/ditel-ingestion.md):
+    1. reusa uma captura existente (qualquer idade, **ambos os esquemas**) sem re-arquivar;
+    2. senão, dispara Save Page Now e lê o snapshot **da resposta do save**
+       (:func:`save_and_locate`) — sem depender de re-consulta imediata, que o SPN
+       assíncrono não satisfaz (Codex P1);
+    3. último recurso, re-consulta a disponibilidade.
+    Fail-open: ``None`` → o chamador cai no fetch direto (princípio #9).
+    """
+    existing = closest_snapshot(url)
+    if existing is not None:
+        return existing
+    located = save_and_locate(url, timeout=timeout)
+    if located is not None:
+        return located
+    return closest_snapshot(url)
 
 
 def save_page(url: str, timeout: int = 60) -> bool:

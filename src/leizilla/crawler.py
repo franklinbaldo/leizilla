@@ -14,8 +14,10 @@ from playwright.async_api import Browser, Page, async_playwright
 
 from leizilla import config
 
-_CASACIVIL_FILES_BASE = "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files"
-_CASACIVIL_FONTE_URL = "http://ditel.casacivil.ro.gov.br/COTEL/Livros/"
+# HTTPS only — DITEL's WAF returns 403 ("Request Rejected") on plain http (verified
+# 2026-06; born-digital PDFs served over https). See docs/ditel-ingestion.md.
+_CASACIVIL_FILES_BASE = "https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files"
+_CASACIVIL_FONTE_URL = "https://ditel.casacivil.ro.gov.br/COTEL/Livros/"
 
 # Tipos normativos reconhecíveis no título de uma página de norma, do mais
 # específico para o mais genérico (ordem importa: "lei complementar" antes de
@@ -65,23 +67,33 @@ def parse_titulo_identity(titulo: str) -> Optional[Tuple[str, int]]:
     return tipo, numero
 
 
+# DITEL filename prefix + human label per normative type (Casa Civil COTEL).
+_CASACIVIL_TIPOS: Dict[str, Tuple[str, str]] = {
+    "lei": ("L", "Lei"),
+    "lc": ("LC", "Lei Complementar"),
+    "decreto": ("D", "Decreto"),
+}
+
+
 def discover_casacivil_laws(
     tipo: str = "lei",
     start_num: int = 1,
     end_num: int = 100,
 ) -> List[Dict[str, Any]]:
-    """Enumera leis da Casa Civil de Rondônia por número sequencial.
+    """Enumera leis e decretos da Casa Civil de Rondônia por número sequencial.
 
-    Não usa Playwright — PDFs disponíveis diretamente via HTTP sem JS.
+    Não usa Playwright — PDFs disponíveis diretamente via HTTPS sem JS.
     URL pattern: ditel.casacivil.ro.gov.br/COTEL/Livros/Files/{prefix}{N}.pdf
-      tipo="lei" → prefix "L"  (leis ordinárias)
-      tipo="lc"  → prefix "LC" (leis complementares)
+      tipo="lei"     → prefix "L"  (leis ordinárias)
+      tipo="lc"      → prefix "LC" (leis complementares)
+      tipo="decreto" → prefix "D"  (decretos)
 
     Não verifica existência aqui — scrape_one resolve via Wayback/direct e
     falha graciosamente se o arquivo não existir.
     """
-    if tipo not in ("lei", "lc"):
-        raise ValueError(f"tipo deve ser 'lei' ou 'lc', recebeu '{tipo}'")
+    if tipo not in _CASACIVIL_TIPOS:
+        valid = ", ".join(sorted(_CASACIVIL_TIPOS))
+        raise ValueError(f"tipo deve ser um de {{{valid}}}, recebeu '{tipo}'")
 
     if start_num > end_num:
         logging.getLogger(__name__).warning(
@@ -90,8 +102,7 @@ def discover_casacivil_laws(
             end_num,
         )
 
-    prefix = "L" if tipo == "lei" else "LC"
-    nome = "Lei Complementar" if tipo == "lc" else "Lei"
+    prefix, nome = _CASACIVIL_TIPOS[tipo]
     laws: List[Dict[str, Any]] = []
 
     for num in range(start_num, end_num + 1):
