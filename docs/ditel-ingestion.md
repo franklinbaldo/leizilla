@@ -97,6 +97,15 @@ no new format adapter (PDF is already handled), no Pydantic/structlog, no OPF.
 - tests: discovery URL generation (incl. decreto + https), `parse_filename` decreto, and the
   Wayback provenance helper, all offline (IO seams mocked/injectable).
 
+**Upgrade note (http→https ledger).** Changing the templates from `http://` to `https://`
+changes the literal URL that keys `discovered_resources`, so in principle an *existing* DB
+populated from the old templates would carry stale http rows alongside the new https ones
+(`insert_resource` is `INSERT OR IGNORE`). This does **not** apply here: ingestion has never
+run (IA has 0 `leizilla-raw-ro` items), the local DuckDB is gitignored, and the scheduled
+workflows run in ephemeral containers that rebuild the ledger from the current manifest each
+run — there is nothing to migrate. If a real ledger is ever carried across this change, drop
+`discovered_resources` (it's a rebuildable cache) or reconcile the old keys by `chave`.
+
 **Phase 2 — run a small real batch & verify:** the **fetch** stage runs here (Wayback/direct,
 no creds); **IA upload + IA OCR + Claude parse + Parquet** require `IA_*` / `ANTHROPIC_API_KEY`
 and so run in the **scheduled GitHub Actions** (`discover-harvest.yml`, `parse-release.yml`),
