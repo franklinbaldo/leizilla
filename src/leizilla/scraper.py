@@ -44,18 +44,24 @@ def scrape_one(
     if not robots.is_allowed(pdf_url):
         return {"success": False, "reason": "robots-blocked", "url": pdf_url}
 
-    # Wayback save — fire-and-forget; exceções swallowadas explicitamente
-    # para que falhas de rede (DNS, timeout) não abortem o scrape
-    # das URLs que importam (fetch + upload).
+    # Wayback save do índice/fonte — fire-and-forget; exceções swallowadas para que
+    # falhas de rede não abortem fetch+upload. A captura do PDF em si é feita por
+    # ensure_archived abaixo (que lê o snapshot da resposta do save).
     try:
         wayback.save_page(fonte_url)
-        wayback.save_page(pdf_url)
     except Exception:
         pass
 
-    # Wayback fetch (primário): snapshot pré-descoberto (CDX) tem prioridade — preserva
-    # a captura http-keyed; senão consulta a API de disponibilidade.
-    wb_url = wayback_snapshot or wayback.check_available(pdf_url)
+    # Resolução do snapshot com proveniência: um snapshot pré-descoberto (CDX) tem
+    # prioridade; senão ensure_archived (SPN-first, dual-scheme, lê a resposta do save —
+    # não a re-consulta imediata que o SPN assíncrono não satisfaz). Vale também para o
+    # caminho sequencial/não-arquivado da CLI, não só para itens já no CDX.
+    wb_url: Optional[str]
+    if wayback_snapshot:
+        wb_url = wayback_snapshot
+    else:
+        snap = wayback.ensure_archived(pdf_url)
+        wb_url = snap[0] if snap is not None else None
     fetched_from: str
     pdf_bytes: Optional[bytes]
 

@@ -486,9 +486,20 @@ def cmd_scrape(
                     end_coddoc=end_coddoc,
                 )
             elif ente == "ro" and fonte == "casacivil":
-                laws = []
+                from leizilla.crawler import discover_casacivil_laws
                 from leizilla.discovery import WaybackCdxDiscovery
 
+                # Base: enumera a FAIXA INTEIRA. A cobertura da DITEL é esparsa, então
+                # os números não-arquivados também têm de ser processados (vão ao Save
+                # Page Now em scrape_one) — não podemos tratar os hits do CDX como o
+                # conjunto completo, senão um range com 1 arquivado e N não-arquivados
+                # processaria só o arquivado.
+                laws = discover_casacivil_laws(
+                    tipo=tipo, start_num=start_coddoc, end_num=end_coddoc
+                )
+
+                # Enriquece com snapshots já arquivados (CDX) para reusar a captura
+                # histórica http-keyed + timestamp em vez de re-arquivar.
                 is_mocked = (
                     hasattr(WaybackCdxDiscovery, "mock")
                     or hasattr(WaybackCdxDiscovery, "return_value")
@@ -502,50 +513,25 @@ def cmd_scrape(
                         cdx_cfg = {
                             "prefix": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/"
                         }
-                        discovery = WaybackCdxDiscovery(cdx_cfg, ente, fonte)
-                        discovered = discovery.run()
-
-                        for item in discovered:
-                            if item["tipo_documento"] != tipo:
-                                continue
-                            try:
-                                # Extract number to filter by start/end range
-                                num = int(item["chave"].split("-")[-1])
-                                if start_coddoc <= num <= end_coddoc:
-                                    laws.append(
-                                        {
-                                            "id": f"{ente}-{fonte}-{item['chave']}",
-                                            "ente": ente,
-                                            "fonte": fonte,
-                                            "chave": item["chave"],
-                                            "titulo": f"{tipo.upper()} {item['chave'].split('-')[-1]} ({ente.upper()})",
-                                            "url_original": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/",
-                                            "url_pdf_original": item["url"],
-                                            # captura http-keyed descoberta (provenance)
-                                            "wayback_snapshot": item.get(
-                                                "wayback_snapshot"
-                                            ),
-                                        }
-                                    )
-                            except ValueError:
-                                continue
+                        snapshot_by_chave = {
+                            item["chave"]: item["wayback_snapshot"]
+                            for item in WaybackCdxDiscovery(cdx_cfg, ente, fonte).run()
+                            if item.get("tipo_documento") == tipo
+                            and item.get("wayback_snapshot")
+                        }
+                        for law in laws:
+                            snap = snapshot_by_chave.get(law["chave"])
+                            if snap:
+                                law["wayback_snapshot"] = snap
                         echo(
-                            f"  Encontradas {len(laws)} leis existentes arquivadas na faixa {start_coddoc}-{end_coddoc}"
+                            f"  {len(laws)} itens na faixa {start_coddoc}-{end_coddoc}; "
+                            f"{len(snapshot_by_chave)} com snapshot Wayback pré-descoberto"
                         )
                     except Exception as e:
                         echo(
-                            f"  Erro ao consultar CDX ({e}). Usando fallback sequencial."
+                            f"  Erro ao consultar CDX ({e}); "
+                            f"seguindo sem snapshots pré-descobertos."
                         )
-                        laws = []
-
-                if not laws:
-                    from leizilla.crawler import discover_casacivil_laws
-
-                    laws = discover_casacivil_laws(
-                        tipo=tipo,
-                        start_num=start_coddoc,
-                        end_num=end_coddoc,
-                    )
             else:
                 echo(f"Fonte '{fonte}' para '{ente}' ainda não implementada")
                 raise typer.Exit(1)

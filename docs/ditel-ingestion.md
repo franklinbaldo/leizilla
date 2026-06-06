@@ -90,7 +90,10 @@ no new format adapter (PDF is already handled), no Pydantic/structlog, no OPF.
   `build_raw_meta` writes it, falling back to extracting it from the snapshot URL. The CLI
   `scrape` path carries the CDX-discovered http snapshot into `scrape_one` so its historical
   capture (and timestamp) is reused rather than lost to a scheme-sensitive lookup.
-- `cmd_scrape`: decreto support for the CLI range path.
+- `cmd_scrape`: decreto support; the casacivil branch enumerates the **whole range** and
+  merges CDX snapshots in (DITEL coverage is sparse — a CDX hit must not truncate the range,
+  or unarchived numbers are silently skipped); `scrape_one` uses `ensure_archived` for items
+  without a pre-discovered snapshot (SPN-first provenance, not an immediate availability check).
 - tests: discovery URL generation (incl. decreto + https), `parse_filename` decreto, and the
   Wayback provenance helper, all offline (IO seams mocked/injectable).
 
