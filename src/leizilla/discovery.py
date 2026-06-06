@@ -25,13 +25,45 @@ class DiscoveryStrategyProtocol(Protocol):
 
 
 def parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
-    """Extrai tipo_documento e chave formatada do nome do arquivo (ex: L5120.pdf -> lei, lei-05120)."""
+    """Extrai tipo_documento e chave formatada do nome do arquivo.
+
+    Exemplos:
+      L5120.pdf    -> ("lei", "lei-05120")
+      LC312.pdf    -> ("lc", "lc-00312")
+      D1234.pdf    -> ("decreto", "decreto-01234")
+      EC10.pdf     -> ("ec", "ec-00010")
+      Res50.pdf    -> ("resolucao", "resolucao-00050")
+      Port100.pdf  -> ("portaria", "portaria-00100")
+      DEC1026.pdf  -> ("decreto", "decreto-01026")
+      DL11.pdf     -> ("decreto-lei", "decreto-lei-00011")
+    """
     # Remove extensão e limpa espaços
     name = filename.rsplit(".", 1)[0].strip().upper()
-    if name.startswith("LC"):
+    # Ordered from longest prefix to shortest to avoid partial matches
+    if name.startswith("PORT"):
+        num_part = name[4:]
+        if num_part.isdigit():
+            return "portaria", f"portaria-{int(num_part):05d}"
+    elif name.startswith("RES"):
+        num_part = name[3:]
+        if num_part.isdigit():
+            return "resolucao", f"resolucao-{int(num_part):05d}"
+    elif name.startswith("DEC"):
+        num_part = name[3:]
+        if num_part.isdigit():
+            return "decreto", f"decreto-{int(num_part):05d}"
+    elif name.startswith("LC"):
         num_part = name[2:]
         if num_part.isdigit():
             return "lc", f"lc-{int(num_part):05d}"
+    elif name.startswith("EC"):
+        num_part = name[2:]
+        if num_part.isdigit():
+            return "ec", f"ec-{int(num_part):05d}"
+    elif name.startswith("DL"):
+        num_part = name[2:]
+        if num_part.isdigit():
+            return "decreto-lei", f"decreto-lei-{int(num_part):05d}"
     elif name.startswith("L"):
         num_part = name[1:]
         if num_part.isdigit():
@@ -116,6 +148,25 @@ class WaybackCdxDiscovery:
         return resources
 
 
+_HEAD_RATE_LIMIT_S = 0.5
+
+
+def _head_exists(url: str, timeout: float = 10.0) -> bool:
+    """Retorna True se HEAD request retornar 200 ou 302 (arquivo existe no servidor)."""
+    try:
+        req = urllib.request.Request(
+            url,
+            method="HEAD",
+            headers={"User-Agent": "leizilla-crawler/0.1"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status in (200, 302)
+    except urllib.error.HTTPError as exc:
+        return exc.code in (200, 302)
+    except Exception:
+        return False
+
+
 class SequentialDiscovery:
     """Estratégia de descobrimento baseada em templates de URLs sequenciais."""
 
@@ -125,15 +176,43 @@ class SequentialDiscovery:
         self.end = int(config["end"])
         self.ente = ente
         self.fonte = fonte
+        self.head_check: bool = bool(config.get("head_check", False))
 
-    def run(self) -> List[Dict[str, Any]]:
+    def run(self, storage: Optional[DuckDBStorage] = None) -> List[Dict[str, Any]]:
         logger.info(
-            f"Rodando Sequential Discovery para {self.ente}/{self.fonte} (de {self.start} a {self.end})..."
+            f"Rodando Sequential Discovery para {self.ente}/{self.fonte} "
+            f"(de {self.start} a {self.end}, head_check={self.head_check})..."
         )
+        import time
+
         resources = []
+        last_head_time = 0.0
         for num in range(self.start, self.end + 1):
             for tmpl in self.templates:
                 url = tmpl.format(num=num)
+
+                if storage:
+                    try:
+                        conn = storage.connect()
+                        res = conn.execute(
+                            "SELECT 1 FROM discovered_resources WHERE url = ?", [url]
+                        ).fetchone()
+                        if res:
+                            continue
+                    except Exception as e:
+                        logger.warning(f"Error checking DB for URL {url}: {e}")
+
+                if self.head_check:
+                    # Rate-limit HEAD requests to avoid hammering the server
+                    elapsed = time.monotonic() - last_head_time
+                    if elapsed < _HEAD_RATE_LIMIT_S:
+                        time.sleep(_HEAD_RATE_LIMIT_S - elapsed)
+                    exists = _head_exists(url)
+                    last_head_time = time.monotonic()
+                    if not exists:
+                        logger.debug(f"HEAD 404/error — skipping {url}")
+                        continue
+
                 filename = url.split("/")[-1]
                 tipo, chave = parse_filename(filename)
                 if not tipo or not chave:
@@ -152,6 +231,10 @@ class SequentialDiscovery:
                         "wayback_snapshot": None,
                     }
                 )
+        logger.info(
+            f"Sequential Discovery concluído: {len(resources)} recursos encontrados "
+            f"(head_check={self.head_check})"
+        )
         return resources
 
 
@@ -214,7 +297,9 @@ class PlaywrightCrawlerDiscovery:
         return resources
 
 
-STRATEGIES: Dict[str, Callable[[Dict[str, Any], str, str], DiscoveryStrategyProtocol]] = {
+STRATEGIES: Dict[
+    str, Callable[[Dict[str, Any], str, str], DiscoveryStrategyProtocol]
+] = {
     "wayback-cdx": WaybackCdxDiscovery,
     "sequential": SequentialDiscovery,
     "playwright-crawler": PlaywrightCrawlerDiscovery,

@@ -1612,14 +1612,9 @@ def cmd_wayback_save(
                     continue
 
                 if head_check:
-                    import requests as _req
+                    from leizilla.discovery import _head_exists
 
-                    try:
-                        r = _req.head(url, timeout=10, allow_redirects=True)
-                        if r.status_code >= 400:
-                            total_skipped += 1
-                            continue
-                    except Exception:
+                    if not _head_exists(url):
                         total_skipped += 1
                         continue
 
