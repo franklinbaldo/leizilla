@@ -401,7 +401,7 @@ def cmd_scrape(
     ),
 ) -> None:
     """Scrape leis: discover → robots → wayback → upload_raw/upload_raw_html para IA."""
-    _VALID_TIPOS = {"lei", "lc", "lcp", "decreto"}
+    _VALID_TIPOS = {"lei", "lc", "lcp", "decreto", "decreto-lei", "emc", "mpv"}
 
     if tipo not in _VALID_TIPOS:
         echo(f"--tipo inválido: {tipo!r}. Valores suportados: {sorted(_VALID_TIPOS)}")
@@ -409,8 +409,8 @@ def cmd_scrape(
     if tipo == "lc" and fonte != "casacivil":
         echo(f"--tipo lc só é válido com --fonte casacivil (recebido: --fonte {fonte})")
         raise typer.Exit(1)
-    if tipo == "lcp" and fonte != "planalto":
-        echo(f"--tipo lcp só é válido com --fonte planalto (recebido: --fonte {fonte})")
+    if tipo in {"lcp", "decreto-lei", "emc", "mpv"} and fonte != "planalto":
+        echo(f"--tipo {tipo} só é válido com --fonte planalto (recebido: --fonte {fonte})")
         raise typer.Exit(1)
     if tipo == "decreto" and fonte not in ("planalto", "casacivil"):
         echo(

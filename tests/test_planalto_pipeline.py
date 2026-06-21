@@ -65,6 +65,35 @@ class TestDiscoverPlanaltoLaws:
             == "https://www.planalto.gov.br/ccivil_03/decreto/D99.htm"
         )
 
+    def test_generates_correct_decreto_lei_urls(self) -> None:
+        laws = discover_planalto_laws("decreto-lei", 2848, 2848, year_lookup_fn=_no_year)
+        assert (
+            laws[0]["url_original"]
+            == "https://www.planalto.gov.br/ccivil_03/Decreto-Lei/Del2848.htm"
+        )
+
+    def test_generates_correct_emc_urls(self) -> None:
+        laws = discover_planalto_laws("emc", 1, 2, year_lookup_fn=_no_year)
+        assert (
+            laws[0]["url_original"]
+            == "https://www.planalto.gov.br/ccivil_03/Constituicao/Emendas/Emc/emc01.htm"
+        )
+        assert (
+            laws[1]["url_original"]
+            == "https://www.planalto.gov.br/ccivil_03/Constituicao/Emendas/Emc/emc02.htm"
+        )
+
+    def test_generates_correct_mpv_urls(self) -> None:
+        laws = discover_planalto_laws("mpv", 1, 2, year_lookup_fn=_no_year)
+        assert (
+            laws[0]["url_original"]
+            == "https://www.planalto.gov.br/ccivil_03/MPV/Antigas_2001/1.htm"
+        )
+        assert (
+            laws[1]["url_original"]
+            == "https://www.planalto.gov.br/ccivil_03/MPV/Antigas_2001/2.htm"
+        )
+
     def test_sets_correct_metadata(self) -> None:
         laws = discover_planalto_laws("lei", 9503, 9503, year_lookup_fn=_no_year)
         law = laws[0]
