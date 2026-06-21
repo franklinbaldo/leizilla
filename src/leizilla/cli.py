@@ -410,7 +410,9 @@ def cmd_scrape(
         echo(f"--tipo lc só é válido com --fonte casacivil (recebido: --fonte {fonte})")
         raise typer.Exit(1)
     if tipo in {"lcp", "decreto-lei", "emc", "mpv"} and fonte != "planalto":
-        echo(f"--tipo {tipo} só é válido com --fonte planalto (recebido: --fonte {fonte})")
+        echo(
+            f"--tipo {tipo} só é válido com --fonte planalto (recebido: --fonte {fonte})"
+        )
         raise typer.Exit(1)
     if tipo == "decreto" and fonte not in ("planalto", "casacivil"):
         echo(

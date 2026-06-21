@@ -66,7 +66,9 @@ class TestDiscoverPlanaltoLaws:
         )
 
     def test_generates_correct_decreto_lei_urls(self) -> None:
-        laws = discover_planalto_laws("decreto-lei", 2848, 2848, year_lookup_fn=_no_year)
+        laws = discover_planalto_laws(
+            "decreto-lei", 2848, 2848, year_lookup_fn=_no_year
+        )
         assert (
             laws[0]["url_original"]
             == "https://www.planalto.gov.br/ccivil_03/Decreto-Lei/Del2848.htm"
