@@ -178,8 +178,7 @@ class SequentialDiscovery(DiscoveryStrategy):
                     try:
                         conn = storage.connect()
                         res = conn.execute(
-                            "SELECT 1 FROM discovered_resources WHERE url = ?",
-                            [url]
+                            "SELECT 1 FROM discovered_resources WHERE url = ?", [url]
                         ).fetchone()
                         if res:
                             continue
@@ -321,13 +320,27 @@ def load_manifest(ente: str) -> Dict[str, Any]:
     return data
 
 
-def run_discovery(ente: str, storage: DuckDBStorage) -> int:
+def run_discovery(
+    ente: str,
+    storage: DuckDBStorage,
+    fonte: Optional[str] = None,
+    skip_head_check: bool = False,
+) -> int:
     """Lê o manifesto do ente, executa todas as estratégias de descoberta e salva os resources."""
     manifest = load_manifest(ente)
     total_added = 0
 
-    for fonte, fonte_cfg in manifest.get("fontes", {}).items():
+    for fonte_name, fonte_cfg in manifest.get("fontes", {}).items():
+        if fonte is not None and fonte_name != fonte:
+            logger.info(f"Pulando fonte '{fonte_name}' (filtro: {fonte})")
+            continue
+
         for discovery_cfg in fonte_cfg.get("discovery", []):
+            if skip_head_check and discovery_cfg.get("head_check", False):
+                logger.info(
+                    f"Pulando estratégia com head_check=true para {ente}/{fonte_name} (--no-head-check)"
+                )
+                continue
             strategy_name = discovery_cfg.get("strategy")
             strategy_cls = STRATEGIES.get(strategy_name)
 
@@ -338,9 +351,9 @@ def run_discovery(ente: str, storage: DuckDBStorage) -> int:
                 continue
 
             try:
-                runner = strategy_cls(discovery_cfg, ente, fonte)
-                # Pass storage to runner.run if it accepts it
+                runner = strategy_cls(discovery_cfg, ente, fonte_name)
                 import inspect
+
                 sig = inspect.signature(runner.run)
                 if "storage" in sig.parameters:
                     resources = runner.run(storage=storage)
@@ -351,15 +364,20 @@ def run_discovery(ente: str, storage: DuckDBStorage) -> int:
                 )
 
                 for res in resources:
-                    # Check if already in IA manifest
                     try:
-                        from leizilla.ia_utils import parse_chave_numeric, get_range_identifier
+                        from leizilla.ia_utils import (
+                            get_range_identifier,
+                            parse_chave_numeric,
+                        )
+
                         chave = res["chave"]
                         ente_res = res["ente"]
                         fonte_res = res["fonte"]
                         tipo, num = parse_chave_numeric(chave)
                         if num > 0:
-                            range_ia_id = get_range_identifier(ente_res, fonte_res, tipo, num)
+                            range_ia_id = get_range_identifier(
+                                ente_res, fonte_res, tipo, num
+                            )
                             prefix = f"{num:06d}"
                         else:
                             range_ia_id = f"leizilla_{ente_res.lower()}_{fonte_res.lower()}_fallback"
@@ -367,16 +385,20 @@ def run_discovery(ente: str, storage: DuckDBStorage) -> int:
 
                         if _is_in_ia_manifest(range_ia_id, prefix):
                             res["status"] = "downloaded"
-                            logger.info(f"Resource {chave} is already in IA item {range_ia_id} (marked as downloaded)")
+                            logger.info(
+                                f"Resource {chave} is already in IA item {range_ia_id} (marked as downloaded)"
+                            )
                     except Exception as e:
-                        logger.warning(f"Error checking IA manifest for resource {res.get('chave')}: {e}")
+                        logger.warning(
+                            f"Error checking IA manifest for resource {res.get('chave')}: {e}"
+                        )
 
                     storage.insert_resource(res)
                     total_added += 1
 
             except Exception as e:
                 logger.error(
-                    f"Falha ao executar estratégia '{strategy_name}' para {ente}/{fonte}: {e}"
+                    f"Falha ao executar estratégia '{strategy_name}' para {ente}/{fonte_name}: {e}"
                 )
 
     return total_added

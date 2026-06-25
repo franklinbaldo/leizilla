@@ -24,15 +24,21 @@ app.add_typer(dev_app, name="dev")
 @app.command("discover")
 def cmd_discover(
     ente: str = typer.Option("ro", help="Ente federativo (ro, sp, federal, ...)"),
+    fonte: Optional[str] = typer.Option(
+        None, help="Filtrar por fonte (casacivil, assembleia, planalto, ...)"
+    ),
+    no_head_check: bool = typer.Option(
+        False, "--no-head-check", help="Pular estratégias com head_check=true (requests lentos)"
+    ),
 ) -> None:
     """Descobrir leis nos portais oficiais usando manifestos."""
-    echo(f"Descobrindo leis para o ente: {ente}...")
+    echo(f"Descobrindo leis para o ente: {ente}" + (f" / {fonte}" if fonte else "") + "...")
     try:
         from leizilla.discovery import run_discovery
         from leizilla.storage import DuckDBStorage
 
         db = DuckDBStorage()
-        added = run_discovery(ente, db)
+        added = run_discovery(ente, db, fonte=fonte, skip_head_check=no_head_check)
         echo(f"Descoberta concluída. Adicionados/ignorados recursos: {added} total.")
     except Exception as e:
         echo(f"Erro: {e}")
@@ -43,6 +49,9 @@ def cmd_discover(
 def cmd_harvest(
     ente: Optional[str] = typer.Option(
         None, help="Filtrar por ente federativo (None = todos os entes)"
+    ),
+    tipo: Optional[str] = typer.Option(
+        None, help="Filtrar por tipo de documento (lei, lc, decreto, ...)"
     ),
     limit: int = typer.Option(100, help="Limite de recursos a processar por execução"),
 ) -> None:
@@ -56,7 +65,7 @@ def cmd_harvest(
         db = DuckDBStorage()
         pub = InternetArchivePublisher()
 
-        stats = harvest_pending_resources(db, pub, limit=limit, ente=ente)
+        stats = harvest_pending_resources(db, pub, limit=limit, ente=ente, tipo_documento=tipo)
         echo("Colheita concluída:")
         echo(f"  Sucesso: {stats['success']}")
         echo(f"  Falhas: {stats['failed']}")

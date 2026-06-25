@@ -1,4 +1,4 @@
-"""Tests for leizilla.parser — HTTP and Anthropic API fully mocked."""
+"""Tests for leizilla.parser — HTTP and LiteLLM API fully mocked."""
 
 import json
 from unittest.mock import MagicMock, patch
@@ -38,16 +38,17 @@ _LLM_OK = json.dumps(
 )
 
 
-def _make_anthropic_client(response_text: str) -> MagicMock:
-    content_block = MagicMock()
-    content_block.text = response_text
-    message = MagicMock()
-    message.content = [content_block]
-    message.usage.input_tokens = 100
-    message.usage.output_tokens = 200
-    client = MagicMock()
-    client.messages.create.return_value = message
-    return client
+def _make_litellm_response(response_text: str) -> MagicMock:
+    """Create a mock LiteLLM completion response (OpenAI-compatible format)."""
+    msg = MagicMock()
+    msg.content = response_text
+    choice = MagicMock()
+    choice.message = msg
+    response = MagicMock()
+    response.choices = [choice]
+    response.usage.prompt_tokens = 100
+    response.usage.completion_tokens = 200
+    return response
 
 
 def _make_urlopen_resp(body: str) -> MagicMock:
@@ -215,8 +216,8 @@ class TestIsWellFormed:
 
 class TestParseLaw:
     def test_returns_result_on_valid_response(self):
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(_LLM_OK)
+        with patch("litellm.completion", return_value=resp):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 result = parser.parse_law("ocr text", _IA_ID, "ro")
 
@@ -226,8 +227,8 @@ class TestParseLaw:
         assert "lei" in result.xml
 
     def test_parsed_meta_structure(self):
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(_LLM_OK)
+        with patch("litellm.completion", return_value=resp):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 result = parser.parse_law("ocr text", _IA_ID, "ro")
 
@@ -238,13 +239,13 @@ class TestParseLaw:
         assert meta["ia_id_parsed"] == "leizilla-ro-lei-09999-1999"
         assert meta["ente"] == "ro"
         assert meta["tipo"] == "lei"
-        assert meta["parse_method"] == f"{parser._HAIKU}+ocr"
+        assert meta["parse_method"] == f"{parser._DEFAULT_MODEL}+ocr"
         assert meta["tem_divergencia"] is False
         assert "parse_timestamp" in meta
 
     def test_token_counts_recorded(self):
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(_LLM_OK)
+        with patch("litellm.completion", return_value=resp):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 result = parser.parse_law("ocr text", _IA_ID, "ro")
 
@@ -254,8 +255,8 @@ class TestParseLaw:
 
     def test_returns_none_when_confidence_below_threshold(self):
         low = json.dumps({"confidence": 0.3, "error": "bad OCR"})
-        client = _make_anthropic_client(low)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(low)
+        with patch("litellm.completion", return_value=resp):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
@@ -269,8 +270,8 @@ class TestParseLaw:
                 "ano": 2000,
             }
         )
-        client = _make_anthropic_client(bad_conf)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(bad_conf)
+        with patch("litellm.completion", return_value=resp):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
@@ -286,8 +287,8 @@ class TestParseLaw:
                 "ano": 2000,
             }
         )
-        client = _make_anthropic_client(nan_conf)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(nan_conf)
+        with patch("litellm.completion", return_value=resp):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
@@ -295,8 +296,8 @@ class TestParseLaw:
         no_tipo = json.dumps(
             {"xml": _VALID_XML, "confidence": 0.9, "numero": "1", "ano": 2000}
         )
-        client = _make_anthropic_client(no_tipo)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(no_tipo)
+        with patch("litellm.completion", return_value=resp):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
@@ -304,8 +305,8 @@ class TestParseLaw:
         no_num = json.dumps(
             {"xml": _VALID_XML, "confidence": 0.9, "tipo": "lei", "ano": 2000}
         )
-        client = _make_anthropic_client(no_num)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(no_num)
+        with patch("litellm.completion", return_value=resp):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
@@ -313,14 +314,14 @@ class TestParseLaw:
         no_ano = json.dumps(
             {"xml": _VALID_XML, "confidence": 0.9, "tipo": "lei", "numero": "1"}
         )
-        client = _make_anthropic_client(no_ano)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(no_ano)
+        with patch("litellm.completion", return_value=resp):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
     def test_returns_none_on_malformed_json(self):
-        client = _make_anthropic_client("This is NOT json!!!")
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response("This is NOT json!!!")
+        with patch("litellm.completion", return_value=resp):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
@@ -334,8 +335,8 @@ class TestParseLaw:
                 "ano": 1999,
             }
         )
-        client = _make_anthropic_client(bad)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(bad)
+        with patch("litellm.completion", return_value=resp):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
@@ -345,12 +346,12 @@ class TestParseLaw:
                 parser.parse_law("ocr text", _IA_ID, "ro")
 
     def test_uses_model_parameter(self):
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(_LLM_OK)
+        with patch("litellm.completion", return_value=resp) as mock_completion:
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 parser.parse_law("ocr text", _IA_ID, "ro", model="claude-opus-4-7")
 
-        _, kwargs = client.messages.create.call_args
+        _, kwargs = mock_completion.call_args
         assert kwargs.get("model") == "claude-opus-4-7"
 
     def test_zero_pads_numero(self):
@@ -363,8 +364,8 @@ class TestParseLaw:
                 "ano": 1990,
             }
         )
-        client = _make_anthropic_client(short_numero)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(short_numero)
+        with patch("litellm.completion", return_value=resp):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 result = parser.parse_law("ocr text", _IA_ID, "ro")
 
@@ -373,20 +374,20 @@ class TestParseLaw:
 
     def test_truncates_ocr_to_limit(self):
         long_ocr = "x" * 20000
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(_LLM_OK)
+        with patch("litellm.completion", return_value=resp) as mock_completion:
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 parser.parse_law(long_ocr, _IA_ID, "ro")
 
-        _, kwargs = client.messages.create.call_args
-        user_content = kwargs["messages"][0]["content"]
+        _, kwargs = mock_completion.call_args
+        user_content = kwargs["messages"][1]["content"]
         assert len(user_content) < 20000 + 100  # headers + truncated body
         assert "x" * (parser._OCR_CHAR_LIMIT + 1) not in user_content
 
     def test_html_input_type_uses_html_char_limit(self):
         long_html = "<p>" + "x" * 40000 + "</p>"
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(_LLM_OK)
+        with patch("litellm.completion", return_value=resp) as mock_completion:
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 parser.parse_law(
                     long_html,
@@ -395,14 +396,14 @@ class TestParseLaw:
                     input_type="html",
                 )
 
-        _, kwargs = client.messages.create.call_args
-        user_content = kwargs["messages"][0]["content"]
+        _, kwargs = mock_completion.call_args
+        user_content = kwargs["messages"][1]["content"]
         assert "x" * (parser._HTML_CHAR_LIMIT + 1) not in user_content
         assert len(user_content) <= parser._HTML_CHAR_LIMIT + 200
 
     def test_html_input_type_sets_parse_method(self):
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(_LLM_OK)
+        with patch("litellm.completion", return_value=resp):
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 result = parser.parse_law(
                     "html content",
@@ -412,17 +413,17 @@ class TestParseLaw:
                 )
 
         assert result is not None
-        assert result.parsed_meta["parse_method"] == f"{parser._HAIKU}+html"
+        assert result.parsed_meta["parse_method"] == f"{parser._DEFAULT_MODEL}+html"
 
     def test_html_input_type_includes_url_in_user_message(self):
         url = "https://example.gov.br/lei/9999"
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
+        resp = _make_litellm_response(_LLM_OK)
+        with patch("litellm.completion", return_value=resp) as mock_completion:
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 parser.parse_law("html content", url, "ro", input_type="html")
 
-        _, kwargs = client.messages.create.call_args
-        user_content = kwargs["messages"][0]["content"]
+        _, kwargs = mock_completion.call_args
+        user_content = kwargs["messages"][1]["content"]
         assert url in user_content
 
     def test_invalid_input_type_raises(self):

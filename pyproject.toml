@@ -21,12 +21,13 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "anthropic",
+    "litellm",
     "anyio",
     "beautifulsoup4",
     "duckdb",
     "internetarchive",
     "playwright",
+    "python-dotenv",
     "requests",
     "typer",
 ]
@@ -77,7 +78,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["anthropic", "anthropic.*"]
+module = ["litellm", "litellm.*"]
 follow_imports = "skip"
 
 

@@ -1,7 +1,7 @@
 """OCR fetch + LLM parse → Leizilla XML v0.1 (M3 pipeline stage).
 
 Etapa 2 do pipeline:
-  raw IA item (_djvu.txt OCR) → Claude Haiku → Leizilla XML + parsed_meta.json
+  raw IA item (_djvu.txt OCR) → LLM (via LiteLLM) → Leizilla XML + parsed_meta.json
 
 Princípio load-bearing #2: OCR é responsabilidade do IA; LLM só lê _djvu.txt.
 Princípio load-bearing #3: Etapa 2 pluggable; model é parâmetro.
@@ -16,12 +16,12 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any, Dict, Optional
 
-import anthropic
+import litellm
 
 from leizilla import config
 from leizilla.ia_utils import resolve_ia_id_to_url
 
-_HAIKU = "claude-haiku-4-5"
+_DEFAULT_MODEL = "claude-haiku-4-5"
 _USER_AGENT = "leizilla-crawler/0.1"
 _MIN_CONFIDENCE = 0.5
 _OCR_CHAR_LIMIT = 8000
@@ -282,16 +282,16 @@ def parse_law(
     ocr_text: str,
     ia_id: str,
     ente: str,
-    model: str = _HAIKU,
+    model: str = _DEFAULT_MODEL,
     input_type: str = "ocr",
 ) -> Optional[ParseResult]:
-    """Parse law text → Leizilla XML via Claude.
+    """Parse law text → Leizilla XML via LiteLLM.
 
     Args:
         ocr_text: Source text — OCR text from IA (_djvu.txt) or raw HTML.
         ia_id: IA raw item ID (for ocr) or source identifier (for html).
         ente: Federative entity code (ro, sp, federal, …).
-        model: Claude model ID.
+        model: LiteLLM model ID (e.g. "claude-haiku-4-5", "gpt-4o-mini").
         input_type: "ocr" (default) or "html". Adjusts prompt and char limit.
 
     Returns None when confidence < _MIN_CONFIDENCE or output is malformed.
@@ -319,26 +319,17 @@ def parse_law(
         input_intro=input_intro, today=today, ia_id=ia_id, ente_name=ente_name
     )
 
-    client = anthropic.Anthropic(api_key=api_key)
-    message = client.messages.create(
+    response = litellm.completion(
         model=model,
         max_tokens=4096,
-        system=[
-            {
-                "type": "text",
-                "text": system,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
+        api_key=api_key,
         messages=[
-            {
-                "role": "user",
-                "content": f"{user_prefix}:\n\n{ocr_text[:char_limit]}",
-            }
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"{user_prefix}:\n\n{ocr_text[:char_limit]}"},
         ],
     )
 
-    raw = message.content[0].text if message.content else ""
+    raw = response.choices[0].message.content or ""
     result = _extract_json(raw)
     if result is None:
         return None
@@ -368,8 +359,9 @@ def parse_law(
         return None
     ia_id_parsed = f"leizilla-{ente}-{tipo}-{numero_str.zfill(5)}-{ano}"
 
-    input_tokens = getattr(message.usage, "input_tokens", 0)
-    output_tokens = getattr(message.usage, "output_tokens", 0)
+    usage = getattr(response, "usage", None)
+    input_tokens = getattr(usage, "prompt_tokens", 0)
+    output_tokens = getattr(usage, "completion_tokens", 0)
 
     parsed_meta: Dict[str, Any] = {
         "leizilla_meta_version": "0.1",

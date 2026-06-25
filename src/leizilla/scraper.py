@@ -165,14 +165,18 @@ def harvest_pending_resources(
     publisher: InternetArchivePublisher,
     limit: int = 100,
     ente: Optional[str] = None,
+    tipo_documento: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Processa recursos pendentes da tabela discovered_resources.
 
     Faz download (preferencialmente de snapshot Wayback), upload pro IA,
     e insere/atualiza o status no banco de dados.
     Se `ente` for fornecido, processa apenas recursos desse ente.
+    Se `tipo_documento` for fornecido, processa apenas recursos desse tipo.
     """
-    pending = storage.get_pending_resources(limit=limit, ente=ente)
+    pending = storage.get_pending_resources(
+        limit=limit, ente=ente, tipo_documento=tipo_documento
+    )
     stats = {"success": 0, "failed": 0, "robots-blocked": 0}
     rate_limiter = make_rate_limiter()
 

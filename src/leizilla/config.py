@@ -4,7 +4,11 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
+
 PROJECT_ROOT = Path(__file__).parent.parent.parent
+
+load_dotenv(PROJECT_ROOT / ".env")
 DATA_DIR = PROJECT_ROOT / "data"
 TEMP_DIR = DATA_DIR / "temp"
 
