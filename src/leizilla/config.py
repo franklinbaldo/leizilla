@@ -26,7 +26,7 @@ OPENROUTER_API_KEY: Optional[str] = os.getenv("OPENROUTER_API_KEY")
 GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
 
 # Default LiteLLM model — override via LITELLM_MODEL env var
-LITELLM_MODEL: str = os.getenv("LITELLM_MODEL", "claude-haiku-4-5")
+LITELLM_MODEL: str = os.getenv("LITELLM_MODEL", "gemini/gemini-2.5-flash-lite")
 
 CRAWLER_DELAY = int(os.getenv("CRAWLER_DELAY", "2000"))
 CRAWLER_RETRIES = int(os.getenv("CRAWLER_RETRIES", "3"))

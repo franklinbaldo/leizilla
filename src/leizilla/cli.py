@@ -828,7 +828,7 @@ def _write_step_summary(
 def cmd_parse(
     raw_id: str = typer.Option(..., help="IA raw item ID (leizilla-raw-...)"),
     ente: str = typer.Option("ro", help="Ente federativo"),
-    model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
+    model: str = typer.Option(None, help="LiteLLM model para parse (padrão: LITELLM_MODEL do config)"),
     output: Optional[Path] = typer.Option(
         None, help="Salvar XML em arquivo (default: stdout)"
     ),
@@ -896,9 +896,14 @@ def cmd_parse(
             echo(f"--input-type inválido: {input_type!r}. Use 'ocr' ou 'html'.")
             raise typer.Exit(1)
 
+        from leizilla import config as _config
+
+        resolved_model = model or _config.LITELLM_MODEL
         label = "HTML" if input_type == "html" else "OCR"
-        echo(f"Parseando com {model} ({len(raw_text)} chars de {label})...")
-        result = parse_law(raw_text, raw_id, ente, model=model, input_type=input_type)
+        echo(f"Parseando com {resolved_model} ({len(raw_text)} chars de {label})...")
+        result = parse_law(
+            raw_text, raw_id, ente, model=resolved_model, input_type=input_type
+        )
         if not result:
             echo(
                 "Parse falhou: confiança insuficiente ou OCR ilegível. Sem parsed item publicado."
@@ -960,7 +965,7 @@ def cmd_parse_all(
         "--tipo",
         help="Tipo de lei: lei, lc (casacivil), lcp, decreto (planalto). Determina o chave prefix para casacivil e planalto.",
     ),
-    model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
+    model: str = typer.Option(None, help="LiteLLM model para parse (padrão: LITELLM_MODEL do config)"),
     upload: bool = typer.Option(
         True, "--upload/--no-upload", help="Upload para IA após parse"
     ),
@@ -1001,6 +1006,7 @@ def cmd_parse_all(
         if output_dir is not None:
             output_dir.mkdir(parents=True, exist_ok=True)
 
+        from leizilla import config as _config
         from leizilla.parser import fetch_ia_html, fetch_ocr, parse_law
         from leizilla.publisher import (
             InternetArchivePublisher,
@@ -1095,7 +1101,11 @@ def cmd_parse_all(
                         continue
 
                 result = parse_law(
-                    raw_text, raw_id, ente, model=model, input_type=input_type
+                    raw_text,
+                    raw_id,
+                    ente,
+                    model=model or _config.LITELLM_MODEL,
+                    input_type=input_type,
                 )
                 if not result:
                     echo("  Parse falhou — skip")
