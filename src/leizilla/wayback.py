@@ -182,6 +182,69 @@ def save_page(url: str, timeout: int = 60) -> bool:
         return False
 
 
+def save_page_spn2(
+    url: str,
+    access_key: Optional[str] = None,
+    secret_key: Optional[str] = None,
+    timeout: int = 60,
+    retries: int = 3,
+) -> bool:
+    """Submete URL ao SPN2 via POST com auth IA opcional, usando requests (sem SSL bug no Windows).
+
+    Com auth (Authorization: LOW key:secret): rate limit maior. Sem auth: SPN1 básico.
+    Retry exponencial em falhas de rede ou 5xx/429. Fail-open.
+    """
+    import time
+
+    import requests
+
+    headers = {"User-Agent": _USER_AGENT}
+    if access_key and secret_key:
+        headers["Authorization"] = f"LOW {access_key}:{secret_key}"
+
+    for attempt in range(retries):
+        try:
+            if access_key and secret_key:
+                resp = requests.post(
+                    "https://web.archive.org/save/",
+                    data={"url": url},
+                    headers=headers,
+                    timeout=timeout,
+                    allow_redirects=True,
+                )
+            else:
+                save_url = _SAVE_URL_TMPL.format(urllib.parse.quote(url, safe=":/"))
+                resp = requests.get(save_url, headers=headers, timeout=timeout, allow_redirects=True)
+            if resp.status_code in (200, 302):
+                return True
+            if resp.status_code == 429 or resp.status_code >= 500:
+                time.sleep(2 ** attempt * 5)
+                continue
+            return False
+        except Exception:
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt * 5)
+    return False
+
+
+def fetch_cdx_archived_urls(prefix: str, timeout: int = 90) -> "set[str]":
+    """Retorna conjunto de URLs originais com status=200 no CDX para o prefixo dado."""
+    import requests
+
+    cdx_url = (
+        "https://web.archive.org/cdx/search/cdx"
+        f"?url={urllib.parse.quote(prefix)}&matchType=prefix&output=json&fl=original,statuscode"
+    )
+    try:
+        resp = requests.get(cdx_url, headers={"User-Agent": _USER_AGENT}, timeout=timeout)
+        data = resp.json()
+    except Exception:
+        return set()
+    if not data or len(data) <= 1:
+        return set()
+    return {row[0] for row in data[1:] if row[1] == "200"}
+
+
 def fetch_bytes(url: str, timeout: int = 60) -> Optional[bytes]:
     """Baixa conteúdo de um URL (Wayback ou direto) e retorna bytes. None em falha."""
     req = urllib.request.Request(url)

@@ -10,8 +10,8 @@ TEMP_DIR = DATA_DIR / "temp"
 
 DUCKDB_PATH = Path(os.getenv("DUCKDB_PATH", str(DATA_DIR / "leizilla.duckdb")))
 
-IA_ACCESS_KEY: Optional[str] = os.getenv("IA_ACCESS_KEY")
-IA_SECRET_KEY: Optional[str] = os.getenv("IA_SECRET_KEY")
+IA_ACCESS_KEY: Optional[str] = os.getenv("IA_ACCESS_KEY") or os.getenv("IAS3_ACCESS_KEY")
+IA_SECRET_KEY: Optional[str] = os.getenv("IA_SECRET_KEY") or os.getenv("IAS3_SECRET_KEY")
 ANTHROPIC_API_KEY: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
 
 CRAWLER_DELAY = int(os.getenv("CRAWLER_DELAY", "2000"))
