@@ -340,9 +340,13 @@ class TestParseLaw:
             with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
                 assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
-    def test_raises_when_api_key_missing(self):
-        with patch.object(parser.config, "ANTHROPIC_API_KEY", None):
-            with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+    def test_raises_when_no_llm_key_configured(self):
+        with (
+            patch.object(parser.config, "ANTHROPIC_API_KEY", None),
+            patch.object(parser.config, "OPENROUTER_API_KEY", None),
+            patch.object(parser.config, "GEMINI_API_KEY", None),
+        ):
+            with pytest.raises(RuntimeError, match="chave de LLM"):
                 parser.parse_law("ocr text", _IA_ID, "ro")
 
     def test_uses_model_parameter(self):

@@ -21,7 +21,7 @@ import litellm
 from leizilla import config
 from leizilla.ia_utils import resolve_ia_id_to_url
 
-_DEFAULT_MODEL = "claude-haiku-4-5"
+_DEFAULT_MODEL = config.LITELLM_MODEL
 _USER_AGENT = "leizilla-crawler/0.1"
 _MIN_CONFIDENCE = 0.5
 _OCR_CHAR_LIMIT = 8000
@@ -297,9 +297,13 @@ def parse_law(
     Returns None when confidence < _MIN_CONFIDENCE or output is malformed.
     Raises RuntimeError when ANTHROPIC_API_KEY is not configured.
     """
-    api_key = config.ANTHROPIC_API_KEY
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not configured")
+    if not any(
+        [config.ANTHROPIC_API_KEY, config.OPENROUTER_API_KEY, config.GEMINI_API_KEY]
+    ):
+        raise RuntimeError(
+            "Nenhuma chave de LLM configurada. "
+            "Defina ANTHROPIC_API_KEY, OPENROUTER_API_KEY ou GEMINI_API_KEY."
+        )
 
     if input_type not in ("ocr", "html"):
         raise ValueError(f"input_type deve ser 'ocr' ou 'html', got {input_type!r}")
@@ -322,7 +326,6 @@ def parse_law(
     response = litellm.completion(
         model=model,
         max_tokens=4096,
-        api_key=api_key,
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": f"{user_prefix}:\n\n{ocr_text[:char_limit]}"},
