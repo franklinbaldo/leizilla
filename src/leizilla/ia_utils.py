@@ -113,9 +113,8 @@ def resolve_ia_id_to_url(ia_id: str, suffix: str, hash_8: Optional[str] = None) 
     if not ia_id.startswith("leizilla-raw-"):
         return f"https://archive.org/download/{ia_id}/{ia_id}{suffix}"
 
-    content = ia_id[len("leizilla-raw-") :]
+    content = ia_id[len("leizilla-raw-"):]
 
-    # Procura o ente de maior comprimento para casar corretamente (ex: ro-porto-velho antes de ro)
     matched_ente = None
     for slug in sorted(list_slugs(), key=len, reverse=True):
         if content.startswith(f"{slug}-"):
@@ -123,33 +122,28 @@ def resolve_ia_id_to_url(ia_id: str, suffix: str, hash_8: Optional[str] = None) 
             break
 
     if not matched_ente:
-        # Fallback de segurança se não casar com nenhum ente conhecido
         return f"https://archive.org/download/{ia_id}/{ia_id}{suffix}"
 
-    # Extrai fonte e chave
-    rest = content[len(matched_ente) + 1 :]
+    rest = content[len(matched_ente) + 1:]
     if "-" not in rest:
         return f"https://archive.org/download/{ia_id}/{ia_id}{suffix}"
 
     fonte, chave = rest.split("-", 1)
-
     tipo, num = parse_chave_numeric(chave)
 
     if num > 0:
         range_ia_id = get_range_identifier(matched_ente, fonte, tipo, num)
 
-        # Se hash_8 não foi fornecido, tenta obter do banco DuckDB local
         if not hash_8:
             try:
                 from leizilla.storage import DuckDBStorage
+                import json as _json
 
                 db = DuckDBStorage()
                 db_id = f"{matched_ente}-{fonte}-{chave}"
                 lei = db.get_lei(db_id)
                 if lei and lei.get("metadados"):
-                    import json
-
-                    meta = json.loads(lei["metadados"])
+                    meta = _json.loads(lei["metadados"])
                     if isinstance(meta, dict):
                         hash_8 = meta.get("hash_8")
             except Exception:
@@ -158,27 +152,22 @@ def resolve_ia_id_to_url(ia_id: str, suffix: str, hash_8: Optional[str] = None) 
         filename = get_ia_filename(num, suffix, hash_8=hash_8)
         return f"https://archive.org/download/{range_ia_id}/{filename}"
     else:
-        # Fallback de itens não-numéricos consolidados com underscores '_'
         range_ia_id = f"leizilla_{matched_ente.lower()}_{fonte.lower()}_fallback"
 
-        # Se hash_8 não foi fornecido, tenta obter do banco DuckDB local
         if not hash_8:
             try:
                 from leizilla.storage import DuckDBStorage
+                import json as _json
 
                 db = DuckDBStorage()
                 db_id = f"{matched_ente}-{fonte}-{chave}"
                 lei = db.get_lei(db_id)
                 if lei and lei.get("metadados"):
-                    import json
-
-                    meta = json.loads(lei["metadados"])
+                    meta = _json.loads(lei["metadados"])
                     if isinstance(meta, dict):
                         hash_8 = meta.get("hash_8")
             except Exception:
                 pass
 
-        filename = f"{chave.lower()}{suffix}"
-        if hash_8:
-            filename = f"{chave.lower()}_{hash_8}{suffix}"
+        filename = f"{chave.lower()}_{hash_8}{suffix}" if hash_8 else f"{chave.lower()}{suffix}"
         return f"https://archive.org/download/{range_ia_id}/{filename}"
