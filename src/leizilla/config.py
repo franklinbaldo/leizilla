@@ -17,8 +17,9 @@ TEMP_DIR = DATA_DIR / "temp"
 
 DUCKDB_PATH = Path(os.getenv("DUCKDB_PATH", str(DATA_DIR / "leizilla.duckdb")))
 
-IA_ACCESS_KEY: Optional[str] = os.getenv("IA_ACCESS_KEY")
-IA_SECRET_KEY: Optional[str] = os.getenv("IA_SECRET_KEY")
+# Suporta IAS3_ACCESS_KEY (nome no workspace .env) e IA_ACCESS_KEY (alias)
+IA_ACCESS_KEY: Optional[str] = os.getenv("IA_ACCESS_KEY") or os.getenv("IAS3_ACCESS_KEY")
+IA_SECRET_KEY: Optional[str] = os.getenv("IA_SECRET_KEY") or os.getenv("IAS3_SECRET_KEY")
 
 # LLM provider keys — LiteLLM reads these from env automatically
 ANTHROPIC_API_KEY: Optional[str] = os.getenv("ANTHROPIC_API_KEY")

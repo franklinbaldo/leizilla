@@ -1,0 +1,76 @@
+name: Wayback Save — submete URLs faltantes ao Wayback Machine
+
+on:
+  workflow_dispatch:
+    inputs:
+      ente:
+        description: "Ente federativo"
+        default: "ro"
+      fonte:
+        description: "Fonte (casacivil, assembleia)"
+        default: "casacivil"
+      tipo:
+        description: "Tipo de lei (lei, lc, decreto, ec, resolucao, portaria, decreto-lei) — vazio = todos"
+        default: ""
+      start:
+        description: "Número inicial do range"
+        default: "1"
+      end:
+        description: "Número final (0 = fim do manifesto)"
+        default: "0"
+      delay:
+        description: "Segundos entre submissões"
+        default: "2"
+
+jobs:
+  wayback-save:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Wayback Save (todos os tipos)
+        if: ${{ github.event.inputs.tipo == '' }}
+        env:
+          IAS3_ACCESS_KEY: ${{ secrets.IAS3_ACCESS_KEY }}
+          IAS3_SECRET_KEY: ${{ secrets.IAS3_SECRET_KEY }}
+        run: |
+          for tipo in lei lc ec resolucao portaria decreto-lei; do
+            echo "=== Submetendo tipo: $tipo ==="
+            uv run leizilla wayback-save \
+              --ente ${{ github.event.inputs.ente }} \
+              --fonte ${{ github.event.inputs.fonte }} \
+              --tipo $tipo \
+              --start ${{ github.event.inputs.start }} \
+              --end ${{ github.event.inputs.end }} \
+              --delay ${{ github.event.inputs.delay }}
+          done
+          echo "=== Submetendo tipo: decreto (range grande, pode demorar) ==="
+          uv run leizilla wayback-save \
+            --ente ${{ github.event.inputs.ente }} \
+            --fonte ${{ github.event.inputs.fonte }} \
+            --tipo decreto \
+            --start ${{ github.event.inputs.start }} \
+            --end ${{ github.event.inputs.end }} \
+            --delay ${{ github.event.inputs.delay }}
+
+      - name: Wayback Save (tipo específico)
+        if: ${{ github.event.inputs.tipo != '' }}
+        env:
+          IAS3_ACCESS_KEY: ${{ secrets.IAS3_ACCESS_KEY }}
+          IAS3_SECRET_KEY: ${{ secrets.IAS3_SECRET_KEY }}
+        run: |
+          uv run leizilla wayback-save \
+            --ente ${{ github.event.inputs.ente }} \
+            --fonte ${{ github.event.inputs.fonte }} \
+            --tipo ${{ github.event.inputs.tipo }} \
+            --start ${{ github.event.inputs.start }} \
+            --end ${{ github.event.inputs.end }} \
+            --delay ${{ github.event.inputs.delay }}

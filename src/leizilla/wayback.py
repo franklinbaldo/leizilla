@@ -72,44 +72,57 @@ def save_page_spn2(
     access_key: Optional[str] = None,
     secret_key: Optional[str] = None,
     timeout: int = 60,
+    retries: int = 3,
 ) -> bool:
     """Submete URL ao SPN2 da Wayback Machine via POST com auth IA opcional.
 
-    Com auth: maior rate limit (100+ req/min). Sem auth: cai no SPN1 básico.
-    Retorna True se aceito (200/302). Fail-open.
+    Com auth: maior rate limit. Sem auth: cai no SPN1 básico.
+    Retorna True se aceito (200/302). Fail-open com retry exponencial.
     """
+    import time
+
+    import requests
+
+    headers = {"User-Agent": _USER_AGENT}
     if access_key and secret_key:
-        # SPN2 API com IA credentials
-        data = urllib.parse.urlencode({"url": url}).encode()
-        req = urllib.request.Request(
-            "https://web.archive.org/save/",
-            data=data,
-            method="POST",
-        )
-        req.add_header("User-Agent", _USER_AGENT)
-        req.add_header("Authorization", f"LOW {access_key}:{secret_key}")
-        req.add_header("Content-Type", "application/x-www-form-urlencoded")
-    else:
-        save_url = _SAVE_URL_TMPL.format(urllib.parse.quote(url, safe=":/"))
-        req = urllib.request.Request(save_url)
-        req.add_header("User-Agent", _USER_AGENT)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status in (200, 302)
-    except Exception:
-        return False
+        headers["Authorization"] = f"LOW {access_key}:{secret_key}"
+
+    for attempt in range(retries):
+        try:
+            if access_key and secret_key:
+                resp = requests.post(
+                    "https://web.archive.org/save/",
+                    data={"url": url},
+                    headers=headers,
+                    timeout=timeout,
+                    allow_redirects=True,
+                )
+            else:
+                save_url = _SAVE_URL_TMPL.format(urllib.parse.quote(url, safe=":/"))
+                resp = requests.get(save_url, headers=headers, timeout=timeout, allow_redirects=True)
+            if resp.status_code in (200, 302):
+                return True
+            if resp.status_code == 429 or resp.status_code >= 500:
+                time.sleep(2 ** attempt * 5)
+                continue
+            return False
+        except Exception:
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt * 5)
+    return False
 
 
 def fetch_cdx_archived_urls(prefix: str, timeout: int = 90) -> Set[str]:
     """Retorna conjunto de URLs originais com status=200 no CDX para o prefixo dado."""
+    import requests
+
     cdx_url = (
         "https://web.archive.org/cdx/search/cdx"
         f"?url={urllib.parse.quote(prefix)}&matchType=prefix&output=json&fl=original,statuscode"
     )
-    req = urllib.request.Request(cdx_url, headers={"User-Agent": _USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        resp = requests.get(cdx_url, headers={"User-Agent": _USER_AGENT}, timeout=timeout)
+        data = resp.json()
     except Exception:
         return set()
     if not data or len(data) <= 1:
