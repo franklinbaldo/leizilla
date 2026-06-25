@@ -1223,6 +1223,100 @@ def cmd_fetch_all_parsed(
     echo(f"Baixados: {ok}, Pulados (já existiam): {skipped}, Erros: {fail}")
 
 
+@app.command("wayback-save")
+def cmd_wayback_save(
+    ente: str = typer.Option("ro", help="Ente federativo (ro, ...)"),
+    fonte: str = typer.Option("casacivil", help="Fonte (casacivil, ...)"),
+    tipo: Optional[str] = typer.Option(None, help="Filtrar tipo (lei, lc, decreto, ...). None = todos"),
+    start: int = typer.Option(1, help="Número inicial do range"),
+    end: int = typer.Option(0, help="Número final (0 = usar fim do manifesto)"),
+    delay: float = typer.Option(2.0, help="Segundos entre submissões ao Wayback"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Mostrar URLs sem submeter"),
+    skip_head_check: bool = typer.Option(False, "--skip-head-check", help="Não verificar se URL existe na fonte"),
+) -> None:
+    """Submete ao Wayback Machine Save Page Now as URLs da ditel que ainda não estão arquivadas."""
+    import time
+
+    from leizilla import config as _config
+    from leizilla.discovery import load_manifest, parse_filename
+    from leizilla.wayback import fetch_cdx_archived_urls, save_page_spn2
+
+    access_key = _config.IA_ACCESS_KEY
+    secret_key = _config.IA_SECRET_KEY
+
+    manifest = load_manifest(ente)
+    fontes = manifest.get("fontes", {})
+    if fonte not in fontes:
+        echo(f"Fonte '{fonte}' não encontrada no manifesto de '{ente}'.")
+        raise typer.Exit(1)
+
+    fonte_cfg = fontes[fonte]
+
+    # Monta prefixos CDX únicos das estratégias wayback-cdx desta fonte
+    cdx_prefixes: set[str] = set()
+    sequential_strategies = []
+    for disc in fonte_cfg.get("discovery", []):
+        if disc["strategy"] == "wayback-cdx":
+            cdx_prefixes.add(disc["prefix"])
+        elif disc["strategy"] == "sequential":
+            sequential_strategies.append(disc)
+
+    # Consulta CDX uma vez por prefixo
+    echo(f"Consultando CDX para {ente}/{fonte}...")
+    archived: set[str] = set()
+    for prefix in cdx_prefixes:
+        found = fetch_cdx_archived_urls(prefix)
+        echo(f"  {prefix} → {len(found)} URLs já arquivadas")
+        archived |= found
+
+    # Para cada estratégia sequential, gera lista de candidatos
+    total_submitted = 0
+    total_skipped = 0
+    total_existing = 0
+
+    for strat in sequential_strategies:
+        templates: list[str] = strat["templates"]
+        s_start = max(start, int(strat["start"]))
+        s_end = int(strat["end"]) if end == 0 else min(end, int(strat["end"]))
+        head_check: bool = bool(strat.get("head_check", False)) and not skip_head_check
+
+        # Filtra por tipo se especificado
+        if tipo:
+            sample_url = templates[0].format(num=1)
+            filename = sample_url.split("/")[-1]
+            strat_tipo, _ = parse_filename(filename)
+            if strat_tipo != tipo:
+                continue
+
+        echo(f"\nEstratégia: {templates[0].format(num='N')} [{s_start}–{s_end}] head_check={head_check}")
+
+        for num in range(s_start, s_end + 1):
+            for tmpl in templates:
+                url = tmpl.format(num=num)
+
+                if url in archived:
+                    total_existing += 1
+                    continue
+
+                if head_check:
+                    from leizilla.discovery import _head_exists
+                    if not _head_exists(url):
+                        total_skipped += 1
+                        continue
+
+                if dry_run:
+                    echo(f"  [DRY] {url}")
+                else:
+                    ok = save_page_spn2(url, access_key=access_key, secret_key=secret_key)
+                    status = "OK" if ok else "FALHOU"
+                    echo(f"  {status}: {url}")
+                    time.sleep(delay)
+
+                total_submitted += 1
+
+    echo(f"\nConcluído: {total_submitted} submetidas, {total_existing} já arquivadas, {total_skipped} HEAD 404.")
+
+
 @app.command("pipeline")
 def cmd_pipeline(
     ente: str = typer.Option("ro", help="Ente federativo"),
