@@ -1533,9 +1533,13 @@ def cmd_wayback_save(
     end: int = typer.Option(0, help="Número final (0 = fim do manifesto)"),
     delay: float = typer.Option(2.0, help="Segundos entre submissões"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Listar URLs sem submeter"),
-    skip_head_check: bool = typer.Option(False, "--skip-head-check", help="Não verificar existência na fonte antes de submeter"),
+    skip_head_check: bool = typer.Option(False, "--skip-head-check", help="Pular HEAD check na fonte (submete mesmo sem confirmar existência)"),
 ) -> None:
-    """Submete ao Wayback Machine Save Page Now as URLs da ditel ainda não arquivadas."""
+    """Submete ao Wayback Machine Save Page Now as URLs da ditel ainda não arquivadas.
+
+    Por padrão faz HEAD na fonte antes de submeter — filtra URLs inexistentes
+    independente do head_check do manifesto (que é para o scrape, não para o SPN).
+    """
     import time
 
     from leizilla import config as _config
@@ -1576,7 +1580,8 @@ def cmd_wayback_save(
         templates: list[str] = strat["templates"]
         s_start = max(start, int(strat["start"]))
         s_end = int(strat["end"]) if end == 0 else min(end, int(strat["end"]))
-        head_check: bool = bool(strat.get("head_check", False)) and not skip_head_check
+        # wayback-save sempre faz HEAD — o head_check do manifesto é para o scrape
+        head_check: bool = not skip_head_check
 
         if tipo:
             sample_url = templates[0].format(num=1)
