@@ -1574,12 +1574,15 @@ def cmd_wayback_save(
         elif disc["strategy"] == "sequential":
             sequential_strategies.append(disc)
 
+    import re as _re
+
     echo(f"Consultando CDX para {ente}/{fonte}...")
-    archived: set[str] = set()
+    # CDX armazena URLs históricas em http://; normaliza para comparação scheme-agnóstica
+    archived_noscheme: set[str] = set()
     for prefix in cdx_prefixes:
         found = fetch_cdx_archived_urls(prefix)
         echo(f"  {prefix} → {len(found)} URLs já arquivadas")
-        archived |= found
+        archived_noscheme |= {_re.sub(r"^https?://", "", u) for u in found}
 
     total_submitted = 0
     total_skipped = 0
@@ -1606,15 +1609,20 @@ def cmd_wayback_save(
         for num in range(s_start, s_end + 1):
             for tmpl in templates:
                 url = tmpl.format(num=num)
+                url_noscheme = _re.sub(r"^https?://", "", url)
 
-                if url in archived:
+                if url_noscheme in archived_noscheme:
                     total_existing += 1
                     continue
 
                 if head_check:
                     from leizilla.discovery import _head_exists
 
-                    if not _head_exists(url):
+                    # Tenta http:// se https:// falhar (servidor DITEL é HTTP-only)
+                    exists = _head_exists(url)
+                    if not exists and url.startswith("https://"):
+                        exists = _head_exists("http://" + url[8:])
+                    if not exists:
                         total_skipped += 1
                         continue
 
