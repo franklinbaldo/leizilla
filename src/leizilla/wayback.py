@@ -230,7 +230,7 @@ def save_page_spn2(
 
 
 def fetch_cdx_archived_urls(prefix: str, timeout: int = 90) -> "set[str]":
-    """Retorna conjunto de URLs originais com status=200 no CDX para o prefixo dado."""
+    """Retorna conjunto de URLs originais com status 200/301/302 no CDX para o prefixo dado."""
     import requests
 
     cdx_url = (
@@ -246,7 +246,8 @@ def fetch_cdx_archived_urls(prefix: str, timeout: int = 90) -> "set[str]":
         return set()
     if not data or len(data) <= 1:
         return set()
-    return {row[0] for row in data[1:] if row[1] == "200"}
+    # Inclui 301/302: URLs capturadas como redirecionamento (http→https) já estão no Wayback
+    return {row[0] for row in data[1:] if row[1] in ("200", "301", "302")}
 
 
 def fetch_bytes(url: str, timeout: int = 60) -> Optional[bytes]:

@@ -1592,8 +1592,9 @@ def cmd_wayback_save(
         templates: list[str] = strat["templates"]
         s_start = max(start, int(strat["start"]))
         s_end = int(strat["end"]) if end == 0 else min(end, int(strat["end"]))
-        # wayback-save sempre faz HEAD — o head_check do manifesto é para o scrape
-        head_check: bool = not skip_head_check
+        # Respeita head_check do manifesto (mesmo critério do scrape).
+        # --skip-head-check sobrescreve para forçar submissão sem verificação.
+        head_check: bool = bool(strat.get("head_check", True)) and not skip_head_check
 
         if tipo:
             sample_url = templates[0].format(num=1)
