@@ -214,16 +214,18 @@ def save_page_spn2(
                 )
             else:
                 save_url = _SAVE_URL_TMPL.format(urllib.parse.quote(url, safe=":/"))
-                resp = requests.get(save_url, headers=headers, timeout=timeout, allow_redirects=True)
+                resp = requests.get(
+                    save_url, headers=headers, timeout=timeout, allow_redirects=True
+                )
             if resp.status_code in (200, 302):
                 return True
             if resp.status_code == 429 or resp.status_code >= 500:
-                time.sleep(2 ** attempt * 5)
+                time.sleep(2**attempt * 5)
                 continue
             return False
         except Exception:
             if attempt < retries - 1:
-                time.sleep(2 ** attempt * 5)
+                time.sleep(2**attempt * 5)
     return False
 
 
@@ -236,7 +238,9 @@ def fetch_cdx_archived_urls(prefix: str, timeout: int = 90) -> "set[str]":
         f"?url={urllib.parse.quote(prefix)}&matchType=prefix&output=json&fl=original,statuscode"
     )
     try:
-        resp = requests.get(cdx_url, headers={"User-Agent": _USER_AGENT}, timeout=timeout)
+        resp = requests.get(
+            cdx_url, headers={"User-Agent": _USER_AGENT}, timeout=timeout
+        )
         data = resp.json()
     except Exception:
         return set()

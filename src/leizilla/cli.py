@@ -1528,17 +1528,24 @@ def dev_clean() -> None:
 def cmd_wayback_save(
     ente: str = typer.Option("ro", help="Ente federativo"),
     fonte: str = typer.Option("casacivil", help="Fonte (casacivil, assembleia, ...)"),
-    tipo: Optional[str] = typer.Option(None, help="Tipo (lei, lc, decreto, ec, resolucao, portaria, decreto-lei). None = todos"),
+    tipo: Optional[str] = typer.Option(
+        None,
+        help="Tipo (lei, lc, decreto, ec, resolucao, portaria, decreto-lei). None = todos",
+    ),
     start: int = typer.Option(1, help="Número inicial do range"),
     end: int = typer.Option(0, help="Número final (0 = fim do manifesto)"),
     delay: float = typer.Option(2.0, help="Segundos entre submissões"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Listar URLs sem submeter"),
-    skip_head_check: bool = typer.Option(False, "--skip-head-check", help="Pular HEAD check na fonte (submete mesmo sem confirmar existência)"),
+    skip_head_check: bool = typer.Option(
+        False,
+        "--skip-head-check",
+        help="Pular HEAD check na fonte (submete mesmo sem confirmar existência)",
+    ),
 ) -> None:
     """Submete ao Wayback Machine Save Page Now as URLs da ditel ainda não arquivadas.
 
     Por padrão faz HEAD na fonte antes de submeter — filtra URLs inexistentes
-    independente do head_check do manifesto (que é para o scrape, não para o SPN).
+    independente do head_check do manifesto (que é para scrape, não para SPN).
     """
     import time
 
@@ -1590,7 +1597,9 @@ def cmd_wayback_save(
             if strat_tipo != tipo:
                 continue
 
-        echo(f"\n{templates[0].format(num='N')} [{s_start}–{s_end}] head_check={head_check}")
+        echo(
+            f"\n{templates[0].format(num='N')} [{s_start}–{s_end}] head_check={head_check}"
+        )
 
         for num in range(s_start, s_end + 1):
             for tmpl in templates:
@@ -1601,21 +1610,31 @@ def cmd_wayback_save(
                     continue
 
                 if head_check:
-                    from leizilla.discovery import _head_exists
-                    if not _head_exists(url):
+                    import requests as _req
+
+                    try:
+                        r = _req.head(url, timeout=10, allow_redirects=True)
+                        if r.status_code >= 400:
+                            total_skipped += 1
+                            continue
+                    except Exception:
                         total_skipped += 1
                         continue
 
                 if dry_run:
                     echo(f"  [DRY] {url}")
                 else:
-                    ok = save_page_spn2(url, access_key=access_key, secret_key=secret_key)
+                    ok = save_page_spn2(
+                        url, access_key=access_key, secret_key=secret_key
+                    )
                     echo(f"  {'OK' if ok else 'FALHOU'}: {url}")
                     time.sleep(delay)
 
                 total_submitted += 1
 
-    echo(f"\nConcluído: {total_submitted} submetidas, {total_existing} já arquivadas, {total_skipped} HEAD 404.")
+    echo(
+        f"\nConcluído: {total_submitted} submetidas, {total_existing} já arquivadas, {total_skipped} HEAD 404."
+    )
 
 
 def main() -> None:
