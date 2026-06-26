@@ -14,9 +14,9 @@ PDFs brutos são agrupados em **range buckets** de 1000 itens. O upload físico 
 leizilla_{ente}_{fonte}_{tipo}_{start:04d}-{end:04d}
 ```
 
-Para tipo `coddoc` (assembleia), o tipo é **omitido**:
+Para chaves `coddoc` (assembleia) e outros tipos não-identificáveis, o item é o **holding area** `_unidentified`:
 ```
-leizilla_{ente}_{fonte}_{start:04d}-{end:04d}
+leizilla_{ente}_{fonte}_unidentified
 ```
 
 ## Delimitadores
@@ -44,33 +44,45 @@ Limites acima de 9999 usam 5 dígitos — comportamento intencional.
 | 500 | lei | `leizilla_ro_casacivil_lei_0001-1000` |
 | 5120 | lei | `leizilla_ro_casacivil_lei_5001-6000` |
 | 300 | decreto | `leizilla_ro_casacivil_decreto_0001-1000` |
-| 42 | assembleia (coddoc) | `leizilla_ro_assembleia_0001-1000` |
+| 42 | assembleia (coddoc) | `leizilla_ro_assembleia_unidentified` |
 
 ## Nomes de arquivo dentro do bucket
 
 ```
-{num:06d}_{hash_8}.pdf
-{num:06d}_{hash_8}_meta.json
+{uuid5}.pdf
+{uuid5}_meta.json
+{uuid5}_djvu.txt
 ```
 
-O nome **sem hash** (`{num:06d}.pdf`) é reservado para artefatos canônicos futuros.
+O `uuid5` é um hash de 8 caracteres gerado deterministicamente a partir do conteúdo (UUIDv5 truncado):
 
-## Hash
-
-8 caracteres, gerado deterministicamente:
 ```python
 sha256_hex = hashlib.sha256(pdf_bytes).hexdigest()
-hash_8     = str(uuid.uuid5(uuid.NAMESPACE_DNS, sha256_hex))[:8]
+uuid5      = str(uuid.uuid5(uuid.NAMESPACE_DNS, sha256_hex))[:8]
+# ex: "a1b2c3d4"
 ```
 
-Mesmo conteúdo → mesmo hash → mesmo nome de arquivo. Garante idempotência.
+Mesmo conteúdo → mesmo uuid5 → mesmo nome de arquivo. Garante idempotência e deduplicação.
 
-## manifest.csv
+## index.csv
 
-Cada bucket mantém `manifest.csv` com colunas `filename,url`. Atualizado incrementalmente a cada upload. Usado pelo discover para verificação cruzada.
+Cada bucket mantém `index.csv` com as colunas:
+
+| Coluna | Descrição |
+|---|---|
+| `tipo` | tipo normativo (lei, lc, decreto, …) |
+| `numero` | número da norma na fonte |
+| `rendicao` | original \| compilada \| atual \| "" |
+| `formato` | pdf \| html \| docx |
+| `uuid5` | nome do arquivo (8 chars) |
+| `sha256` | hash completo — dedup + detecção de colisão |
+| `captured_at` | ISO-8601 — ordena versões (newest wins) |
+| `source` | chave de colheita / URL de origem |
+
+Append-only; newest-wins em `(tipo, numero, rendicao, formato)`.
 
 # Citations
 
-[1] [src/leizilla/ia_utils.py](/src/leizilla/ia_utils.py) — `get_range_identifier`, `get_ia_filename`
+[1] [src/leizilla/ia_utils.py](/src/leizilla/ia_utils.py) — `get_range_identifier`, `raw_filename`, `INDEX_COLUMNS`
 [2] [Resolução de URL](../naming/url-resolution.md)
-[3] [ADR-0005: Padrão de identificadores IA](/docs/adr/0005-ia-identifiers.md)
+[3] [ADR-0010: raw content-addressed](/docs/adr/0010-raw-content-addressed-parsed-urn.md)

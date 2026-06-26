@@ -29,13 +29,13 @@ leizilla discover --ente ro --no-head-check            # pula estratégias com h
 1. Carrega `manifests/{ente}.json`
 2. Para cada fonte (opcional: filtra por `--fonte`), para cada estratégia de discovery
 3. Se `--no-head-check` e `head_check: true` na config → pula a estratégia
-4. Executa a estratégia; para cada recurso descoberto, verifica cruzadamente com `manifest.csv` do range bucket no IA
-5. Se presente no manifest do IA → `status = "downloaded"`; senão → `status = "pending"`
+4. Executa a estratégia; para cada recurso descoberto, verifica cruzadamente com `index.csv` do range bucket no IA
+5. Se presente no `index.csv` do IA → `status = "downloaded"`; senão → `status = "pending"`
 6. Insere na tabela `discovered_resources` (duplicatas ignoradas via `INSERT OR IGNORE`)
 
 ## Verificação cruzada com IA
 
-O módulo mantém um cache em memória (`_manifest_cache`) dos prefixos presentes em cada range bucket. O cache persiste durante o processo mas não entre runs.
+O módulo mantém um cache em memória dos prefixos presentes em cada range bucket (via `index.csv`). O cache persiste durante o processo mas não entre runs.
 
 # Citations
 

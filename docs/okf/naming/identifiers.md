@@ -17,7 +17,7 @@ Há dois níveis de identificadores: **lógico** (como o código referencia) e *
 | Bundle | `leizilla-bundle-{ente}-{fonte}-{year}-W{week:02d}` | `leizilla-bundle-ro-casacivil-2026-W20` |
 | Dataset | `leizilla-dataset-{ente}-v{version}` | `leizilla-dataset-ro-v1` |
 
-O identificador lógico raw **nunca é o upload target** — é resolvido para a URL do range bucket via `resolve_ia_id_to_url`.
+O identificador lógico raw **nunca é o upload target** — é resolvido para a URL do range bucket via `resolve_raw_url`.
 
 ## Identificadores físicos (upload target)
 

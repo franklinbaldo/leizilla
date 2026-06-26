@@ -22,7 +22,7 @@ Estas regras são invariantes — violá-las corrompe dados ou quebra a resoluç
 ## Fetch e robots
 
 6. Rejeição por `robots.txt` é **permanente** para aquela URL — sem retry; `robots_blocked: true` registrado no `raw_meta.json`
-7. O `manifest.csv` é a fonte de verdade sobre o que está dentro de um range bucket
+7. O `index.csv` é a fonte de verdade sobre o que está dentro de um range bucket
 
 ## Parse
 

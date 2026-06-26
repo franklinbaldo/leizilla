@@ -19,13 +19,11 @@ Nenhum outro storage é usado em produção. O DuckDB local é staging apenas.
 
 ## Autenticação
 
-Variáveis: `IA_ACCESS_KEY` + `IA_SECRET_KEY`. Escritas em `.ini` temporário e passadas via `-c FILE` ao CLI `ia`. Nunca persistidas em disco permanente.
+Variáveis: `IA_ACCESS_KEY` + `IA_SECRET_KEY` (aliases: `IAS3_ACCESS_KEY` / `IAS3_SECRET_KEY`). Escritas em `.ini` temporário e passadas via `-c FILE` ao CLI `ia`. Nunca persistidas em disco permanente.
 
 ## Upload
 
-- CLI `ia upload` com flags `--no-derive` (pula pipeline de mídia do IA) e `--checksum` (idempotência)
-- O `--no-derive` é essencial: evita que o IA processe PDFs como "livros digitalizados" com OCR duplicado
-- O IA gera OCR (`_djvu.txt`) **somente para PDFs uploadados sem `--no-derive`** — confirmar se esse flag está correto para o fluxo de OCR
+O CLI `ia upload` é invocado via subprocess com metadados obrigatórios (`title`, `mediatype`, `creator`, `subject`, `language`). Nenhuma flag `--no-derive` é usada — o IA processa OCR automaticamente para todos os PDFs enviados com `mediatype:texts`.
 
 ## Metadados padrão por tipo de item
 
@@ -38,7 +36,7 @@ Variáveis: `IA_ACCESS_KEY` + `IA_SECRET_KEY`. Escritas em `.ini` temporário e 
 
 ## OCR assíncrono
 
-O IA processa OCR em background. Tempo típico: minutos a horas. O pipeline não policia esse tempo — `fetch_ocr` simplesmente retorna `None` enquanto o `_djvu.txt` não existe.
+O IA processa OCR em background após o upload. Tempo típico: minutos a horas. O pipeline não policia esse tempo — `fetch-ocr` simplesmente retorna `None` enquanto o `_djvu.txt` não existe.
 
 # Citations
 
