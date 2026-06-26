@@ -1528,17 +1528,24 @@ def dev_clean() -> None:
 def cmd_wayback_save(
     ente: str = typer.Option("ro", help="Ente federativo"),
     fonte: str = typer.Option("casacivil", help="Fonte (casacivil, assembleia, ...)"),
-    tipo: Optional[str] = typer.Option(None, help="Tipo (lei, lc, decreto, ec, resolucao, portaria, decreto-lei). None = todos"),
+    tipo: Optional[str] = typer.Option(
+        None,
+        help="Tipo (lei, lc, decreto, ec, resolucao, portaria, decreto-lei). None = todos",
+    ),
     start: int = typer.Option(1, help="Número inicial do range"),
     end: int = typer.Option(0, help="Número final (0 = fim do manifesto)"),
     delay: float = typer.Option(2.0, help="Segundos entre submissões"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Listar URLs sem submeter"),
-    skip_head_check: bool = typer.Option(False, "--skip-head-check", help="Pular HEAD check na fonte (submete mesmo sem confirmar existência)"),
+    skip_head_check: bool = typer.Option(
+        False,
+        "--skip-head-check",
+        help="Pular HEAD check na fonte (submete mesmo sem confirmar existência)",
+    ),
 ) -> None:
     """Submete ao Wayback Machine Save Page Now as URLs da ditel ainda não arquivadas.
 
     Por padrão faz HEAD na fonte antes de submeter — filtra URLs inexistentes
-    independente do head_check do manifesto (que é para o scrape, não para o SPN).
+    independente do head_check do manifesto (que é para scrape, não para SPN).
     """
     import time
 
