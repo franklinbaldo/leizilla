@@ -48,6 +48,9 @@ _PLANALTO_LEGACY_URLS: Dict[str, str] = {
     "lei": f"{_PLANALTO_BASE}/leis/L{{num}}.htm",
     "lcp": f"{_PLANALTO_BASE}/leis/lcp/Lcp{{num}}.htm",
     "decreto": f"{_PLANALTO_BASE}/decreto/D{{num}}.htm",
+    "decreto-lei": f"{_PLANALTO_BASE}/Decreto-Lei/Del{{num}}.htm",
+    "emc": f"{_PLANALTO_BASE}/Constituicao/Emendas/Emc/emc{{num:02d}}.htm",
+    "mpv": f"{_PLANALTO_BASE}/MPV/Antigas_2001/{{num}}.htm",
 }
 
 # Prefixos de tipo no path year-scoped (subdiretório e nome de arquivo)
@@ -55,11 +58,17 @@ _PLANALTO_YEAR_SUBDIR: Dict[str, str] = {
     "lei": "lei",
     "lcp": "lei",  # LCPs ficam em /lei/, não /lcp/
     "decreto": "decreto",
+    "decreto-lei": "decreto-lei",
+    "emc": "Emenda",
+    "mpv": "Mpv",
 }
 _PLANALTO_YEAR_PREFIX: Dict[str, str] = {
     "lei": "l",
     "lcp": "lcp",
     "decreto": "d",
+    "decreto-lei": "del",
+    "emc": "emc",
+    "mpv": "mpv",
 }
 
 # Ranges de 4 anos usados pelo Planalto (confirmados empiricamente)
@@ -77,6 +86,9 @@ _CAMARA_SIGLA: Dict[str, str] = {
     "lei": "LEI",
     "lcp": "LCP",
     "decreto": "DEL",
+    "decreto-lei": "DEL",
+    "emc": "EMC",
+    "mpv": "MPV",
 }
 
 

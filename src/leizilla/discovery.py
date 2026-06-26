@@ -9,21 +9,19 @@ import re
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol, Callable
 
 from leizilla.storage import DuckDBStorage
 
 logger = logging.getLogger(__name__)
 
 
-class DiscoveryStrategy:
-    """Base class para estratégias de descoberta de recursos."""
+class DiscoveryStrategyProtocol(Protocol):
+    """Protocolo para estratégias de descoberta de recursos."""
 
-    def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
-        pass
+    def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None: ...
 
-    def run(self) -> List[Dict[str, Any]]:
-        return []
+    def run(self) -> List[Dict[str, Any]]: ...
 
 
 def parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
@@ -45,7 +43,7 @@ def parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
     return None, None
 
 
-class WaybackCdxDiscovery(DiscoveryStrategy):
+class WaybackCdxDiscovery:
     """Estratégia de descobrimento que consulta a API CDX da Wayback Machine."""
 
     def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
@@ -118,7 +116,7 @@ class WaybackCdxDiscovery(DiscoveryStrategy):
         return resources
 
 
-class SequentialDiscovery(DiscoveryStrategy):
+class SequentialDiscovery:
     """Estratégia de descobrimento baseada em templates de URLs sequenciais."""
 
     def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
@@ -157,7 +155,7 @@ class SequentialDiscovery(DiscoveryStrategy):
         return resources
 
 
-class PlaywrightCrawlerDiscovery(DiscoveryStrategy):
+class PlaywrightCrawlerDiscovery:
     """Estratégia de descobrimento que usa o LeisCrawler (Playwright) para o portal ALRO."""
 
     def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
@@ -216,7 +214,7 @@ class PlaywrightCrawlerDiscovery(DiscoveryStrategy):
         return resources
 
 
-STRATEGIES: Dict[str, type[DiscoveryStrategy]] = {
+STRATEGIES: Dict[str, Callable[[Dict[str, Any], str, str], DiscoveryStrategyProtocol]] = {
     "wayback-cdx": WaybackCdxDiscovery,
     "sequential": SequentialDiscovery,
     "playwright-crawler": PlaywrightCrawlerDiscovery,

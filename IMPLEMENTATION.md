@@ -1252,5 +1252,4 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 * Visualização detalhada individual contendo título, ementa, data, link original para o PDF no IA e um visualizador de texto integrado para o OCR extraído com destaque de termos pesquisados.
 
 **Dívida técnica identificada**: Protocol formal para estratégias de discovery (`WaybackCdxDiscovery`,
-`SequentialDiscovery`, `PlaywrightCrawlerDiscovery`) — eliminaria o `# type: ignore[attr-defined]`
-em `discovery.py:216`. Candidato para M12 se houver adição de nova estratégia.
+`SequentialDiscovery`, `PlaywrightCrawlerDiscovery`) — RESOLVIDO: Substituiu-se a class base por `DiscoveryStrategyProtocol(Protocol)`.
