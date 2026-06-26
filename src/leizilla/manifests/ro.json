@@ -6,47 +6,47 @@
       "discovery": [
         {
           "strategy": "wayback-cdx",
-          "prefix": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/"
+          "prefix": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/"
         }
       ],
       "probe": [
         {
-          "templates": ["https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L{num}.pdf"],
+          "templates": ["http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L{num}.pdf"],
           "start": 1,
           "head_check": false
         },
         {
-          "templates": ["https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/LC{num}.pdf"],
+          "templates": ["http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/LC{num}.pdf"],
           "start": 1,
           "head_check": false
         },
         {
-          "templates": ["https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/D{num}.pdf"],
+          "templates": ["http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/D{num}.pdf"],
           "start": 1,
           "head_check": true
         },
         {
-          "templates": ["https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/EC{num}.pdf"],
+          "templates": ["http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/EC{num}.pdf"],
           "start": 1,
           "head_check": true
         },
         {
-          "templates": ["https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/Res{num}.pdf"],
+          "templates": ["http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/Res{num}.pdf"],
           "start": 1,
           "head_check": true
         },
         {
-          "templates": ["https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/Port{num}.pdf"],
+          "templates": ["http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/Port{num}.pdf"],
           "start": 1,
           "head_check": true
         },
         {
-          "templates": ["https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/DEC{num}.pdf"],
+          "templates": ["http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/DEC{num}.pdf"],
           "start": 1,
           "head_check": true
         },
         {
-          "templates": ["https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/DL{num}.pdf"],
+          "templates": ["http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/DL{num}.pdf"],
           "start": 1,
           "head_check": true
         }
