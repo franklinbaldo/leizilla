@@ -109,6 +109,10 @@ def cmd_harvest(
     ente: Optional[str] = typer.Option(
         None, help="Filtrar por ente federativo (None = todos os entes)"
     ),
+    tipo: Optional[str] = typer.Option(
+        None,
+        help="Filtrar por tipo de documento (lei, lc, decreto, ec, resolucao, portaria, decreto-lei)",
+    ),
     limit: int = typer.Option(100, help="Limite de recursos a processar por execução"),
 ) -> None:
     """Consome a fila de resources pendentes no banco e realiza a colheita (harvest)."""
@@ -121,7 +125,7 @@ def cmd_harvest(
         db = DuckDBStorage()
         pub = InternetArchivePublisher()
 
-        stats = harvest_pending_resources(db, pub, limit=limit, ente=ente)
+        stats = harvest_pending_resources(db, pub, limit=limit, ente=ente, tipo=tipo)
         echo("Colheita concluída:")
         echo(f"  Sucesso: {stats['success']}")
         echo(f"  Falhas: {stats['failed']}")

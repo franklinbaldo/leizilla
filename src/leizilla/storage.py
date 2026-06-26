@@ -83,19 +83,26 @@ class DuckDBStorage:
         )
 
     def get_pending_resources(
-        self, limit: int = 100, ente: Optional[str] = None
+        self,
+        limit: int = 100,
+        ente: Optional[str] = None,
+        tipo: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         conn = self.connect()
+        conditions = ["status = 'pending'"]
+        params: list = []
         if ente:
-            results = conn.execute(
-                "SELECT * FROM discovered_resources WHERE status = 'pending' AND ente = ? LIMIT ?",
-                [ente, limit],
-            ).fetchall()
-        else:
-            results = conn.execute(
-                "SELECT * FROM discovered_resources WHERE status = 'pending' LIMIT ?",
-                [limit],
-            ).fetchall()
+            conditions.append("ente = ?")
+            params.append(ente)
+        if tipo:
+            conditions.append("tipo_documento = ?")
+            params.append(tipo)
+        where = " AND ".join(conditions)
+        params.append(limit)
+        results = conn.execute(
+            f"SELECT * FROM discovered_resources WHERE {where} LIMIT ?",
+            params,
+        ).fetchall()
         columns = [desc[0] for desc in (conn.description or [])]
         return [dict(zip(columns, row)) for row in results]
 
