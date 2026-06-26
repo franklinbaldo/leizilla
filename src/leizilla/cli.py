@@ -1539,7 +1539,11 @@ def cmd_wayback_save(
         help="Tipo (lei, lc, decreto, ec, resolucao, portaria, decreto-lei). None = todos",
     ),
     start: int = typer.Option(1, help="Número inicial do range"),
-    end: int = typer.Option(0, help="Número final (0 = fim do manifesto)"),
+    probe_window: int = typer.Option(
+        200,
+        "--probe-window",
+        help="Quantos números além do máximo arquivado no CDX provar por tipo",
+    ),
     delay: float = typer.Option(2.0, help="Segundos entre submissões"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Listar URLs sem submeter"),
     skip_head_check: bool = typer.Option(
@@ -1548,11 +1552,13 @@ def cmd_wayback_save(
         help="Pular HEAD check na fonte (submete mesmo sem confirmar existência)",
     ),
 ) -> None:
-    """Submete ao Wayback Machine Save Page Now as URLs da ditel ainda não arquivadas.
+    """Submete ao Wayback Machine Save Page Now as URLs não arquivadas.
 
-    Por padrão faz HEAD na fonte antes de submeter — filtra URLs inexistentes
-    independente do head_check do manifesto (que é para scrape, não para SPN).
+    Lê a seção `probe` do manifesto — templates sem `end` fixo. O limite
+    superior é calculado dinamicamente: max(número já no CDX) + probe_window.
+    Assim o manifest nunca precisa ser atualizado quando novas leis são criadas.
     """
+    import re as _re
     import time
 
     from leizilla import config as _config
@@ -1570,45 +1576,56 @@ def cmd_wayback_save(
 
     fonte_cfg = fontes[fonte]
 
+    # Coleta prefixos CDX da seção discovery
     cdx_prefixes: set[str] = set()
-    sequential_strategies = []
     for disc in fonte_cfg.get("discovery", []):
         if disc["strategy"] == "wayback-cdx":
             cdx_prefixes.add(disc["prefix"])
-        elif disc["strategy"] == "sequential":
-            sequential_strategies.append(disc)
-
-    import re as _re
 
     echo(f"Consultando CDX para {ente}/{fonte}...")
-    # CDX armazena URLs históricas em http://; normaliza para comparação scheme-agnóstica
     archived_noscheme: set[str] = set()
     for prefix in cdx_prefixes:
         found = fetch_cdx_archived_urls(prefix)
         echo(f"  {prefix} → {len(found)} URLs já arquivadas")
         archived_noscheme |= {_re.sub(r"^https?://", "", u) for u in found}
 
+    def _cdx_max_for_template(tmpl: str) -> int:
+        """Maior número já arquivado no CDX para este template."""
+        base = _re.sub(r"^https?://", "", tmpl)
+        pattern = _re.compile(
+            _re.escape(base).replace(r"\{num\}", r"(\d+)"), _re.IGNORECASE
+        )
+        hi = 0
+        for url_ns in archived_noscheme:
+            m = pattern.match(url_ns)
+            if m:
+                hi = max(hi, int(m.group(1)))
+        return hi
+
+    probe_strategies = fonte_cfg.get("probe", [])
+
     total_submitted = 0
     total_skipped = 0
     total_existing = 0
 
-    for strat in sequential_strategies:
+    for strat in probe_strategies:
         templates: list[str] = strat["templates"]
-        s_start = max(start, int(strat["start"]))
-        s_end = int(strat["end"]) if end == 0 else min(end, int(strat["end"]))
-        # Respeita head_check do manifesto (mesmo critério do scrape).
-        # --skip-head-check sobrescreve para forçar submissão sem verificação.
         head_check: bool = bool(strat.get("head_check", True)) and not skip_head_check
 
         if tipo:
             sample_url = templates[0].format(num=1)
-            filename = sample_url.split("/")[-1]
-            strat_tipo, _ = parse_filename(filename)
+            strat_tipo, _ = parse_filename(sample_url.split("/")[-1])
             if strat_tipo != tipo:
                 continue
 
+        # Fim dinâmico: maior número no CDX + janela de prospecção
+        cdx_hi = max(_cdx_max_for_template(t) for t in templates)
+        s_start = max(start, int(strat.get("start", 1)))
+        s_end = cdx_hi + probe_window
+
         echo(
-            f"\n{templates[0].format(num='N')} [{s_start}–{s_end}] head_check={head_check}"
+            f"\n{templates[0].format(num='N')} "
+            f"[{s_start}–{s_end}] cdx_max={cdx_hi} head_check={head_check}"
         )
 
         for num in range(s_start, s_end + 1):
@@ -1623,7 +1640,6 @@ def cmd_wayback_save(
                 if head_check:
                     from leizilla.discovery import _head_exists
 
-                    # Tenta http:// se https:// falhar (servidor DITEL é HTTP-only)
                     exists = _head_exists(url)
                     if not exists and url.startswith("https://"):
                         exists = _head_exists("http://" + url[8:])

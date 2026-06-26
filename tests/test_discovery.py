@@ -257,11 +257,10 @@ def test_run_discovery(temp_db):
     ):
         total = run_discovery("ro", temp_db)
 
-    # casacivil: 1 cdx + 8 sequential strategies (lei, lc, D, EC, Res, Port, DEC, DL) = 9
-    assert total == 9
+    # casacivil: 1 cdx (sequencial removido; probe section é para wayback-save, não discover)
+    assert total == 1
 
     pending = temp_db.get_pending_resources()
-    assert len(pending) == 2  # lei-00001 (cdx) + lei-00002 (sequential, deduplicated)
+    assert len(pending) == 1  # lei-00001 (cdx only; sequential is now probe, not discovery)
     urls = [p["url"] for p in pending]
     assert "http://example.com/L1.pdf" in urls
-    assert "http://example.com/L2.pdf" in urls
