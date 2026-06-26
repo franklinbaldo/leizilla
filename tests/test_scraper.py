@@ -119,6 +119,23 @@ class TestScrapeOne:
         scrape_one(_FONTE_URL, _PDF_URL, _LEI, pub, rate_limiter=rate_mock)
         rate_mock.assert_called_once_with(_PDF_URL)
 
+    @patch("leizilla.scraper.wayback.ensure_archived", return_value=(_WB_URL, _WB_TS))
+    @patch(
+        "leizilla.scraper.wayback.fetch_bytes",
+        side_effect=[b"<!DOCTYPE html><html>error</html>", _PDF_BYTES],
+    )
+    @patch("leizilla.scraper.wayback.save_page", return_value=True)
+    @patch("leizilla.scraper.robots.is_allowed", return_value=True)
+    def test_wayback_html_response_triggers_fallback(
+        self, _r: Any, _s: Any, _f: Any, _c: Any
+    ) -> None:
+        """Wayback retornando HTML (não PDF) deve acionar fallback direto."""
+        pub = _make_publisher()
+        result = scrape_one(_FONTE_URL, _PDF_URL, _LEI, pub)
+        assert result["success"] is True
+        call_kwargs = pub.upload_raw.call_args
+        assert call_kwargs.kwargs["fetched_from"] == "source-fallback"
+
 
 class TestMakeRateLimiter:
     def test_returns_callable(self) -> None:
