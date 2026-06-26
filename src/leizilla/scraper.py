@@ -69,6 +69,9 @@ def scrape_one(
     if wb_url:
         pdf_bytes = wayback.fetch_bytes(wb_url)
         fetched_from = "wayback"
+        # Wayback pode retornar HTML de erro para snapshots de redirect — fallback direto.
+        if pdf_bytes is not None and pdf_bytes[:4] != b"%PDF":
+            pdf_bytes = None
     else:
         pdf_bytes = None
         wb_url = None
@@ -238,6 +241,11 @@ def harvest_pending_resources(
         if wb_url:
             pdf_bytes = wayback.fetch_bytes(wb_url)
             fetched_from = "wayback"
+            # Wayback pode retornar uma página HTML de erro para snapshots que
+            # capturaram um redirect/erro (status 200 no CDX mas conteúdo HTML).
+            # Trata como fetch falho para acionar o fallback direto.
+            if pdf_bytes is not None and pdf_bytes[:4] != b"%PDF":
+                pdf_bytes = None
 
         if pdf_bytes is None:
             # Fallback direto com rate-limit
