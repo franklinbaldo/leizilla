@@ -55,16 +55,13 @@ class TestParseFilenameDecreto:
 
 
 class TestManifest:
-    def test_casacivil_has_https_and_decreto_template(self):
+    def test_casacivil_has_decreto_template(self):
+        # ditel.casacivil.ro.gov.br serves HTTP only (no HTTPS support).
+        # Templates live in 'probe'; discovery uses wayback-cdx with a prefix.
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         casacivil = manifest["fontes"]["casacivil"]
-        discovery = casacivil["discovery"]
         probe = casacivil.get("probe", [])
-        prefixes = [cfg.get("prefix") for cfg in discovery if "prefix" in cfg]
         probe_templates = [t for cfg in probe for t in cfg.get("templates", [])]
-        # every DITEL URL is https (the WAF 403s on http)
-        for url in prefixes + probe_templates:
-            assert url.startswith("https://ditel.casacivil.ro.gov.br/"), url
         # decreto (D{num}) is enumerated in probe alongside L and LC
         assert any("/D{num}.pdf" in t for t in probe_templates)
         assert any("/L{num}.pdf" in t for t in probe_templates)
@@ -147,7 +144,9 @@ class TestScrapeOneSnapshot:
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
             patch("leizilla.scraper.wayback.save_page"),
             patch("leizilla.scraper.wayback.check_available") as check,
-            patch("leizilla.scraper.wayback.fetch_bytes", return_value=b"%PDF-fake") as fetch,
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes", return_value=b"%PDF-fake"
+            ) as fetch,
         ):
             result = scrape_one(
                 "https://ditel/",
