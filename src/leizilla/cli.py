@@ -1597,7 +1597,9 @@ def cmd_wayback_save(
             if strat_tipo != tipo:
                 continue
 
-        echo(f"\n{templates[0].format(num='N')} [{s_start}–{s_end}] head_check={head_check}")
+        echo(
+            f"\n{templates[0].format(num='N')} [{s_start}–{s_end}] head_check={head_check}"
+        )
 
         for num in range(s_start, s_end + 1):
             for tmpl in templates:
@@ -1609,6 +1611,7 @@ def cmd_wayback_save(
 
                 if head_check:
                     from leizilla.discovery import _head_exists
+
                     if not _head_exists(url):
                         total_skipped += 1
                         continue
@@ -1616,13 +1619,17 @@ def cmd_wayback_save(
                 if dry_run:
                     echo(f"  [DRY] {url}")
                 else:
-                    ok = save_page_spn2(url, access_key=access_key, secret_key=secret_key)
+                    ok = save_page_spn2(
+                        url, access_key=access_key, secret_key=secret_key
+                    )
                     echo(f"  {'OK' if ok else 'FALHOU'}: {url}")
                     time.sleep(delay)
 
                 total_submitted += 1
 
-    echo(f"\nConcluído: {total_submitted} submetidas, {total_existing} já arquivadas, {total_skipped} HEAD 404.")
+    echo(
+        f"\nConcluído: {total_submitted} submetidas, {total_existing} já arquivadas, {total_skipped} HEAD 404."
+    )
 
 
 def main() -> None:
