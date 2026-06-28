@@ -72,6 +72,10 @@ _CASACIVIL_TIPOS: Dict[str, Tuple[str, str]] = {
     "lei": ("L", "Lei"),
     "lc": ("LC", "Lei Complementar"),
     "decreto": ("D", "Decreto"),
+    "decreto-lei": ("DL", "Decreto-Lei"),
+    "ec": ("EC", "Emenda Constitucional"),
+    "resolucao": ("Res", "Resolução"),
+    "portaria": ("Port", "Portaria"),
 }
 
 
@@ -79,6 +83,7 @@ def discover_casacivil_laws(
     tipo: str = "lei",
     start_num: int = 1,
     end_num: int = 100,
+    prefix: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Enumera leis e decretos da Casa Civil de Rondônia por número sequencial.
 
@@ -91,9 +96,13 @@ def discover_casacivil_laws(
     Não verifica existência aqui — scrape_one resolve via Wayback/direct e
     falha graciosamente se o arquivo não existir.
     """
-    if tipo not in _CASACIVIL_TIPOS:
-        valid = ", ".join(sorted(_CASACIVIL_TIPOS))
-        raise ValueError(f"tipo deve ser um de {{{valid}}}, recebeu '{tipo}'")
+    if prefix is None:
+        if tipo not in _CASACIVIL_TIPOS:
+            valid = ", ".join(sorted(_CASACIVIL_TIPOS))
+            raise ValueError(f"tipo deve ser um de {{{valid}}}, recebeu '{tipo}'")
+        prefix, nome = _CASACIVIL_TIPOS[tipo]
+    else:
+        nome = _CASACIVIL_TIPOS.get(tipo, (None, tipo.capitalize()))[1]
 
     if start_num > end_num:
         logging.getLogger(__name__).warning(
@@ -102,7 +111,6 @@ def discover_casacivil_laws(
             end_num,
         )
 
-    prefix, nome = _CASACIVIL_TIPOS[tipo]
     laws: List[Dict[str, Any]] = []
 
     for num in range(start_num, end_num + 1):
@@ -213,8 +221,9 @@ class LeisCrawler:
         """Baixa PDF da URL para destino local. Retorna True em sucesso."""
         for attempt in range(self.retries):
             try:
+                # verify=False ignores SSL certificate issues common on government portals
                 response = requests.get(
-                    url, timeout=self.timeout_ms / 1000, stream=True
+                    url, timeout=self.timeout_ms / 1000, stream=True, verify=False
                 )
                 response.raise_for_status()
                 with open(dest, "wb") as f:
