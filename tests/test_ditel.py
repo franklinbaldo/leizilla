@@ -39,7 +39,7 @@ class TestDiscoverCasacivil:
 
     def test_unknown_tipo_raises(self):
         with pytest.raises(ValueError, match="tipo deve ser"):
-            discover_casacivil_laws(tipo="portaria")
+            discover_casacivil_laws(tipo="invalido")
 
     def test_empty_range_is_empty(self):
         assert discover_casacivil_laws(tipo="decreto", start_num=10, end_num=5) == []
@@ -57,9 +57,10 @@ class TestParseFilenameDecreto:
 class TestManifest:
     def test_casacivil_has_https_and_decreto_template(self):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        cc = manifest["fontes"]["casacivil"]["discovery"]
-        templates = [t for cfg in cc for t in cfg.get("templates", [])]
-        prefixes = [cfg.get("prefix") for cfg in cc if "prefix" in cfg]
+        cc_disc = manifest["fontes"]["casacivil"]["discovery"]
+        cc_probe = manifest["fontes"]["casacivil"].get("probe", [])
+        templates = [t for cfg in cc_probe for t in cfg.get("templates", [])]
+        prefixes = [cfg.get("prefix") for cfg in cc_disc if "prefix" in cfg]
         # every DITEL URL is https (the WAF 403s on http)
         for url in templates + prefixes:
             assert url.startswith("https://ditel.casacivil.ro.gov.br/"), url

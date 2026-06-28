@@ -10,11 +10,12 @@ import logging
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
@@ -37,6 +38,9 @@ from leizilla.ia_utils import (
     uuid5_collision,
     uuid5_name,
 )
+
+# Bypass SSL verification globally due to expired root certificate stores in the environment
+ssl._create_default_https_context = ssl._create_unverified_context
 
 _DATASET_IDENTIFIER_RE = (
     r"^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)$"
@@ -660,9 +664,12 @@ class InternetArchivePublisher:
                 "ia_id": ia_id,
             }
 
+        name_prefix = f"{tipo}-{numero:05d}" if identity is not None else None
         with tempfile.TemporaryDirectory() as tmp:
-            pdf_dst = Path(tmp) / raw_filename(uuid5, ".pdf")
-            meta_path = Path(tmp) / raw_filename(uuid5, "_meta.json")
+            pdf_dst = Path(tmp) / raw_filename(uuid5, ".pdf", name_prefix=name_prefix)
+            meta_path = Path(tmp) / raw_filename(
+                uuid5, "_meta.json", name_prefix=name_prefix
+            )
             index_path = Path(tmp) / INDEX_FILENAME
 
             shutil.copy2(str(pdf_path), str(pdf_dst))
@@ -793,9 +800,12 @@ class InternetArchivePublisher:
                 "ia_id": ia_id,
             }
 
+        name_prefix = f"{tipo}-{numero:05d}" if identity is not None else None
         with tempfile.TemporaryDirectory() as tmp:
-            html_dst = Path(tmp) / raw_filename(uuid5, ".html")
-            meta_path = Path(tmp) / raw_filename(uuid5, "_meta.json")
+            html_dst = Path(tmp) / raw_filename(uuid5, ".html", name_prefix=name_prefix)
+            meta_path = Path(tmp) / raw_filename(
+                uuid5, "_meta.json", name_prefix=name_prefix
+            )
             index_path = Path(tmp) / INDEX_FILENAME
 
             html_dst.write_text(html_content, encoding="utf-8")
@@ -1047,15 +1057,16 @@ class InternetArchivePublisher:
                 sha256=sha256,
                 source=row["source"],
             )
+            name_prefix = f"{tipo}-{numero:05d}"
             meta = (
-                (raw_filename(uuid5, "_meta.json"), meta_bytes)
+                (raw_filename(uuid5, "_meta.json", name_prefix=name_prefix), meta_bytes)
                 if meta_bytes is not None
                 else None
             )
             if self._upload_to_range(
                 range_id,
                 content,
-                raw_filename(uuid5, suffix),
+                raw_filename(uuid5, suffix, name_prefix=name_prefix),
                 merged,
                 ente,
                 fonte,

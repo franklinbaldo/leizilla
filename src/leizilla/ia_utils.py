@@ -117,8 +117,11 @@ def range_item_identifier(ente: str, fonte: str, tipo: str, num: int) -> str:
     )
 
 
-def raw_filename(uuid5: str, suffix: str) -> str:
-    """Nome do arquivo dentro do item: ``{uuid5}{suffix}`` (ex.: ``a1b2c3d4_djvu.txt``)."""
+def raw_filename(uuid5: str, suffix: str, name_prefix: Optional[str] = None) -> str:
+    """Nome do arquivo dentro do item: ``{name_prefix}_{uuid5}{suffix}``."""
+    if name_prefix:
+        clean_prefix = re.sub(r"[^a-zA-Z0-9_-]", "", name_prefix).lower()
+        return f"{clean_prefix}_{uuid5}{suffix}"
     return f"{uuid5}{suffix}"
 
 
@@ -353,4 +356,15 @@ def resolve_raw_url(
     )
     if row is None:
         return None
-    return download_url(item_id, raw_filename(row["uuid5"], suffix))
+    tipo_row = row.get("tipo", "")
+    numero_row = row.get("numero")
+    name_prefix = None
+    if tipo_row and numero_row is not None:
+        try:
+            name_prefix = f"{tipo_row}-{int(numero_row):05d}"
+        except (ValueError, TypeError):
+            name_prefix = f"{tipo_row}-{numero_row}"
+    return download_url(
+        item_id,
+        raw_filename(row["uuid5"], suffix, name_prefix=name_prefix),
+    )

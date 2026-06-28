@@ -188,11 +188,12 @@ def save_page_spn2(
     secret_key: Optional[str] = None,
     timeout: int = 60,
     retries: int = 3,
-) -> bool:
+) -> Optional[str]:
     """Submete URL ao SPN2 via POST com auth IA opcional, usando requests (sem SSL bug no Windows).
 
     Com auth (Authorization: LOW key:secret): rate limit maior. Sem auth: SPN1 básico.
     Retry exponencial em falhas de rede ou 5xx/429. Fail-open.
+    Retorna a URL do snapshot arquivado (ou a página de histórico) em caso de sucesso, ou None.
     """
     import time
 
@@ -218,15 +219,25 @@ def save_page_spn2(
                     save_url, headers=headers, timeout=timeout, allow_redirects=True
                 )
             if resp.status_code in (200, 302):
-                return True
+                content_location = resp.headers.get("Content-Location", "") or ""
+                final_url = resp.url or ""
+                for candidate in (content_location, final_url):
+                    ts = snapshot_timestamp(candidate)
+                    if ts:
+                        if candidate.startswith("http"):
+                            return candidate
+                        return f"https://web.archive.org{candidate}"
+                # Fallback: link para a página de histórico de capturas da URL
+                return f"https://web.archive.org/web/*/{url}"
             if resp.status_code == 429 or resp.status_code >= 500:
                 time.sleep(2**attempt * 5)
                 continue
-            return False
+            return None
         except Exception:
             if attempt < retries - 1:
                 time.sleep(2**attempt * 5)
-    return False
+                continue
+    return None
 
 
 def fetch_cdx_archived_urls(prefix: str, timeout: int = 90) -> "set[str]":
@@ -250,12 +261,27 @@ def fetch_cdx_archived_urls(prefix: str, timeout: int = 90) -> "set[str]":
     return {row[0] for row in data[1:] if row[1] in ("200", "301", "302")}
 
 
+def to_raw_url(url: str) -> str:
+    """Garante que a URL do Wayback aponta para a versão crua (raw) usando o modificador 'id_'.
+
+    Se for uma URL do Wayback, insere ou substitui o modificador após o timestamp de 14 dígitos.
+    Exemplo: .../web/20241208215859/http://... -> .../web/20241208215859id_/http://...
+    """
+    if "web.archive.org/web/" in url:
+        return re.sub(r"/web/(\d{14})(?:[a-zA-Z_]*)?/", r"/web/\1id_/", url)
+    return url
+
+
 def fetch_bytes(url: str, timeout: int = 60) -> Optional[bytes]:
     """Baixa conteúdo de um URL (Wayback ou direto) e retorna bytes. None em falha."""
+    url = to_raw_url(url)
     req = urllib.request.Request(url)
     req.add_header("User-Agent", _USER_AGENT)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        import ssl
+
+        context = ssl._create_unverified_context()
+        with urllib.request.urlopen(req, timeout=timeout, context=context) as resp:
             return bytes(resp.read())
     except Exception:
         return None

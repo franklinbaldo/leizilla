@@ -261,6 +261,8 @@ def test_run_discovery(temp_db):
     assert total == 1
 
     pending = temp_db.get_pending_resources()
-    assert len(pending) == 1  # lei-00001 (cdx only; sequential is now probe, not discovery)
+    assert (
+        len(pending) == 1
+    )  # lei-00001 (cdx only; sequential is now probe, not discovery)
     urls = [p["url"] for p in pending]
     assert "http://example.com/L1.pdf" in urls
