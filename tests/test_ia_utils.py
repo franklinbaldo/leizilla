@@ -123,6 +123,10 @@ class TestRanges:
     def test_raw_filename(self):
         assert raw_filename("a1b2c3d4", ".pdf") == "a1b2c3d4.pdf"
         assert raw_filename("a1b2c3d4", "_djvu.txt") == "a1b2c3d4_djvu.txt"
+        assert (
+            raw_filename("a1b2c3d4", ".pdf", name_prefix="lei-00005")
+            == "lei-00005_a1b2c3d4.pdf"
+        )
 
     def test_download_url(self):
         assert (
@@ -397,7 +401,7 @@ class TestResolveRawUrl:
             url = resolve_raw_url("leizilla-raw-ro-casacivil-lei-05120", "_djvu.txt")
         assert url == (
             "https://archive.org/download/"
-            "leizilla_ro_casacivil_lei_5001-6000/a1b2c3d4_djvu.txt"
+            "leizilla_ro_casacivil_lei_5001-6000/lei-05120_a1b2c3d4_djvu.txt"
         )
 
     def test_no_index_yet_returns_none(self):

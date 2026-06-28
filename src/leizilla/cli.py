@@ -390,42 +390,49 @@ def cmd_scrape(
     fonte: str = typer.Option(
         "assembleia", help="Fonte (assembleia, casacivil, planalto)"
     ),
-    start_coddoc: int = typer.Option(
-        1, help="ID inicial (coddoc p/ assembleia; número de lei p/ casacivil/planalto)"
+    start: Optional[int] = typer.Option(
+        None,
+        "--start",
+        help="ID inicial (número de lei p/ casacivil/planalto; coddoc p/ assembleia)",
     ),
-    end_coddoc: int = typer.Option(10, help="ID final"),
-    tipo: str = typer.Option(
-        "lei",
+    end: Optional[int] = typer.Option(None, "--end", help="ID final"),
+    tipo: Optional[str] = typer.Option(
+        None,
+        "--tipo",
         help="Tipo: lei (ordinária), lc (complementar, casacivil), decreto (planalto)",
     ),
     skip_existing: bool = typer.Option(
-        False,
+        True,
         "--skip-existing/--no-skip-existing",
         help="Pula itens cujo raw IA item já existe (consulta IA antes do loop)",
     ),
 ) -> None:
     """Scrape leis: discover → robots → wayback → upload_raw/upload_raw_html para IA."""
+
     _VALID_TIPOS = {"lei", "lc", "lcp", "decreto", "decreto-lei", "emc", "mpv"}
 
-    if tipo not in _VALID_TIPOS:
+    if tipo and tipo not in _VALID_TIPOS:
         echo(f"--tipo inválido: {tipo!r}. Valores suportados: {sorted(_VALID_TIPOS)}")
         raise typer.Exit(1)
-    if tipo == "lc" and fonte != "casacivil":
+    if tipo and tipo == "lc" and fonte != "casacivil":
         echo(f"--tipo lc só é válido com --fonte casacivil (recebido: --fonte {fonte})")
         raise typer.Exit(1)
-    if tipo in {"lcp", "decreto-lei", "emc", "mpv"} and fonte != "planalto":
+    if tipo and tipo in {"lcp", "decreto-lei", "emc", "mpv"} and fonte != "planalto":
         echo(
             f"--tipo {tipo} só é válido com --fonte planalto (recebido: --fonte {fonte})"
         )
         raise typer.Exit(1)
-    if tipo == "decreto" and fonte not in ("planalto", "casacivil"):
+    if tipo and tipo == "decreto" and fonte not in ("planalto", "casacivil"):
         echo(
             f"--tipo decreto só é válido com --fonte planalto/casacivil "
             f"(recebido: --fonte {fonte})"
         )
         raise typer.Exit(1)
 
-    echo(f"Scraping {ente}/{fonte} {start_coddoc}–{end_coddoc} (tipo={tipo})")
+    start_desc = str(start) if start is not None else "1"
+    end_desc = str(end) if end is not None else "cdx_max"
+    tipo_desc = tipo if tipo else "todos"
+    echo(f"Scraping {ente}/{fonte} {start_desc}–{end_desc} (tipo={tipo_desc})")
 
     try:
         from leizilla.publisher import InternetArchivePublisher, list_raw_ids
@@ -444,39 +451,49 @@ def cmd_scrape(
             from leizilla.fontes.federal import discover_planalto_laws
             from leizilla.scraper import scrape_one_html
 
-            laws = discover_planalto_laws(
-                tipo=tipo,
-                start_num=start_coddoc,
-                end_num=end_coddoc,
+            planalto_tipos = (
+                [tipo]
+                if tipo
+                else ["lei", "lcp", "decreto", "decreto-lei", "emc", "mpv"]
             )
             ok = 0
             skipped_ok = 0
-            # Índice acumulado por item de range no lote (evita lost-update do
-            # index.csv entre uploads ao mesmo item — IA não tem read-after-write).
+            total_laws_count = 0
             index_cache: Dict[str, str] = {}
-            for law in laws:
-                fonte_url = law.get("url_original")
-                if not fonte_url:
-                    echo(f"  Sem URL: {law.get('chave', 'N/A')}")
-                    continue
-                if skip_existing:
-                    chave = str(law.get("chave", ""))
-                    ia_id = f"leizilla-raw-{ente}-{fonte}-{chave}"
-                    if ia_id in already_scraped:
-                        skipped_ok += 1
-                        continue
-                result = scrape_one_html(
-                    fonte_url, law, publisher, rate_limiter, index_cache
+
+            for p_tipo in planalto_tipos:
+                s_start = start if start is not None else 1
+                s_end = end if end is not None else 10
+                laws = discover_planalto_laws(
+                    tipo=p_tipo,
+                    start_num=s_start,
+                    end_num=s_end,
                 )
-                if result.get("success"):
-                    echo(f"  OK: {result.get('ia_id', '?')}")
-                    ok += 1
-                else:
-                    echo(
-                        f"  Falha [{result.get('reason', '?')}]: {law.get('chave', 'N/A')}"
+                total_laws_count += len(laws)
+                for law in laws:
+                    fonte_url = law.get("url_original")
+                    if not fonte_url:
+                        continue
+                    if skip_existing:
+                        chave = str(law.get("chave", ""))
+                        ia_id = f"leizilla-raw-{ente}-{fonte}-{chave}"
+                        if ia_id in already_scraped:
+                            skipped_ok += 1
+                            continue
+                    result = scrape_one_html(
+                        fonte_url, law, publisher, rate_limiter, index_cache
                     )
+                    if result.get("success"):
+                        ia_id = result.get("ia_id", "?")
+                        ia_url = result.get("ia_url", "?")
+                        echo(f"  OK: {ia_id} → {ia_url}")
+                        ok += 1
+                    else:
+                        echo(
+                            f"  Falha [{result.get('reason', '?')}]: {law.get('chave', 'N/A')}"
+                        )
             suffix = f", {skipped_ok} pulados (já existem)" if skip_existing else ""
-            echo(f"Scraping concluído: {ok}/{len(laws)} com sucesso{suffix}")
+            echo(f"Scraping concluído: {ok}/{total_laws_count} com sucesso{suffix}")
             return
 
         # Fontes PDF (ro/assembleia, ro/casacivil)
@@ -487,65 +504,94 @@ def cmd_scrape(
                 from leizilla.crawler import LeisCrawler
 
                 crawler = LeisCrawler(crawler_type="playwright")
+                s_start = start if start is not None else 1
+                s_end = end if end is not None else 10
                 laws = await crawler.discover_rondonia_laws(
-                    start_coddoc=start_coddoc,
-                    end_coddoc=end_coddoc,
+                    start_coddoc=s_start,
+                    end_coddoc=s_end,
                 )
             elif ente == "ro" and fonte == "casacivil":
                 from leizilla.crawler import discover_casacivil_laws
                 from leizilla.discovery import WaybackCdxDiscovery
+                from leizilla.discovery import load_manifest, parse_filename
 
-                # Base: enumera a FAIXA INTEIRA. A cobertura da DITEL é esparsa, então
-                # os números não-arquivados também têm de ser processados (vão ao Save
-                # Page Now em scrape_one) — não podemos tratar os hits do CDX como o
-                # conjunto completo, senão um range com 1 arquivado e N não-arquivados
-                # processaria só o arquivado.
-                laws = discover_casacivil_laws(
-                    tipo=tipo, start_num=start_coddoc, end_num=end_coddoc
-                )
+                manifest = load_manifest(ente)
+                fontes = manifest.get("fontes", {})
+                if fonte not in fontes:
+                    echo(f"Fonte '{fonte}' não encontrada no manifesto de '{ente}'.")
+                    raise typer.Exit(1)
+                fonte_cfg = fontes[fonte]
 
-                # Enriquece com snapshots já arquivados (CDX) para reusar a captura
-                # histórica http-keyed + timestamp em vez de re-arquivar.
-                is_mocked = (
-                    hasattr(WaybackCdxDiscovery, "mock")
-                    or hasattr(WaybackCdxDiscovery, "return_value")
-                    or "MagicMock" in str(type(WaybackCdxDiscovery))
-                )
-                if "PYTEST_CURRENT_TEST" not in os.environ or is_mocked:
-                    try:
-                        echo(
-                            f"Consultando API CDX da Wayback Machine para {ente}/{fonte}..."
+                # 1. Fetch CDX snapshots (single request)
+                snapshot_by_chave = {}
+                cdx_max_by_tipo = {}
+                try:
+                    echo(
+                        f"Consultando API CDX da Wayback Machine para {ente}/{fonte}..."
+                    )
+                    cdx_cfg = {
+                        "prefix": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/"
+                    }
+                    discovery_results = list(
+                        WaybackCdxDiscovery(cdx_cfg, ente, fonte).run()
+                    )
+                    for item in discovery_results:
+                        item_chave = item.get("chave")
+                        snap = item.get("wayback_snapshot")
+                        doc_type = item.get("tipo_documento")
+                        if item_chave and snap and doc_type:
+                            snapshot_by_chave[item_chave] = snap
+                            try:
+                                num = int(item_chave.split("-")[-1])
+                                cdx_max_by_tipo[doc_type] = max(
+                                    cdx_max_by_tipo.get(doc_type, 0), num
+                                )
+                            except ValueError:
+                                pass
+                except Exception as e:
+                    echo(
+                        f"  Erro ao consultar CDX ({e}); seguindo sem snapshots pré-descobertos."
+                    )
+
+                # 2. Determine types to process
+                probe_strategies = fonte_cfg.get("probe", [])
+                laws = []
+                for strat in probe_strategies:
+                    templates = strat["templates"]
+                    sample_url = templates[0].format(num=1)
+                    strat_tipo, _ = parse_filename(sample_url.split("/")[-1])
+
+                    if tipo and strat_tipo != tipo:
+                        continue
+
+                    # Calculate range bounds
+                    cdx_hi = cdx_max_by_tipo.get(strat_tipo, 0)
+                    s_start = start if start is not None else int(strat.get("start", 1))
+                    s_end = end if end is not None else (cdx_hi if cdx_hi > 0 else 10)
+
+                    echo(
+                        f"  Tipo '{strat_tipo}': faixa {s_start} a {s_end} (cdx_max={cdx_hi})"
+                    )
+                    if s_start <= s_end:
+                        tmpl = templates[0]
+                        prefix = tmpl.split("/")[-1].split("{num}")[0]
+                        strat_laws = discover_casacivil_laws(
+                            tipo=strat_tipo,
+                            start_num=s_start,
+                            end_num=s_end,
+                            prefix=prefix,
                         )
-                        cdx_cfg = {
-                            "prefix": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/"
-                        }
-                        snapshot_by_chave = {
-                            item["chave"]: item["wayback_snapshot"]
-                            for item in WaybackCdxDiscovery(cdx_cfg, ente, fonte).run()
-                            if item.get("tipo_documento") == tipo
-                            and item.get("wayback_snapshot")
-                        }
-                        for law in laws:
+                        for law in strat_laws:
                             snap = snapshot_by_chave.get(law["chave"])
                             if snap:
                                 law["wayback_snapshot"] = snap
-                        echo(
-                            f"  {len(laws)} itens na faixa {start_coddoc}-{end_coddoc}; "
-                            f"{len(snapshot_by_chave)} com snapshot Wayback pré-descoberto"
-                        )
-                    except Exception as e:
-                        echo(
-                            f"  Erro ao consultar CDX ({e}); "
-                            f"seguindo sem snapshots pré-descobertos."
-                        )
+                        laws.extend(strat_laws)
             else:
                 echo(f"Fonte '{fonte}' para '{ente}' ainda não implementada")
                 raise typer.Exit(1)
 
             ok = 0
             skipped_ok = 0
-            # Índice acumulado por item de range no lote (evita lost-update do
-            # index.csv entre uploads ao mesmo item — IA não tem read-after-write).
             index_cache: Dict[str, str] = {}
             for law in laws:
                 pdf_url = law.get("url_pdf_original")
@@ -569,7 +615,9 @@ def cmd_scrape(
                     wayback_snapshot=law.get("wayback_snapshot"),
                 )
                 if result.get("success"):
-                    echo(f"  OK: {result.get('ia_id', '?')}")
+                    ia_id = result.get("ia_id", "?")
+                    ia_url = result.get("ia_url", "?")
+                    echo(f"  OK: {ia_id} → {ia_url}")
                     ok += 1
                 else:
                     echo(
@@ -1010,11 +1058,12 @@ def cmd_parse_all(
     fonte: str = typer.Option(
         "assembleia", help="Fonte (assembleia, casacivil, planalto, ...)"
     ),
-    start_coddoc: int = typer.Option(
+    start: int = typer.Option(
         1,
+        "--start",
         help="Primeiro número (coddoc para assembleia/casacivil; número de lei para federal)",
     ),
-    end_coddoc: int = typer.Option(100, help="Último número"),
+    end: int = typer.Option(100, "--end", help="Último número"),
     tipo: str = typer.Option(
         "lei",
         "--tipo",
@@ -1039,7 +1088,7 @@ def cmd_parse_all(
         help="Salvar XMLs parseados em {output_dir}/{ia_id_parsed}.xml (além do upload IA)",
     ),
     skip_existing: bool = typer.Option(
-        False,
+        True,
         "--skip-existing/--no-skip-existing",
         help="Consultar IA e pular raw_ids que já têm parsed item publicado",
     ),
@@ -1120,14 +1169,14 @@ def cmd_parse_all(
                 # quando expor tipo+número — ver follow-up de identidade ALRO.)
                 if item_tipo != tipo:
                     continue
-                if start_coddoc <= num <= end_coddoc:
+                if start <= num <= end:
                     target_items.append((num, raw_id))
         else:
             # Fallback sequencial: a coleção é identity-keyed (ADR-0011), então
             # iteramos por {tipo}-{número} para qualquer fonte. O range agora é de
             # números normativos (não de coddoc); assembleia usa a identidade real
             # extraída na descoberta, igual às demais fontes.
-            for num in range(start_coddoc, end_coddoc + 1):
+            for num in range(start, end + 1):
                 chave = f"{tipo}-{num:05d}"
                 raw_id = f"leizilla-raw-{ente}-{fonte}-{chave}"
                 target_items.append((num, raw_id))
@@ -1565,7 +1614,9 @@ def cmd_wayback_save(
         None,
         help="Tipo (lei, lc, decreto, ec, resolucao, portaria, decreto-lei). None = todos",
     ),
-    start: int = typer.Option(1, help="Número inicial do range"),
+    start: Optional[int] = typer.Option(
+        None, help="Número inicial do range. Se omitido, inicia em cdx_max - 20."
+    ),
     probe_window: int = typer.Option(
         200,
         "--probe-window",
@@ -1592,6 +1643,18 @@ def cmd_wayback_save(
     from leizilla.discovery import load_manifest, parse_filename
     from leizilla.wayback import fetch_cdx_archived_urls, save_page_spn2
 
+    echo("========================================================================")
+    echo("   WAYBACK MACHINE PRESERVATION PIPELINE")
+    echo("========================================================================")
+    echo(f"Objetivo: Enviar novos documentos de {ente}/{fonte} ao Internet Archive.")
+    echo("Por que fazemos isso:")
+    echo("  1. Preservação permanente: Evita a perda se o site do governo sair do ar.")
+    echo("  2. Processamento offsite: O Internet Archive executa OCR gratuito no PDF.")
+    echo(
+        "  3. Resiliência: O pipeline baixa do Wayback em vez de sobrecarregar a fonte."
+    )
+    echo("========================================================================")
+
     access_key = _config.IA_ACCESS_KEY
     secret_key = _config.IA_SECRET_KEY
 
@@ -1609,7 +1672,7 @@ def cmd_wayback_save(
         if disc["strategy"] == "wayback-cdx":
             cdx_prefixes.add(disc["prefix"])
 
-    echo(f"Consultando CDX para {ente}/{fonte}...")
+    echo("\n[1/3] Consultando o índice histórico (CDX) do Internet Archive...")
     archived_noscheme: set[str] = set()
     for prefix in cdx_prefixes:
         # Query CDX with both schemes: historical DITEL captures are http-keyed
@@ -1638,6 +1701,9 @@ def cmd_wayback_save(
     total_skipped = 0
     total_existing = 0
 
+    echo("\n[2/3] Calculando a faixa de novos documentos a pesquisar...")
+    strategies_to_run = []
+
     for strat in probe_strategies:
         templates: list[str] = strat["templates"]
         if not templates:
@@ -1652,14 +1718,26 @@ def cmd_wayback_save(
 
         # Fim dinâmico: maior número no CDX + janela de prospecção
         cdx_hi = max((_cdx_max_for_template(t) for t in templates), default=0)
-        s_start = max(start, int(strat.get("start", 1)))
+        if start is None:
+            s_start = max(1, cdx_hi - 20)
+            start_desc = f"cdx_max - 20 ({s_start})"
+        else:
+            s_start = max(start, int(strat.get("start", 1)))
+            start_desc = str(s_start)
         s_end = cdx_hi + probe_window
+        strategies_to_run.append((strat, templates, head_check, cdx_hi, s_start, s_end))
 
+        echo(f"\nTemplate: {templates[0].format(num='{num}')}")
+        echo(f"  - Último número arquivado conhecido (cdx_max): {cdx_hi}")
+        echo(f"  - Janela de prospecção (probe_window): +{probe_window}")
+        echo(f"  - Faixa a ser verificada: de {start_desc} até {s_end}")
         echo(
-            f"\n{templates[0].format(num='N')} "
-            f"[{s_start}–{s_end}] cdx_max={cdx_hi} head_check={head_check}"
+            f"  - Fazer validação de existência antes de salvar (head_check): {'Sim' if head_check else 'Não'}"
         )
 
+    echo("\n[3/3] Iniciando submissão das URLs não arquivadas...")
+
+    for strat, templates, head_check, cdx_hi, s_start, s_end in strategies_to_run:
         for num in range(s_start, s_end + 1):
             for tmpl in templates:
                 url = tmpl.format(num=num)
@@ -1680,19 +1758,37 @@ def cmd_wayback_save(
                         continue
 
                 if dry_run:
-                    echo(f"  [DRY] {url}")
+                    echo(f"  -> [{num}] [DRY-RUN] Enviaria para salvar: {url}")
                 else:
-                    ok = save_page_spn2(
+                    echo(
+                        f"  -> [{num}] Enviando solicitação de salvamento para: {url} ..."
+                    )
+                    snap_url = save_page_spn2(
                         url, access_key=access_key, secret_key=secret_key
                     )
-                    echo(f"  {'OK' if ok else 'FALHOU'}: {url}")
+                    if snap_url:
+                        echo("     [SUCESSO] Salvo com sucesso no Wayback Machine!")
+                        echo(f"     Conferir página salva: {snap_url}")
+                    else:
+                        echo(
+                            "     [FALHA] Não foi possível salvar (o link pode estar quebrado ou o Wayback recusou)."
+                        )
                     time.sleep(delay)
 
                 total_submitted += 1
 
-    echo(
-        f"\nConcluído: {total_submitted} submetidas, {total_existing} já arquivadas, {total_skipped} HEAD 404."
-    )
+    echo("\n========================================================================")
+    echo("   PROCESSO CONCLUÍDO!")
+    echo("========================================================================")
+    echo("Resumo:")
+    echo(f"  - URLs novas enviadas para salvar: {total_submitted}")
+    echo(f"  - URLs ignoradas (já estavam arquivadas): {total_existing}")
+    echo(f"  - URLs puladas (não encontradas na fonte/HEAD 404): {total_skipped}")
+    echo("\nPróximos Passos recomendados:")
+    echo("  1. Aguarde alguns minutos para o Internet Archive processar e gerar o OCR.")
+    echo("  2. Execute a colheita dos novos arquivos para a base de dados local:")
+    echo(f"     uv run leizilla harvest --ente {ente}")
+    echo("========================================================================")
 
 
 def main() -> None:

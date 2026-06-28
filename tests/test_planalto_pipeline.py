@@ -576,9 +576,9 @@ class TestCmdScrapeTipoValidation:
                 "casacivil",
                 "--tipo",
                 "decreto",
-                "--start-coddoc",
+                "--start",
                 "1",
-                "--end-coddoc",
+                "--end",
                 "1",
             )
         assert result.exit_code == 0
@@ -596,9 +596,9 @@ class TestCmdScrapeTipoValidation:
                 "planalto",
                 "--tipo",
                 "lcp",
-                "--start-coddoc",
+                "--start",
                 "1",
-                "--end-coddoc",
+                "--end",
                 "1",
             )
         assert "lcp" not in result.output or "inválido" not in result.output

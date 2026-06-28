@@ -39,7 +39,7 @@ class TestDiscoverCasacivil:
 
     def test_unknown_tipo_raises(self):
         with pytest.raises(ValueError, match="tipo deve ser"):
-            discover_casacivil_laws(tipo="portaria")
+            discover_casacivil_laws(tipo="invalido")
 
     def test_empty_range_is_empty(self):
         assert discover_casacivil_laws(tipo="decreto", start_num=10, end_num=5) == []
