@@ -1610,6 +1610,8 @@ def cmd_wayback_save(
 
     for strat in probe_strategies:
         templates: list[str] = strat["templates"]
+        if not templates:
+            continue
         head_check: bool = bool(strat.get("head_check", True)) and not skip_head_check
 
         if tipo:
