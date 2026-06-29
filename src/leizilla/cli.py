@@ -1585,9 +1585,12 @@ def cmd_wayback_save(
     echo(f"Consultando CDX para {ente}/{fonte}...")
     archived_noscheme: set[str] = set()
     for prefix in cdx_prefixes:
-        found = fetch_cdx_archived_urls(prefix)
-        echo(f"  {prefix} → {len(found)} URLs já arquivadas")
-        archived_noscheme |= {_re.sub(r"^https?://", "", u) for u in found}
+        # Query CDX with both schemes: historical DITEL captures are http-keyed
+        # but the manifest may use https. Strip scheme and query both to avoid misses.
+        for cdx_prefix in {prefix, _re.sub(r"^https?://", "http://", prefix)}:
+            found = fetch_cdx_archived_urls(cdx_prefix)
+            echo(f"  {cdx_prefix} → {len(found)} URLs já arquivadas")
+            archived_noscheme |= {_re.sub(r"^https?://", "", u) for u in found}
 
     def _cdx_max_for_template(tmpl: str) -> int:
         """Maior número já arquivado no CDX para este template."""
@@ -1610,6 +1613,8 @@ def cmd_wayback_save(
 
     for strat in probe_strategies:
         templates: list[str] = strat["templates"]
+        if not templates:
+            continue
         head_check: bool = bool(strat.get("head_check", True)) and not skip_head_check
 
         if tipo:
@@ -1619,7 +1624,7 @@ def cmd_wayback_save(
                 continue
 
         # Fim dinâmico: maior número no CDX + janela de prospecção
-        cdx_hi = max(_cdx_max_for_template(t) for t in templates)
+        cdx_hi = max((_cdx_max_for_template(t) for t in templates), default=0)
         s_start = max(start, int(strat.get("start", 1)))
         s_end = cdx_hi + probe_window
 

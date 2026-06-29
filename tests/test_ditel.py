@@ -58,15 +58,18 @@ class TestManifest:
     def test_casacivil_has_https_and_decreto_template(self):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         cc = manifest["fontes"]["casacivil"]["discovery"]
-        templates = [t for cfg in cc for t in cfg.get("templates", [])]
+        disc_templates = [t for cfg in cc for t in cfg.get("templates", [])]
         prefixes = [cfg.get("prefix") for cfg in cc if "prefix" in cfg]
-        # every DITEL URL is https (the WAF 403s on http)
-        for url in templates + prefixes:
+        # every DITEL discovery URL is https (the WAF 403s on http)
+        for url in disc_templates + prefixes:
             assert url.startswith("https://ditel.casacivil.ro.gov.br/"), url
-        # decreto (D{num}) is enumerated alongside L and LC
-        assert any("/D{num}.pdf" in t for t in templates)
-        assert any("/L{num}.pdf" in t for t in templates)
-        assert any("/LC{num}.pdf" in t for t in templates)
+        # probe templates (wayback-save) may use http — check coverage there
+        probe = manifest["fontes"]["casacivil"].get("probe", [])
+        probe_templates = [t for cfg in probe for t in cfg.get("templates", [])]
+        all_templates = disc_templates + probe_templates
+        assert any("/D{num}.pdf" in t for t in all_templates)
+        assert any("/L{num}.pdf" in t for t in all_templates)
+        assert any("/LC{num}.pdf" in t for t in all_templates)
 
 
 class TestCdxSchemeNormalization:
