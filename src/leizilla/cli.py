@@ -1619,7 +1619,7 @@ def cmd_wayback_save(
                 continue
 
         # Fim dinâmico: maior número no CDX + janela de prospecção
-        cdx_hi = max(_cdx_max_for_template(t) for t in templates)
+        cdx_hi = max((_cdx_max_for_template(t) for t in templates), default=0)
         s_start = max(start, int(strat.get("start", 1)))
         s_end = cdx_hi + probe_window
 
