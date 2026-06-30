@@ -639,17 +639,16 @@ index/OCR-aware, a implementar em M13).
 
 ## 11. Interface de busca
 
-A interface permite busca por palavras e frases e filtros por ente, tipo normativo,
-número, ano, situação de revisão e tipo de edição.
+**Implementado (M5.2):** busca por palavras e frases (`ILIKE`) e filtros por ente,
+tipo normativo e ano. Paginação `PAGE_SIZE = 20`.
 
-Cada resultado apresenta:
-- Identificação da norma (tipo, número, ano, ente);
-- Endereço do dispositivo (locator = `path`, ex: `art.5.par.2`);
-- Trecho destacado (`texto_normalizado`);
-- Fonte original (link para raw IA item);
-- Link de auditoria (link para `parsed_meta.json`);
-- Data de captura;
-- Aviso de estágio e incerteza quando aplicável.
+Cada resultado exibe: tipo + número, ano, ementa/trecho (`texto_normalizado`),
+ente (badge) e link para o IA item (`archive.org/search?query={lei_id}`).
+
+**Planejado (M13):** filtros adicionais por número, situação de revisão
+(`review_status`) e tipo de edição; colunas extras de resultado: endereço do
+dispositivo (`path`), fonte original (raw IA item), link de auditoria
+(`parsed_meta.json`), data de captura, aviso de estágio/incerteza.
 
 A navegação de um dispositivo preserva o contexto hierárquico via `path`:
 `Lei → Título → Capítulo → Seção → Artigo → Parágrafo → Inciso`.

@@ -7,7 +7,7 @@
 
 Auditoria completa de **42 arquivos .md** no repositório comparados contra 15 fatos canônicos extraídos do PRD (Leizilla PRD.md, versão 2.0-reconciliado de 2026-06-30).
 
-**Resultado**: 2 divergências encontradas em `docs/SCHEMA.md` (§1.3 e §1.4), corrigidas no mesmo commit. Todos os demais arquivos (IMPLEMENTATION.md, ADRs, docs/okf/, README.md, CLAUDE.md) estão **alinhados com os fatos canônicos do PRD**.
+**Resultado**: 3 divergências encontradas e corrigidas — 2 em `docs/SCHEMA.md` (§1.3 e §1.4) e 1 em `docs/okf/pipeline/consolidate.md` (sintaxe do comando desatualizada). Todos os demais arquivos (IMPLEMENTATION.md, ADRs, README.md, CLAUDE.md) estão **alinhados com os fatos canônicos do PRD**.
 
 **Nota**: A primeira versão deste relatório (gerada por agente) incorretamente reportou 0 divergências por ter feito leitura amostral de SCHEMA.md em vez de completa. As divergências em §1.3 e §1.4 foram identificadas em revisão subsequente pelo Codex.
 
@@ -145,13 +145,18 @@ Nenhuma divergência encontrada.
 ## 11. docs/okf/ subdirectories (discovery/, pipeline/, storage/, naming/, llm/, fontes/, etc.)
 
 ### Divergências
-Nenhuma divergência encontrada.
 
-**Verificações amostrais:**
-- docs/okf/pipeline/overview.md: Descreve pipeline stages conforme PRD → ✅
-- docs/okf/naming/identifiers.md: Descreve lei_id pattern → ✅ Alinhado com fact #7
-- docs/okf/naming/chaves.md: Descreve key patterns → ✅ Alinhado
-- Demais arquivos: Suplementam PRD sem contradizer
+| # | Arquivo | Trecho divergente | Fato PRD | Severidade |
+|---|---|---|---|---|
+| 1 | `docs/okf/pipeline/consolidate.md` | `leizilla consolidate --ente ro` (baixa de IA para DuckDB `leis`) | `cmd_consolidate` exige diretório XML + `--output`; escreve Parquet, não DuckDB | Alta |
+
+**Corrigido em**: commit seguinte.
+
+**Verificações sem divergência:**
+- docs/okf/pipeline/overview.md → ✅ Alinhado
+- docs/okf/naming/identifiers.md → ✅ Alinhado com fact #7
+- docs/okf/naming/chaves.md → ✅ Alinhado
+- Demais arquivos amostrados: sem contradições
 
 ---
 
@@ -226,9 +231,15 @@ Todos os 15 fatos canônicos foram verificados em múltiplos documentos:
 
 ## Conclusão
 
-**Resultado**: 2 divergências encontradas em `docs/SCHEMA.md`, ambas corrigidas.
+**Resultado**: 3 divergências encontradas, todas corrigidas neste PR.
 
-A documentação do projeto (42 arquivos .md) está **alinhada com os fatos canônicos do PRD** após as correções aplicadas neste PR. As divergências eram em §1.3 (artefatos planejados listados como existentes no parsed item) e §1.4 (nomes de arquivo do dataset item desatualizados).
+| Arquivo | Seção | Divergência |
+|---|---|---|
+| `docs/SCHEMA.md` | §1.3 | `provenance.json` + `alteracoes.json` listados como existentes no parsed item |
+| `docs/SCHEMA.md` | §1.4 | `versoes-{ente}-v{N}.parquet` + `manifest-{ente}.csv` em vez de `versoes.parquet` + `dataset_meta.json` |
+| `docs/okf/pipeline/consolidate.md` | Comando | Sintaxe antiga `leizilla consolidate --ente ro` (DuckDB) em vez de `leizilla consolidate <dir> --output <parquet>` |
+
+A documentação do projeto está **alinhada com os fatos canônicos do PRD** após as correções aplicadas neste PR.
 
 **Qualidade**: A documentação alcança o padrão PRD v2.0-reconciliado, que reconcilia design com implementação e registra onde divergências mantidas são justificadas.
 
