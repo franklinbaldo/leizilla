@@ -668,11 +668,15 @@ resultado exibido
 ### 12.2. Reprodutibilidade
 
 Uma release reconstrói-se a partir de:
-- `manifest-{ente}.csv` (lista de `lei_id → ia_id_parsed`)
-- Hashes no `index.csv` de cada range item
-- `schema_version` do XML
+- `hash_parquet` em `dataset_meta.json` (SHA-256 do `versoes.parquet`)
+- `index.csv` de cada range item (sha256 + arquivo_interno por lei)
+- `schema_version` do XML em cada `parsed_meta.json`
 - `parse_method` no `parsed_meta.json`
 - `git_sha` do código que gerou o dataset
+
+> **Evolução planejada:** um `manifest-{ente}.csv` (`lei_id → ia_id_parsed`) tornará
+> a reprodutibilidade auto-suficiente sem depender de query no IA, quando adicionado
+> a `upload_dataset()`. No MVP, a lista de parsed items é reconstruída via API IA.
 
 Empacotamento: `src-layout`, `uv` com lock determinístico, Ruff, mypy, pre-commit.
 Testes: 100% das chamadas externas mockadas (`uv run leizilla dev check`).
@@ -759,8 +763,8 @@ Wayback + fail-open. OCR fetch do IA. LLM parse → XSD gate → upload IA.
 
 ### Fase 2 — Release pública auditável ✅ (M4–M10)
 
-ETL XML→Parquet (`versoes` tabela única). `release-dataset` com `dataset_meta.json` +
-`manifest.csv`. `parsed_meta.json` + `provenance.json` por parsed item.
+ETL XML→Parquet (`versoes` tabela única). `release-dataset` publica
+`versoes.parquet` + `dataset_meta.json` no IA. `parsed_meta.json` por parsed item.
 Manifest-driven discovery. Workflows automatizados (`discover-harvest.yml` sábado,
 `parse-release.yml` segunda). Rotina Claude Code (M7.1). Stats via IA.
 Observabilidade (`--error-threshold`, GitHub Step Summary).
