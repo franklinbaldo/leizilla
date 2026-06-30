@@ -303,7 +303,9 @@ O resíduo (<10%) fica em `identificacao_status = "em_espera"` na área
 O Internet Archive é a *source of truth* pós-ingestão. Protocolo:
 
 1. Verificar `robots.txt` — rejeição permanente, rate-limit 1 req/s por host (ADR-0008);
-2. Reutilizar artefato já conhecido por hash ou URL normalizada (`--skip-existing`);
+2. Processar apenas URLs com `status = 'pending'` em `discovered_resources`
+   (URLs já capturadas têm status `downloaded`/`error` e são ignoradas pelo
+   `harvest` — não há flag `--skip-existing` no comando `harvest`);
 3. Disparar Wayback save (fire-and-forget — apenas para preservação);
 4. Fetch do Wayback com fallback direto (fail-open);
 5. Upload para range item IA com `index.csv` mapeando identidade → hash.
