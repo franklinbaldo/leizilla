@@ -205,9 +205,12 @@ parent_parse_id         # ia_id_parsed da versão anterior (para correções)
 fontes_consultadas      # [raw_id, ...]
 ```
 
-> **Implementação ativa:** `parsed_meta.json` tem a maioria dos campos. `parent_parse_id`
-> e `review_status` ainda não estão implementados — adicionar ao sidecar JSON sem
-> mudança de schema XML.
+> **Implementação ativa:** `parsed_meta.json` emite hoje: `leizilla_meta_version`,
+> `ia_id_raw`, `ia_id_parsed`, `ente`, `tipo`, `parse_method`,
+> `confianca_parse_global`, `parse_timestamp`, `fontes_consultadas`,
+> `tem_divergencia`, `num_divergencias`. Campos planejados ainda não emitidos:
+> `schema_xml_version`, `validation_status` (resultado do `_xsd_gate`),
+> `parent_parse_id`, `review_status`.
 
 ### 5.5. Release
 
@@ -704,10 +707,13 @@ Metas (a serem validadas com M5.3 — benchmark in-browser real):
 
 ### 12.5. Resiliência
 
-- Range items no IA: imutáveis, incluídos em torrents automáticos do IA
+- Range items no IA: bytes content-addressed por SHA-256 (imutáveis por hash);
+  `index.csv` é append-only/newest-wins dentro do mesmo item de range — o item
+  em si é mutável (novos arquivos e `index.csv` reescrito a cada upload)
+- Torrents automáticos do IA cobrem cada item publicado
 - `--skip-existing`: idempotência em todos os passos do pipeline
 - Fail-open em captura: erro Wayback → fallback direto; erro IA → skip sem abort
-- Dataset item versionado com `manifest_sha256`
+- Dataset item versionado por `hash_parquet` em `dataset_meta.json`
 
 ---
 
