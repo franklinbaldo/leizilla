@@ -176,10 +176,10 @@ Layout interno: `manifest.csv` + `pdfs/{chave}.pdf` + `meta/{chave}.json`. Foren
 ```
 leizilla-ro-lei-01234-2003/
 ├── law.xml             ← Leizilla XML v0.1 (canônico)
-├── parsed_meta.json    ← processo de parse (método, confiança, divergências)
-├── provenance.json     ← rastreabilidade raw items
-└── alteracoes.json     ← relações computadas (alterada_por, altera, revogada_por, revoga)
+└── parsed_meta.json    ← processo de parse (método, confiança, divergências)
 ```
+
+`provenance.json` e `alteracoes.json` são arquivos planejados — ainda não emitidos por `upload_parsed()`.
 
 Sem HTML pré-gerado (Astro SSR renderiza a partir do `law.xml`). Sem `law.lexml` (export sob demanda; ver §6).
 
@@ -189,7 +189,8 @@ Sem HTML pré-gerado (Astro SSR renderiza a partir do `law.xml`). Sem `law.lexml
 
 Pre-M5: `schema_version = "0.1"` → `v0`. Post-M5: `schema_version = "1"` → `v1`. `v0` é versão **válida e citável**, não draft/empty.
 
-Conteúdo: `versoes-{ente}-v{N}.parquet` + `manifest-{ente}.csv` + `README.md`.
+Conteúdo: `versoes.parquet` + `dataset_meta.json` (gerados por `upload_dataset()`).
+`manifest-{ente}.csv` e `README.md` são planejados — ainda não emitidos no MVP.
 
 ---
 

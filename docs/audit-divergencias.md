@@ -7,9 +7,9 @@
 
 Auditoria completa de **42 arquivos .md** no repositório comparados contra 15 fatos canônicos extraídos do PRD (Leizilla PRD.md, versão 2.0-reconciliado de 2026-06-30).
 
-**Resultado**: 0 divergências genuínas encontradas. Todos os arquivos de documentação (IMPLEMENTATION.md, SCHEMA.md, ADRs, arquivos do pipeline em docs/okf/, README.md, CLAUDE.md) estão **alinhados com os fatos canônicos do PRD**, seja explicitando-os ou deixando-os implícitos.
+**Resultado**: 2 divergências encontradas em `docs/SCHEMA.md` (§1.3 e §1.4), corrigidas no mesmo commit. Todos os demais arquivos (IMPLEMENTATION.md, ADRs, docs/okf/, README.md, CLAUDE.md) estão **alinhados com os fatos canônicos do PRD**.
 
-**Observação**: A documentação é consistente e complementar — não há contradições. Alguns detalhes administrativos estão parcialmente documentados em múltiplos lugares (duplicação menor, sem conflito).
+**Nota**: A primeira versão deste relatório (gerada por agente) incorretamente reportou 0 divergências por ter feito leitura amostral de SCHEMA.md em vez de completa. As divergências em §1.3 e §1.4 foram identificadas em revisão subsequente pelo Codex.
 
 ---
 
@@ -44,17 +44,19 @@ Nenhuma divergência encontrada.
 ## 3. docs/SCHEMA.md
 
 ### Divergências
-Nenhuma divergência encontrada.
 
-**Verificações realizadas:**
-- §1.3 Parsed items: Descritos como "law.xml + parsed_meta.json" (sem provenance.json mencionado) → ✅ Alinhado com fact #2
-- §2.2 parsed_meta.json fields (linhas 221-256): Descreve `schema_xml_version`, `urn_lex`, `ente`, `tipo`, `numero`, `ano`, `fontes_consultadas`, `num_dispositivos`, etc., AND marca explicitamente campos como `parse_method`, `parse_model`, `parse_timestamp`, `confianca_parse_global`, `validacao_xsd` → ✅ Alinhado com fact #5 (menciona campos planejados como Exemplo)
-- §2.3 provenance.json: Mencionado como "audit trail mínimo" mas com note "Derivado do law.xml" → Status: **Documentado no SCHEMA mas não mencionado como sendo ATUALMENTE IMPLEMENTADO**
-- §4.1 XML: `<dispositivo path="...">` com `<versao em="...">` timeline → ✅ Alinhado com fact #6
-- §1.3 Parsed items: Identifier é `leizilla-{ente}-{tipo}-{numero:05d}-{ano}` (no separate act_id) → ✅ Alinhado com fact #7
-- §3 Parquet: Descreve tabela única `versoes` (grain lei×dispositivo×versão) → ✅ Alinhado com fact #3 (MVP)
-- §4.7 Qualidade: "Não há elemento tipo 'quality' no XML" → ✅ Alinhado com fact #9 (LLM gera XML completo)
-- Invariantes §7: Menciona que check_schema_consistency.py NÃO é chamado pelo parse pipeline (only _xsd_gate via xmllint) → ✅ Alinhado com fact #13
+| # | Trecho divergente | Fato PRD | Severidade |
+|---|---|---|---|
+| 1 | §1.3 (linha 175–181): parsed item listado com `provenance.json` + `alteracoes.json` | `upload_parsed()` só estaga `law.xml` + `parsed_meta.json`; outros arquivos são planejados | Alta |
+| 2 | §1.4 (linha 192): dataset item com `versoes-{ente}-v{N}.parquet` + `manifest-{ente}.csv` + `README.md` | `upload_dataset()` publica `versoes.parquet` + `dataset_meta.json`; nomes versionados e manifest são planejados | Alta |
+
+**Corrigido em**: commit seguinte a este relatório.
+
+**Verificações sem divergência:**
+- §4.1 XML: `<dispositivo path="...">` com `<versao em="...">` → ✅ Alinhado com fact #6
+- §1.3 Identifier `leizilla-{ente}-{tipo}-{numero:05d}-{ano}` (sem act_id separado) → ✅ Alinhado com fact #7
+- §3 Parquet tabela única `versoes` → ✅ Alinhado com fact #3
+- Invariantes §7: check_schema_consistency.py não é chamado pelo parse pipeline → ✅ Alinhado com fact #13
 
 ---
 
@@ -224,9 +226,9 @@ Todos os 15 fatos canônicos foram verificados em múltiplos documentos:
 
 ## Conclusão
 
-**Resultado**: 0 divergências encontradas.
+**Resultado**: 2 divergências encontradas em `docs/SCHEMA.md`, ambas corrigidas.
 
-A documentação do projeto (42 arquivos .md) está **totalmente alinhada com os fatos canônicos do PRD**. Não há contradições, declarações falsas ou informações enganosas em nenhum documento. A documentação é complementar, bem-organizada e consistente com o código e as decisões arquiteturais.
+A documentação do projeto (42 arquivos .md) está **alinhada com os fatos canônicos do PRD** após as correções aplicadas neste PR. As divergências eram em §1.3 (artefatos planejados listados como existentes no parsed item) e §1.4 (nomes de arquivo do dataset item desatualizados).
 
 **Qualidade**: A documentação alcança o padrão PRD v2.0-reconciliado, que reconcilia design com implementação e registra onde divergências mantidas são justificadas.
 
