@@ -101,11 +101,11 @@ fonte oficial
 → captura (Wayback + IA upload)
 → preservação do artefato (raw IA item, content-hashed)
 → extração textual (IA OCR _djvu.txt ou HTML nativo)
-→ estruturação (segmenter.py + Claude Haiku → Leizilla XML v0.1)
-→ validação (XSD + consistency checker)
+→ estruturação (Claude Haiku → Leizilla XML v0.1)
+→ validação XSD (xmllint via `_xsd_gate`; fails-open se xmllint ausente)
 → release versionado (Parquet no IA)
 → busca pública (DuckDB-WASM no browser)
-→ auditoria da evidência (parsed_meta.json + provenance.json)
+→ auditoria da evidência (parsed_meta.json por parsed item)
 ```
 
 **Fora do MVP:** certificação oficial de autenticidade; interpretação jurídica;
@@ -692,8 +692,10 @@ Testes: 100% das chamadas externas mockadas (`uv run leizilla dev check`).
 
 Zero infraestrutura always-on. Controles ativos:
 - Budget LLM via `--limit 50 --error-threshold 20` em `parse-release.yml`
-- Cache por hash: `--skip-existing` em `scrape` e `parse-all`
-- Reprocessamento apenas quando parser, prompt ou schema mudam
+- Cache por raw_id: `--skip-existing` pula qualquer raw_id que já tenha
+  `parsed_meta.json` no IA, independentemente de versão de parser, prompt
+  ou schema; reprocessamento após mudança de parser exige intervenção manual
+  (remover o parsed item ou desativar `--skip-existing` para o range)
 - GitHub Step Summary reporta custo por batch
 
 ### 12.4. Performance
