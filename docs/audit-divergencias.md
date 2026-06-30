@@ -7,7 +7,16 @@
 
 Auditoria completa de **42 arquivos .md** no repositório comparados contra 15 fatos canônicos extraídos do PRD (Leizilla PRD.md, versão 2.0-reconciliado de 2026-06-30).
 
-**Resultado**: 3 divergências encontradas e corrigidas — 2 em `docs/SCHEMA.md` (§1.3 e §1.4) e 1 em `docs/okf/pipeline/consolidate.md` (sintaxe do comando desatualizada). Todos os demais arquivos (IMPLEMENTATION.md, ADRs, README.md, CLAUDE.md) estão **alinhados com os fatos canônicos do PRD**.
+**Resultado**: 6 divergências encontradas e corrigidas em 4 arquivos. O relatório foi sendo refinado iterativamente à medida que novas divergências eram identificadas por revisão subsequente.
+
+| Arquivo | # divergências |
+|---|---|
+| `docs/SCHEMA.md` | 2 |
+| `docs/okf/pipeline/consolidate.md` | 1 |
+| `docs/okf/pipeline/overview.md` | 2 |
+| `docs/okf/pipeline/release-dataset.md` | 1 |
+
+Todos os demais arquivos (IMPLEMENTATION.md, ADRs, README.md, CLAUDE.md) estão **alinhados com os fatos canônicos do PRD**.
 
 **Nota**: A primeira versão deste relatório (gerada por agente) incorretamente reportou 0 divergências por ter feito leitura amostral de SCHEMA.md em vez de completa. As divergências em §1.3 e §1.4 foram identificadas em revisão subsequente pelo Codex.
 
@@ -152,11 +161,36 @@ Nenhuma divergência encontrada.
 
 **Corrigido em**: commit seguinte.
 
+**Corrigido em**: commit seguinte.
+
 **Verificações sem divergência:**
-- docs/okf/pipeline/overview.md → ✅ Alinhado
 - docs/okf/naming/identifiers.md → ✅ Alinhado com fact #7
 - docs/okf/naming/chaves.md → ✅ Alinhado
-- Demais arquivos amostrados: sem contradições
+
+---
+
+## 11b. docs/okf/pipeline/overview.md
+
+### Divergências
+
+| # | Trecho divergente | Fato PRD | Severidade |
+|---|---|---|---|
+| 1 | Linha 23: `leizilla consolidate` lê itens do IA → DuckDB `leis` | `cmd_consolidate` recebe diretório XML + `--output` Parquet; não lê IA nem escreve DuckDB | Alta |
+| 2 | Linha 24: `leizilla release-dataset` lê DuckDB `leis` | `cmd_release_dataset` requer argumento posicional Parquet; não lê DuckDB | Alta |
+
+**Corrigido em**: commit seguinte.
+
+---
+
+## 11c. docs/okf/pipeline/release-dataset.md
+
+### Divergências
+
+| # | Trecho divergente | Fato PRD | Severidade |
+|---|---|---|---|
+| 1 | `leizilla release-dataset --ente ro --version 1` (sem argumento posicional) | `cmd_release_dataset` exige `parquet` como argumento posicional obrigatório antes de `--ente` | Alta |
+
+**Corrigido em**: commit seguinte.
 
 ---
 
@@ -231,13 +265,15 @@ Todos os 15 fatos canônicos foram verificados em múltiplos documentos:
 
 ## Conclusão
 
-**Resultado**: 3 divergências encontradas, todas corrigidas neste PR.
+**Resultado**: 6 divergências encontradas, todas corrigidas neste PR.
 
 | Arquivo | Seção | Divergência |
 |---|---|---|
 | `docs/SCHEMA.md` | §1.3 | `provenance.json` + `alteracoes.json` listados como existentes no parsed item |
 | `docs/SCHEMA.md` | §1.4 | `versoes-{ente}-v{N}.parquet` + `manifest-{ente}.csv` em vez de `versoes.parquet` + `dataset_meta.json` |
 | `docs/okf/pipeline/consolidate.md` | Comando | Sintaxe antiga `leizilla consolidate --ente ro` (DuckDB) em vez de `leizilla consolidate <dir> --output <parquet>` |
+| `docs/okf/pipeline/overview.md` | Tabela | Consolidate e release-dataset com fluxo antigo (IA→DuckDB→IA) |
+| `docs/okf/pipeline/release-dataset.md` | Comando | Falta argumento posicional obrigatório `parquet` |
 
 A documentação do projeto está **alinhada com os fatos canônicos do PRD** após as correções aplicadas neste PR.
 

@@ -748,9 +748,10 @@ Resumo das decisões estruturais ativas (racional completo em `docs/adr/`):
 
 8. **LGPD/ética** (ADR-0009): leis são públicas; sem despublicação.
 
-9. **segmenter.py regex como baseline determinístico** (M14.4, ADR-0012): micro-F1
-   exact=0.95 como fundação verificável; LLM parse sobre o resultado do segmenter;
-   fine-tune OPF adiado — regex + Claude cobrem o regime atual.
+9. **segmenter.py regex como baseline de avaliação** (M14.4, ADR-0012): micro-F1
+   exact=0.95 como fundação verificável; acessível via `opf-regex-eval` e
+   `opf-segment-check`; **não** é pré-passo em produção — LLM opera diretamente
+   sobre o texto bruto; fine-tune OPF adiado (ADR-0012).
 
 ---
 

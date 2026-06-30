@@ -11,8 +11,10 @@ Gera um snapshot versionado da base de leis como Parquet e sobe para o IA.
 ## Comando
 
 ```bash
-leizilla release-dataset --ente ro --version 1
+leizilla release-dataset data/versoes.parquet --ente ro --version 1
 ```
+
+O argumento posicional `parquet` (saída de `consolidate`) é **obrigatório**.
 
 ## Identificador do dataset
 
