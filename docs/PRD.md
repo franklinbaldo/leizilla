@@ -343,27 +343,23 @@ não de um gate opaco de terceiro.
 
 ### 7.4. Estruturação (S4)
 
-A estruturação converte o texto extraído em Leizilla XML v0.1 via pipeline de dois
-tempos:
+A estruturação converte o texto extraído em Leizilla XML v0.1 via parse LLM
+(`parser.py`): Claude Haiku recebe o texto (até 8.000 chars OCR ou 32.000 chars
+HTML) e gera Leizilla XML v0.1 completo — `<dispositivo path>`, `<versao>`,
+`<texto>`, `<fonte ia-id>`. Confiança mínima para publicação: 0.5.
 
-**Tempo 1 — Segmentação determinística** (`segmenter.py`):
-Regex Pattern B identifica âncoras de marcador (`Art. 5º`, `§ 2º`, `III —`, `a)`)
-e cues estruturais (ementa, vigência, revogação). Resulta em spans de alto precision
-(micro-F1 exact=0.95, overlap=0.99 contra gold v0). Serve como fundação verificável
-antes do LLM.
-
-**Tempo 2 — Parse LLM** (`parser.py`):
-Claude Haiku recebe o texto (até 8.000 chars OCR ou 32.000 chars HTML) e gera
-Leizilla XML v0.1 completo — `<dispositivo path>`, `<versao>`, `<texto>`, `<fonte ia-id>`.
-Confiança mínima para publicação: 0.5.
+O módulo `segmenter.py` (Regex Pattern B, micro-F1 exact=0.95, overlap=0.99
+contra gold v0) existe como ferramenta de avaliação e verificação — acessível via
+`leizilla dev check-segmenter` e `leizilla dev eval-segmenter`. Ele **não** é
+chamado pelo pipeline de produção (`parse`/`parse-all`) neste momento. A integração
+como pré-passo determinístico na produção é trabalho futuro (ver ADR-0012).
 
 > **Nota de design:** O PRD V2 original propunha "LLM marca (insere fronteiras sobre
-> texto verbatim), Python estrutura (monta a árvore)". A implementação faz o LLM
-> gerar o XML completo, com o `segmenter.py` cobrindo a parte determinística. Essa
-> abordagem já funciona bem para o corpus atual (RO, documentos born-digital). A
-> separação estrita "LLM marca apenas" pode ser explorada em passes futuros caso
-> documentos maiores ou mais complexos mostrem falhas estruturais do LLM. Não há
-> razão para mudar antes de ter evidência.
+> texto verbatim), Python estrutura (monta a árvore)". A implementação atual faz o
+> LLM gerar o XML completo, sem pré-passo determinístico em produção. O
+> `segmenter.py` existe como fundação para auditoria e para eventual integração
+> futura caso documentos maiores ou mais complexos mostrem falhas estruturais do LLM.
+> Não há razão para integrar antes de ter evidência de falha.
 
 O LLM **não pode**: inventar texto; suprimir texto sem registrar omissão; declarar
 revogação sem base no documento; preencher lacunas com conhecimento externo.
@@ -380,10 +376,12 @@ texto cru no `<texto>` do dispositivo é visível no render e detectável via au
 de embeddings.
 
 **Correção de parse:**
-Re-parse gera novo parsed item com `parent_parse_id` apontando para o anterior.
-O parsed item anterior permanece imutável no IA. `review_status` em
-`parsed_meta.json` rastreia a origem da correção (`"auto"` | `"pending"` |
-`"reviewed"` | `"rejected"`).
+Atualmente, re-parse sobrescreve `law.xml` no mesmo IA item (`ia_id_parsed`). O
+campo `parent_parse_id` em `parsed_meta.json` é o mecanismo planejado para
+rastrear a cadeia de correções, mas a criação de itens IA imutáveis por re-parse
+ainda não está implementada em `upload_parsed()`. O campo `review_status`
+(`"auto"` | `"pending"` | `"reviewed"` | `"rejected"`) rastreia a origem da
+correção no sidecar.
 
 ### 7.5. Consolidação temporal (S5 — fora do MVP)
 
@@ -542,14 +540,16 @@ Cada release é reprodutível a partir de um manifesto imutável.
 
 ```
 leizilla-dataset-{ente}-v{N}/
-  versoes-{ente}-v{N}.parquet     # tabela única, grain lei×dispositivo×versão, SNAPPY
-  dataset_meta.json               # row_count, git_sha, schema_version, manifest_sha256
-  manifest-{ente}.csv             # lei_id → ia_id_parsed
+  versoes.parquet      # tabela única, grain lei×dispositivo×versão, SNAPPY
+  dataset_meta.json    # leizilla_meta_version, schema_version, ente, version,
+                       # table, generated_at, row_count, file_size_bytes,
+                       # hash_parquet, git_sha (opcional)
 ```
 
-O `catalog.parquet` carrega primeiro e contém identificação do ato, tipo, número,
-ano, título e stage. No MVP, é uma query `SELECT DISTINCT lei_id, ...` sobre
-`versoes.parquet`.
+O arquivo Parquet é sempre nomeado `versoes.parquet` dentro do IA item
+`leizilla-dataset-{ente}-v{N}` — o identificador do item carrega ente e versão.
+O `catalog.parquet` não existe no MVP; navegação e filtros são resolvidos por
+`SELECT DISTINCT` sobre `versoes.parquet` via DuckDB-WASM no browser.
 
 **Evolução planejada (quando gatilhos forem atingidos — `docs/SCHEMA.md` §3.4):**
 
