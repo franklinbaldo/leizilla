@@ -2,7 +2,7 @@ import * as duckdb from '@duckdb/duckdb-wasm';
 
 const PARQUET_URL =
   (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_PARQUET_URL) ||
-  'https://archive.org/download/leizilla-dataset-ro-v0/versoes-ro-v0.parquet';
+  'https://archive.org/download/leizilla-dataset-ro-v0/versoes.parquet';
 
 const WASM_VERSION = '1.32.0';
 const CDN = `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${WASM_VERSION}/dist/`;

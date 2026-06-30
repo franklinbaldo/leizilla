@@ -20,8 +20,8 @@ discover → scrape → [OCR assíncrono no IA] → parse → consolidate → re
 | 2 | [Scrape](scrape.md) | `leizilla scrape` | URLs da fonte / Wayback | PDF no range bucket do IA |
 | — | OCR (IA) | — | PDF no IA | `_djvu.txt` no mesmo bucket (horas) |
 | 3 | [Parse](parse.md) | `leizilla parse-all` | `_djvu.txt` do IA | Leizilla XML + `parsed_meta.json` no IA |
-| 4 | [Consolidate](consolidate.md) | `leizilla consolidate` | Itens parsed no IA | Tabela `leis` no DuckDB |
-| 5 | [Release Dataset](release-dataset.md) | `leizilla release-dataset` | DuckDB `leis` | `versoes.parquet` no IA |
+| 4 | [Consolidate](consolidate.md) | `leizilla consolidate <dir> --output <parquet>` | Diretório de XMLs (baixados de IA) | `versoes.parquet` local |
+| 5 | [Release Dataset](release-dataset.md) | `leizilla release-dataset <parquet> --ente ro` | `versoes.parquet` local | `versoes.parquet` + `dataset_meta.json` no IA |
 
 ## Dependências entre etapas
 

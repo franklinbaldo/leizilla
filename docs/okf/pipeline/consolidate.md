@@ -1,25 +1,30 @@
 ---
 type: Etapa
 title: Consolidate
-description: Lê itens parsed do IA e popula a tabela leis no DuckDB local.
-tags: [pipeline, duckdb]
+description: Converte XMLs Leizilla em Parquet (tabela versoes).
+tags: [pipeline, parquet, etl]
 timestamp: 2026-06-25T00:00:00Z
 ---
 
-Lê `parsed_meta.json` e `law.xml` de cada item parsed no IA e insere/atualiza a tabela `leis` no DuckDB local.
+Lê um diretório de arquivos `{lei_id}.xml` (Leizilla XML v0.1) e gera o Parquet
+`versoes` — grain: lei × dispositivo × versão.
 
 ## Comando
 
 ```bash
-leizilla consolidate --ente ro
+leizilla consolidate data/parsed --output data/versoes.parquet --ente ro
 ```
+
+O argumento posicional é o diretório de XMLs; `--output` é obrigatório.
 
 ## Comportamento
 
-- Lista itens parsed no IA com prefixo `leizilla-{ente}-`
-- Para cada item: baixa `parsed_meta.json` e `law.xml`
-- Insere ou atualiza em `leis` via `INSERT OR REPLACE`
+- Itera sobre `*.xml` no diretório fornecido
+- Chama `etl.xml_to_rows()` por arquivo → lista de dicts
+- Escreve Parquet SNAPPY via `etl.write_parquet()`
 
 ## Nota
 
-O DuckDB local **não é source of truth**. Se perdido, pode ser reconstruído rodando consolidate novamente contra o IA.
+Use `leizilla fetch-all-parsed --ente ro --output-dir data/parsed` para baixar
+os XMLs do IA antes de consolidar. O Parquet resultante é publicado com
+`leizilla release-dataset`.
