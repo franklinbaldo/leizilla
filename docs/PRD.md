@@ -350,9 +350,10 @@ HTML) e gera Leizilla XML v0.1 completo — `<dispositivo path>`, `<versao>`,
 
 O módulo `segmenter.py` (Regex Pattern B, micro-F1 exact=0.95, overlap=0.99
 contra gold v0) existe como ferramenta de avaliação e verificação — acessível via
-`leizilla dev check-segmenter` e `leizilla dev eval-segmenter`. Ele **não** é
-chamado pelo pipeline de produção (`parse`/`parse-all`) neste momento. A integração
-como pré-passo determinístico na produção é trabalho futuro (ver ADR-0012).
+`leizilla opf-regex-eval` (avaliação contra gold) e `leizilla opf-segment-check`
+(inspeção de uma norma). Ele **não** é chamado pelo pipeline de produção
+(`parse`/`parse-all`) neste momento. A integração como pré-passo determinístico
+na produção é trabalho futuro (ver ADR-0012).
 
 > **Nota de design:** O PRD V2 original propunha "LLM marca (insere fronteiras sobre
 > texto verbatim), Python estrutura (monta a árvore)". A implementação atual faz o
@@ -623,8 +624,11 @@ O frontend exibe a fronteira de cobertura como dado público:
 1.243 arquivadas · 890 com texto · 412 estruturadas
 ```
 
-Expor o próprio gap é credibilidade, não vergonha. Os números vêm de
-`leizilla stats --ia` (conta raw/parsed/dataset no IA).
+Expor o próprio gap é credibilidade, não vergonha. Os números vêm de consultas
+ao `index.csv` de cada range item (arquivadas), à disponibilidade de `_djvu.txt`
+no IA (com texto) e à contagem de parsed items (`leizilla stats --ia` conta
+itens IA, não atos individuais — o painel de cobertura precisa de fonte
+index/OCR-aware, a implementar em M13).
 
 ---
 
