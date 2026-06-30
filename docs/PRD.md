@@ -190,7 +190,7 @@ atributo de localização, não a identidade do artefato.
 ### 5.4. Parse
 
 Uma estrutura produzida a partir de um artefato. Reside no parsed item IA como
-`law.xml` + `parsed_meta.json` + `provenance.json`.
+`law.xml` + `parsed_meta.json`.
 
 ```
 ia_id_parsed            # leizilla-{ente}-{tipo}-{numero:05d}-{ano}
@@ -710,8 +710,9 @@ Resumo das decisões estruturais ativas (racional completo em `docs/adr/`):
 1. **IA como camada de normalização** (ADR-0001/0011): source of truth pós-ingestão;
    range buckets content-addressed com `index.csv`; `raw_id` lógico ≠ item IA real.
 
-2. **Wayback como preservação, não fetch-path** (ADR-0004): fetch direto educado +
-   push async para preservação; re-runs leem do IA; portal tocado uma vez.
+2. **Wayback como caminho primário de fetch** (ADR-0004): robots → save no Wayback
+   → fetch do snapshot Wayback; fallback direto só se Wayback falhar; portal
+   tocado no máximo uma vez por URL.
 
 3. **robots.txt + rate-limiting** (ADR-0008): rejeição permanente na descoberta;
    rate-limit baseline 1 req/s por host; Wayback como buffer.
