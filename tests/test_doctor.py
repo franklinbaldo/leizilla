@@ -19,9 +19,9 @@ from leizilla.doctor import (
 runner = CliRunner()
 
 ENV_OK = {
-    "IA_ACCESS_KEY": "ia-access-sigiloso-123",
-    "IA_SECRET_KEY": "ia-secret-sigiloso-456",
-    "ANTHROPIC_API_KEY": "sk-ant-sigiloso-789",
+    "IA_ACCESS_KEY": "fake-ia-access",
+    "IA_SECRET_KEY": "fake-ia-secret",
+    "ANTHROPIC_API_KEY": "fake-anthropic-key",
 }
 
 ALL_ENV_VARS = [
@@ -72,7 +72,7 @@ def test_all_essentials_ok():
 
 
 def test_missing_ia_keys_fails_essentials():
-    env = {"ANTHROPIC_API_KEY": "sk-ant-x"}
+    env = {"ANTHROPIC_API_KEY": "fake-anthropic-key"}
     results, essencial_ok = _run(env)
     assert essencial_ok is False
     by_name = {r.nome: r for r in results}
@@ -202,7 +202,7 @@ def test_cli_never_leaks_secret_values(offline_checks):
 
 
 def test_cli_missing_ia_keys_exits_one(offline_checks):
-    offline_checks.setenv("ANTHROPIC_API_KEY", "sk-ant-x")
+    offline_checks.setenv("ANTHROPIC_API_KEY", "fake-anthropic-key")
 
     result = runner.invoke(app, ["doctor"])
 
