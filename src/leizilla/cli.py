@@ -820,6 +820,24 @@ def cmd_stats(
         echo("Consulta IA desabilitada (use sem --no-ia para ver contagens).")
 
 
+@app.command("doctor")
+def cmd_doctor() -> None:
+    """Verificar pré-requisitos de produção (RFC-0004): credenciais, dados, rede.
+
+    Exit code 0 quando todos os checks essenciais passam; 1 quando falta algum
+    pré-requisito essencial. Falhas de conectividade são apenas avisos
+    (fail-open) e não afetam o exit code.
+    """
+    from leizilla.doctor import format_results, run_doctor
+
+    echo("=== Leizilla Doctor ===\n")
+    results, essencial_ok = run_doctor()
+    for line in format_results(results, essencial_ok):
+        echo(line)
+    if not essencial_ok:
+        raise typer.Exit(1)
+
+
 def _xsd_gate(xml_content: str, warn_prefix: str = "") -> bool:
     """Valida XML contra leizilla-v0.1.xsd via xmllint. Fail-open: só avisa, não aborta."""
     schema = Path(__file__).parents[2] / "docs" / "schemas" / "leizilla-v0.1.xsd"
