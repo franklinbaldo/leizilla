@@ -32,6 +32,56 @@ def test_normalize_text():
     assert normalize_text(None) == ""
 
 
+def test_clean_ocr_text_preserves_portuguese_accents():
+    """Regressão do incidente M10.2: regex [\\x7f-\\xff] removia ç/ã/é/õ/ú/â/ê.
+
+    clean_ocr_text deve remover apenas control chars, preservando todo o
+    range Latin-1 usado em texto jurídico português.
+    """
+    accented = "çãéõúâê ÇÃÉÕÚÂÊ àèìòù íóá ü ô"
+    assert clean_ocr_text(accented) == accented
+
+    juridico = "revogação São Paulo parágrafo único vigência município"
+    assert clean_ocr_text(juridico) == juridico
+
+    # Cada caractere acentuado sobrevive individualmente
+    for ch in "çãéõúâê":
+        assert clean_ocr_text(f"a{ch}b") == f"a{ch}b", f"perdeu {ch!r}"
+
+
+def test_clean_ocr_text_removes_control_chars_keeps_newlines():
+    assert clean_ocr_text("Art. 1\x00\x08\x0b\x0c\x1f\x7fº") == "Art. 1º"
+    # \t \n \r são preservados no meio do texto
+    assert clean_ocr_text("linha1\nlinha2\tcol\r\nfim") == "linha1\nlinha2\tcol\r\nfim"
+
+
+def test_clean_ocr_text_empty_and_whitespace_only():
+    assert clean_ocr_text("") == ""
+    assert clean_ocr_text("   \n\t  ") == ""
+
+
+def test_normalize_text_collapses_whitespace():
+    assert normalize_text("lei    com   espaços") == "lei com espacos"
+    assert normalize_text("linha1\n\n\nlinha2\t\tlinha3") == "linha1 linha2 linha3"
+    assert normalize_text("  bordas  ") == "bordas"
+
+
+def test_normalize_text_empty_and_whitespace_only():
+    assert normalize_text("") == ""
+    assert normalize_text("   \n\t  ") == ""
+
+
+def test_normalize_text_hyphenation_current_behavior():
+    """normalize_text NÃO junta palavras hifenizadas em quebra de linha.
+
+    Comportamento atual documentado: o hífen é removido como pontuação e a
+    quebra vira espaço, então "publi-\\ncação" vira duas palavras.
+    """
+    assert normalize_text("publi-\ncação") == "publi cacao"
+    # Hífen no meio da palavra (sem quebra) também é removido sem juntar
+    assert normalize_text("decreto-lei") == "decretolei"
+
+
 @patch("leizilla.ocr.fetch_ocr")
 def test_fetch_and_clean_ocr(mock_fetch):
     mock_fetch.return_value = "raw \x00text"

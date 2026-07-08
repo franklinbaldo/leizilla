@@ -32,11 +32,22 @@ Pequenos desalinhamentos que, somados, corroem a confiança no repositório:
    lookup por slug.
 4. Reforçar `tests/test_ocr.py`: preservação de acentuação portuguesa (regressão do
    M10.2), normalização de espaços/hifenização, comportamento com entrada vazia.
-5. Remover o componente não usado do override mypy em `pyproject.toml`.
+5. Remover o componente não usado do override mypy em `pyproject.toml` e corrigir
+   `testpaths` (referenciava o arquivo E2E na raiz, agora movido).
+6. Fazer `config.py` honrar a env var `DATA_DIR` — documentada em CLAUDE.md e
+   `.env.example`, mas ignorada pelo código (achado durante a implementação).
 
 Critério de pronto: `uv run leizilla dev check` + `uv run mypy src/` verdes, sem o
 aviso de seção não usada, com os novos testes passando offline (nenhuma chamada de
 rede real — regra da suíte).
+
+## Follow-ups identificados (não feitos aqui)
+
+- `tests/test_e2e_rondonia.py` e `tests/test_rondonia_e2e.py` compartilham os mesmos
+  dados de amostra (cotel_scrap) com asserts sobrepostos — consolidar num arquivo só.
+- Env var de crawler inválida (ex.: `CRAWLER_DELAY=abc`) crasha no import de
+  `config.py` com `ValueError` cru; comportamento atual está coberto por teste —
+  decidir se merece mensagem amigável.
 
 ## Fora de escopo
 

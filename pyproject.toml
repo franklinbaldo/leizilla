@@ -78,12 +78,12 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["anthropic", "anthropic.*"]
+module = ["anthropic"]
 follow_imports = "skip"
 
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "test_rondonia_e2e.py"]
+testpaths = ["tests"]
 
 [dependency-groups]
 dev = [

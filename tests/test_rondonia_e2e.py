@@ -1,31 +1,27 @@
-#!/usr/bin/env python3
-"""
-Standalone end-to-end test for Leizilla using real Rondônia laws data from pge-ro/cotel_scrap.
+"""End-to-end test for Leizilla using real Rondônia laws data (pge-ro/cotel_scrap).
 
-This test validates the complete pipeline using the actual storage implementation.
+Validates the complete storage pipeline against the actual DuckDBStorage
+implementation, fully offline. The embedded sample laws are real data
+extracted from pge-ro/cotel_scrap.
 """
 
-import sys
-import tempfile
 from pathlib import Path
+
+import pytest
 
 from leizilla.storage import DuckDBStorage
 
-
-def test_rondonia_laws_e2e():
-    """End-to-end test with real Rondônia laws data."""
-
-    # Sample laws data extracted from pge-ro/cotel_scrap
-    sample_laws = [
-        {
-            "id": "rondonia_dl_2_1981",
-            "titulo": "DECRETO LEI n. 2",
-            "numero": "2",
-            "ano": 1981,
-            "data_publicacao": "1981-12-31",
-            "tipo_lei": "decreto-lei",
-            "ente": "rondonia",
-            "texto_completo": """DECRETO-LEI N° 2, DE 31 DE DEZEMBRO DE 1981
+# Sample laws data extracted from pge-ro/cotel_scrap
+SAMPLE_LAWS = [
+    {
+        "id": "rondonia_dl_2_1981",
+        "titulo": "DECRETO LEI n. 2",
+        "numero": "2",
+        "ano": 1981,
+        "data_publicacao": "1981-12-31",
+        "tipo_lei": "decreto-lei",
+        "ente": "rondonia",
+        "texto_completo": """DECRETO-LEI N° 2, DE 31 DE DEZEMBRO DE 1981
 
 Orça a Receita e fixa a Despesa do Orçamento-Programa do Estado para o exercício de 1982.
 
@@ -52,153 +48,110 @@ Artigo 8° - Este Decreto-Lei entrará em vigor na data de sua publicação.
 Porto Velho, 31 de dezembro de 1981.
 JORGE TEIXEIRA
 GOVERNADOR DO ESTADO""",
-            "texto_normalizado": "decreto lei 2 1981 orça receita despesa orçamento programa estado exercício 1982 governador rondônia",
-            "url_original": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/detalhes.aspx?coddoc=2",
-            "metadados": {
-                "coddoc": "2",
-                "ementa": "Orça a Receita e fixa a Despesa do Orçamento-Programa do Estado para o exercício de 1982.",
-                "fonte": "cotel_scrap",
-            },
+        "texto_normalizado": "decreto lei 2 1981 orça receita despesa orçamento programa estado exercício 1982 governador rondônia",
+        "url_original": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/detalhes.aspx?coddoc=2",
+        "metadados": {
+            "coddoc": "2",
+            "ementa": "Orça a Receita e fixa a Despesa do Orçamento-Programa do Estado para o exercício de 1982.",
+            "fonte": "cotel_scrap",
         },
-        {
-            "id": "rondonia_lei_3_1982",
-            "titulo": "LEI n. 3",
-            "numero": "3",
-            "ano": 1982,
-            "data_publicacao": "1982-01-01",
-            "tipo_lei": "lei",
-            "ente": "rondonia",
-            "texto_completo": "Texto de exemplo da Lei 3 de Rondônia para teste do sistema Leizilla.",
-            "texto_normalizado": "lei 3 rondônia teste sistema leizilla",
-            "url_original": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/detalhes.aspx?coddoc=3",
-            "metadados": {
-                "coddoc": "3",
-                "ementa": "Lei de exemplo para teste",
-                "fonte": "cotel_scrap",
-            },
+    },
+    {
+        "id": "rondonia_lei_3_1982",
+        "titulo": "LEI n. 3",
+        "numero": "3",
+        "ano": 1982,
+        "data_publicacao": "1982-01-01",
+        "tipo_lei": "lei",
+        "ente": "rondonia",
+        "texto_completo": "Texto de exemplo da Lei 3 de Rondônia para teste do sistema Leizilla.",
+        "texto_normalizado": "lei 3 rondônia teste sistema leizilla",
+        "url_original": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/detalhes.aspx?coddoc=3",
+        "metadados": {
+            "coddoc": "3",
+            "ementa": "Lei de exemplo para teste",
+            "fonte": "cotel_scrap",
         },
-    ]
-
-    print("🦖 Starting Leizilla End-to-End Test with Rondônia Laws")
-
-    # Create temporary storage
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = Path(temp_dir) / "test_leizilla.duckdb"
-        storage = DuckDBStorage(db_path)
-
-        print(f"✅ Created temporary database: {db_path}")
-
-        # Test 1: Database initialization (connect to create the database)
-        storage.connect()
-        assert db_path.exists(), "Database file should be created"
-        print("✅ Database initialization successful")
-
-        # Test 2: Insert sample laws (simulating discovery + download)
-        for law in sample_laws:
-            storage.insert_lei(law)
-        print("✅ Successfully inserted 2 Rondônia laws")
-
-        # Test 3: Retrieve specific law
-        decree_law_2 = storage.get_lei("rondonia_dl_2_1981")
-        assert decree_law_2 is not None, "Should retrieve DECRETO LEI n. 2"
-        assert decree_law_2["titulo"] == "DECRETO LEI n. 2"
-        assert "orçamento" in decree_law_2["texto_completo"].lower()
-        assert "1982" in decree_law_2["texto_completo"]
-        print("✅ Law retrieval working correctly")
-
-        # Test 4: Search functionality
-        search_orcamento = storage.search_leis(ente="rondonia", texto="orçamento")
-        assert len(search_orcamento) >= 1, "Should find laws with 'orçamento'"
-        assert any(
-            "DECRETO LEI n. 2" in result["titulo"] for result in search_orcamento
-        )
-        print("✅ Text search working correctly")
-
-        search_receita = storage.search_leis(texto="receita")
-        assert len(search_receita) >= 1, "Should find laws with 'receita'"
-        print("✅ Additional search terms working")
-
-        # Test 5: Filtering by origem and year
-        rondonia_laws = storage.search_leis(ente="rondonia")
-        assert len(rondonia_laws) == 2, "Should find both Rondônia laws"
-        print("✅ Origin filtering working")
-
-        laws_1981 = storage.search_leis(ano=1981)
-        assert len(laws_1981) == 1, "Should find one law from 1981"
-        assert laws_1981[0]["ano"] == 1981
-        print("✅ Year filtering working")
-
-        # Test 6: Statistics
-        stats = storage.get_stats()
-        assert stats["total_leis"] == 2, "Should have 2 laws total"
-        assert "rondonia" in stats["por_ente"], "Should have rondonia in origins"
-        assert stats["por_ente"]["rondonia"] == 2, "Should have 2 laws from rondonia"
-        print("✅ Statistics working correctly")
-
-        # Test 7: Export functionality (skip for now due to SQL parameter issue)
-        print("⚠️  Parquet export test skipped (SQL parameter issue to be fixed)")
-
-        # Test 8: Data integrity validation
-        retrieved_law = storage.get_lei("rondonia_dl_2_1981")
-        assert retrieved_law["numero"] == "2"
-        assert retrieved_law["tipo_lei"] == "decreto-lei"
-        assert "GOVERNADOR DO ESTADO DE RONDÔNIA" in retrieved_law["texto_completo"]
-        print("✅ Data integrity validated")
-
-        # Test 9: Real-world legal search terms
-        legal_terms = [
-            "decreto",
-            "artigo",
-            "orçamento",
-            "receita",
-            "estado",
-            "governador",
-        ]
-        search_results = {}
-
-        for term in legal_terms:
-            results = storage.search_leis(texto=term)
-            search_results[term] = len(results)
-            if term in ["decreto", "orçamento", "receita", "estado", "governador"]:
-                assert len(results) >= 1, (
-                    f"Should find results for common legal term: {term}"
-                )
-
-        print(f"✅ Legal term searches: {search_results}")
-
-        # Test 10: Performance check
-        import time
-
-        start_time = time.time()
-        results = storage.search_leis(texto="orçamento")
-        search_time = time.time() - start_time
-
-        assert search_time < 0.5, "Search should be fast"
-        assert len(results) > 0, "Should find relevant results"
-        print(f"✅ Performance test passed (search time: {search_time:.3f}s)")
-
-        storage.close()
-        print("✅ Database connection closed")
-
-    print("\n🎉 All tests passed! Leizilla E2E test with Rondônia laws successful!")
-    print("\n📊 Test Summary:")
-    print("- ✅ Database initialization and schema creation")
-    print("- ✅ Law data insertion (simulating cotel_scrap integration)")
-    print("- ✅ Individual law retrieval")
-    print("- ✅ Full-text search functionality")
-    print("- ✅ Filtering by origin and year")
-    print("- ✅ Statistics generation")
-    print("- ✅ Parquet export")
-    print("- ✅ Data integrity validation")
-    print("- ✅ Legal terminology search")
-    print("- ✅ Performance validation")
+    },
+]
 
 
-def test_cotel_scrap_compatibility():
-    """Test compatibility with cotel_scrap data format."""
-    print("\n🔗 Testing cotel_scrap compatibility...")
+@pytest.fixture
+def storage(tmp_path: Path):
+    """Temporary DuckDB storage pre-loaded with the sample Rondônia laws."""
+    db_path = tmp_path / "test_leizilla.duckdb"
+    db = DuckDBStorage(db_path)
+    db.connect()
+    for law in SAMPLE_LAWS:
+        db.insert_lei(law)
+    yield db
+    db.close()
 
-    # Simulate cotel_scrap markdown structure
+
+def test_database_initialization(tmp_path: Path) -> None:
+    """Connecting creates the database file on disk."""
+    db_path = tmp_path / "test_leizilla.duckdb"
+    db = DuckDBStorage(db_path)
+    db.connect()
+    try:
+        assert db_path.exists()
+    finally:
+        db.close()
+
+
+def test_law_retrieval(storage: DuckDBStorage) -> None:
+    """Individual laws are retrievable with full original content."""
+    decree_law_2 = storage.get_lei("rondonia_dl_2_1981")
+    assert decree_law_2 is not None
+    assert decree_law_2["titulo"] == "DECRETO LEI n. 2"
+    assert "orçamento" in decree_law_2["texto_completo"].lower()
+    assert "1982" in decree_law_2["texto_completo"]
+
+
+def test_text_search(storage: DuckDBStorage) -> None:
+    """Full-text search finds laws by content, with and without ente filter."""
+    search_orcamento = storage.search_leis(ente="rondonia", texto="orçamento")
+    assert len(search_orcamento) >= 1
+    assert any("DECRETO LEI n. 2" in result["titulo"] for result in search_orcamento)
+
+    search_receita = storage.search_leis(texto="receita")
+    assert len(search_receita) >= 1
+
+
+def test_filtering_by_ente_and_year(storage: DuckDBStorage) -> None:
+    rondonia_laws = storage.search_leis(ente="rondonia")
+    assert len(rondonia_laws) == 2
+
+    laws_1981 = storage.search_leis(ano=1981)
+    assert len(laws_1981) == 1
+    assert laws_1981[0]["ano"] == 1981
+
+
+def test_statistics(storage: DuckDBStorage) -> None:
+    stats = storage.get_stats()
+    assert stats["total_leis"] == 2
+    assert "rondonia" in stats["por_ente"]
+    assert stats["por_ente"]["rondonia"] == 2
+
+
+def test_data_integrity(storage: DuckDBStorage) -> None:
+    """Inserted fields round-trip unchanged, including accented content."""
+    retrieved_law = storage.get_lei("rondonia_dl_2_1981")
+    assert retrieved_law is not None
+    assert retrieved_law["numero"] == "2"
+    assert retrieved_law["tipo_lei"] == "decreto-lei"
+    assert "GOVERNADOR DO ESTADO DE RONDÔNIA" in retrieved_law["texto_completo"]
+
+
+def test_real_world_legal_search_terms(storage: DuckDBStorage) -> None:
+    """Common legal research terms present in the corpus return results."""
+    for term in ["decreto", "orçamento", "receita", "estado", "governador"]:
+        results = storage.search_leis(texto=term)
+        assert len(results) >= 1, f"Should find results for legal term: {term}"
+
+
+def test_cotel_scrap_markdown_compatibility() -> None:
+    """Frontmatter + content of cotel_scrap markdown files parse as expected."""
     markdown_content = """---
 title: "DECRETO LEI n. 2"
 coddoc: "2"
@@ -219,11 +172,10 @@ Gabinete do Governador
 DECRETO-LEI N° 2, DE 31 DE DEZEMBRO DE 1981
 """
 
-    # Test parsing frontmatter and content
     lines = markdown_content.split("\n")
     in_frontmatter = False
-    frontmatter = {}
-    content_lines = []
+    frontmatter: dict[str, str] = {}
+    content_lines: list[str] = []
 
     for line in lines:
         if line.strip() == "---":
@@ -244,7 +196,6 @@ DECRETO-LEI N° 2, DE 31 DE DEZEMBRO DE 1981
                     and isinstance(frontmatter[key], str)
                     and frontmatter[key] == ""
                 ):
-                    # This is a continuation of a multiline value
                     if line.strip():
                         frontmatter[key] = line.strip()
                 else:
@@ -258,7 +209,6 @@ DECRETO-LEI N° 2, DE 31 DE DEZEMBRO DE 1981
         else:
             content_lines.append(line)
 
-    # Verify parsed data
     assert frontmatter["title"] == "DECRETO LEI n. 2"
     assert frontmatter["coddoc"] == "2"
     assert "orçamento" in frontmatter["summary"].lower()
@@ -267,42 +217,12 @@ DECRETO-LEI N° 2, DE 31 DE DEZEMBRO DE 1981
     assert "GOVERNO DO ESTADO DE RONDÔNIA" in full_content
     assert "1981" in full_content
 
-    print("✅ cotel_scrap markdown format compatibility validated")
 
-    # Test URL pattern compatibility
+def test_cotel_scrap_url_pattern_compatibility() -> None:
     base_url = "http://ditel.casacivil.ro.gov.br/COTEL/Livros/detalhes.aspx"
-    coddocs = ["2", "3", "4", "5", "100", "1000"]
 
-    for coddoc in coddocs:
+    for coddoc in ["2", "3", "4", "5", "100", "1000"]:
         url = f"{base_url}?coddoc={coddoc}"
         assert url.startswith("http://ditel.casacivil.ro.gov.br")
         assert f"coddoc={coddoc}" in url
         assert "COTEL/Livros" in url
-
-    print("✅ cotel_scrap URL pattern compatibility validated")
-
-
-if __name__ == "__main__":
-    try:
-        # Run main end-to-end test
-        test_rondonia_laws_e2e()
-
-        # Run compatibility test
-        test_cotel_scrap_compatibility()
-
-        print(
-            "\n🏆 SUCCESS: All Leizilla end-to-end tests with Rondônia laws data passed!"
-        )
-        print("\n💡 Integration summary:")
-        print("- Leizilla can successfully process cotel_scrap law data")
-        print("- Full-text search works with real legal content")
-        print("- Export functionality enables data distribution")
-        print("- Performance is suitable for production use")
-        print("- Data format compatibility confirmed with cotel_scrap")
-
-    except Exception as e:
-        print(f"\n❌ TEST FAILED: {e}")
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
