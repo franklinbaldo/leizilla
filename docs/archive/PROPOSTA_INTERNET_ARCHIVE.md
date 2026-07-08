@@ -1,3 +1,11 @@
+> [!WARNING]
+> **ARQUIVADO** (2026-07-07): documento de planejamento cujo desenho foi absorvido por
+> [ADR-0010](../adr/0010-raw-content-addressed-parsed-urn.md) (e refinado pela ADR-0011);
+> movido de `docs/plans/` para `docs/archive/` conforme
+> [RFC-0002 — Governança documental](../rfc/0002-governanca-documental.md).
+> Preservado como histórico (o diagnóstico de fragmentação segue útil como contexto);
+> conteúdo original intacto abaixo.
+
 # Consolidação do Internet Archive — Camada Raw
 
 > **Status**: a nomenclatura ancorada em `coddoc` descrita nas versões anteriores

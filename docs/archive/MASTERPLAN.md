@@ -1,3 +1,9 @@
+> [!WARNING]
+> **SUPERSEDIDO** (2026-07-07): este masterplan foi substituído pelo PRD
+> ([`docs/PRD.md`](../PRD.md), v2.0-reconciliado) como fonte de verdade de produto,
+> conforme [RFC-0002 — Governança documental](../rfc/0002-governanca-documental.md).
+> O documento é preservado aqui como histórico; o conteúdo original segue intacto abaixo.
+
 # Leizilla Master Plan 🦖
 
 ## 1. Project Vision & Mission

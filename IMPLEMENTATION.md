@@ -1179,7 +1179,14 @@ Outras decisões do mesmo review já incorporadas em SCHEMA.md:
 
 > Adicione aqui qualquer obstáculo, bug, ou descoberta que mude o plano. Inclua data, descrição, e link para PR/issue de resolução (se houver).
 
-_(vazio — preencher conforme implementação avança)_
+- **2026-07-07 — Divergência de roadmaps entre README.md, CLAUDE.md e MASTERPLAN.** Os três
+  documentos mantinham roadmaps mutuamente inconsistentes (README declarava o MVP RO
+  "Implementado" sem dataset publicado; CLAUDE.md mantinha o cronograma Q3/2025–Q2/2026
+  vencido; MASTERPLAN descrevia o repo como "Pre-MVP"). Detectado pela auditoria de
+  2026-06-30 (`docs/audit-divergencias.md`) e resolvido via
+  [RFC-0002](docs/rfc/0002-governanca-documental.md) (hierarquia de fontes de verdade;
+  roadmap único no README; docs supersedidos em `docs/archive/`) e
+  [RFC-0004](docs/rfc/0004-go-live-rondonia.md) (re-baseline 2026H2–2027 + runbook de go-live).
 
 ---
 
@@ -1190,18 +1197,22 @@ _(vazio — preencher conforme implementação avança)_
 ```bash
 # Setup
 uv venv && source .venv/bin/activate
-uv sync --dev
+uv sync --extra dev          # (não `--dev` — linters/mypy vivem no extra `dev`)
 uv run leizilla dev setup
 
-# Pipeline completo (após M2)
-uv run leizilla pipeline --ente ro --start-coddoc 1 --end-coddoc 10
+# Pipeline atual (manifest-driven)
+uv run leizilla discover --ente ro
+uv run leizilla harvest --ente ro --limit 10
 
 # Etapas separadas
-uv run leizilla scrape --ente ro --fonte casacivil --start-coddoc 1 --end-coddoc 10
-uv run leizilla parse --ente ro --raw-ids leizilla-raw-ro-casacivil-coddoc-00001
-uv run leizilla consolidate --ente ro
-uv run leizilla release-dataset --ente ro --version 1
+uv run leizilla scrape --ente ro --fonte casacivil --tipo lei --start-coddoc 1 --end-coddoc 10
+uv run leizilla parse --ente ro --raw-id leizilla-raw-ro-casacivil-lei-05120
+uv run leizilla fetch-all-parsed --ente ro --output-dir data/parsed
+uv run leizilla consolidate data/parsed --output out.parquet --ente ro
+uv run leizilla release-dataset out.parquet --ente ro --version 0
 ```
+
+Referência operacional completa: `docs/okf/pipeline/` e a tabela CLI do `CLAUDE.md`.
 
 ### Frontend (após M5)
 
@@ -1215,7 +1226,7 @@ npm run build  # static build → dist/
 ### Testes
 
 ```bash
-uv run leizilla dev check    # lint + format + typecheck + test
+uv run leizilla dev check    # lint (ruff) + format-check + test (mypy roda separado no CI)
 uv run pytest tests/test_lexml_export.py -v  # gate CI: Leizilla XML → LexML (one-way)
 ```
 
@@ -1238,18 +1249,25 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M11 e M12.1 concluídos** ✅ (inclui manifest-driven discovery, torrent bundling, ocr.py, CI fixes/mypy, e vetorização do pipeline - PR #67).
+_(atualizado em 2026-07-07)_
 
-**PR desta sessão (M12.2 / #64)**: `DiscoveryStrategy` base class + 17 testes harvest pipeline.
+**M0–M12.2 e M14.4 concluídos** ✅ (pipeline completo: discovery manifest-driven,
+harvest/scrape, IA upload, OCR fetch, parse LLM, ETL→Parquet, release de dataset,
+frontend M5.1/M5.2, segmentador regex baseline).
 
-**M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais em CI). Revisitar após primeiro batch real.
+**M5.3 bloqueado**: aguarda um dataset real publicado no IA — nenhum foi publicado
+até hoje. Revisitar após o primeiro batch real em produção.
 
-**Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar o pipeline.
+**Gargalo real = ativação de produção, não código**: `IA_ACCESS_KEY`, `IA_SECRET_KEY`
+e `ANTHROPIC_API_KEY` **nunca foram configurados** nos GitHub Actions secrets; os
+workflows agendados rodam há mais de um ano produzindo zero dados. O plano de
+ativação (runbook passo a passo, smoke batch de 10 itens antes de qualquer range)
+está em [`docs/rfc/0004-go-live-rondonia.md`](docs/rfc/0004-go-live-rondonia.md).
 
-**Especificação do Portal Frontend (Alinhada)**:
-* Design moderno, tema Dark Mode e Glassmorphism, com tipografia premium e micro-animações responsivas.
-* Barra de pesquisa integrada e filtros rápidos (Ano, Tipo, Ente) alimentando resultados e gráficos instantaneamente a partir do DuckDB-WASM.
-* Visualização detalhada individual contendo título, ementa, data, link original para o PDF no IA e um visualizador de texto integrado para o OCR extraído com destaque de termos pesquisados.
+**Convergência scrape→harvest**: ver
+[`docs/rfc/0003-convergencia-scrape-harvest.md`](docs/rfc/0003-convergencia-scrape-harvest.md)
+— aguardando merge dos fixes de produção #93 (Wayback devolvendo HTML) e #94
+(navegação nos buckets), encontrados nas primeiras execuções reais de 06/2026.
 
 **Dívida técnica identificada**: Protocol formal para estratégias de discovery (`WaybackCdxDiscovery`,
 `SequentialDiscovery`, `PlaywrightCrawlerDiscovery`) — RESOLVIDO: Substituiu-se a class base por `DiscoveryStrategyProtocol(Protocol)`.

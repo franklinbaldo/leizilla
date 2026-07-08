@@ -68,7 +68,7 @@ discover ──> harvest/scrape ──> fetch-ocr ──> parse ──> consolid
              SHA-256 bucket)     normalize)      →XML)
 ```
 
-1. **Discover** — manifest-driven (`manifests/{ente}.json`) strategies enqueue
+1. **Discover** — manifest-driven (`src/leizilla/manifests/{ente}.json`) strategies enqueue
    resources into DuckDB (`discovered_resources`).
 2. **Harvest/scrape** — respect robots.txt, save to Wayback then fetch from it
    (fail-open to direct download), upload raw bytes to IA.
@@ -100,8 +100,8 @@ src/leizilla/
 ├── ocr.py           # OCR text cleaning + normalization
 ├── etl.py           # Leizilla XML → Parquet (versioning + revogação cascade)
 ├── cli.py           # Typer CLI, ~20 commands  [largest user-facing, ~1300 LOC]
-└── fontes/          # source-specific discovery: ro.py (done), federal.py (Planalto), sp.py (stub)
-manifests/           # per-ente discovery manifests (currently ro.json)
+├── fontes/          # source-specific discovery: ro.py (done), federal.py (Planalto), sp.py (stub)
+└── manifests/       # per-ente discovery manifests (currently ro.json)
 web/                 # Astro + Svelte 5 + Pico CSS + DuckDB-WASM frontend
 docs/adr/            # Architecture Decision Records
 docs/SCHEMA.md       # canonical data model (dispositivo-centric)
@@ -187,6 +187,8 @@ manifest exists.
 - **Commits:** Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, …).
 - **ADRs:** add an ADR in `docs/adr/` for architectural decisions; update
   `docs/SCHEMA.md` for data-model changes (and re-run the schema validation).
+  Process/alignment RFCs live in `docs/rfc/`; superseded planning docs go to
+  `docs/archive/` with a supersession banner (RFC-0002).
 - **Pre-commit** mirrors CI (ruff, ruff-format, mypy, hygiene hooks).
 
 ## Environment variables
@@ -204,10 +206,10 @@ See `.env.example`. Permissions for the Claude Code assistant live in
 
 ## Roadmap
 
-- **Q3/2025** — complete Rondônia indexing.
-- **Q4/2025** — federal legislation (1988–present).
-- **Q1/2026** — static DuckDB-WASM search frontend.
-- **Q2/2026** — semantic search with embeddings in DuckDB.
+The canonical roadmap lives in the **README.md roadmap table** (single-source rule
+from RFC-0002, `docs/rfc/0002-governanca-documental.md`), re-baselined to
+2026H2–2027 by RFC-0004 (`docs/rfc/0004-go-live-rondonia.md`). Do not duplicate it
+here.
 
 Guiding principles throughout: cost-zero operation, radical transparency, and
 distributed resilience over cloud infrastructure.

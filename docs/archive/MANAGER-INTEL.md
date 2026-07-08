@@ -1,3 +1,11 @@
+> [!WARNING]
+> **ARQUIVADO** (2026-07-07): snapshot gerado por ferramenta para sessões "Jules",
+> hoje desatualizado (placeholders de rate-limit da API do GitHub, milestones vencidos).
+> Movido da raiz para `docs/archive/` conforme
+> [RFC-0002 — Governança documental](../rfc/0002-governanca-documental.md); status
+> canônico de milestones vive em `IMPLEMENTATION.md`. Preservado como histórico;
+> conteúdo original intacto abaixo.
+
 # MANAGER-INTEL.md
 
 ## Overview
