@@ -23,6 +23,9 @@ ENV_VARS = [
     "IA_SECRET_KEY",
     "IAS3_SECRET_KEY",
     "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "LLM_MODEL",
     "CRAWLER_DELAY",
     "CRAWLER_RETRIES",
     "CRAWLER_TIMEOUT",
@@ -62,6 +65,29 @@ def test_defaults(reload_config: Callable[..., types.ModuleType]) -> None:
     assert cfg.IA_ACCESS_KEY is None
     assert cfg.IA_SECRET_KEY is None
     assert cfg.ANTHROPIC_API_KEY is None
+    assert cfg.GEMINI_API_KEY is None
+    assert cfg.LLM_MODEL is None
+
+
+def test_gemini_key_with_google_fallback(
+    reload_config: Callable[..., types.ModuleType],
+) -> None:
+    """GEMINI_API_KEY é lida direto; GOOGLE_API_KEY serve de fallback (RFC-0006)."""
+    cfg = reload_config(GEMINI_API_KEY="g-key")
+    assert cfg.GEMINI_API_KEY == "g-key"
+
+    cfg = reload_config(GOOGLE_API_KEY="google-key")
+    assert cfg.GEMINI_API_KEY == "google-key"
+
+    cfg = reload_config(GEMINI_API_KEY="g-key", GOOGLE_API_KEY="google-key")
+    assert cfg.GEMINI_API_KEY == "g-key"  # GEMINI_API_KEY tem precedência
+
+
+def test_llm_model_env_var(
+    reload_config: Callable[..., types.ModuleType],
+) -> None:
+    cfg = reload_config(LLM_MODEL="gemini/gemini-2.5-flash")
+    assert cfg.LLM_MODEL == "gemini/gemini-2.5-flash"
 
 
 def test_paths_derived_from_project_root(

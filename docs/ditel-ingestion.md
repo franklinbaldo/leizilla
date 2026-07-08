@@ -107,7 +107,7 @@ run — there is nothing to migrate. If a real ledger is ever carried across thi
 `discovered_resources` (it's a rebuildable cache) or reconcile the old keys by `chave`.
 
 **Phase 2 — run a small real batch & verify:** the **fetch** stage runs here (Wayback/direct,
-no creds); **IA upload + IA OCR + Claude parse + Parquet** require `IA_*` / `ANTHROPIC_API_KEY`
+no creds); **IA upload + IA OCR + LLM parse + Parquet** require `IA_*` / uma chave LLM (RFC-0006)
 and so run in the **scheduled GitHub Actions** (`discover-harvest.yml`, `parse-release.yml`),
 which hold the secrets. We verify every sandbox-reachable step, report counts, and hand the
 credentialed stages to CI.

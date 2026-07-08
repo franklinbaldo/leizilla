@@ -33,7 +33,7 @@ o go-live em si depende de ação manual do mantenedor (secrets)
 | # | Passo | Dono | Verificação |
 |---|---|---|---|
 | 0 | Mergear #93 e #94 (fixes de produção já prontos) | mantenedor | CI verde em main |
-| 1 | Configurar `IA_ACCESS_KEY`/`IA_SECRET_KEY`/`ANTHROPIC_API_KEY` nos Actions secrets | mantenedor (manual) | `check-credentials.yml` via dispatch |
+| 1 | Configurar `IA_ACCESS_KEY`/`IA_SECRET_KEY` + **uma** chave LLM (ex.: `GEMINI_API_KEY`) + opcional `LLM_MODEL` nos Actions secrets/vars *(atualizado pela RFC-0006)* | mantenedor (manual) | `check-credentials.yml` via dispatch |
 | 2 | Rodar `leizilla doctor` localmente e no CI | qualquer um | todos os checks OK |
 | 3 | Smoke batch: `discover --ente ro` + `harvest --ente ro --limit 10` via dispatch | CI | 10 itens raw no IA (`stats --ia`) |
 | 4 | Esperar OCR do IA (~horas) e parsear o smoke batch: `parse-all … --limit 10 --upload` | CI | 10 itens parsed no IA |
@@ -50,8 +50,9 @@ primeiros itens.
 
 Novo comando que verifica os pré-requisitos de produção e imprime um checklist:
 
-- variáveis de ambiente presentes (`IA_ACCESS_KEY`, `IA_SECRET_KEY`,
-  `ANTHROPIC_API_KEY`) — sem vazar valores;
+- variáveis de ambiente presentes (`IA_ACCESS_KEY`, `IA_SECRET_KEY`, chave LLM
+  presente para o modelo configurado — ex. `GEMINI_API_KEY` ou
+  `ANTHROPIC_API_KEY`; *atualizado pela RFC-0006*) — sem vazar valores;
 - diretório de dados/DuckDB acessível e gravável;
 - conectividade com IA e Wayback (HEAD requests, fail-open: rede ausente vira aviso,
   não erro — consistente com a filosofia do projeto);

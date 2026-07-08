@@ -30,6 +30,9 @@ ALL_ENV_VARS = [
     "IAS3_ACCESS_KEY",
     "IAS3_SECRET_KEY",
     "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "LLM_MODEL",
 ]
 
 
@@ -66,7 +69,7 @@ def test_all_essentials_ok():
     results, essencial_ok = _run(ENV_OK)
     assert essencial_ok is True
     assert all(r.status == STATUS_OK for r in results)
-    # 3 env vars + data dir + duckdb essenciais, 2 conectividades informativas.
+    # 2 env vars IA + chave LLM + data dir + duckdb essenciais, 2 informativas.
     assert sum(r.essencial for r in results) == 5
     assert sum(not r.essencial for r in results) == 2
 
@@ -78,15 +81,53 @@ def test_missing_ia_keys_fails_essentials():
     by_name = {r.nome: r for r in results}
     assert by_name["variável IA_ACCESS_KEY"].status == STATUS_FALHA
     assert by_name["variável IA_SECRET_KEY"].status == STATUS_FALHA
-    assert by_name["variável ANTHROPIC_API_KEY"].status == STATUS_OK
+    assert by_name["chave LLM (parse)"].status == STATUS_OK
 
 
-def test_missing_anthropic_key_fails_essentials():
+def test_missing_llm_key_fails_essentials():
     env = {k: v for k, v in ENV_OK.items() if k != "ANTHROPIC_API_KEY"}
     results, essencial_ok = _run(env)
     assert essencial_ok is False
     by_name = {r.nome: r for r in results}
-    assert by_name["variável ANTHROPIC_API_KEY"].status == STATUS_FALHA
+    assert by_name["chave LLM (parse)"].status == STATUS_FALHA
+    assert "GEMINI_API_KEY" in by_name["chave LLM (parse)"].detalhe
+
+
+def test_gemini_key_alone_satisfies_llm_check():
+    # RFC-0006: qualquer chave LLM conhecida basta — o mantenedor tem Gemini.
+    env = {
+        "IA_ACCESS_KEY": "a",
+        "IA_SECRET_KEY": "b",
+        "GEMINI_API_KEY": "g",
+    }
+    results, essencial_ok = _run(env)
+    assert essencial_ok is True
+    by_name = {r.nome: r for r in results}
+    assert "gemini" in by_name["chave LLM (parse)"].detalhe
+
+
+def test_llm_model_env_requires_matching_key():
+    env = {
+        "IA_ACCESS_KEY": "a",
+        "IA_SECRET_KEY": "b",
+        "GEMINI_API_KEY": "g",
+        "LLM_MODEL": "claude-opus-4-7",  # exige ANTHROPIC_API_KEY, ausente
+    }
+    results, essencial_ok = _run(env)
+    assert essencial_ok is False
+    by_name = {r.nome: r for r in results}
+    assert by_name["chave LLM (parse)"].status == STATUS_FALHA
+    assert "ANTHROPIC_API_KEY" in by_name["chave LLM (parse)"].detalhe
+
+
+def test_llm_model_unmapped_provider_passes():
+    env = {
+        "IA_ACCESS_KEY": "a",
+        "IA_SECRET_KEY": "b",
+        "LLM_MODEL": "mistral/mistral-small",  # provider validado em runtime
+    }
+    _, essencial_ok = _run(env)
+    assert essencial_ok is True
 
 
 def test_empty_value_counts_as_missing():
@@ -212,14 +253,25 @@ def test_cli_missing_ia_keys_exits_one(offline_checks):
     assert "faltando" in result.output
 
 
-def test_cli_missing_anthropic_key_exits_one(offline_checks):
+def test_cli_missing_llm_key_exits_one(offline_checks):
     offline_checks.setenv("IA_ACCESS_KEY", "a")
     offline_checks.setenv("IA_SECRET_KEY", "b")
 
     result = runner.invoke(app, ["doctor"])
 
     assert result.exit_code == 1
-    assert "ANTHROPIC_API_KEY" in result.output
+    assert "chave LLM" in result.output
+
+
+def test_cli_gemini_key_alone_exits_zero(offline_checks):
+    offline_checks.setenv("IA_ACCESS_KEY", "a")
+    offline_checks.setenv("IA_SECRET_KEY", "b")
+    offline_checks.setenv("GEMINI_API_KEY", "fake-gemini-key")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "Pronto para produção." in result.output
 
 
 def test_cli_connectivity_failure_is_warning_exit_zero(offline_checks):

@@ -909,7 +909,10 @@ def _write_step_summary(
 def cmd_parse(
     raw_id: str = typer.Option(..., help="IA raw item ID (leizilla-raw-...)"),
     ente: str = typer.Option("ro", help="Ente federativo"),
-    model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
+    model: Optional[str] = typer.Option(
+        None,
+        help="Modelo LLM (id LiteLLM; default: LLM_MODEL ou auto pela chave disponível)",
+    ),
     output: Optional[Path] = typer.Option(
         None, help="Salvar XML em arquivo (default: stdout)"
     ),
@@ -951,7 +954,10 @@ def cmd_parse(
             raise typer.Exit(1)
 
         label = "HTML" if input_type == "html" else "OCR"
-        echo(f"Parseando com {model} ({len(raw_text)} chars de {label})...")
+        echo(
+            f"Parseando com {model or 'modelo auto (RFC-0006)'} "
+            f"({len(raw_text)} chars de {label})..."
+        )
         result = parse_law(raw_text, raw_id, ente, model=model, input_type=input_type)
         if not result:
             echo(
@@ -1014,7 +1020,10 @@ def cmd_parse_all(
         "--tipo",
         help="Tipo de lei: lei, lc (casacivil), lcp, decreto (planalto). Determina o chave prefix para casacivil e planalto.",
     ),
-    model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
+    model: Optional[str] = typer.Option(
+        None,
+        help="Modelo LLM (id LiteLLM; default: LLM_MODEL ou auto pela chave disponível)",
+    ),
     upload: bool = typer.Option(
         True, "--upload/--no-upload", help="Upload para IA após parse"
     ),

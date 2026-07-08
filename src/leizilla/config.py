@@ -17,6 +17,10 @@ IA_SECRET_KEY: Optional[str] = os.getenv("IA_SECRET_KEY") or os.getenv(
     "IAS3_SECRET_KEY"
 )
 ANTHROPIC_API_KEY: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
+GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY") or os.getenv(
+    "GOOGLE_API_KEY"
+)
+LLM_MODEL: Optional[str] = os.getenv("LLM_MODEL")
 
 CRAWLER_DELAY = int(os.getenv("CRAWLER_DELAY", "2000"))
 CRAWLER_RETRIES = int(os.getenv("CRAWLER_RETRIES", "3"))

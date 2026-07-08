@@ -2,7 +2,9 @@
 
 Checks essenciais (faltando ⇒ exit 1 no CLI):
 - credenciais IA (`IA_ACCESS_KEY`/`IA_SECRET_KEY`, com fallback `IAS3_*` como
-  em `config.py`) e `ANTHROPIC_API_KEY` presentes — sem nunca imprimir valores;
+  em `config.py`) presentes — sem nunca imprimir valores;
+- chave LLM presente para o modelo configurado (`LLM_MODEL` ou auto pela chave
+  disponível — RFC-0006: qualquer provider LiteLLM serve);
 - diretório de dados existente/criável e gravável;
 - DuckDB local abre no caminho configurado.
 
@@ -34,8 +36,17 @@ RFC_DOC = "docs/rfc/0004-go-live-rondonia.md"
 _ENV_CHECKS: list[tuple[str, list[str]]] = [
     ("IA_ACCESS_KEY", ["IA_ACCESS_KEY", "IAS3_ACCESS_KEY"]),
     ("IA_SECRET_KEY", ["IA_SECRET_KEY", "IAS3_SECRET_KEY"]),
-    ("ANTHROPIC_API_KEY", ["ANTHROPIC_API_KEY"]),
 ]
+
+# Chaves LLM aceitas em modo auto (mesma precedência de parser.default_model).
+_LLM_AUTO: list[tuple[str, list[str]]] = [
+    ("claude-haiku-4-5", ["ANTHROPIC_API_KEY"]),
+    ("gemini/gemini-2.5-flash", ["GEMINI_API_KEY", "GOOGLE_API_KEY"]),
+]
+_LLM_OPTIONS_HINT = (
+    "GEMINI_API_KEY (ou GOOGLE_API_KEY) ou ANTHROPIC_API_KEY; "
+    "outros providers via LLM_MODEL + chave correspondente"
+)
 
 
 @dataclass(frozen=True)
@@ -51,6 +62,52 @@ class CheckResult:
 def check_env_var(env: Mapping[str, str], nomes: list[str]) -> bool:
     """True se alguma das variáveis está presente e não-vazia (nunca lê o valor além disso)."""
     return any(env.get(nome, "").strip() for nome in nomes)
+
+
+def check_llm_key(env: Mapping[str, str]) -> CheckResult:
+    """Chave LLM presente para o modelo configurado (RFC-0006).
+
+    LLM_MODEL setado → valida a env var exigida pelo provider do modelo
+    (modelos de provider não mapeado passam: o LiteLLM valida em runtime).
+    Sem LLM_MODEL → modo auto: qualquer chave conhecida satisfaz.
+    """
+    from leizilla.parser import required_env_for
+
+    modelo = env.get("LLM_MODEL", "").strip()
+    if modelo:
+        required = required_env_for(modelo)
+        if required is None:
+            return CheckResult(
+                nome="chave LLM (parse)",
+                status=STATUS_OK,
+                essencial=True,
+                detalhe=f"modelo {modelo} (provider validado em runtime)",
+            )
+        ok = check_env_var(env, list(required))
+        return CheckResult(
+            nome="chave LLM (parse)",
+            status=STATUS_OK if ok else STATUS_FALHA,
+            essencial=True,
+            detalhe=(
+                f"modelo {modelo}"
+                if ok
+                else f"modelo {modelo} exige {' ou '.join(required)}"
+            ),
+        )
+    for modelo_auto, aliases in _LLM_AUTO:
+        if check_env_var(env, aliases):
+            return CheckResult(
+                nome="chave LLM (parse)",
+                status=STATUS_OK,
+                essencial=True,
+                detalhe=f"auto: {modelo_auto}",
+            )
+    return CheckResult(
+        nome="chave LLM (parse)",
+        status=STATUS_FALHA,
+        essencial=True,
+        detalhe=f"nenhuma chave — configure uma de: {_LLM_OPTIONS_HINT}",
+    )
 
 
 def check_data_dir_writable(data_dir: Path) -> tuple[bool, str]:
@@ -127,6 +184,9 @@ def run_doctor(
                 detalhe="presente" if presente else "ausente ou vazia",
             )
         )
+
+    # 1b. Chave LLM para o modelo configurado (RFC-0006).
+    results.append(check_llm_key(env))
 
     # 2. Diretório de dados gravável.
     ok, detalhe = write_check_fn(data_dir)
