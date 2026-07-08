@@ -489,6 +489,16 @@ class TestDefaultModel:
             with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
                 parser.default_model()
 
+    def test_whitespace_only_llm_model_falls_back_to_auto(self):
+        # LLM_MODEL="   " não é um id de modelo válido — deve cair para o modo
+        # auto, igual a doctor.check_llm_key (que faz env.get(...).strip()).
+        with self._cfg(LLM_MODEL="   ", GEMINI_API_KEY="g-key"):
+            assert parser.default_model() == parser._GEMINI_FLASH
+
+    def test_llm_model_is_stripped(self):
+        with self._cfg(LLM_MODEL="  gemini/gemini-2.5-flash  "):
+            assert parser.default_model() == "gemini/gemini-2.5-flash"
+
 
 class TestRequiredEnvFor:
     def test_gemini_prefix(self):

@@ -204,9 +204,15 @@ def _key_present(env_var: str) -> bool:
 
 
 def default_model() -> str:
-    """Modelo default: LLM_MODEL > chave Anthropic > chave Gemini (RFC-0006 §2)."""
-    if config.LLM_MODEL:
-        return config.LLM_MODEL
+    """Modelo default: LLM_MODEL > chave Anthropic > chave Gemini (RFC-0006 §2).
+
+    LLM_MODEL é normalizado (strip) antes do teste de truthiness — um valor
+    só-espaço deve cair para o modo auto, não ser tratado como um id de
+    modelo válido (mesma normalização de doctor.check_llm_key).
+    """
+    llm_model = (config.LLM_MODEL or "").strip()
+    if llm_model:
+        return llm_model
     if config.ANTHROPIC_API_KEY:
         return _HAIKU
     if config.GEMINI_API_KEY:
