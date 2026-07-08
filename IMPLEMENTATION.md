@@ -78,7 +78,7 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 1. **Duas etapas no IA, sempre separadas.** Raw é imutável; parsed re-roda quantas vezes for preciso.
 2. **OCR é responsabilidade do Internet Archive.** Nunca rodamos OCR local.
-3. **Etapa 2 é pluggable.** Default: Claude Haiku via API. Alternativas: Claude Code routine com Opus, parser determinístico, curadoria manual.
+3. **Etapa 2 é pluggable.** Default: LiteLLM com Claude Haiku ou Gemini Flash pela chave disponível (RFC-0006). Alternativas: qualquer modelo LiteLLM via `--model`/`LLM_MODEL`, Claude Code routine com Opus, parser determinístico, curadoria manual.
 4. **Múltiplas fontes por lei são esperadas.** Assembleia + Casa Civil + Diário Oficial fazem **cross-verificação** do vigente compilado — não competem por canonicidade. Divergências indicam possível erro de consolidação ou retificação não-aplicada; frontend exibe como "verificar", não como ranking de autoridade. Ver SCHEMA.md §0.2.
 5. **Genérico por ente federativo desde dia 1.** Tudo parametrizado por `{ente}`.
 6. **Leizilla XML é canônico, dispositivo-cêntrico.** Formato próprio (não fork). LexML é gate de CI (export reduzido sob demanda), não constraint estrutural. SSR híbrido: Astro renderiza páginas de detalhe; XSLT in-browser é fallback.
@@ -103,14 +103,29 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 | Browser DB | DuckDB-WASM | 1.28 |
 | Data fetching | TanStack Svelte Query | 6.1 |
 | Hosting | GitHub Pages | — |
-| LLM parsing | Claude Haiku | `claude-haiku-4-5-20251001` |
-| LLM fallback | Claude Opus | `claude-opus-4-7` |
+| LLM parsing | LiteLLM (default: Claude Haiku ou Gemini Flash via chave disponível — RFC-0006) | `litellm` |
+| LLM fallback | Qualquer modelo LiteLLM via `--model`/`LLM_MODEL` (ex. Claude Opus) | — |
 
 ---
 
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-07-08 — RFC-0006: parser provider-agnóstico via LiteLLM
+
+**Supersede a decisão de 2026-05-23** (fechamento da PR #59 "litellm migration" —
+manter o SDK `anthropic` diretamente). O parse deixa de exigir `ANTHROPIC_API_KEY`
+como único provider: `parse_law()` passa a chamar `litellm.completion`, com
+precedência de modelo `--model` > `LLM_MODEL` > auto pela chave disponível
+(`ANTHROPIC_API_KEY` → `claude-haiku-4-5`; `GEMINI_API_KEY`/`GOOGLE_API_KEY` →
+`gemini/gemini-2.5-flash`) e validação fail-fast por provider. Motivos: diretiva
+do mantenedor (a premissa "Claude-native" foi revogada), go-live da RFC-0004
+destravável com a chave Gemini que o mantenedor já tem (free tier = rota
+cost-zero), e o princípio load-bearing #3 ("Etapa 2 é pluggable") passa a ser
+honrado pelo código. As objeções de 2026-05-23 (prompt caching, indireção sem
+ganho) estão endereçadas ponto a ponto em
+**[RFC-0006](docs/rfc/0006-llm-provider-agnostico-litellm.md)**.
 
 ### 2026-06-05 — M14.1: OPF fine-tune — fundação de prep de dados
 
@@ -1179,7 +1194,14 @@ Outras decisões do mesmo review já incorporadas em SCHEMA.md:
 
 > Adicione aqui qualquer obstáculo, bug, ou descoberta que mude o plano. Inclua data, descrição, e link para PR/issue de resolução (se houver).
 
-_(vazio — preencher conforme implementação avança)_
+- **2026-07-07 — Divergência de roadmaps entre README.md, CLAUDE.md e MASTERPLAN.** Os três
+  documentos mantinham roadmaps mutuamente inconsistentes (README declarava o MVP RO
+  "Implementado" sem dataset publicado; CLAUDE.md mantinha o cronograma Q3/2025–Q2/2026
+  vencido; MASTERPLAN descrevia o repo como "Pre-MVP"). Detectado pela auditoria de
+  2026-06-30 (`docs/audit-divergencias.md`) e resolvido via
+  [RFC-0002](docs/rfc/0002-governanca-documental.md) (hierarquia de fontes de verdade;
+  roadmap único no README; docs supersedidos em `docs/archive/`) e
+  [RFC-0004](docs/rfc/0004-go-live-rondonia.md) (re-baseline 2026H2–2027 + runbook de go-live).
 
 ---
 
@@ -1190,18 +1212,22 @@ _(vazio — preencher conforme implementação avança)_
 ```bash
 # Setup
 uv venv && source .venv/bin/activate
-uv sync --dev
+uv sync --extra dev          # (não `--dev` — linters/mypy vivem no extra `dev`)
 uv run leizilla dev setup
 
-# Pipeline completo (após M2)
-uv run leizilla pipeline --ente ro --start-coddoc 1 --end-coddoc 10
+# Pipeline atual (manifest-driven)
+uv run leizilla discover --ente ro
+uv run leizilla harvest --ente ro --limit 10
 
 # Etapas separadas
-uv run leizilla scrape --ente ro --fonte casacivil --start-coddoc 1 --end-coddoc 10
-uv run leizilla parse --ente ro --raw-ids leizilla-raw-ro-casacivil-coddoc-00001
-uv run leizilla consolidate --ente ro
-uv run leizilla release-dataset --ente ro --version 1
+uv run leizilla scrape --ente ro --fonte casacivil --tipo lei --start-coddoc 1 --end-coddoc 10
+uv run leizilla parse --ente ro --raw-id leizilla-raw-ro-casacivil-lei-05120
+uv run leizilla fetch-all-parsed --ente ro --output-dir data/parsed
+uv run leizilla consolidate data/parsed --output out.parquet --ente ro
+uv run leizilla release-dataset out.parquet --ente ro --version 0
 ```
+
+Referência operacional completa: `docs/okf/pipeline/` e a tabela CLI do `CLAUDE.md`.
 
 ### Frontend (após M5)
 
@@ -1215,7 +1241,7 @@ npm run build  # static build → dist/
 ### Testes
 
 ```bash
-uv run leizilla dev check    # lint + format + typecheck + test
+uv run leizilla dev check    # lint (ruff) + format-check + test (mypy roda separado no CI)
 uv run pytest tests/test_lexml_export.py -v  # gate CI: Leizilla XML → LexML (one-way)
 ```
 
@@ -1238,18 +1264,25 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-**M0–M11 e M12.1 concluídos** ✅ (inclui manifest-driven discovery, torrent bundling, ocr.py, CI fixes/mypy, e vetorização do pipeline - PR #67).
+_(atualizado em 2026-07-07)_
 
-**PR desta sessão (M12.2 / #64)**: `DiscoveryStrategy` base class + 17 testes harvest pipeline.
+**M0–M12.2 e M14.4 concluídos** ✅ (pipeline completo: discovery manifest-driven,
+harvest/scrape, IA upload, OCR fetch, parse LLM, ETL→Parquet, release de dataset,
+frontend M5.1/M5.2, segmentador regex baseline).
 
-**M5.3 bloqueado**: aguarda dataset publicado em IA (requer scraping completo + credenciais em CI). Revisitar após primeiro batch real.
+**M5.3 bloqueado**: aguarda um dataset real publicado no IA — nenhum foi publicado
+até hoje. Revisitar após o primeiro batch real em produção.
 
-**Ação manual necessária**: configurar `IA_ACCESS_KEY`, `IA_SECRET_KEY`, `ANTHROPIC_API_KEY` nos GitHub Actions secrets para ativar o pipeline.
+**Gargalo real = ativação de produção, não código**: `IA_ACCESS_KEY`, `IA_SECRET_KEY`
+e `ANTHROPIC_API_KEY` **nunca foram configurados** nos GitHub Actions secrets; os
+workflows agendados rodam há mais de um ano produzindo zero dados. O plano de
+ativação (runbook passo a passo, smoke batch de 10 itens antes de qualquer range)
+está em [`docs/rfc/0004-go-live-rondonia.md`](docs/rfc/0004-go-live-rondonia.md).
 
-**Especificação do Portal Frontend (Alinhada)**:
-* Design moderno, tema Dark Mode e Glassmorphism, com tipografia premium e micro-animações responsivas.
-* Barra de pesquisa integrada e filtros rápidos (Ano, Tipo, Ente) alimentando resultados e gráficos instantaneamente a partir do DuckDB-WASM.
-* Visualização detalhada individual contendo título, ementa, data, link original para o PDF no IA e um visualizador de texto integrado para o OCR extraído com destaque de termos pesquisados.
+**Convergência scrape→harvest**: ver
+[`docs/rfc/0003-convergencia-scrape-harvest.md`](docs/rfc/0003-convergencia-scrape-harvest.md)
+— aguardando merge dos fixes de produção #93 (Wayback devolvendo HTML) e #94
+(navegação nos buckets), encontrados nas primeiras execuções reais de 06/2026.
 
 **Dívida técnica identificada**: Protocol formal para estratégias de discovery (`WaybackCdxDiscovery`,
 `SequentialDiscovery`, `PlaywrightCrawlerDiscovery`) — RESOLVIDO: Substituiu-se a class base por `DiscoveryStrategyProtocol(Protocol)`.

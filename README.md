@@ -151,12 +151,20 @@ A apresentação do portal público do Leizilla seguirá as seguintes diretrizes
 
 ## 🗺 Roadmap
 
-| Período       | Entregável                                            | Status              |
-| ------------- | ----------------------------------------------------- | ------------------- |
-| **Q3 / 2025** | MVP Rondônia completo em Parquet/JSONL                | ✅ **Implementado** |
-| **Q4 / 2025** | Cobertura federal 1988-presente; releases mensais     | 🔄 Em progresso     |
-| **Q1 / 2026** | Frontend estático (HTML/JS) com busca SQL client-side | 📋 Planejado        |
-| **Q2 / 2026** | Pesquisa semântica com embeddings no DuckDB           | 📋 Planejado        |
+Roadmap re-baselineado em 2026-07-07 pela [RFC-0004](docs/rfc/0004-go-live-rondonia.md)
+(esta tabela é a única fonte do roadmap — regra da [RFC-0002](docs/rfc/0002-governanca-documental.md)).
+O histórico do roadmap original (2025) está em [docs/archive/MASTERPLAN.md](docs/archive/MASTERPLAN.md).
+
+| Período       | Entregável                                                                          | Status                                                              |
+| ------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Q3 / 2026** | Go-live: dataset RO v0 publicado no IA + frontend apontando para ele                | 🔄 Em andamento — código pronto; aguarda ativação (secrets, runbook RFC-0004) |
+| **Q4 / 2026** | Cobertura RO completa (assembleia + casacivil lei/lc) + releases semanais + M5.3    | 📋 Planejado                                                         |
+| **Q1 / 2027** | Federal (Planalto 1988–presente) em produção                                        | 📋 Planejado                                                         |
+| **Q2 / 2027** | Busca semântica (embeddings no DuckDB) + novo ente (SP)                             | 📋 Planejado                                                         |
+
+> Nota de status honesto: o frontend (M5.1/M5.2) está pronto, mas **nenhum dataset
+> foi publicado no Internet Archive ainda** — o gargalo é ativação de produção
+> (secrets nunca configurados), não código. Ver runbook na RFC-0004.
 
 ---
 

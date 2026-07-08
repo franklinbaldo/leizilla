@@ -820,6 +820,24 @@ def cmd_stats(
         echo("Consulta IA desabilitada (use sem --no-ia para ver contagens).")
 
 
+@app.command("doctor")
+def cmd_doctor() -> None:
+    """Verificar pré-requisitos de produção (RFC-0004): credenciais, dados, rede.
+
+    Exit code 0 quando todos os checks essenciais passam; 1 quando falta algum
+    pré-requisito essencial. Falhas de conectividade são apenas avisos
+    (fail-open) e não afetam o exit code.
+    """
+    from leizilla.doctor import format_results, run_doctor
+
+    echo("=== Leizilla Doctor ===\n")
+    results, essencial_ok = run_doctor()
+    for line in format_results(results, essencial_ok):
+        echo(line)
+    if not essencial_ok:
+        raise typer.Exit(1)
+
+
 def _xsd_gate(xml_content: str, warn_prefix: str = "") -> bool:
     """Valida XML contra leizilla-v0.1.xsd via xmllint. Fail-open: só avisa, não aborta."""
     schema = Path(__file__).parents[2] / "docs" / "schemas" / "leizilla-v0.1.xsd"
@@ -891,7 +909,10 @@ def _write_step_summary(
 def cmd_parse(
     raw_id: str = typer.Option(..., help="IA raw item ID (leizilla-raw-...)"),
     ente: str = typer.Option("ro", help="Ente federativo"),
-    model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
+    model: Optional[str] = typer.Option(
+        None,
+        help="Modelo LLM (id LiteLLM; default: LLM_MODEL ou auto pela chave disponível)",
+    ),
     output: Optional[Path] = typer.Option(
         None, help="Salvar XML em arquivo (default: stdout)"
     ),
@@ -933,7 +954,10 @@ def cmd_parse(
             raise typer.Exit(1)
 
         label = "HTML" if input_type == "html" else "OCR"
-        echo(f"Parseando com {model} ({len(raw_text)} chars de {label})...")
+        echo(
+            f"Parseando com {model or 'modelo auto (RFC-0006)'} "
+            f"({len(raw_text)} chars de {label})..."
+        )
         result = parse_law(raw_text, raw_id, ente, model=model, input_type=input_type)
         if not result:
             echo(
@@ -996,7 +1020,10 @@ def cmd_parse_all(
         "--tipo",
         help="Tipo de lei: lei, lc (casacivil), lcp, decreto (planalto). Determina o chave prefix para casacivil e planalto.",
     ),
-    model: str = typer.Option("claude-haiku-4-5", help="Claude model para parse"),
+    model: Optional[str] = typer.Option(
+        None,
+        help="Modelo LLM (id LiteLLM; default: LLM_MODEL ou auto pela chave disponível)",
+    ),
     upload: bool = typer.Option(
         True, "--upload/--no-upload", help="Upload para IA após parse"
     ),

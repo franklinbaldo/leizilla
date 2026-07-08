@@ -63,17 +63,18 @@ ruff, mypy, and pytest. Run mypy yourself before pushing type-sensitive changes.
 
 ```
 discover ──> harvest/scrape ──> fetch-ocr ──> parse ──> consolidate ──> release-dataset ──> frontend
-(manifest)   (robots→Wayback    (IA _djvu.txt  (Claude   (XML→Parquet)   (Parquet→IA)        (DuckDB-WASM
-             →IA upload,         →clean/         Haiku                                        in browser)
+(manifest)   (robots→Wayback    (IA _djvu.txt  (LLM via  (XML→Parquet)   (Parquet→IA)        (DuckDB-WASM
+             →IA upload,         →clean/         LiteLLM                                      in browser)
              SHA-256 bucket)     normalize)      →XML)
 ```
 
-1. **Discover** — manifest-driven (`manifests/{ente}.json`) strategies enqueue
+1. **Discover** — manifest-driven (`src/leizilla/manifests/{ente}.json`) strategies enqueue
    resources into DuckDB (`discovered_resources`).
 2. **Harvest/scrape** — respect robots.txt, save to Wayback then fetch from it
    (fail-open to direct download), upload raw bytes to IA.
 3. **OCR fetch** — pull IA-generated `_djvu.txt`, clean and normalize.
-4. **Parse** — Claude Haiku turns OCR/HTML into validated Leizilla XML.
+4. **Parse** — an LLM (via LiteLLM — default Claude Haiku or Gemini Flash,
+   per available key; RFC-0006) turns OCR/HTML into validated Leizilla XML.
 5. **Consolidate** — XML → Parquet (`versoes` table).
 6. **Release** — publish the Parquet dataset to IA.
 7. **Search** — `web/` runs DuckDB-WASM against the published Parquet in-browser.
@@ -86,7 +87,7 @@ routine.
 
 ```
 src/leizilla/
-├── config.py        # env + path config (DUCKDB_PATH, IA/Anthropic keys, crawler timeouts)
+├── config.py        # env + path config (DUCKDB_PATH, IA/LLM keys, crawler timeouts)
 ├── entes.py         # federative entity catalog (27 states + federal)
 ├── storage.py       # DuckDB schema + CRUD (leis, discovered_resources)
 ├── discovery.py     # manifest-driven discovery strategies (WaybackCdx/Sequential/Playwright)
@@ -96,12 +97,12 @@ src/leizilla/
 ├── robots.py        # robots.txt enforcement (ADR-0008)
 ├── publisher.py     # IA upload + content-addressing (ADR-0010) + dataset release  [largest, ~900 LOC]
 ├── ia_utils.py      # SHA-256 addressing, index.csv, IA identifier helpers
-├── parser.py        # OCR/HTML → Leizilla XML via Claude (confidence-gated)
+├── parser.py        # OCR/HTML → Leizilla XML via LLM/LiteLLM (confidence-gated)
 ├── ocr.py           # OCR text cleaning + normalization
 ├── etl.py           # Leizilla XML → Parquet (versioning + revogação cascade)
 ├── cli.py           # Typer CLI, ~20 commands  [largest user-facing, ~1300 LOC]
-└── fontes/          # source-specific discovery: ro.py (done), federal.py (Planalto), sp.py (stub)
-manifests/           # per-ente discovery manifests (currently ro.json)
+├── fontes/          # source-specific discovery: ro.py (done), federal.py (Planalto), sp.py (stub)
+└── manifests/       # per-ente discovery manifests (currently ro.json)
 web/                 # Astro + Svelte 5 + Pico CSS + DuckDB-WASM frontend
 docs/adr/            # Architecture Decision Records
 docs/SCHEMA.md       # canonical data model (dispositivo-centric)
@@ -173,7 +174,7 @@ manifest exists.
 
 ## Testing & CI
 
-- ~530 pytest tests; **all network/IA/Anthropic/subprocess calls are mocked** —
+- ~530 pytest tests; **all network/IA/LLM/subprocess calls are mocked** —
   there are no live-network tests. Keep new tests offline/deterministic.
 - `lint.yml` gates every PR: ruff check, ruff format-check, mypy, pytest.
 - `schema-validate.yml` runs xmllint/xsltproc + the consistency checker when
@@ -187,6 +188,8 @@ manifest exists.
 - **Commits:** Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, …).
 - **ADRs:** add an ADR in `docs/adr/` for architectural decisions; update
   `docs/SCHEMA.md` for data-model changes (and re-run the schema validation).
+  Process/alignment RFCs live in `docs/rfc/`; superseded planning docs go to
+  `docs/archive/` with a supersession banner (RFC-0002).
 - **Pre-commit** mirrors CI (ruff, ruff-format, mypy, hygiene hooks).
 
 ## Environment variables
@@ -194,7 +197,8 @@ manifest exists.
 | Variable | Purpose | Default |
 |---|---|---|
 | `IA_ACCESS_KEY` / `IA_SECRET_KEY` | Internet Archive auth (required for upload) | — |
-| `ANTHROPIC_API_KEY` | Claude API for parsing | — |
+| `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | LLM key for parsing — any one of them suffices (RFC-0006) | — |
+| `LLM_MODEL` | LiteLLM model id for parsing | auto by available key (`claude-haiku-4-5` or `gemini/gemini-2.5-flash`) |
 | `DUCKDB_PATH` | local DB location | `data/leizilla.duckdb` |
 | `DATA_DIR` | data directory | `data/` |
 | `CRAWLER_DELAY` / `CRAWLER_RETRIES` / `CRAWLER_TIMEOUT` | crawler tuning (ms/count/ms) | `2000` / `3` / `30000` |
@@ -204,10 +208,10 @@ See `.env.example`. Permissions for the Claude Code assistant live in
 
 ## Roadmap
 
-- **Q3/2025** — complete Rondônia indexing.
-- **Q4/2025** — federal legislation (1988–present).
-- **Q1/2026** — static DuckDB-WASM search frontend.
-- **Q2/2026** — semantic search with embeddings in DuckDB.
+The canonical roadmap lives in the **README.md roadmap table** (single-source rule
+from RFC-0002, `docs/rfc/0002-governanca-documental.md`), re-baselined to
+2026H2–2027 by RFC-0004 (`docs/rfc/0004-go-live-rondonia.md`). Do not duplicate it
+here.
 
 Guiding principles throughout: cost-zero operation, radical transparency, and
 distributed resilience over cloud infrastructure.

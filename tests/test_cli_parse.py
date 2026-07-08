@@ -212,6 +212,45 @@ class TestCmdParseUpload:
         assert result.exit_code == 1
         assert "Parse falhou" in result.output
 
+    def test_model_flag_is_passed_to_parse_law(self):
+        """--model explícito chega ao parse_law sem ser sobrescrito (RFC-0006)."""
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch(
+                "leizilla.parser.parse_law", return_value=_PARSE_RESULT
+            ) as mock_parse_law,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse",
+                    "--raw-id",
+                    "leizilla-raw-ro-assembleia-coddoc-00042",
+                    "--model",
+                    "gemini/gemini-2.5-flash",
+                ],
+            )
+        assert result.exit_code == 0
+        _, kwargs = mock_parse_law.call_args
+        assert kwargs["model"] == "gemini/gemini-2.5-flash"
+        assert "gemini/gemini-2.5-flash" in result.output
+
+    def test_omitted_model_flag_passes_none_to_parse_law(self):
+        """Sem --model, cmd_parse repassa None — a resolução é responsabilidade
+        de parse_law/default_model() (RFC-0006), não da camada CLI."""
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch(
+                "leizilla.parser.parse_law", return_value=_PARSE_RESULT
+            ) as mock_parse_law,
+        ):
+            result = runner.invoke(
+                app, ["parse", "--raw-id", "leizilla-raw-ro-assembleia-coddoc-00042"]
+            )
+        assert result.exit_code == 0
+        _, kwargs = mock_parse_law.call_args
+        assert kwargs["model"] is None
+
 
 class TestCmdParseAll:
     def test_processes_range_and_reports_summary(self):
@@ -238,6 +277,57 @@ class TestCmdParseAll:
             )
         assert result.exit_code == 0
         assert "parseados" in result.output
+
+    def test_model_flag_is_passed_to_parse_law(self):
+        """--model explícito chega ao parse_law em cada item do batch (RFC-0006)."""
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch(
+                "leizilla.parser.parse_law", return_value=_PARSE_RESULT
+            ) as mock_parse_law,
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start-coddoc",
+                    "1",
+                    "--end-coddoc",
+                    "2",
+                    "--model",
+                    "gemini/gemini-2.5-flash",
+                ],
+            )
+        assert result.exit_code == 0
+        for call in mock_parse_law.call_args_list:
+            assert call.kwargs["model"] == "gemini/gemini-2.5-flash"
+
+    def test_omitted_model_flag_passes_none_to_parse_law(self):
+        """Sem --model, cmd_parse_all repassa None a cada item — resolução em
+        parse_law/default_model() (RFC-0006), não na camada CLI."""
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch(
+                "leizilla.parser.parse_law", return_value=_PARSE_RESULT
+            ) as mock_parse_law,
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
+            result = runner.invoke(
+                app,
+                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "2"],
+            )
+        assert result.exit_code == 0
+        for call in mock_parse_law.call_args_list:
+            assert call.kwargs["model"] is None
 
     def test_skips_items_without_ocr(self):
         call_count = {"n": 0}

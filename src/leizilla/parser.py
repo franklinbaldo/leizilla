@@ -1,27 +1,37 @@
 """OCR fetch + LLM parse → Leizilla XML v0.1 (M3 pipeline stage).
 
 Etapa 2 do pipeline:
-  raw IA item (_djvu.txt OCR) → Claude Haiku → Leizilla XML + parsed_meta.json
+  raw IA item (_djvu.txt OCR) → LLM (LiteLLM) → Leizilla XML + parsed_meta.json
 
 Princípio load-bearing #2: OCR é responsabilidade do IA; LLM só lê _djvu.txt.
-Princípio load-bearing #3: Etapa 2 pluggable; model é parâmetro.
+Princípio load-bearing #3: Etapa 2 pluggable; model é parâmetro — qualquer id
+LiteLLM serve (RFC-0006). Precedência: --model > LLM_MODEL > auto pela chave.
 """
 
 import json
 import math
+import os
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
-from typing import Any, Dict, Optional
-
-import anthropic
+from typing import Any, Dict, Optional, Tuple
 
 from leizilla import config
 from leizilla.ia_utils import resolve_raw_url
 
 _HAIKU = "claude-haiku-4-5"
+_GEMINI_FLASH = "gemini/gemini-2.5-flash"
+
+# Prefixo do modelo → env vars aceitas para o provider (fail-fast antes de
+# queimar um batch; modelos de providers não mapeados são validados pelo
+# próprio LiteLLM em runtime). RFC-0006 §3.
+_PROVIDER_ENV_VARS: Tuple[Tuple[Tuple[str, ...], Tuple[str, ...]], ...] = (
+    (("gemini/",), ("GEMINI_API_KEY", "GOOGLE_API_KEY")),
+    (("claude", "anthropic/"), ("ANTHROPIC_API_KEY",)),
+    (("openai/", "gpt-"), ("OPENAI_API_KEY",)),
+)
 _USER_AGENT = "leizilla-crawler/0.1"
 _MIN_CONFIDENCE = 0.5
 _OCR_CHAR_LIMIT = 8000
@@ -178,6 +188,42 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def required_env_for(model: str) -> Optional[Tuple[str, ...]]:
+    """Env vars aceitas para o provider do modelo, ou None se não mapeado."""
+    for prefixes, env_vars in _PROVIDER_ENV_VARS:
+        if any(model.startswith(p) for p in prefixes):
+            return env_vars
+    return None
+
+
+def _key_present(env_var: str) -> bool:
+    """True se a chave está disponível (via config ou ambiente), sem ler o valor."""
+    if env_var in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        return bool(config.GEMINI_API_KEY or os.getenv(env_var))
+    return bool(getattr(config, env_var, None) or os.getenv(env_var))
+
+
+def default_model() -> str:
+    """Modelo default: LLM_MODEL > chave Anthropic > chave Gemini (RFC-0006 §2).
+
+    LLM_MODEL é normalizado (strip) antes do teste de truthiness — um valor
+    só-espaço deve cair para o modo auto, não ser tratado como um id de
+    modelo válido (mesma normalização de doctor.check_llm_key).
+    """
+    llm_model = (config.LLM_MODEL or "").strip()
+    if llm_model:
+        return llm_model
+    if config.ANTHROPIC_API_KEY:
+        return _HAIKU
+    if config.GEMINI_API_KEY:
+        return _GEMINI_FLASH
+    raise RuntimeError(
+        "Nenhuma chave LLM configurada — defina GEMINI_API_KEY (ou GOOGLE_API_KEY), "
+        "ANTHROPIC_API_KEY ou OPENAI_API_KEY; opcionalmente LLM_MODEL para escolher "
+        "o modelo (RFC-0006)"
+    )
+
+
 def _is_well_formed(xml_str: str) -> bool:
     """Check XML well-formedness using stdlib parser."""
     if not isinstance(xml_str, str):
@@ -193,24 +239,28 @@ def parse_law(
     ocr_text: str,
     ia_id: str,
     ente: str,
-    model: str = _HAIKU,
+    model: Optional[str] = None,
     input_type: str = "ocr",
 ) -> Optional[ParseResult]:
-    """Parse law text → Leizilla XML via Claude.
+    """Parse law text → Leizilla XML via LLM (LiteLLM, RFC-0006).
 
     Args:
         ocr_text: Source text — OCR text from IA (_djvu.txt) or raw HTML.
         ia_id: IA raw item ID (for ocr) or source identifier (for html).
         ente: Federative entity code (ro, sp, federal, …).
-        model: Claude model ID.
+        model: LiteLLM model id (e.g. "gemini/gemini-2.5-flash",
+            "claude-haiku-4-5"). None → LLM_MODEL ou auto pela chave disponível.
         input_type: "ocr" (default) or "html". Adjusts prompt and char limit.
 
     Returns None when confidence < _MIN_CONFIDENCE or output is malformed.
-    Raises RuntimeError when ANTHROPIC_API_KEY is not configured.
+    Raises RuntimeError when no LLM key is configured for the chosen model
+    (fail-fast: não queima um batch inteiro por falta de credencial).
     """
-    api_key = config.ANTHROPIC_API_KEY
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not configured")
+    if model is None:
+        model = default_model()
+    required = required_env_for(model)
+    if required is not None and not any(_key_present(v) for v in required):
+        raise RuntimeError(f"{' ou '.join(required)} not configured (modelo {model})")
 
     if input_type not in ("ocr", "html"):
         raise ValueError(f"input_type deve ser 'ocr' ou 'html', got {input_type!r}")
@@ -230,26 +280,34 @@ def parse_law(
         input_intro=input_intro, today=today, ia_id=ia_id, ente_name=ente_name
     )
 
-    client = anthropic.Anthropic(api_key=api_key)
-    message = client.messages.create(
+    # Import lazy: litellm é pesado e não deve atrasar comandos que não parseiam.
+    import litellm
+
+    litellm.drop_params = True  # descarta cache_control em providers sem suporte
+    response = litellm.completion(
         model=model,
         max_tokens=4096,
-        system=[
-            {
-                "type": "text",
-                "text": system,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
         messages=[
+            {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": system,
+                        # Prompt caching (Anthropic): no content block, nunca no
+                        # root da mensagem — a objeção que fechou a PR #59.
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+            },
             {
                 "role": "user",
                 "content": f"{user_prefix}:\n\n{ocr_text[:char_limit]}",
-            }
+            },
         ],
     )
 
-    raw = message.content[0].text if message.content else ""
+    raw = (response.choices[0].message.content or "") if response.choices else ""
     result = _extract_json(raw)
     if result is None:
         return None
@@ -279,8 +337,9 @@ def parse_law(
         return None
     ia_id_parsed = f"leizilla-{ente}-{tipo}-{numero_str.zfill(5)}-{ano}"
 
-    input_tokens = getattr(message.usage, "input_tokens", 0)
-    output_tokens = getattr(message.usage, "output_tokens", 0)
+    usage = getattr(response, "usage", None)
+    input_tokens = getattr(usage, "prompt_tokens", 0) or 0
+    output_tokens = getattr(usage, "completion_tokens", 0) or 0
 
     parsed_meta: Dict[str, Any] = {
         "leizilla_meta_version": "0.1",

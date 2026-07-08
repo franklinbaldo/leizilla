@@ -1,4 +1,6 @@
-"""Tests for leizilla.parser — HTTP and Anthropic API fully mocked."""
+"""Tests for leizilla.parser — HTTP and LLM (litellm) fully mocked."""
+
+import contextlib
 
 import json
 from unittest.mock import MagicMock, patch
@@ -40,16 +42,34 @@ _LLM_OK = json.dumps(
 )
 
 
-def _make_anthropic_client(response_text: str) -> MagicMock:
-    content_block = MagicMock()
-    content_block.text = response_text
+def _make_llm_response(response_text: str) -> MagicMock:
+    """Resposta fake no formato OpenAI que o litellm.completion retorna."""
     message = MagicMock()
-    message.content = [content_block]
-    message.usage.input_tokens = 100
-    message.usage.output_tokens = 200
-    client = MagicMock()
-    client.messages.create.return_value = message
-    return client
+    message.content = response_text
+    choice = MagicMock()
+    choice.message = message
+    response = MagicMock()
+    response.choices = [choice]
+    response.usage.prompt_tokens = 100
+    response.usage.completion_tokens = 200
+    return response
+
+
+@contextlib.contextmanager
+def _llm(response_text: str, keys: dict | None = None):
+    """Mocka litellm.completion + chaves no config; yield o mock da chamada."""
+    if keys is None:
+        keys = {"ANTHROPIC_API_KEY": "test-key"}
+    attrs = {
+        "ANTHROPIC_API_KEY": keys.get("ANTHROPIC_API_KEY"),
+        "GEMINI_API_KEY": keys.get("GEMINI_API_KEY"),
+        "LLM_MODEL": keys.get("LLM_MODEL"),
+    }
+    with patch(
+        "litellm.completion", return_value=_make_llm_response(response_text)
+    ) as m:
+        with patch.multiple(parser.config, **attrs):
+            yield m
 
 
 def _make_urlopen_resp(body: str) -> MagicMock:
@@ -205,10 +225,8 @@ class TestIsWellFormed:
 
 class TestParseLaw:
     def test_returns_result_on_valid_response(self):
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                result = parser.parse_law("ocr text", _IA_ID, "ro")
+        with _llm(_LLM_OK):
+            result = parser.parse_law("ocr text", _IA_ID, "ro")
 
         assert result is not None
         assert result.confidence == pytest.approx(0.9)
@@ -216,10 +234,8 @@ class TestParseLaw:
         assert "lei" in result.xml
 
     def test_parsed_meta_structure(self):
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                result = parser.parse_law("ocr text", _IA_ID, "ro")
+        with _llm(_LLM_OK):
+            result = parser.parse_law("ocr text", _IA_ID, "ro")
 
         assert result is not None
         meta = result.parsed_meta
@@ -233,10 +249,8 @@ class TestParseLaw:
         assert "parse_timestamp" in meta
 
     def test_token_counts_recorded(self):
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                result = parser.parse_law("ocr text", _IA_ID, "ro")
+        with _llm(_LLM_OK):
+            result = parser.parse_law("ocr text", _IA_ID, "ro")
 
         assert result is not None
         assert result.input_tokens == 100
@@ -244,10 +258,8 @@ class TestParseLaw:
 
     def test_returns_none_when_confidence_below_threshold(self):
         low = json.dumps({"confidence": 0.3, "error": "bad OCR"})
-        client = _make_anthropic_client(low)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+        with _llm(low):
+            assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
     def test_returns_none_when_confidence_non_numeric(self):
         bad_conf = json.dumps(
@@ -259,10 +271,8 @@ class TestParseLaw:
                 "ano": 2000,
             }
         )
-        client = _make_anthropic_client(bad_conf)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+        with _llm(bad_conf):
+            assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
     def test_returns_none_when_confidence_nan(self):
         import math
@@ -276,43 +286,33 @@ class TestParseLaw:
                 "ano": 2000,
             }
         )
-        client = _make_anthropic_client(nan_conf)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+        with _llm(nan_conf):
+            assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
     def test_returns_none_when_tipo_missing(self):
         no_tipo = json.dumps(
             {"xml": _VALID_XML, "confidence": 0.9, "numero": "1", "ano": 2000}
         )
-        client = _make_anthropic_client(no_tipo)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+        with _llm(no_tipo):
+            assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
     def test_returns_none_when_numero_missing(self):
         no_num = json.dumps(
             {"xml": _VALID_XML, "confidence": 0.9, "tipo": "lei", "ano": 2000}
         )
-        client = _make_anthropic_client(no_num)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+        with _llm(no_num):
+            assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
     def test_returns_none_when_ano_missing(self):
         no_ano = json.dumps(
             {"xml": _VALID_XML, "confidence": 0.9, "tipo": "lei", "numero": "1"}
         )
-        client = _make_anthropic_client(no_ano)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+        with _llm(no_ano):
+            assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
     def test_returns_none_on_malformed_json(self):
-        client = _make_anthropic_client("This is NOT json!!!")
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+        with _llm("This is NOT json!!!"):
+            assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
     def test_returns_none_on_malformed_xml(self):
         bad = json.dumps(
@@ -324,24 +324,77 @@ class TestParseLaw:
                 "ano": 1999,
             }
         )
-        client = _make_anthropic_client(bad)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+        with _llm(bad):
+            assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
-    def test_raises_when_api_key_missing(self):
-        with patch.object(parser.config, "ANTHROPIC_API_KEY", None):
-            with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
-                parser.parse_law("ocr text", _IA_ID, "ro")
+    def test_raises_when_no_key_configured(self):
+        empty = {"ANTHROPIC_API_KEY": None}
+        with _llm(_LLM_OK, keys=empty):
+            with patch.dict("os.environ", {}, clear=True):
+                with pytest.raises(RuntimeError, match="Nenhuma chave LLM"):
+                    parser.parse_law("ocr text", _IA_ID, "ro")
+
+    def test_raises_when_key_missing_for_explicit_anthropic_model(self):
+        with _llm(_LLM_OK, keys={"GEMINI_API_KEY": "g-key"}):
+            with patch.dict("os.environ", {}, clear=True):
+                with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+                    parser.parse_law("ocr text", _IA_ID, "ro", model="claude-opus-4-7")
+
+    def test_raises_when_key_missing_for_gemini_model(self):
+        with _llm(_LLM_OK, keys={"ANTHROPIC_API_KEY": "a-key"}):
+            with patch.dict("os.environ", {}, clear=True):
+                with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
+                    parser.parse_law(
+                        "ocr text", _IA_ID, "ro", model="gemini/gemini-2.5-flash"
+                    )
+
+    def test_unmapped_provider_skips_key_prevalidation(self):
+        # Provider fora do mapa: LiteLLM valida em runtime; parse segue normal.
+        with _llm(_LLM_OK, keys={}) as m:
+            with patch.dict("os.environ", {}, clear=True):
+                result = parser.parse_law(
+                    "ocr text", _IA_ID, "ro", model="mistral/mistral-small"
+                )
+
+        assert result is not None
+        _, kwargs = m.call_args
+        assert kwargs.get("model") == "mistral/mistral-small"
 
     def test_uses_model_parameter(self):
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                parser.parse_law("ocr text", _IA_ID, "ro", model="claude-opus-4-7")
+        with _llm(_LLM_OK) as m:
+            parser.parse_law("ocr text", _IA_ID, "ro", model="claude-opus-4-7")
 
-        _, kwargs = client.messages.create.call_args
+        _, kwargs = m.call_args
         assert kwargs.get("model") == "claude-opus-4-7"
+
+    def test_gemini_used_by_default_when_only_gemini_key(self):
+        with _llm(_LLM_OK, keys={"GEMINI_API_KEY": "g-key"}) as m:
+            result = parser.parse_law("ocr text", _IA_ID, "ro")
+
+        assert result is not None
+        _, kwargs = m.call_args
+        assert kwargs.get("model") == parser._GEMINI_FLASH
+        assert result.parsed_meta["parse_method"] == f"{parser._GEMINI_FLASH}+ocr"
+
+    def test_llm_model_env_overrides_auto_default(self):
+        keys = {"ANTHROPIC_API_KEY": "a-key", "LLM_MODEL": "anthropic/claude-opus-4-7"}
+        with _llm(_LLM_OK, keys=keys) as m:
+            parser.parse_law("ocr text", _IA_ID, "ro")
+
+        _, kwargs = m.call_args
+        assert kwargs.get("model") == "anthropic/claude-opus-4-7"
+
+    def test_system_prompt_has_cache_control_in_content_block(self):
+        # RFC-0006: cache_control vive no content block (nunca no root da msg).
+        with _llm(_LLM_OK) as m:
+            parser.parse_law("ocr text", _IA_ID, "ro")
+
+        _, kwargs = m.call_args
+        system_msg = kwargs["messages"][0]
+        assert system_msg["role"] == "system"
+        block = system_msg["content"][0]
+        assert block["cache_control"] == {"type": "ephemeral"}
+        assert "cache_control" not in system_msg
 
     def test_zero_pads_numero(self):
         short_numero = json.dumps(
@@ -353,69 +406,116 @@ class TestParseLaw:
                 "ano": 1990,
             }
         )
-        client = _make_anthropic_client(short_numero)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                result = parser.parse_law("ocr text", _IA_ID, "ro")
+        with _llm(short_numero):
+            result = parser.parse_law("ocr text", _IA_ID, "ro")
 
         assert result is not None
         assert result.ia_id_parsed == "leizilla-ro-lei-00042-1990"
 
     def test_truncates_ocr_to_limit(self):
         long_ocr = "x" * 20000
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                parser.parse_law(long_ocr, _IA_ID, "ro")
+        with _llm(_LLM_OK) as m:
+            parser.parse_law(long_ocr, _IA_ID, "ro")
 
-        _, kwargs = client.messages.create.call_args
-        user_content = kwargs["messages"][0]["content"]
+        _, kwargs = m.call_args
+        user_content = kwargs["messages"][1]["content"]
         assert len(user_content) < 20000 + 100  # headers + truncated body
         assert "x" * (parser._OCR_CHAR_LIMIT + 1) not in user_content
 
     def test_html_input_type_uses_html_char_limit(self):
         long_html = "<p>" + "x" * 40000 + "</p>"
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                parser.parse_law(
-                    long_html,
-                    "https://example.gov.br/lei/1",
-                    "federal",
-                    input_type="html",
-                )
+        with _llm(_LLM_OK) as m:
+            parser.parse_law(
+                long_html,
+                "https://example.gov.br/lei/1",
+                "federal",
+                input_type="html",
+            )
 
-        _, kwargs = client.messages.create.call_args
-        user_content = kwargs["messages"][0]["content"]
+        _, kwargs = m.call_args
+        user_content = kwargs["messages"][1]["content"]
         assert "x" * (parser._HTML_CHAR_LIMIT + 1) not in user_content
         assert len(user_content) <= parser._HTML_CHAR_LIMIT + 200
 
     def test_html_input_type_sets_parse_method(self):
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                result = parser.parse_law(
-                    "html content",
-                    "https://example.gov.br/lei/1",
-                    "ro",
-                    input_type="html",
-                )
+        with _llm(_LLM_OK):
+            result = parser.parse_law(
+                "html content",
+                "https://example.gov.br/lei/1",
+                "ro",
+                input_type="html",
+            )
 
         assert result is not None
         assert result.parsed_meta["parse_method"] == f"{parser._HAIKU}+html"
 
     def test_html_input_type_includes_url_in_user_message(self):
         url = "https://example.gov.br/lei/9999"
-        client = _make_anthropic_client(_LLM_OK)
-        with patch("anthropic.Anthropic", return_value=client):
-            with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
-                parser.parse_law("html content", url, "ro", input_type="html")
+        with _llm(_LLM_OK) as m:
+            parser.parse_law("html content", url, "ro", input_type="html")
 
-        _, kwargs = client.messages.create.call_args
-        user_content = kwargs["messages"][0]["content"]
+        _, kwargs = m.call_args
+        user_content = kwargs["messages"][1]["content"]
         assert url in user_content
 
     def test_invalid_input_type_raises(self):
-        with patch.object(parser.config, "ANTHROPIC_API_KEY", "test-key"):
+        with _llm(_LLM_OK):
             with pytest.raises(ValueError, match="input_type"):
                 parser.parse_law("content", "id", "ro", input_type="htlm")
+
+
+class TestDefaultModel:
+    """Precedência de modelo da RFC-0006 §2: LLM_MODEL > Anthropic > Gemini."""
+
+    def _cfg(self, **attrs):
+        base = {"LLM_MODEL": None, "ANTHROPIC_API_KEY": None, "GEMINI_API_KEY": None}
+        base.update(attrs)
+        return patch.multiple(parser.config, **base)
+
+    def test_llm_model_env_wins(self):
+        with self._cfg(LLM_MODEL="openai/gpt-4o-mini", ANTHROPIC_API_KEY="a"):
+            assert parser.default_model() == "openai/gpt-4o-mini"
+
+    def test_anthropic_key_selects_haiku(self):
+        with self._cfg(ANTHROPIC_API_KEY="a-key", GEMINI_API_KEY="g-key"):
+            assert parser.default_model() == parser._HAIKU
+
+    def test_gemini_key_selects_gemini_flash(self):
+        with self._cfg(GEMINI_API_KEY="g-key"):
+            assert parser.default_model() == parser._GEMINI_FLASH
+
+    def test_no_keys_raises_with_guidance(self):
+        with self._cfg():
+            with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
+                parser.default_model()
+
+    def test_whitespace_only_llm_model_falls_back_to_auto(self):
+        # LLM_MODEL="   " não é um id de modelo válido — deve cair para o modo
+        # auto, igual a doctor.check_llm_key (que faz env.get(...).strip()).
+        with self._cfg(LLM_MODEL="   ", GEMINI_API_KEY="g-key"):
+            assert parser.default_model() == parser._GEMINI_FLASH
+
+    def test_llm_model_is_stripped(self):
+        with self._cfg(LLM_MODEL="  gemini/gemini-2.5-flash  "):
+            assert parser.default_model() == "gemini/gemini-2.5-flash"
+
+
+class TestRequiredEnvFor:
+    def test_gemini_prefix(self):
+        assert parser.required_env_for("gemini/gemini-2.5-flash") == (
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+        )
+
+    def test_claude_bare_and_anthropic_prefix(self):
+        assert parser.required_env_for("claude-haiku-4-5") == ("ANTHROPIC_API_KEY",)
+        assert parser.required_env_for("anthropic/claude-opus-4-7") == (
+            "ANTHROPIC_API_KEY",
+        )
+
+    def test_openai_prefixes(self):
+        assert parser.required_env_for("openai/gpt-4o-mini") == ("OPENAI_API_KEY",)
+        assert parser.required_env_for("gpt-4o") == ("OPENAI_API_KEY",)
+
+    def test_unknown_provider_returns_none(self):
+        assert parser.required_env_for("mistral/mistral-small") is None
