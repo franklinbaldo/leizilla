@@ -6,7 +6,7 @@
       "discovery": [
         {
           "strategy": "wayback-cdx",
-          "prefix": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/"
+          "prefix": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/"
         }
       ],
       "probe": [
