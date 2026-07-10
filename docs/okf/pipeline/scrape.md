@@ -11,8 +11,8 @@ O scrape é o caminho primário de ingestão. Opera via CDX (Wayback Machine) �
 ## Comando
 
 ```bash
-leizilla scrape --ente ro --fonte casacivil --tipo lei --start-coddoc 500 --end-coddoc 600
-leizilla scrape --ente ro --fonte casacivil --tipo lei --start-coddoc 500 --end-coddoc 600 --skip-existing
+leizilla scrape --ente ro --fonte casacivil --tipo lei --start 500 --end 600
+leizilla scrape --ente ro --fonte casacivil --tipo lei --start 500 --end 600 --skip-existing
 ```
 
 ## Flags
@@ -21,9 +21,9 @@ leizilla scrape --ente ro --fonte casacivil --tipo lei --start-coddoc 500 --end-
 |---|---|---|
 | `--ente` | `ro` | Ente federativo |
 | `--fonte` | obrigatório | Fonte (casacivil, assembleia, …) |
-| `--tipo` | `lei` | Tipo de documento |
-| `--start-coddoc` | — | Primeiro número |
-| `--end-coddoc` | — | Último número |
+| `--tipo` | — (todos) | Tipo de documento; omitido = todos os tipos da fonte |
+| `--start` | — (auto via CDX) | Primeiro número |
+| `--end` | — (auto via CDX) | Último número |
 | `--skip-existing` | false | Consulta IA e pula itens já publicados |
 
 ## Fluxo por item

@@ -51,7 +51,7 @@ class TestRondoniaLCIdentityKeyed:
             url = resolve_raw_url("leizilla-raw-ro-casacivil-lc-00042", "_djvu.txt")
         assert url == (
             "https://archive.org/download/leizilla_ro_casacivil_lc_0001-1000/"
-            f"{u}_djvu.txt"
+            f"lc-00042_{u}_djvu.txt"
         )
 
     @patch("leizilla.publisher._fetch_existing_index", return_value=None)

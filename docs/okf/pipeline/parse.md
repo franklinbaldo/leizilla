@@ -15,7 +15,7 @@ O parse é a etapa de extração de estrutura. Depende do OCR assíncrono do IA 
 leizilla parse --raw-id leizilla-raw-ro-casacivil-lei-00500 --ente ro --upload
 
 # Batch
-leizilla parse-all --ente ro --fonte casacivil --start-coddoc 500 --end-coddoc 600 \
+leizilla parse-all --ente ro --fonte casacivil --start 500 --end 600 \
   --upload --skip-existing --input-type ocr
 ```
 

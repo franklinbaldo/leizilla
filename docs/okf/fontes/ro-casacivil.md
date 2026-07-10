@@ -32,7 +32,7 @@ http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/{prefixo}{N}.pdf
 
 **URLs zero-padded retornam HTML.** `L001.pdf`, `L002.pdf` etc. (com zeros à esquerda) retornam HTML — o servidor só aceita o número sem padding: `L500.pdf`. O CDX às vezes arquiva essas URLs zero-padded; o scrape filtra pelo magic byte.
 
-**PDFs reais começam em L500.** Para ingestão via sequential, usar `--start-coddoc 500`.
+**PDFs reais começam em L500.** Para ingestão via sequential, usar `--start 500`.
 
 ## Estratégias de discovery configuradas
 

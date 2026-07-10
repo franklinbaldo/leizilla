@@ -45,8 +45,8 @@ class TestCmdScrapeSkipExisting:
 
     @patch("leizilla.cli.asyncio.run")
     @patch("leizilla.publisher.list_raw_ids", return_value=set())
-    def test_no_skip_when_flag_absent(self, mock_list, mock_asyncio):
-        """Sem --skip-existing, list_raw_ids não é chamado."""
+    def test_no_skip_with_no_skip_existing_flag(self, mock_list, mock_asyncio):
+        """Com --no-skip-existing, list_raw_ids não é chamado."""
         runner.invoke(
             app,
             [
@@ -55,10 +55,11 @@ class TestCmdScrapeSkipExisting:
                 "ro",
                 "--fonte",
                 "casacivil",
-                "--start-coddoc",
+                "--start",
                 "1",
-                "--end-coddoc",
+                "--end",
                 "1",
+                "--no-skip-existing",
             ],
         )
         mock_list.assert_not_called()
@@ -78,9 +79,9 @@ class TestCmdScrapeSkipExisting:
                 "ro",
                 "--fonte",
                 "casacivil",
-                "--start-coddoc",
+                "--start",
                 "1",
-                "--end-coddoc",
+                "--end",
                 "1",
                 "--skip-existing",
             ],
@@ -116,9 +117,11 @@ class TestCmdScrapeSkipExisting:
                 "federal",
                 "--fonte",
                 "planalto",
-                "--start-coddoc",
+                "--tipo",
+                "lei",
+                "--start",
                 "1",
-                "--end-coddoc",
+                "--end",
                 "1",
                 "--skip-existing",
             ],
@@ -153,9 +156,11 @@ class TestCmdScrapeSkipExisting:
                 "federal",
                 "--fonte",
                 "planalto",
-                "--start-coddoc",
+                "--tipo",
+                "lei",
+                "--start",
                 "2",
-                "--end-coddoc",
+                "--end",
                 "2",
                 "--skip-existing",
             ],
@@ -174,9 +179,9 @@ class TestCmdScrapeSkipExisting:
                     "ro",
                     "--fonte",
                     "casacivil",
-                    "--start-coddoc",
+                    "--start",
                     "1",
-                    "--end-coddoc",
+                    "--end",
                     "1",
                     "--skip-existing",
                 ],
