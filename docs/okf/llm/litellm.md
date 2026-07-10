@@ -44,10 +44,10 @@ valida).
 ```bash
 # Via flag --model
 uv run leizilla parse --model gemini/gemini-2.5-flash --raw-id leizilla-raw-ro-casacivil-lei-00500
-uv run leizilla parse-all --model claude-haiku-4-5 --start-coddoc 1 --end-coddoc 100
+uv run leizilla parse-all --model claude-haiku-4-5 --start 1 --end 100
 
 # Via env var
-LLM_MODEL=gemini/gemini-2.5-flash uv run leizilla parse-all --start-coddoc 1 --end-coddoc 100
+LLM_MODEL=gemini/gemini-2.5-flash uv run leizilla parse-all --start 1 --end 100
 ```
 
 ## Prompt caching

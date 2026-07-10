@@ -52,7 +52,7 @@ jobs:
         run: |
           uv run leizilla scrape \
             --ente ro --fonte assembleia \
-            --start-coddoc 1 --end-coddoc 5000 \
+            --start 1 --end 5000 \
             --skip-existing
 
       - name: Scrape — ro/casacivil lei (scheduled)
@@ -63,7 +63,7 @@ jobs:
         run: |
           uv run leizilla scrape \
             --ente ro --fonte casacivil --tipo lei \
-            --start-coddoc 1 --end-coddoc 6000 \
+            --start 1 --end 6000 \
             --skip-existing
 
       - name: Scrape — ro/casacivil lc (scheduled)
@@ -74,7 +74,7 @@ jobs:
         run: |
           uv run leizilla scrape \
             --ente ro --fonte casacivil --tipo lc \
-            --start-coddoc 1 --end-coddoc 1300 \
+            --start 1 --end 1300 \
             --skip-existing
 
       # ── DISPATCH: user-controlled ranges ─────────────────────────────────
@@ -89,8 +89,8 @@ jobs:
           if [ "${SKIP,,}" = "true" ]; then SKIP_FLAG="--skip-existing"; else SKIP_FLAG="--no-skip-existing"; fi
           uv run leizilla scrape \
             --ente ro --fonte assembleia \
-            --start-coddoc ${{ inputs.assembleia_start || '1' }} \
-            --end-coddoc ${{ inputs.assembleia_end || '5000' }} \
+            --start ${{ inputs.assembleia_start || '1' }} \
+            --end ${{ inputs.assembleia_end || '5000' }} \
             $SKIP_FLAG
 
       - name: Scrape — ro/casacivil lei (dispatch)
@@ -103,8 +103,8 @@ jobs:
           if [ "${SKIP,,}" = "true" ]; then SKIP_FLAG="--skip-existing"; else SKIP_FLAG="--no-skip-existing"; fi
           uv run leizilla scrape \
             --ente ro --fonte casacivil --tipo lei \
-            --start-coddoc ${{ inputs.casacivil_lei_start || '1' }} \
-            --end-coddoc ${{ inputs.casacivil_lei_end || '6000' }} \
+            --start ${{ inputs.casacivil_lei_start || '1' }} \
+            --end ${{ inputs.casacivil_lei_end || '6000' }} \
             $SKIP_FLAG
 
       - name: Scrape — ro/casacivil lc (dispatch)
@@ -117,6 +117,6 @@ jobs:
           if [ "${SKIP,,}" = "true" ]; then SKIP_FLAG="--skip-existing"; else SKIP_FLAG="--no-skip-existing"; fi
           uv run leizilla scrape \
             --ente ro --fonte casacivil --tipo lc \
-            --start-coddoc ${{ inputs.casacivil_lc_start || '1' }} \
-            --end-coddoc ${{ inputs.casacivil_lc_end || '1300' }} \
+            --start ${{ inputs.casacivil_lc_start || '1' }} \
+            --end ${{ inputs.casacivil_lc_end || '1300' }} \
             $SKIP_FLAG

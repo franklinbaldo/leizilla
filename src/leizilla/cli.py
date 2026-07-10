@@ -523,8 +523,8 @@ def cmd_scrape(
                 fonte_cfg = fontes[fonte]
 
                 # 1. Fetch CDX snapshots (single request)
-                snapshot_by_chave = {}
-                cdx_max_by_tipo = {}
+                snapshot_by_chave: Dict[str, str] = {}
+                cdx_max_by_tipo: Dict[str, int] = {}
                 try:
                     echo(
                         f"Consultando API CDX da Wayback Machine para {ente}/{fonte}..."
@@ -560,6 +560,13 @@ def cmd_scrape(
                     templates = strat["templates"]
                     sample_url = templates[0].format(num=1)
                     strat_tipo, _ = parse_filename(sample_url.split("/")[-1])
+
+                    if strat_tipo is None:
+                        echo(
+                            f"  Aviso: não foi possível identificar o tipo do "
+                            f"template {templates[0]!r}; pulando."
+                        )
+                        continue
 
                     if tipo and strat_tipo != tipo:
                         continue

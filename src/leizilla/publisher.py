@@ -10,7 +10,6 @@ import logging
 import os
 import re
 import shutil
-import ssl
 import subprocess
 import tempfile
 import urllib.error
@@ -38,9 +37,6 @@ from leizilla.ia_utils import (
     uuid5_collision,
     uuid5_name,
 )
-
-# Bypass SSL verification globally due to expired root certificate stores in the environment
-ssl._create_default_https_context = ssl._create_unverified_context
 
 _DATASET_IDENTIFIER_RE = (
     r"^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)$"

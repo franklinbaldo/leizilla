@@ -64,7 +64,7 @@ jobs:
         run: |
           uv run leizilla parse-all \
             --ente ro --fonte assembleia \
-            --start-coddoc 1 --end-coddoc 5000 \
+            --start 1 --end 5000 \
             --limit 50 --output-dir /tmp/leizilla-xmls \
             --skip-existing --error-threshold 20 --upload
 
@@ -79,7 +79,7 @@ jobs:
         run: |
           uv run leizilla parse-all \
             --ente ro --fonte casacivil --tipo lei \
-            --start-coddoc 1 --end-coddoc 6000 \
+            --start 1 --end 6000 \
             --limit 50 --output-dir /tmp/leizilla-xmls \
             --skip-existing --error-threshold 20 --upload
 
@@ -94,7 +94,7 @@ jobs:
         run: |
           uv run leizilla parse-all \
             --ente ro --fonte casacivil --tipo lc \
-            --start-coddoc 1 --end-coddoc 1300 \
+            --start 1 --end 1300 \
             --limit 50 --output-dir /tmp/leizilla-xmls \
             --skip-existing --error-threshold 20 --upload
 
@@ -117,8 +117,8 @@ jobs:
             --ente "${{ inputs.ente || 'ro' }}" \
             --fonte "${{ inputs.fonte || 'casacivil' }}" \
             --tipo "${{ inputs.tipo || 'lei' }}" \
-            --start-coddoc "${{ inputs.start_num || '1' }}" \
-            --end-coddoc "${{ inputs.end_num || '100' }}" \
+            --start "${{ inputs.start_num || '1' }}" \
+            --end "${{ inputs.end_num || '100' }}" \
             --input-type "${{ inputs.input_type || 'ocr' }}" \
             --limit "${{ inputs.limit || '50' }}" \
             --output-dir /tmp/leizilla-xmls \

@@ -295,9 +295,9 @@ class TestCmdParseAll:
                 app,
                 [
                     "parse-all",
-                    "--start-coddoc",
+                    "--start",
                     "1",
-                    "--end-coddoc",
+                    "--end",
                     "2",
                     "--model",
                     "gemini/gemini-2.5-flash",
@@ -323,7 +323,7 @@ class TestCmdParseAll:
         ):
             result = runner.invoke(
                 app,
-                ["parse-all", "--start-coddoc", "1", "--end-coddoc", "2"],
+                ["parse-all", "--start", "1", "--end", "2"],
             )
         assert result.exit_code == 0
         for call in mock_parse_law.call_args_list:
