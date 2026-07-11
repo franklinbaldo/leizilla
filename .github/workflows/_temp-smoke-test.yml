@@ -5,6 +5,15 @@ name: TEMP Smoke Test (manual, delete after use)
 # schedule; only fires on push to claude/** so a Claude Code session can
 # drive it without workflow_dispatch access. Delete this file once the
 # smoke test is confirmed.
+#
+# Scoped to casacivil only: `leizilla discover --ente ro` (no --fonte filter
+# exists on the CLI) hung for 25+ min on the assembleia PlaywrightCrawler
+# strategy and got killed by the previous run's 30-min timeout, and because
+# discover_resources() accumulates all fontes in memory before persisting
+# anything, that hang meant casacivil's (fast, wayback-cdx-only) discovery
+# never got written to the queue either — even though it itself finishes in
+# seconds. This run calls discover_resources(fonte="casacivil") directly to
+# bypass assembleia entirely and prove harvest -> IA upload works.
 
 on:
   push:
@@ -14,18 +23,27 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
-      - run: uv run playwright install chromium --with-deps
 
-      - name: Discover (ente ro)
+      - name: Discover (casacivil only)
+        timeout-minutes: 5
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: uv run leizilla discover --ente ro
+        run: |
+          uv run python -c "
+          from leizilla.discovery import discover_resources
+          from leizilla.storage import DuckDBStorage
+          db = DuckDBStorage()
+          resources = discover_resources('ro', fonte='casacivil')
+          for r in resources:
+              db.insert_resource(r)
+          print(f'Descoberta concluída (casacivil only): {len(resources)} recursos')
+          "
 
       - name: Harvest (limit 10)
         env:
