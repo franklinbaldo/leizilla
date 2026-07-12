@@ -299,20 +299,25 @@ export function formatDate(
  * Citação estável de um dispositivo: identidade da norma + caminho legível +
  * URN-LEX (quando disponível) + URL profunda da página da lei.
  */
-export function citation(row: {
-  ente: string;
-  tipo_lei: string;
-  numero_lei: string | null;
-  ano_lei: number | bigint | null;
-  dispositivo_path: string;
-  urn_dispositivo?: string | null;
-  lei_id: string;
-}): string {
+export function citation(
+  row: {
+    ente: string;
+    tipo_lei: string;
+    numero_lei: string | null;
+    ano_lei: number | bigint | null;
+    dispositivo_path: string;
+    urn_dispositivo?: string | null;
+    lei_id: string;
+  },
+  // Usa a origem real do navegador (funciona em mirrors/self-host/preview);
+  // cai para o domínio canônico só quando não há `location` (ex.: testes em Node).
+  origin: string = typeof location !== 'undefined' ? location.origin : 'https://franklinbaldo.github.io',
+): string {
   const parts = [`${formatEnte(row.ente)}. ${leiTitle(row)}`];
   if (row.dispositivo_path && row.dispositivo_path !== 'ementa') {
     parts.push(breadcrumb(row.dispositivo_path));
   }
-  const url = new URL(leiUrl(row.lei_id, row.dispositivo_path), 'https://franklinbaldo.github.io');
+  const url = new URL(leiUrl(row.lei_id, row.dispositivo_path), origin);
   parts.push(`Leizilla, ${url.href}`);
   if (row.urn_dispositivo) parts.push(row.urn_dispositivo);
   return parts.join('. ');
