@@ -45,11 +45,11 @@ jobs:
           print(f'Descoberta concluída (casacivil only): {len(resources)} recursos')
           "
 
-      - name: Harvest (limit 10)
+      - name: Harvest (tipo lei, limit 10)
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: uv run leizilla harvest --ente ro --limit 10
+        run: uv run leizilla harvest --ente ro --tipo lei --limit 10
 
       - name: Stats
         env:
