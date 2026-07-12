@@ -266,3 +266,34 @@ def test_run_discovery(temp_db):
     )  # lei-00001 (cdx only; sequential is now probe, not discovery)
     urls = [p["url"] for p in pending]
     assert "http://example.com/L1.pdf" in urls
+
+
+def test_run_discovery_scoped_to_fonte(temp_db):
+    """fonte='casacivil' nunca deve instanciar/rodar a estratégia da assembleia.
+
+    A PlaywrightCrawlerDiscovery da assembleia crawla milhares de páginas
+    sequencialmente e pode travar por horas (visto em produção); um filtro de
+    fonte precisa pular a estratégia inteiramente, não só descartar o resultado.
+    """
+    mock_res_cdx = [
+        {
+            "url": "http://example.com/L1.pdf",
+            "ente": "ro",
+            "fonte": "casacivil",
+            "tipo_documento": "lei",
+            "chave": "lei-00001",
+            "status": "pending",
+            "wayback_snapshot": "http://web.archive.org/web/2022/L1.pdf",
+        }
+    ]
+
+    from leizilla.discovery import PlaywrightCrawlerDiscovery
+
+    with (
+        patch.object(WaybackCdxDiscovery, "run", return_value=mock_res_cdx),
+        patch.object(PlaywrightCrawlerDiscovery, "run") as mock_playwright_run,
+    ):
+        total = run_discovery("ro", temp_db, fonte="casacivil")
+
+    assert total == 1
+    mock_playwright_run.assert_not_called()

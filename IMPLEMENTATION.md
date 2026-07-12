@@ -113,6 +113,28 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-07-12 — RFC-0004 passo 3 (smoke batch) já concluído; `discover --fonte` adicionado
+
+O smoke batch de RFC-0004 (passo 3) **já estava feito** antes desta sessão
+(2026-07-11): 5 itens raw reais publicados no IA (`leizilla_ro_casacivil_lei_0001-1000`,
+`_decreto_0001-1000`, `_decreto_1001-2000`, `_decreto_10001-11000`, `_fallback`
+— confirmado via `archive.org/advancedsearch.php`, público, sem credenciais).
+Uma repetição redundante do smoke batch nesta sessão (workflow temporário
+push-triggered, já removido) confirmou de novo que `leizilla discover --ente ro`
+sem filtro trava por horas na `PlaywrightCrawlerDiscovery` da fonte `assembleia`
+(5000 páginas sequenciais) — a mesma causa que a sessão de 2026-07-11 já tinha
+descoberto e contornado com uma chamada Python direta
+(`discover_resources(fonte="casacivil")`). A execução de 2026-07-12 (run
+29192792845) foi cancelada pelo timeout de 2h sem chegar ao harvest.
+
+**Correção**: `leizilla discover` agora aceita `--fonte` (mesmo padrão de
+`harvest`/`reconcile`), então `discover --ente ro --fonte casacivil` funciona
+como comando de primeira classe — sem precisar do workaround em Python. Ver
+RFC-0004 (runbook passo 3 atualizado) para o registro completo e o risco em
+aberto: `discover-harvest.yml` (o workflow agendado real) ainda chama `discover`
+sem `--fonte` e vai travar do mesmo jeito na próxima execução — precisa de
+correção antes de destravar o passo 7 do runbook.
+
 ### 2026-07-12 — RFC-0004 passo 1 concluído: secrets configurados e IA autenticado
 
 O gargalo descrito na RFC-0004 ("secrets nunca foram configurados") está

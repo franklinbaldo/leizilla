@@ -45,7 +45,7 @@ gargalo**.
 | 0 | Mergear #93 e #94 (fixes de produção já prontos) | mantenedor | ✅ feito — CI verde em main |
 | 1 | Configurar `IA_ACCESS_KEY`/`IA_SECRET_KEY` + **uma** chave LLM (ex.: `GEMINI_API_KEY`) + opcional `LLM_MODEL` nos Actions secrets/vars *(atualizado pela RFC-0006)* | mantenedor (manual) | ✅ feito — secrets presentes; `check-credentials.yml` via dispatch ainda pendente para o preflight oficial (ver nota abaixo) |
 | 2 | Rodar `leizilla doctor` localmente e no CI | qualquer um | ⚠️ parcial — auth real confirmada em execuções via push/PR (log do job, `"authorized":true`); falta rodar `check-credentials.yml` por `workflow_dispatch` (o caminho que falha de verdade em vez de fail-open) para o preflight oficial |
-| 3 | Smoke batch: `discover --ente ro` + `harvest --ente ro --limit 10` via dispatch | CI | 10 itens raw no IA (`stats --ia`) |
+| 3 | Smoke batch: `discover --ente ro --fonte casacivil` + `harvest --ente ro --limit 10` via dispatch | CI | ✅ feito (2026-07-11/12) — 5 itens raw no IA (`leizilla_ro_casacivil_lei_0001-1000`, `_decreto_0001-1000`, `_decreto_1001-2000`, `_decreto_10001-11000`, `_fallback`); **não repetir** |
 | 4 | Esperar OCR do IA (~horas) e parsear o smoke batch: `parse-all … --limit 10 --upload` | CI | 10 itens parsed no IA |
 | 5 | `fetch-all-parsed` + `consolidate` + `release-dataset … --version 0` | CI | `leizilla-dataset-ro-v0` existe; Parquet baixável |
 | 6 | Apontar `PUBLIC_PARQUET_URL` do frontend para o dataset e fazer deploy | CI | busca no GH Pages retorna resultados |
@@ -69,6 +69,31 @@ bloqueia (`exit 1`) em caso de regressão. Agentes automatizados não conseguem
 disparar `workflow_dispatch` neste repositório (a integração usada não tem escopo
 `actions: write` — tentativa em 2026-07-12 retornou 403); é uma ação manual do
 mantenedor.
+
+**Nota sobre o passo 3 (smoke batch) — bug de produção confirmado 2× (2026-07-11
+e 2026-07-12)**: `leizilla discover --ente ro` (sem filtro de fonte) trava por
+horas na estratégia `PlaywrightCrawlerDiscovery` da fonte `assembleia`
+(`fontes/ro.py`, manifesto `ro.json`: `start=1, end=5000`), que visita cada
+`coddoc` sequencialmente com o delay do crawler — um smoke batch de 10 itens não
+deveria depender disso. Duas execuções reais confirmaram o travamento: a
+primeira (2026-07-11, workflow temporário `_temp-smoke-test.yml`, já removido)
+contornou chamando `discover_resources(ente, fonte="casacivil")` direto em
+Python; a segunda (2026-07-12, run
+[29192792845](https://github.com/franklinbaldo/leizilla/actions/runs/29192792845))
+repetiu o smoke batch **redundantemente** (o de 2026-07-11 já havia publicado os
+5 itens raw acima) chamando o `discover --ente ro` sem escopo e foi cancelada
+pelo timeout de 2h sem nunca chegar ao harvest.
+
+**Correção**: `discover` agora aceita `--fonte` (mesmo padrão de `harvest` e
+`reconcile`) — `leizilla discover --ente ro --fonte casacivil` roda só a
+estratégia rápida (wayback-cdx) e nunca instancia o crawler da assembleia. O
+passo 3 do runbook foi atualizado para usar essa forma. **Risco em aberto**: o
+workflow agendado `discover-harvest.yml` ainda chama `discover --ente ro` sem
+`--fonte` nos seus jobs `harvest-single`/`harvest-parallel` — a próxima execução
+semanal (ou o próximo `workflow_dispatch` manual dela) vai hangar do mesmo jeito
+até alguém escopar esse step também. Não corrigido neste PR (fora do escopo de
+"ajustar o runbook + adicionar `--fonte`" pedido) — abrir issue de
+acompanhamento antes de destravar o passo 7 (schedules com ranges completos).
 
 ### 2. `leizilla doctor` (implementado neste PR)
 
