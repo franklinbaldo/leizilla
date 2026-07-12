@@ -157,7 +157,7 @@ O histórico do roadmap original (2025) está em [docs/archive/MASTERPLAN.md](do
 
 | Período       | Entregável                                                                          | Status                                                              |
 | ------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| **Q3 / 2026** | Go-live: dataset RO v0 publicado no IA + frontend apontando para ele                | 🔄 Em andamento — código pronto; aguarda ativação (secrets, runbook RFC-0004) |
+| **Q3 / 2026** | Go-live: dataset RO v0 publicado no IA + frontend apontando para ele                | 🔄 Em andamento — código pronto, secrets configurados; falta rodar o smoke batch e publicar o dataset (passos 3–6 da RFC-0004) |
 | **Q4 / 2026** | Cobertura RO completa (assembleia + casacivil lei/lc) + releases semanais + M5.3    | 📋 Planejado                                                         |
 | **Q1 / 2027** | Federal (Planalto 1988–presente) em produção                                        | 📋 Planejado                                                         |
 | **Q2 / 2027** | Busca semântica (embeddings no DuckDB) + novo ente (SP)                             | 📋 Planejado                                                         |
@@ -165,8 +165,10 @@ O histórico do roadmap original (2025) está em [docs/archive/MASTERPLAN.md](do
 > Nota de status honesto: o frontend (M5.1/M5.2) está pronto e o **M13 — Produto
 > público v1** (página própria de lei, painel `/cobertura/`, evidência auditável)
 > está em implementação, mas **nenhum dataset foi publicado no Internet Archive
-> ainda** — o gargalo é ativação de produção (secrets nunca configurados), não
-> código. Ver runbook na RFC-0004.
+> ainda**. O gargalo deixou de ser secrets — `IA_ACCESS_KEY`, `IA_SECRET_KEY` e
+> `GEMINI_API_KEY` já estão configurados e a autenticação no IA foi confirmada
+> (2026-07-12) — e passou a ser executar o runbook de produção (smoke batch →
+> OCR/parse → consolidação → publicação). Ver RFC-0004.
 
 ---
 

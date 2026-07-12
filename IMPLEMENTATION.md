@@ -113,6 +113,25 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-07-12 — RFC-0004 passo 1 concluído: secrets configurados e IA autenticado
+
+O gargalo descrito na RFC-0004 ("secrets nunca foram configurados") está
+desatualizado. `IA_ACCESS_KEY`, `IA_SECRET_KEY` e `GEMINI_API_KEY` existem como
+Repository secrets (`ANTHROPIC_API_KEY` segue ausente, irrelevante pela RFC-0006 —
+uma chave LLM basta). Autenticação real no Internet Archive confirmada via log do
+job `check-credentials` (PR #101, execução em push): o teste `curl
+.../?check_auth=1` (que só roda quando os secrets estão presentes — não é o
+caminho fail-open) retornou `{"authorized": true}` para a conta
+`franklin_baldo`.
+
+Passo 0 (merge de #93/#94) e passo 1 (secrets) do runbook RFC-0004 estão feitos.
+Falta o preflight oficial (`check-credentials.yml` via `workflow_dispatch` manual
+— agentes automatizados não conseguem disparar `workflow_dispatch` neste repo,
+tentativa retornou 403 por falta de escopo `actions: write` na integração usada)
+e, em seguida, os passos 3–6: smoke batch (`discover`+`harvest --limit 10`),
+espera de OCR, parse-all, consolidate/release-dataset e apontar
+`PUBLIC_PARQUET_URL`. Ver RFC-0004 atualizada para o detalhe.
+
 ### 2026-07-12 — M13: "frontend polish" → "M13 — Produto público v1" + critérios de aceite
 
 **Renomeação**: o milestone M13 (nome antigo: "frontend polish") passa a se chamar
@@ -1318,11 +1337,12 @@ frontend M5.1/M5.2, segmentador regex baseline).
 **M5.3 bloqueado**: aguarda um dataset real publicado no IA — nenhum foi publicado
 até hoje. Revisitar após o primeiro batch real em produção.
 
-**Gargalo real = ativação de produção, não código**: `IA_ACCESS_KEY`, `IA_SECRET_KEY`
-e `ANTHROPIC_API_KEY` **nunca foram configurados** nos GitHub Actions secrets; os
-workflows agendados rodam há mais de um ano produzindo zero dados. O plano de
-ativação (runbook passo a passo, smoke batch de 10 itens antes de qualquer range)
-está em [`docs/rfc/0004-go-live-rondonia.md`](docs/rfc/0004-go-live-rondonia.md).
+**Gargalo real = executar o runbook de produção, não secrets**: `IA_ACCESS_KEY`,
+`IA_SECRET_KEY` e `GEMINI_API_KEY` já estão configurados nos GitHub Actions
+secrets e a autenticação no IA foi confirmada em 2026-07-12 (ver log abaixo). Os
+workflows agendados rodaram por mais de um ano sem produzir dados por essa causa;
+agora falta apenas o preflight oficial e o smoke batch (passos 2–6 do runbook) em
+[`docs/rfc/0004-go-live-rondonia.md`](docs/rfc/0004-go-live-rondonia.md).
 
 **Convergência scrape→harvest**: ver
 [`docs/rfc/0003-convergencia-scrape-harvest.md`](docs/rfc/0003-convergencia-scrape-harvest.md)
