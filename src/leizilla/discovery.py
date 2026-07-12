@@ -346,9 +346,16 @@ def discover_resources(ente: str, fonte: Optional[str] = None) -> List[Dict[str,
     return out
 
 
-def run_discovery(ente: str, storage: DuckDBStorage) -> int:
-    """Lê o manifesto do ente, executa todas as estratégias e salva os resources."""
-    resources = discover_resources(ente)
+def run_discovery(
+    ente: str, storage: DuckDBStorage, fonte: Optional[str] = None
+) -> int:
+    """Lê o manifesto do ente, executa as estratégias e salva os resources.
+
+    ``fonte`` restringe a uma única fonte do manifesto (None = todas). Útil
+    para isolar fontes lentas (ex.: PlaywrightCrawlerDiscovery de milhares de
+    páginas) de fontes rápidas (ex.: wayback-cdx) sem esperar a mais lenta.
+    """
+    resources = discover_resources(ente, fonte=fonte)
     for res in resources:
         storage.insert_resource(res)
     return len(resources)

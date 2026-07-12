@@ -23,15 +23,19 @@ app.add_typer(dev_app, name="dev")
 @app.command("discover")
 def cmd_discover(
     ente: str = typer.Option("ro", help="Ente federativo (ro, sp, federal, ...)"),
+    fonte: Optional[str] = typer.Option(
+        None, help="Fonte específica do manifesto (None = todas as fontes)"
+    ),
 ) -> None:
     """Descobrir leis nos portais oficiais usando manifestos."""
-    echo(f"Descobrindo leis para o ente: {ente}...")
+    alvo = f"{ente}/{fonte}" if fonte else ente
+    echo(f"Descobrindo leis para: {alvo}...")
     try:
         from leizilla.discovery import run_discovery
         from leizilla.storage import DuckDBStorage
 
         db = DuckDBStorage()
-        added = run_discovery(ente, db)
+        added = run_discovery(ente, db, fonte=fonte)
         echo(f"Descoberta concluída. Adicionados/ignorados recursos: {added} total.")
     except Exception as e:
         echo(f"Erro: {e}")

@@ -1,7 +1,14 @@
 # RFC-0004: Go-live Rondônia — ativação de produção e re-baseline do roadmap
 
-**Status**: aceito — `leizilla doctor` e re-baseline implementados no PR desta RFC;
-o go-live em si depende de ação manual do mantenedor (secrets)
+**Status**: aceito — `leizilla doctor` e re-baseline implementados no PR desta RFC.
+**Atualização 2026-07-12**: `IA_ACCESS_KEY`, `IA_SECRET_KEY` e `GEMINI_API_KEY` já
+estão configurados como Repository secrets e autenticação real no Internet Archive
+foi confirmada (`check-credentials.yml`, execuções em push/PR — ver log do job
+"check-credentials" no PR #101: resposta `{"authorized": true}` do endpoint
+`check_auth` do IA). Falta apenas uma execução manual de `check-credentials.yml`
+via `workflow_dispatch` (ver "passo 1" abaixo) para o preflight oficial, depois o
+runbook segue direto para o smoke batch (passos 3–6) — **secrets não é mais o
+gargalo**.
 **Data**: 2026-07-07
 **Relacionados**: M5.3 (bloqueado), IMPLEMENTATION.md "Ação manual necessária"
 (2026-05), PRs #93/#94 (primeiras execuções reais de scraping, 06/2026)
@@ -14,11 +21,14 @@ o go-live em si depende de ação manual do mantenedor (secrets)
 - Frontend pronto (M5.1/M5.2) apontando para uma URL de Parquet que **não existe**:
   nenhum dataset foi publicado no IA. `list_raw_ids` retornava vazio em 06/2026.
 - M5.3 (benchmark WASM + FTS) bloqueado há 14 meses de trabalho esperando esse dataset.
-- A causa raiz está registrada desde 05/2026 e nunca saiu do lugar:
-  `IA_ACCESS_KEY`, `IA_SECRET_KEY` e `ANTHROPIC_API_KEY` **nunca foram configurados
-  nos secrets do GitHub Actions**. Os 4 workflows agendados (discover-harvest,
-  crawler, parse-release, claude-routine) rodam semanalmente há mais de um ano
-  produzindo zero dados.
+- A causa raiz está registrada desde 05/2026: `IA_ACCESS_KEY`, `IA_SECRET_KEY` e
+  uma chave LLM nunca foram configurados nos secrets do GitHub Actions. **Isso já
+  foi corrigido** (2026-07-12): `IA_ACCESS_KEY`, `IA_SECRET_KEY` e `GEMINI_API_KEY`
+  existem como Repository secrets (`ANTHROPIC_API_KEY` segue ausente, mas a
+  RFC-0006 torna isso irrelevante — uma chave LLM basta). Os 4 workflows agendados
+  (discover-harvest, crawler, parse-release, claude-routine) rodaram semanalmente
+  por mais de um ano produzindo zero dados por essa causa; com os secrets
+  presentes, os próximos disparos devem produzir dados reais.
 - As primeiras execuções reais (locais) só aconteceram em 06/2026 e imediatamente
   acharam bugs de produção (#93: Wayback devolvendo HTML; #94: navegação impossível
   nos buckets) — evidência de que cada semana sem rodar em produção esconde uma fila
@@ -32,10 +42,10 @@ o go-live em si depende de ação manual do mantenedor (secrets)
 
 | # | Passo | Dono | Verificação |
 |---|---|---|---|
-| 0 | Mergear #93 e #94 (fixes de produção já prontos) | mantenedor | CI verde em main |
-| 1 | Configurar `IA_ACCESS_KEY`/`IA_SECRET_KEY` + **uma** chave LLM (ex.: `GEMINI_API_KEY`) + opcional `LLM_MODEL` nos Actions secrets/vars *(atualizado pela RFC-0006)* | mantenedor (manual) | `check-credentials.yml` via dispatch |
-| 2 | Rodar `leizilla doctor` localmente e no CI | qualquer um | todos os checks OK |
-| 3 | Smoke batch: `discover --ente ro` + `harvest --ente ro --limit 10` via dispatch | CI | 10 itens raw no IA (`stats --ia`) |
+| 0 | Mergear #93 e #94 (fixes de produção já prontos) | mantenedor | ✅ feito — CI verde em main |
+| 1 | Configurar `IA_ACCESS_KEY`/`IA_SECRET_KEY` + **uma** chave LLM (ex.: `GEMINI_API_KEY`) + opcional `LLM_MODEL` nos Actions secrets/vars *(atualizado pela RFC-0006)* | mantenedor (manual) | ✅ feito — secrets presentes; `check-credentials.yml` via dispatch ainda pendente para o preflight oficial (ver nota abaixo) |
+| 2 | Rodar `leizilla doctor` localmente e no CI | qualquer um | ⚠️ parcial — auth real confirmada em execuções via push/PR (log do job, `"authorized":true`); falta rodar `check-credentials.yml` por `workflow_dispatch` (o caminho que falha de verdade em vez de fail-open) para o preflight oficial |
+| 3 | Smoke batch: `discover --ente ro --fonte casacivil` + `harvest --ente ro --limit 10` via dispatch | CI | ✅ feito (2026-07-11/12) — 5 itens raw no IA (`leizilla_ro_casacivil_lei_0001-1000`, `_decreto_0001-1000`, `_decreto_1001-2000`, `_decreto_10001-11000`, `_fallback`); **não repetir** |
 | 4 | Esperar OCR do IA (~horas) e parsear o smoke batch: `parse-all … --limit 10 --upload` | CI | 10 itens parsed no IA |
 | 5 | `fetch-all-parsed` + `consolidate` + `release-dataset … --version 0` | CI | `leizilla-dataset-ro-v0` existe; Parquet baixável |
 | 6 | Apontar `PUBLIC_PARQUET_URL` do frontend para o dataset e fazer deploy | CI | busca no GH Pages retorna resultados |
@@ -45,6 +55,46 @@ o go-live em si depende de ação manual do mantenedor (secrets)
 O runbook é deliberadamente incremental: um lote de 10 antes de qualquer range de
 milhares, porque as execuções de 06/2026 mostraram que os bugs aparecem nos 10
 primeiros itens.
+
+**Nota sobre o passo 2 (preflight)**: `check-credentials.yml` roda em todo push/PR,
+mas é fail-open nesses eventos (`exit 0` mesmo faltando secret ou falhando a auth) —
+só o disparo manual via `workflow_dispatch` falha de verdade (`exit 1`) se algo
+estiver errado. As execuções em push/PR já mostraram o teste de auth real
+(`curl .../?check_auth=1`) rodando e retornando `{"authorized": true}` — isso não é
+o caminho fail-open (que só age quando falta secret ou a auth falha), então é
+evidência real, não um bypass. Ainda assim, o preflight **oficial** deve ser um
+disparo manual de `check-credentials.yml` via `workflow_dispatch` (Actions → Check
+Pipeline Credentials → Run workflow → branch `main`), porque só esse caminho
+bloqueia (`exit 1`) em caso de regressão. Agentes automatizados não conseguem
+disparar `workflow_dispatch` neste repositório (a integração usada não tem escopo
+`actions: write` — tentativa em 2026-07-12 retornou 403); é uma ação manual do
+mantenedor.
+
+**Nota sobre o passo 3 (smoke batch) — bug de produção confirmado 2× (2026-07-11
+e 2026-07-12)**: `leizilla discover --ente ro` (sem filtro de fonte) trava por
+horas na estratégia `PlaywrightCrawlerDiscovery` da fonte `assembleia`
+(`fontes/ro.py`, manifesto `ro.json`: `start=1, end=5000`), que visita cada
+`coddoc` sequencialmente com o delay do crawler — um smoke batch de 10 itens não
+deveria depender disso. Duas execuções reais confirmaram o travamento: a
+primeira (2026-07-11, workflow temporário `_temp-smoke-test.yml`, já removido)
+contornou chamando `discover_resources(ente, fonte="casacivil")` direto em
+Python; a segunda (2026-07-12, run
+[29192792845](https://github.com/franklinbaldo/leizilla/actions/runs/29192792845))
+repetiu o smoke batch **redundantemente** (o de 2026-07-11 já havia publicado os
+5 itens raw acima) chamando o `discover --ente ro` sem escopo e foi cancelada
+pelo timeout de 2h sem nunca chegar ao harvest.
+
+**Correção**: `discover` agora aceita `--fonte` (mesmo padrão de `harvest` e
+`reconcile`) — `leizilla discover --ente ro --fonte casacivil` roda só a
+estratégia rápida (wayback-cdx) e nunca instancia o crawler da assembleia. O
+passo 3 do runbook foi atualizado para usar essa forma. **Risco em aberto**: o
+workflow agendado `discover-harvest.yml` ainda chama `discover --ente ro` sem
+`--fonte` nos seus jobs `harvest-single`/`harvest-parallel` — a próxima execução
+semanal (ou o próximo `workflow_dispatch` manual dela) vai hangar do mesmo jeito
+até alguém escopar esse step também. Não corrigido neste PR (fora do escopo de
+"ajustar o runbook + adicionar `--fonte`" pedido) — acompanhar em
+[#105](https://github.com/franklinbaldo/leizilla/issues/105), a resolver antes
+de destravar o passo 7 (schedules com ranges completos).
 
 ### 2. `leizilla doctor` (implementado neste PR)
 
