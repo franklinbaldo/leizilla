@@ -162,9 +162,11 @@ O histórico do roadmap original (2025) está em [docs/archive/MASTERPLAN.md](do
 | **Q1 / 2027** | Federal (Planalto 1988–presente) em produção                                        | 📋 Planejado                                                         |
 | **Q2 / 2027** | Busca semântica (embeddings no DuckDB) + novo ente (SP)                             | 📋 Planejado                                                         |
 
-> Nota de status honesto: o frontend (M5.1/M5.2) está pronto, mas **nenhum dataset
-> foi publicado no Internet Archive ainda** — o gargalo é ativação de produção
-> (secrets nunca configurados), não código. Ver runbook na RFC-0004.
+> Nota de status honesto: o frontend (M5.1/M5.2) está pronto e o **M13 — Produto
+> público v1** (página própria de lei, painel `/cobertura/`, evidência auditável)
+> está em implementação, mas **nenhum dataset foi publicado no Internet Archive
+> ainda** — o gargalo é ativação de produção (secrets nunca configurados), não
+> código. Ver runbook na RFC-0004.
 
 ---
 
