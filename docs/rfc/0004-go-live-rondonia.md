@@ -92,8 +92,9 @@ workflow agendado `discover-harvest.yml` ainda chama `discover --ente ro` sem
 `--fonte` nos seus jobs `harvest-single`/`harvest-parallel` — a próxima execução
 semanal (ou o próximo `workflow_dispatch` manual dela) vai hangar do mesmo jeito
 até alguém escopar esse step também. Não corrigido neste PR (fora do escopo de
-"ajustar o runbook + adicionar `--fonte`" pedido) — abrir issue de
-acompanhamento antes de destravar o passo 7 (schedules com ranges completos).
+"ajustar o runbook + adicionar `--fonte`" pedido) — acompanhar em
+[#105](https://github.com/franklinbaldo/leizilla/issues/105), a resolver antes
+de destravar o passo 7 (schedules com ranges completos).
 
 ### 2. `leizilla doctor` (implementado neste PR)
 
