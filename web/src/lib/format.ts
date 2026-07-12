@@ -278,9 +278,19 @@ export const STAGES: Stage[] = [
 // Datas e citação
 // ---------------------------------------------------------------------------
 
-export function formatDate(value: string | Date | null | undefined): string {
+export function formatDate(
+  value: string | Date | number | bigint | null | undefined,
+): string {
   if (value == null) return '—';
-  const d = value instanceof Date ? value : new Date(`${value}`.slice(0, 10) + 'T00:00:00Z');
+  let d: Date;
+  if (value instanceof Date) {
+    d = value;
+  } else if (typeof value === 'number' || typeof value === 'bigint') {
+    // Colunas DATE do Arrow podem chegar como epoch-millis numéricos.
+    d = new Date(Number(value));
+  } else {
+    d = new Date(`${value}`.slice(0, 10) + 'T00:00:00Z');
+  }
   if (Number.isNaN(d.getTime())) return String(value);
   return d.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
 }

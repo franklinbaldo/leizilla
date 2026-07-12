@@ -23,7 +23,19 @@ export const DATASET_META_URL: string | null = DATASET_IA_ITEM
   : null;
 
 const WASM_VERSION = '1.32.0';
-const CDN = `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${WASM_VERSION}/dist/`;
+
+// Os três hosts de runtime (CDN do WASM, repositório de extensões do DuckDB e
+// o Parquet no IA) são substituíveis via env para permitir self-hosting — o
+// projeto preza resiliência distribuída, e um CDN fora do ar não deveria
+// derrubar a busca. Defaults preservam o comportamento padrão do duckdb-wasm.
+const CDN =
+  (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_DUCKDB_CDN) ||
+  `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${WASM_VERSION}/dist/`;
+
+// Ex.: 'https://example.org/duckdb-ext' com layout {repo}/{versão}/{plataforma}/
+// parquet.duckdb_extension.wasm. Vazio = extensions.duckdb.org (default).
+const EXT_REPO =
+  (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_DUCKDB_EXT_REPO) || '';
 
 const BUNDLES: duckdb.DuckDBBundles = {
   mvp: {
@@ -40,6 +52,30 @@ const BUNDLES: duckdb.DuckDBBundles = {
 let _db: duckdb.AsyncDuckDB | null = null;
 let _initPromise: Promise<duckdb.AsyncDuckDB> | null = null;
 
+// Sem timeout, um fetch pendurado do Parquet (CDN/IA instável, item ainda não
+// publicado) deixa a UI num spinner eterno em vez do estado honesto de
+// indisponibilidade. O cooldown evita que retries da camada de query
+// re-esperem o timeout inteiro a cada tentativa.
+const INIT_TIMEOUT_MS = 30_000;
+const INIT_FAILURE_COOLDOWN_MS = 30_000;
+let _lastInitFailure: { at: number; error: Error } | null = null;
+
+function withInitTimeout(p: Promise<duckdb.AsyncDuckDB>): Promise<duckdb.AsyncDuckDB> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      // Se a init concluir depois do timeout, encerra o worker órfão.
+      p.then((db) => db.terminate().catch(() => {})).catch(() => {});
+      reject(
+        new Error(
+          'Tempo esgotado ao carregar o dataset. O acervo pode ainda não ter sido publicado, ou o Internet Archive está instável.',
+        ),
+      );
+    }, INIT_TIMEOUT_MS);
+  });
+  return Promise.race([p.finally(() => clearTimeout(timer)), timeout]);
+}
+
 async function _init(): Promise<duckdb.AsyncDuckDB> {
   const bundle = await duckdb.selectBundle(BUNDLES);
   const workerUrl = URL.createObjectURL(
@@ -53,6 +89,12 @@ async function _init(): Promise<duckdb.AsyncDuckDB> {
 
     const conn = await db.connect();
     try {
+      if (EXT_REPO) {
+        // Antes do read_parquet: a extensão parquet é autocarregada no bind.
+        await conn.query(
+          `SET custom_extension_repository='${EXT_REPO.replace(/'/g, "''")}';`,
+        );
+      }
       await conn.query(
         `CREATE OR REPLACE VIEW versoes AS SELECT * FROM read_parquet('${PARQUET_URL}');`,
       );
@@ -72,13 +114,20 @@ async function _init(): Promise<duckdb.AsyncDuckDB> {
 export function getDb(): Promise<duckdb.AsyncDuckDB> {
   if (_db) return Promise.resolve(_db);
   if (!_initPromise) {
-    _initPromise = _init().then(
+    // Falha recente → rejeita imediatamente durante o cooldown, para que
+    // retries em camadas superiores mostrem logo o estado de indisponibilidade.
+    if (_lastInitFailure && Date.now() - _lastInitFailure.at < INIT_FAILURE_COOLDOWN_MS) {
+      return Promise.reject(_lastInitFailure.error);
+    }
+    _initPromise = withInitTimeout(_init()).then(
       (db) => {
         _db = db;
+        _lastInitFailure = null;
         return db;
       },
       (err) => {
         _initPromise = null; // allow retry on next call after transient failure
+        _lastInitFailure = { at: Date.now(), error: err instanceof Error ? err : new Error(String(err)) };
         throw err;
       },
     );
