@@ -1,8 +1,35 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import LeiSearch from '../components/LeiSearch.svelte';
+import HomePanel from '../components/home/HomePanel.svelte';
 ---
 
 <Layout title="Buscar leis">
+  <section class="hero">
+    <h1>Leis públicas não deveriam desaparecer em PDFs.</h1>
+    <p>
+      O Leizilla preserva o documento original, extrai e estrutura o texto por
+      dispositivo, e mantém a trilha de evidência auditável de cada trecho — um
+      observatório, um leitor e um laboratório de evidências da legislação
+      brasileira.
+    </p>
+  </section>
+
   <LeiSearch client:only="svelte" />
+
+  <HomePanel client:only="svelte" />
 </Layout>
+
+<style>
+  .hero {
+    margin-bottom: 1.5rem;
+  }
+  .hero h1 {
+    margin-bottom: 0.5rem;
+  }
+  .hero p {
+    max-width: 65ch;
+    color: var(--pico-muted-color);
+    margin-bottom: 0;
+  }
+</style>

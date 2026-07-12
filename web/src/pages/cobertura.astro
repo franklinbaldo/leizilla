@@ -1,0 +1,183 @@
+---
+import Layout from '../layouts/Layout.astro';
+import CoberturaPanel from '../components/cobertura/CoberturaPanel.svelte';
+import { STAGES } from '../lib/format';
+// Constantes puras derivadas em build-time (nenhuma conexão é aberta aqui) —
+// mantêm esta seção estática em sincronia com o que o navegador consulta.
+import { DATASET_PARQUET_URL, DATASET_IA_ITEM, DATASET_META_URL } from '../lib/db';
+import { iaDetailsUrl } from '../lib/format';
+---
+
+<Layout
+  title="Cobertura"
+  description="O que o Leizilla já cobre, o que falta, e como auditar cada número."
+>
+  <h1>Cobertura</h1>
+  <p>
+    Esta página é o relatório público de cobertura do Leizilla: o que já foi
+    capturado, o que está publicado e o que ainda falta. Expor a própria
+    fronteira — inclusive as lacunas — faz parte do compromisso de auditabilidade.
+  </p>
+
+  <section aria-labelledby="funil">
+    <h2 id="funil">O funil de processamento</h2>
+    <p>
+      Cada norma percorre um funil:
+      <strong>capturado → preservado → identificado → com texto → estruturado →
+      consolidado no tempo</strong>. Cada degrau materializa um artefato público
+      verificável, e uma norma pode parar em qualquer degrau sem deixar de ser
+      evidência útil.
+    </p>
+    <ol class="pipeline">
+      {STAGES.map((stage) => (
+        <li>
+          <span class="stage-id">{stage.id}</span>
+          <div>
+            <strong>{stage.label}</strong>
+            <p>{stage.description}</p>
+          </div>
+        </li>
+      ))}
+    </ol>
+    <p>
+      Tudo o que aparece na busca alcançou o estágio <strong>S4
+      (estruturado)</strong> — os números da seção seguinte medem exatamente
+      esse conjunto.
+    </p>
+  </section>
+
+  <section aria-labelledby="publicado">
+    <h2 id="publicado">O que está publicado</h2>
+    <CoberturaPanel client:only="svelte" />
+  </section>
+
+  <section aria-labelledby="lacunas">
+    <h2 id="lacunas">O que ainda não está medido — e o que ainda não está coberto</h2>
+    <ul>
+      <li>
+        <strong>Contadores dos estágios S1–S3</strong> (documentos arquivados,
+        identificados e com OCR) ainda não são exportados publicamente pelo
+        pipeline — o painel completo de fronteira ("N arquivadas · N com texto ·
+        N estruturadas") está <em>a implementar</em> (PRD §10.4). Até lá, esta
+        página só exibe o que pode medir de fato: o dataset estruturado.
+      </li>
+      <li>
+        <strong>Cobertura atual: Rondônia.</strong> Fontes monitoradas: Casa
+        Civil e Assembleia Legislativa de RO. Nenhum outro ente está sendo
+        coletado hoje.
+      </li>
+      <li>
+        <strong>Planejado, não entregue:</strong> legislação federal (Planalto)
+        e São Paulo constam do
+        <a href="https://github.com/franklinbaldo/leizilla#roadmap" rel="external">
+          roadmap do projeto</a> — anunciaremos aqui quando (e somente quando)
+        houver dados publicados.
+      </li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="auditoria">
+    <h2 id="auditoria">Auditoria: a trilha de evidência</h2>
+    <p>
+      Nenhum trecho exibido pelo Leizilla é pedido de confiança: cada um carrega
+      uma cadeia de proveniência que qualquer pessoa pode percorrer.
+    </p>
+    <ol>
+      <li><strong>Resultado exibido</strong> — o trecho que você vê na busca ou no leitor;</li>
+      <li><strong>Dispositivo</strong> — endereço estrutural (<code>path</code>) e versão no Parquet;</li>
+      <li><strong>Fonte</strong> — o <code>ia-id</code> registrado no XML estruturado da norma;</li>
+      <li>
+        <strong>Item de preservação no Internet Archive</strong> — com
+        <code>index.csv</code> contendo sha256 do arquivo, URL de origem e data
+        de captura;
+      </li>
+      <li><strong>Snapshot no Wayback Machine</strong>;</li>
+      <li><strong>URL original</strong> no portal governamental.</li>
+    </ol>
+    <p>
+      <small>
+        O grau de confiança do parse e o modelo usado ficam registrados no
+        <code>parsed_meta.json</code> de cada item estruturado.
+      </small>
+    </p>
+  </section>
+
+  <section id="dados" aria-labelledby="dados-h">
+    <h2 id="dados-h">Dados</h2>
+    <p>
+      O acervo estruturado é distribuído como um arquivo Parquet único (tabela
+      <code>versoes</code>) — o mesmo arquivo que esta página e a busca consultam
+      diretamente no seu navegador, sem servidor intermediário.
+    </p>
+    <ul>
+      <li>
+        <a href={DATASET_PARQUET_URL} rel="external">versoes.parquet</a>
+        — download direto do dataset;
+      </li>
+      {DATASET_IA_ITEM && (
+        <li>
+          <a href={iaDetailsUrl(DATASET_IA_ITEM)} rel="external">
+            item do dataset no Internet Archive
+          </a>
+          (<code>{DATASET_IA_ITEM}</code>) — inclui torrent gerado automaticamente;
+        </li>
+      )}
+      {DATASET_META_URL && (
+        <li>
+          <a href={DATASET_META_URL} rel="external">dataset_meta.json</a>
+          — metadados de publicação (contagem de linhas, hash do Parquet, git SHA
+          da versão do pipeline).
+        </li>
+      )}
+    </ul>
+    <p>
+      <strong>Formato:</strong> Apache Parquet, uma linha por lei × dispositivo ×
+      versão. <strong>Licença e uso:</strong> o conteúdo são atos oficiais
+      brasileiros, sem proteção autoral (art. 8º, IV, Lei 9.610/98); o dataset é
+      publicado como dados abertos, de uso livre.
+    </p>
+    <p>
+      <strong>Como citar:</strong> <em>Leizilla — legislação pública preservada,
+      estruturada e auditável.</em> Dataset Parquet <code>versoes</code>,
+      Internet Archive{DATASET_IA_ITEM && (
+        <Fragment> (item <code>{DATASET_IA_ITEM}</code>)</Fragment>
+      )}. Disponível em <a href={DATASET_PARQUET_URL} rel="external">{DATASET_PARQUET_URL}</a>.
+    </p>
+  </section>
+</Layout>
+
+<style>
+  section {
+    margin-top: 2rem;
+  }
+  .pipeline {
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0;
+    display: grid;
+    gap: 0.5rem;
+  }
+  .pipeline li {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    padding: 0.75rem;
+  }
+  .pipeline .stage-id {
+    flex-shrink: 0;
+    font-weight: 700;
+    font-size: 0.8rem;
+    border: 1px solid var(--pico-primary);
+    color: var(--pico-primary);
+    border-radius: var(--pico-border-radius);
+    padding: 0.1rem 0.4rem;
+    margin-top: 0.15rem;
+  }
+  .pipeline li p {
+    margin: 0.15rem 0 0;
+    font-size: 0.875rem;
+    color: var(--pico-muted-color);
+  }
+</style>
