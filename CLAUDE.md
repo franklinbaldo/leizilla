@@ -23,7 +23,7 @@ in `docs/adr/` and `docs/SCHEMA.md`.
 Current state: milestones **M0–M12.2 are done** (discovery, scraping, IA upload,
 OCR fetch, LLM parsing, ETL→Parquet, dataset release, frontend foundation).
 **M5.3** (DuckDB-WASM benchmark + FTS) is blocked pending a large published
-dataset. **M13** (frontend polish) is in flight.
+dataset. **M13** (Produto público v1 — frontend as product surface) is in flight.
 
 ## Development setup
 
@@ -103,7 +103,7 @@ src/leizilla/
 ├── cli.py           # Typer CLI, ~20 commands  [largest user-facing, ~1300 LOC]
 ├── fontes/          # source-specific discovery: ro.py (done), federal.py (Planalto), sp.py (stub)
 └── manifests/       # per-ente discovery manifests (currently ro.json)
-web/                 # Astro + Svelte 5 + Pico CSS + DuckDB-WASM frontend
+web/                 # Astro + Svelte 5 + Pico CSS + DuckDB-WASM frontend (home, /lei/, /cobertura/)
 docs/adr/            # Architecture Decision Records
 docs/SCHEMA.md       # canonical data model (dispositivo-centric)
 docs/routines/       # Claude maintenance-prompt for automated sessions

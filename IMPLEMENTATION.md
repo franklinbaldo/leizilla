@@ -52,6 +52,7 @@
 | **M11** — CI lint+test + mypy fixes | 🟢 done | #63 | `lint.yml` reescrito: `setup-uv@v5`, pytest adicionado; 8 erros mypy corrigidos em 6 arquivos (`storage`, `parser`, `crawler`, `discovery`, `publisher`, `cli`); ruff fix em `test_fetch_all_parsed.py`. Merged. |
 | **M12.1** — DiscoveryStrategy base class + testes harvest pipeline | 🟢 done | #64 | `DiscoveryStrategy` base class elimina `type: ignore[attr-defined]`; 17 novos testes cobrem `storage.discovered_resources`, `SequentialDiscovery`, `run_discovery`, `harvest_pending_resources`. Merged. |
 | **M12.2** — Otimização de Scrape e Parse-All via Consultas em Lote (Vetorização) | 🟢 done | #67 | Evita iterações sequenciais longas fazendo buscas em lote via API do Internet Archive e CDX da Wayback Machine. Merged. |
+| **M13** — Produto público v1 | 🟡 in-progress | — | Nome antigo: "frontend polish". Página própria por lei (`/lei/?id=…` — Texto/Versões/Evidências/Dados), busca agrupada por norma, home com manifesto + painel de cobertura, página `/cobertura/` (funil S1→S5), filtros derivados do dataset. Critérios de aceite no log 2026-07-12: (b)–(g) code-complete no branch; (a) dataset em produção bloqueado pela ativação RFC-0004 (secrets, não código). |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 | **M14.1** — OPF fine-tune: fundação de prep de dados | 🟡 in-progress | — | ADR-0012 + ontologia `leizilla_normas_v1` + sampler estratificado (`opf-sample`) + helper `opf_annotate.py` vendorado + doc `docs/opf-finetune.md`. Fase 1 de 4 (prep → anotar → treinar Colab → integrar). |
 | **M14.2** — OPF gold v0 (anotação por subagentes) | 🟡 in-progress | — | Gold seed em `data/opf/gold/` (6 leis federais reais, 251 spans) via subagentes LLM (shard-por-doc) + resolução determinística de offset + ensemble de avaliadores (strict/category/blind/adversarial) no eval slice. Fase 2 de 4. |
@@ -111,6 +112,50 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-07-12 — M13: "frontend polish" → "M13 — Produto público v1" + critérios de aceite
+
+**Renomeação**: o milestone M13 (nome antigo: "frontend polish") passa a se chamar
+**M13 — Produto público v1**. "Polish" subestimava o escopo: o frontend deixa de ser
+uma caixa de busca e vira a superfície de produto sobre o Parquet publicado — tudo
+client-side, sem servidor (ADR-0001).
+
+**O que está sendo implementado (branch de frontend em andamento, `web/`)**:
+- **Página própria de cada lei** em `/lei/?id={lei_id}` com quatro áreas: **Texto**
+  (árvore hierárquica de dispositivos com deep-link `#{path}`, copiar link e
+  citação), **Versões** (linha do tempo por dispositivo, com aviso de consolidação
+  temporal S5 pendente), **Evidências** (fontes `ia-id`, hash sha256, divergências,
+  links para `law.xml`, `parsed_meta.json` e item IA) e **Dados** (download JSON/CSV
+  da lei + link do dataset).
+- **Busca agrupada por norma** (não linhas isoladas): trecho + caminho do dispositivo
+  (breadcrumb), badge de estágio S4, contagem de dispositivos que casam, ação
+  primária "Ver lei" (IA vira link secundário de evidência).
+- **Home com manifesto** ("Leis públicas não deveriam desaparecer em PDFs."), painel
+  de cobertura real (leis/dispositivos/versões/anos, por ente), leis
+  recém-incorporadas e acesso ao dataset.
+- **Página pública `/cobertura/`** com o funil S1→S5 (PRD §6), números medíveis (S4,
+  derivados do Parquet), lacunas explícitas (S1–S3 sem contadores públicos ainda;
+  cobertura restrita a RO), cadeia de auditoria e seção `#dados`.
+- **Filtros honestos**: ente derivado do dataset (`SELECT DISTINCT ente`), não mais
+  hardcoded RO/federal/SP.
+- **Estado "dataset ainda não publicado"** amigável no lugar do erro genérico
+  (aponta para `/cobertura/` e o roadmap).
+- **Dark mode automático** (remoção do `data-theme="light"`); rótulos de dispositivo
+  derivados do path em render-time (SCHEMA.md §0.1) no novo `web/src/lib/format.ts`.
+
+**Critérios de aceite do M13**:
+- (a) dataset real carregando em produção — **bloqueado pela ativação da RFC-0004**
+  (secrets, não código; runbook passos 1–7);
+- (b) página própria para cada lei;
+- (c) dispositivo estruturado com URL estável (`/lei/?id=…#path`);
+- (d) estágio e limites de cobertura visíveis;
+- (e) acesso ao original e à evidência em até dois cliques;
+- (f) painel público da coleção (`/cobertura/`);
+- (g) download da release e identificação da sua versão.
+
+(b)–(g) estão code-complete no branch de implementação; (a) não é código — depende
+apenas da ativação de produção (secrets IA/LLM + `PUBLIC_PARQUET_URL`). Nada é
+"done" até merge + primeiro dataset publicado.
 
 ### 2026-07-08 — RFC-0006: parser provider-agnóstico via LiteLLM
 

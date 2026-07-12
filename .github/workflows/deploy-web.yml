@@ -36,6 +36,8 @@ jobs:
         run: npm run build
         env:
           PUBLIC_PARQUET_URL: ${{ vars.PUBLIC_PARQUET_URL }}
+          PUBLIC_DUCKDB_CDN: ${{ vars.PUBLIC_DUCKDB_CDN }}
+          PUBLIC_DUCKDB_EXT_REPO: ${{ vars.PUBLIC_DUCKDB_EXT_REPO }}
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

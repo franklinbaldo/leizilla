@@ -1,0 +1,10 @@
+---
+import Layout from '../layouts/Layout.astro';
+import LeiPage from '../components/lei/LeiPage.svelte';
+// Rota client-side: /lei/?id={lei_id}#{dispositivo_path}. Todo o conteúdo é
+// uma ilha client:only (DuckDB-WASM); a ilha atualiza document.title ao carregar.
+---
+
+<Layout title="Lei">
+  <LeiPage client:only="svelte" />
+</Layout>

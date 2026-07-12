@@ -1,41 +1,101 @@
 ---
+import { withBase } from '../lib/format';
+
 interface Props {
   title: string;
+  description?: string;
 }
-const { title } = Astro.props;
+const {
+  title,
+  description = 'Legislação pública, preservada, estruturada e auditável',
+} = Astro.props;
 ---
 <!DOCTYPE html>
-<html lang="pt-BR" data-theme="light">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Índice aberto e pesquisável de leis brasileiras" />
+    <meta name="description" content={description} />
     <title>{title} — Leizilla</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.classless.min.css"
     />
     <style>
-      body { max-width: 900px; margin: 0 auto; padding: 0 1rem; }
-      .error { color: var(--pico-color-red-500); }
+      body { max-width: 960px; margin: 0 auto; padding: 0 1rem; }
+      .error { color: var(--pico-del-color); }
+      header.site {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.5rem 1.5rem;
+        justify-content: space-between;
+        padding-block: 1rem 0.5rem;
+        border-bottom: 1px solid var(--pico-muted-border-color);
+        margin-bottom: 1.5rem;
+      }
+      header.site .brand a {
+        font-size: 1.35rem;
+        font-weight: 700;
+        text-decoration: none;
+        color: var(--pico-h1-color);
+      }
+      header.site .brand p {
+        margin: 0;
+        font-size: 0.85rem;
+        color: var(--pico-muted-color);
+      }
+      header.site nav ul {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      header.site nav a { text-decoration: none; }
+      footer.site {
+        margin-top: 3rem;
+        padding-block: 1rem 2rem;
+        border-top: 1px solid var(--pico-muted-border-color);
+        color: var(--pico-muted-color);
+      }
+      footer.site p { margin: 0.25rem 0; }
     </style>
   </head>
   <body>
-    <header>
-      <hgroup>
-        <h1>Leizilla</h1>
-        <p>Índice aberto de leis brasileiras</p>
-      </hgroup>
+    <header class="site">
+      <div class="brand">
+        <a href={withBase('/')}>Leizilla</a>
+        <p>Legislação pública, preservada, estruturada e auditável.</p>
+      </div>
+      <nav aria-label="Navegação principal">
+        <ul>
+          <li><a href={withBase('/')}>Busca</a></li>
+          <li><a href={withBase('cobertura/')}>Cobertura</a></li>
+          <li><a href={withBase('cobertura/') + '#dados'}>Dados</a></li>
+          <li>
+            <a href="https://github.com/franklinbaldo/leizilla" target="_blank" rel="noopener noreferrer">GitHub</a>
+          </li>
+        </ul>
+      </nav>
     </header>
     <main>
       <slot />
     </main>
-    <footer>
-      <small>
-        Dados via <a href="https://archive.org/details/leizilla" target="_blank" rel="noopener noreferrer">Internet Archive</a>
-        &bull;
-        <a href="https://github.com/franklinbaldo/leizilla" target="_blank" rel="noopener noreferrer">GitHub</a>
-      </small>
+    <footer class="site">
+      <p>
+        <small>
+          Dados via <a href="https://archive.org/details/leizilla" target="_blank" rel="noopener noreferrer">Internet Archive</a>
+          &bull;
+          <a href="https://github.com/franklinbaldo/leizilla" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </small>
+      </p>
+      <p>
+        <small>
+          Conteúdo público (leis brasileiras, art. 8º, IV, Lei 9.610/98); dados abertos.
+        </small>
+      </p>
     </footer>
   </body>
 </html>

@@ -262,7 +262,7 @@ gratuita nunca espera o passo caro.
 
 > **Implementação ativa:** os estágios são atualmente implícitos via existência de
 > itens IA. O campo `stage` explícito no modelo e o aviso de fidelidade no frontend
-> são parte do M13 (frontend polish).
+> são parte do M13 (Produto público v1).
 
 ---
 
@@ -793,7 +793,7 @@ DiscoveryStrategy base class. Otimização scrape/parse via buscas em lote.
 
 **Saída:** o usuário encontra um dispositivo e sua evidência sem depender de API própria.
 
-### Fase 3.1 — Frontend polish 🟡 (M13)
+### Fase 3.1 — Produto público v1 🟡 (M13)
 
 - Aviso de fidelidade por estágio (S2/S3/S4) em cada resultado
 - Deep-link para dispositivo via `#{path}`
@@ -801,6 +801,20 @@ DiscoveryStrategy base class. Otimização scrape/parse via buscas em lote.
 - Navegação hierárquica (breadcrumb Lei → Artigo → Parágrafo → Inciso)
 - Link para raw PDF e `parsed_meta.json`
 - Campo `stage` explícito em `discovered_resources` e no Parquet
+
+**Critérios de aceite (M13 — Produto público v1):**
+
+- (a) dataset real carregando em produção — bloqueado pela ativação da RFC-0004
+  (secrets, não código; runbook passos 1–7)
+- (b) página própria para cada lei (`/lei/?id={lei_id}`)
+- (c) dispositivo estruturado com URL estável (`/lei/?id=…#{path}`)
+- (d) estágio e limites de cobertura visíveis
+- (e) acesso ao original e à evidência em até dois cliques
+- (f) painel público da coleção (`/cobertura/`)
+- (g) download da release e identificação da sua versão
+
+(b)–(g) estão code-complete no branch de implementação do frontend; (a) depende
+apenas da ativação de produção — nada é "done" até merge + dataset publicado.
 
 **Saída:** o usuário vê onde cada norma está na esteira e pode auditar a evidência
 em dois cliques.
