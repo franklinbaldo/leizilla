@@ -9,6 +9,13 @@ on:
       ente:
         description: "Ente federativo (ro, sp, federal)"
         default: "ro"
+      fonte:
+        description: "Fonte do manifesto a descobrir. assembleia crawla ~5000 páginas sequencialmente (Playwright) e pode travar por horas (#105) — só escolha manualmente quando quiser rodá-la de propósito."
+        type: choice
+        default: "casacivil"
+        options:
+          - casacivil
+          - assembleia
       tipo:
         description: "Tipo (lei, lc, decreto, ec, resolucao, portaria, decreto-lei) — vazio = todos em paralelo"
         default: ""
@@ -32,7 +39,7 @@ jobs:
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: uv run leizilla discover --ente "${{ inputs.ente }}"
+        run: uv run leizilla discover --ente "${{ inputs.ente }}" --fonte "${{ inputs.fonte }}"
 
       - name: Harvest — ${{ inputs.tipo }}
         env:
@@ -64,7 +71,7 @@ jobs:
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: uv run leizilla discover --ente "${{ inputs.ente || 'ro' }}"
+        run: uv run leizilla discover --ente "${{ inputs.ente || 'ro' }}" --fonte "${{ inputs.fonte || 'casacivil' }}"
 
       - name: Harvest — ${{ matrix.tipo }}
         env:
