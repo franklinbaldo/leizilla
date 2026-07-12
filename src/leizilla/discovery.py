@@ -154,15 +154,12 @@ _HEAD_RATE_LIMIT_S = 0.5
 def _head_exists(url: str, timeout: float = 10.0) -> bool:
     """Retorna True se HEAD request retornar 200 ou 302 (arquivo existe no servidor)."""
     try:
-        import ssl
-
-        context = ssl._create_unverified_context()
         req = urllib.request.Request(
             url,
             method="HEAD",
             headers={"User-Agent": "leizilla-crawler/0.1"},
         )
-        with urllib.request.urlopen(req, timeout=timeout, context=context) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status in (200, 302)
     except urllib.error.HTTPError as exc:
         return exc.code in (200, 302)

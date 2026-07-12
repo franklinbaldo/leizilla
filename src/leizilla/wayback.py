@@ -278,10 +278,7 @@ def fetch_bytes(url: str, timeout: int = 60) -> Optional[bytes]:
     req = urllib.request.Request(url)
     req.add_header("User-Agent", _USER_AGENT)
     try:
-        import ssl
-
-        context = ssl._create_unverified_context()
-        with urllib.request.urlopen(req, timeout=timeout, context=context) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return bytes(resp.read())
     except Exception:
         return None

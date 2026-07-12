@@ -221,9 +221,8 @@ class LeisCrawler:
         """Baixa PDF da URL para destino local. Retorna True em sucesso."""
         for attempt in range(self.retries):
             try:
-                # verify=False ignores SSL certificate issues common on government portals
                 response = requests.get(
-                    url, timeout=self.timeout_ms / 1000, stream=True, verify=False
+                    url, timeout=self.timeout_ms / 1000, stream=True
                 )
                 response.raise_for_status()
                 with open(dest, "wb") as f:

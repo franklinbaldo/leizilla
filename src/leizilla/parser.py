@@ -143,13 +143,11 @@ def fetch_html(url: str, timeout: int = 30) -> Optional[str]:
     """
     try:
         from leizilla.wayback import to_raw_url
-        import ssl
 
-        context = ssl._create_unverified_context()
         url = to_raw_url(url)
         req = urllib.request.Request(url)
         req.add_header("User-Agent", _USER_AGENT)
-        with urllib.request.urlopen(req, timeout=timeout, context=context) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read().decode("utf-8", errors="replace")  # type: ignore[no-any-return]
     except (urllib.error.URLError, OSError, ValueError):
         return None
