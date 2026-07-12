@@ -113,6 +113,26 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-07-12 — issue #105: `discover-harvest.yml` agendado agora escopa `--fonte`
+
+O risco em aberto anotado pelo PR de `discover --fonte` (entrada abaixo) e
+detalhado na issue [#105](https://github.com/franklinbaldo/leizilla/issues/105)
+está corrigido: o workflow agendado real (`.github/workflows/discover-harvest.yml`,
+job `harvest-single` e `harvest-parallel`) chamava `leizilla discover --ente ro`
+sem filtro — a próxima execução (cron de sábado ou `workflow_dispatch` manual)
+travaria de novo por horas na `PlaywrightCrawlerDiscovery` da fonte `assembleia`,
+o mesmo bug confirmado 2× em produção.
+
+**Correção**: novo input `fonte` no `workflow_dispatch` (`type: choice`,
+`options: [casacivil, assembleia]`, `default: casacivil`); ambos os steps de
+Discover passam `--fonte` explicitamente (`inputs.fonte` no dispatch,
+`inputs.fonte || 'casacivil'` no cron semanal, mesmo padrão já usado para
+`ente`/`limit` nesse arquivo). `assembleia` só roda mediante escolha manual
+explícita no dropdown do dispatch — nunca no cron. Teste estático novo
+(`tests/test_workflow_hygiene.py`) varre todo `.github/workflows/*.yml` e falha
+se algum step invocar `leizilla discover` sem `--fonte`, prevenindo regressão
+(inclusive em workflows futuros).
+
 ### 2026-07-12 — RFC-0004 passo 3 (smoke batch) já concluído; `discover --fonte` adicionado
 
 O smoke batch de RFC-0004 (passo 3) **já estava feito** antes desta sessão

@@ -84,17 +84,24 @@ repetiu o smoke batch **redundantemente** (o de 2026-07-11 já havia publicado o
 5 itens raw acima) chamando o `discover --ente ro` sem escopo e foi cancelada
 pelo timeout de 2h sem nunca chegar ao harvest.
 
-**Correção**: `discover` agora aceita `--fonte` (mesmo padrão de `harvest` e
-`reconcile`) — `leizilla discover --ente ro --fonte casacivil` roda só a
-estratégia rápida (wayback-cdx) e nunca instancia o crawler da assembleia. O
-passo 3 do runbook foi atualizado para usar essa forma. **Risco em aberto**: o
-workflow agendado `discover-harvest.yml` ainda chama `discover --ente ro` sem
-`--fonte` nos seus jobs `harvest-single`/`harvest-parallel` — a próxima execução
-semanal (ou o próximo `workflow_dispatch` manual dela) vai hangar do mesmo jeito
-até alguém escopar esse step também. Não corrigido neste PR (fora do escopo de
-"ajustar o runbook + adicionar `--fonte`" pedido) — acompanhar em
-[#105](https://github.com/franklinbaldo/leizilla/issues/105), a resolver antes
-de destravar o passo 7 (schedules com ranges completos).
+**Correção**: `discover` agora aceita `--fonte` (mesmo padrão de `reconcile`) —
+`leizilla discover --ente ro --fonte casacivil` roda só a estratégia rápida
+(wayback-cdx) e nunca instancia o crawler da assembleia. O passo 3 do runbook
+foi atualizado para usar essa forma.
+
+**Atualização 2026-07-12 (follow-up)**: o risco em aberto acima — o workflow
+agendado `discover-harvest.yml` chamando `discover --ente ro` sem `--fonte` nos
+jobs `harvest-single`/`harvest-parallel` — está corrigido
+([#105](https://github.com/franklinbaldo/leizilla/issues/105)). O
+`workflow_dispatch` ganhou um input `fonte` (`type: choice`, opções
+`casacivil`/`assembleia`, padrão `casacivil`); os dois steps de Discover passam
+`--fonte` explicitamente, com o mesmo fallback `|| 'casacivil'` já usado para
+`ente`/`limit` no disparo agendado (cron). `assembleia` só roda mediante escolha
+manual explícita no dropdown — nunca no cron semanal. Teste estático
+(`tests/test_workflow_hygiene.py`) varre `.github/workflows/*.yml` e falha se
+algum step chamar `leizilla discover` sem `--fonte`, prevenindo regressão. Isso
+remove o bloqueio de hang do passo 7 (schedules com ranges completos); a decisão
+de quando de fato destravar ranges completos continua sendo do mantenedor.
 
 ### 2. `leizilla doctor` (implementado neste PR)
 
