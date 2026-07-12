@@ -1,0 +1,40 @@
+name: TEMP — Smoke batch (RFC-0004 passo 3)
+
+# Workflow temporário: dispara por push nesta branch porque a integração usada
+# nesta sessão não tem escopo `actions: write` para acionar workflow_dispatch
+# via API (ver docs/rfc/0004-go-live-rondonia.md, nota do passo 2). Remover
+# este arquivo após a execução do smoke batch.
+on:
+  push:
+    branches:
+      - "claude/smoke-batch-*"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync
+      - run: uv run playwright install chromium --with-deps
+
+      - name: Discover (ente ro)
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: uv run leizilla discover --ente ro
+
+      - name: Harvest (smoke, limit 10)
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: uv run leizilla harvest --ente ro --limit 10
+
+      - name: Stats (IA)
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: uv run leizilla stats --ente ro || true
