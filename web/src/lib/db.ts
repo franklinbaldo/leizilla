@@ -4,6 +4,24 @@ const PARQUET_URL =
   (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_PARQUET_URL) ||
   'https://archive.org/download/leizilla-dataset-ro-v0/versoes.parquet';
 
+/** URL pública do Parquet servido ao navegador — exposta para a página de dados. */
+export const DATASET_PARQUET_URL = PARQUET_URL;
+
+/**
+ * Item do dataset no IA, derivado da URL do Parquet quando ela segue o padrão
+ * archive.org/download/{item}/versoes.parquet (publisher.upload_dataset).
+ * Null quando a URL aponta para outro host (ex.: mirror ou arquivo local).
+ */
+export const DATASET_IA_ITEM: string | null = (() => {
+  const m = PARQUET_URL.match(/^https:\/\/archive\.org\/download\/([^/]+)\//);
+  return m ? m[1] : null;
+})();
+
+/** dataset_meta.json publicado junto do Parquet (row_count, hash, git_sha…). */
+export const DATASET_META_URL: string | null = DATASET_IA_ITEM
+  ? `https://archive.org/download/${DATASET_IA_ITEM}/dataset_meta.json`
+  : null;
+
 const WASM_VERSION = '1.32.0';
 const CDN = `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${WASM_VERSION}/dist/`;
 
@@ -68,18 +86,45 @@ export function getDb(): Promise<duckdb.AsyncDuckDB> {
   return _initPromise;
 }
 
+/**
+ * Uma linha do Parquet `versoes` (SCHEMA.md §3.1) — grain lei × dispositivo ×
+ * versão. Colunas DATE chegam como string ou Date dependendo do caminho de
+ * desserialização do Arrow; use `formatDate` de format.ts para exibir.
+ */
 export interface LeiRow {
   lei_id: string;
   ente: string;
   tipo_lei: string;
   numero_lei: string | null;
   ano_lei: number;
+  data_publicacao: string | Date | null;
+  urn_lex_lei: string | null;
+  vigente_em: string | Date | null;
+  lei_revogada: boolean;
+  lei_revogada_em: string | Date | null;
+  lei_revogada_por: string | null;
+  lei_revogada_tipo: string | null;
   dispositivo_path: string;
   dispositivo_tipo: string;
+  dispositivo_ordem: number;
+  dispositivo_parent_path: string | null;
+  dispositivo_revogado: boolean;
+  dispositivo_revogado_em: string | Date | null;
+  dispositivo_revogado_por: string | null;
+  dispositivo_revogado_tipo: string | null;
+  urn_dispositivo: string | null;
+  versao_id: string;
+  em: string | Date | null;
+  ate: string | Date | null;
+  alterado_por: string | null;
+  inicio_tipo: string;
+  /** JSON serializado: [{ia_id, diverge?, texto_divergente?}] — parseFontes() */
+  fontes: string | null;
+  num_fontes: number;
+  tem_divergencia: boolean;
+  hash_texto: string | null;
   texto: string | null;
   texto_normalizado: string | null;
-  em: string | null;
-  ate: Date | null;
 }
 
 export const PAGE_SIZE = 20;
@@ -223,4 +268,176 @@ export async function listTiposLei(): Promise<string[]> {
 /** @deprecated Use searchLeisFiltered instead. Max 100 rows (capped by searchLeisFiltered). */
 export async function searchLeis(query: string, limit = 20): Promise<LeiRow[]> {
   return searchLeisFiltered(query, { pageSize: limit });
+}
+
+// ---------------------------------------------------------------------------
+// Busca agrupada por lei — resultados como normas, não linhas isoladas
+// ---------------------------------------------------------------------------
+
+/** Resultado de busca textual agrupado: uma norma + o melhor trecho que casou. */
+export interface GroupedHit extends LeiRow {
+  /** Quantos dispositivos desta lei casaram com o termo. */
+  match_count: number;
+}
+
+/**
+ * Busca textual agrupada por norma: retorna uma linha representativa por lei
+ * (o primeiro dispositivo que casa, em ordem documental) mais o total de
+ * dispositivos que casaram (`match_count`). Sem termo, degrada para a
+ * navegação por norma de `searchLeisFiltered`.
+ */
+export async function searchGroupedByLei(
+  query: string,
+  opts: SearchOptions = {},
+): Promise<GroupedHit[]> {
+  if (!query.trim()) {
+    const rows = await searchLeisFiltered(query, opts);
+    return rows.map((r) => ({ ...r, match_count: 0 }));
+  }
+  const { page = 0, pageSize = PAGE_SIZE } = opts;
+  const safeSize = Math.min(100, Math.max(1, Math.trunc(Number.isFinite(pageSize) ? pageSize : PAGE_SIZE)));
+  const offset = Math.max(0, Math.trunc(Number.isFinite(page) ? page : 0)) * safeSize;
+  const { where, params } = buildWhere(query, opts);
+  const sql = `SELECT * EXCLUDE (_rn) FROM (
+      SELECT *,
+        COUNT(*) OVER (PARTITION BY lei_id)::INT AS match_count,
+        ROW_NUMBER() OVER (
+          PARTITION BY lei_id ORDER BY dispositivo_ordem, dispositivo_path
+        ) AS _rn
+      FROM versoes WHERE ${where}
+    ) WHERE _rn = 1
+    ORDER BY lei_id LIMIT ${safeSize} OFFSET ${offset}`;
+  return runSql(sql, params, (r) => (r as { toJSON(): GroupedHit }).toJSON());
+}
+
+/** Conta normas distintas que casam (paginação da busca agrupada). */
+export async function countLeisGrouped(
+  query: string,
+  opts: Pick<SearchOptions, 'ente' | 'tipoLei' | 'year'> = {},
+): Promise<number> {
+  const { where, params } = buildWhere(query, opts);
+  const rows = await runSql<{ cnt: bigint | number }>(
+    `SELECT COUNT(DISTINCT lei_id)::BIGINT AS cnt FROM versoes WHERE ${where}`,
+    params,
+    (r) => (r as { toJSON(): { cnt: bigint | number } }).toJSON(),
+  );
+  return Number(rows[0]?.cnt ?? 0);
+}
+
+// ---------------------------------------------------------------------------
+// Página da lei — todas as linhas de uma norma (inclui versões históricas)
+// ---------------------------------------------------------------------------
+
+/**
+ * Todas as linhas (dispositivo × versão) de uma lei, em ordem documental e
+ * cronológica. Inclui versões passadas (`ate` preenchido) — a página da lei
+ * decide o que mostrar em "Texto" (vigente) vs "Versões" (histórico).
+ */
+export async function getLeiRows(leiId: string): Promise<LeiRow[]> {
+  return runSql(
+    'SELECT * FROM versoes WHERE lei_id = ? ORDER BY dispositivo_ordem, dispositivo_path, em',
+    [leiId],
+    toJson,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cobertura — números reais derivados do dataset publicado (PRD §10.4)
+// ---------------------------------------------------------------------------
+
+export interface CoverageStats {
+  leis: number;
+  dispositivos: number;
+  versoes: number;
+  leis_revogadas: number;
+  leis_com_divergencia: number;
+  ano_min: number | null;
+  ano_max: number | null;
+  vigente_em_max: string | Date | null;
+}
+
+/** Estatísticas globais do dataset — tudo aqui é estágio S4 por construção. */
+export async function getCoverageStats(): Promise<CoverageStats> {
+  const rows = await runSql<Record<string, unknown>>(
+    `SELECT
+        COUNT(DISTINCT lei_id)::BIGINT AS leis,
+        COUNT(DISTINCT lei_id || '|' || dispositivo_path)::BIGINT AS dispositivos,
+        COUNT(*)::BIGINT AS versoes,
+        COUNT(DISTINCT CASE WHEN lei_revogada THEN lei_id END)::BIGINT AS leis_revogadas,
+        COUNT(DISTINCT CASE WHEN tem_divergencia THEN lei_id END)::BIGINT AS leis_com_divergencia,
+        MIN(ano_lei)::INT AS ano_min,
+        MAX(ano_lei)::INT AS ano_max,
+        MAX(vigente_em) AS vigente_em_max
+      FROM versoes`,
+    [],
+    (r) => (r as { toJSON(): Record<string, unknown> }).toJSON(),
+  );
+  const r = rows[0] ?? {};
+  return {
+    leis: Number(r.leis ?? 0),
+    dispositivos: Number(r.dispositivos ?? 0),
+    versoes: Number(r.versoes ?? 0),
+    leis_revogadas: Number(r.leis_revogadas ?? 0),
+    leis_com_divergencia: Number(r.leis_com_divergencia ?? 0),
+    ano_min: r.ano_min == null ? null : Number(r.ano_min),
+    ano_max: r.ano_max == null ? null : Number(r.ano_max),
+    vigente_em_max: (r.vigente_em_max as string | Date | null) ?? null,
+  };
+}
+
+export interface EnteCoverage {
+  ente: string;
+  leis: number;
+  dispositivos: number;
+  ano_min: number | null;
+  ano_max: number | null;
+}
+
+/** Cobertura por ente — alimenta filtros honestos (só o que existe no dataset). */
+export async function getCoverageByEnte(): Promise<EnteCoverage[]> {
+  const rows = await runSql<Record<string, unknown>>(
+    `SELECT ente,
+        COUNT(DISTINCT lei_id)::BIGINT AS leis,
+        COUNT(DISTINCT lei_id || '|' || dispositivo_path)::BIGINT AS dispositivos,
+        MIN(ano_lei)::INT AS ano_min,
+        MAX(ano_lei)::INT AS ano_max
+      FROM versoes GROUP BY ente ORDER BY ente`,
+    [],
+    (r) => (r as { toJSON(): Record<string, unknown> }).toJSON(),
+  );
+  return rows.map((r) => ({
+    ente: String(r.ente),
+    leis: Number(r.leis ?? 0),
+    dispositivos: Number(r.dispositivos ?? 0),
+    ano_min: r.ano_min == null ? null : Number(r.ano_min),
+    ano_max: r.ano_max == null ? null : Number(r.ano_max),
+  }));
+}
+
+/** Entes realmente presentes no dataset — nunca liste cobertura que não existe. */
+export async function listEntes(): Promise<string[]> {
+  const rows = await runSql<{ ente: string }>(
+    'SELECT DISTINCT ente FROM versoes ORDER BY ente',
+    [],
+    (r) => (r as { toJSON(): { ente: string } }).toJSON(),
+  );
+  return rows.map((r) => r.ente).filter(Boolean);
+}
+
+/**
+ * Normas mais recentes do dataset (linha representativa por lei, preferindo a
+ * ementa), ordenadas por data de publicação e ano. Para a vitrine da home.
+ */
+export async function getRecentLeis(limit = 8): Promise<LeiRow[]> {
+  const safe = Math.min(50, Math.max(1, Math.trunc(limit)));
+  const sql = `SELECT * EXCLUDE (_rn) FROM (
+      SELECT *, ROW_NUMBER() OVER (
+        PARTITION BY lei_id
+        ORDER BY (dispositivo_path = 'ementa') DESC, dispositivo_ordem, dispositivo_path
+      ) AS _rn
+      FROM versoes WHERE ate IS NULL
+    ) WHERE _rn = 1
+    ORDER BY data_publicacao DESC NULLS LAST, ano_lei DESC, lei_id DESC
+    LIMIT ${safe}`;
+  return runSql(sql, [], toJson);
 }
