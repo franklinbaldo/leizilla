@@ -36,25 +36,28 @@ on:
         description: "Se 'true', pula itens já parseados em IA (incremental)"
         default: "true"
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
-  parse-release:
+  # Um job por fonte/tipo, cada um com seu próprio timeout — o job "etl"
+  # (fetch-all-parsed → consolidate → release) só depende deles via `needs`
+  # e roda mesmo se algum parse individual falhar ou for pulado (if: always()),
+  # em vez de compartilhar um único job monolítico onde um parse travado
+  # impedia a publicação do dataset.
+
+  parse-assembleia:
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: mkdir -p /tmp/leizilla-xmls
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Install dependencies
-        run: uv sync
-
-      - name: Create output dir
-        run: mkdir -p /tmp/leizilla-xmls
-
-      # ── SCHEDULED: parse all three RO sources incrementally ──────────────
-
-      - name: Parse — ro/assembleia (scheduled)
-        if: github.event_name == 'schedule'
+      - name: Parse — ro/assembleia
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -68,8 +71,24 @@ jobs:
             --limit 50 --output-dir /tmp/leizilla-xmls \
             --skip-existing --error-threshold 20 --upload
 
-      - name: Parse — ro/casacivil lei (scheduled)
-        if: github.event_name == 'schedule'
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "parse-release / assembleia"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  parse-casacivil-lei:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: mkdir -p /tmp/leizilla-xmls
+
+      - name: Parse — ro/casacivil lei
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -83,8 +102,24 @@ jobs:
             --limit 50 --output-dir /tmp/leizilla-xmls \
             --skip-existing --error-threshold 20 --upload
 
-      - name: Parse — ro/casacivil lc (scheduled)
-        if: github.event_name == 'schedule'
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "parse-release / casacivil-lei"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  parse-casacivil-lc:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: mkdir -p /tmp/leizilla-xmls
+
+      - name: Parse — ro/casacivil lc
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -98,10 +133,24 @@ jobs:
             --limit 50 --output-dir /tmp/leizilla-xmls \
             --skip-existing --error-threshold 20 --upload
 
-      # ── DISPATCH: single fonte/tipo, user-controlled ──────────────────────
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "parse-release / casacivil-lc"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Parse batch (dispatch)
-        if: github.event_name == 'workflow_dispatch'
+  parse-dispatch:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: mkdir -p /tmp/leizilla-xmls
+
+      - name: Parse batch
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -126,7 +175,23 @@ jobs:
             $SKIP_FLAG \
             $UPLOAD_FLAG
 
-      # ── ETL + RELEASE ──────────────────────────────────────────────────────
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "parse-release / dispatch"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  etl:
+    needs: [parse-assembleia, parse-casacivil-lei, parse-casacivil-lc, parse-dispatch]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: mkdir -p /tmp/leizilla-xmls
 
       - name: Fetch all parsed XMLs from IA (cumulative Parquet)
         run: |
@@ -174,3 +239,10 @@ jobs:
             --ente "${{ inputs.ente || 'ro' }}" \
             --version "${{ inputs.dataset_version || '0' }}" \
             --dry-run
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "parse-release / etl"
+          github-token: ${{ secrets.GITHUB_TOKEN }}

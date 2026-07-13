@@ -23,6 +23,10 @@ on:
         description: "Limite de recursos por job"
         default: "500"
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   # ── DISPATCH com tipo específico ──────────────────────────────────────────
   harvest-single:
@@ -50,6 +54,13 @@ jobs:
             --ente "${{ inputs.ente }}" \
             --tipo "${{ inputs.tipo }}" \
             --limit "${{ inputs.limit }}"
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "discover-harvest / ${{ inputs.tipo }}"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   # ── SCHEDULED ou DISPATCH sem tipo: todos os tipos em paralelo ────────────
   harvest-parallel:
@@ -82,3 +93,10 @@ jobs:
             --ente "${{ inputs.ente || 'ro' }}" \
             --tipo "${{ matrix.tipo }}" \
             --limit "${{ inputs.limit || '500' }}"
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "discover-harvest / ${{ matrix.tipo }}"
+          github-token: ${{ secrets.GITHUB_TOKEN }}

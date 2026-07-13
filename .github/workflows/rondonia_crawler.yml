@@ -27,22 +27,22 @@ on:
         description: "Se 'true', pula itens já no IA (incremental)"
         default: "true"
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
-  scrape:
+  # Um job por fonte/tipo: cada um tem seu próprio timeout, então se
+  # assembleia (Playwright, ~3h47 observado) estourar o prazo, não derruba
+  # casacivil-lei/lc que rodariam depois no mesmo job monolítico anterior.
+  scrape-assembleia:
     runs-on: ubuntu-latest
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Install dependencies
-        run: uv sync
-
-      - name: Install Playwright browsers
-        run: uv run playwright install chromium --with-deps
-
-      # ── SCHEDULED: scrape all three RO sources incrementally ─────────────
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run playwright install chromium --with-deps
 
       - name: Scrape — ro/assembleia (scheduled)
         if: github.event_name == 'schedule'
@@ -54,30 +54,6 @@ jobs:
             --ente ro --fonte assembleia \
             --start 1 --end 5000 \
             --skip-existing
-
-      - name: Scrape — ro/casacivil lei (scheduled)
-        if: github.event_name == 'schedule'
-        env:
-          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: |
-          uv run leizilla scrape \
-            --ente ro --fonte casacivil --tipo lei \
-            --start 1 --end 6000 \
-            --skip-existing
-
-      - name: Scrape — ro/casacivil lc (scheduled)
-        if: github.event_name == 'schedule'
-        env:
-          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: |
-          uv run leizilla scrape \
-            --ente ro --fonte casacivil --tipo lc \
-            --start 1 --end 1300 \
-            --skip-existing
-
-      # ── DISPATCH: user-controlled ranges ─────────────────────────────────
 
       - name: Scrape — ro/assembleia (dispatch)
         if: github.event_name == 'workflow_dispatch'
@@ -93,6 +69,33 @@ jobs:
             --end ${{ inputs.assembleia_end || '5000' }} \
             $SKIP_FLAG
 
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "rondonia_crawler / assembleia"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  scrape-casacivil-lei:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run playwright install chromium --with-deps
+
+      - name: Scrape — ro/casacivil lei (scheduled)
+        if: github.event_name == 'schedule'
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          uv run leizilla scrape \
+            --ente ro --fonte casacivil --tipo lei \
+            --start 1 --end 6000 \
+            --skip-existing
+
       - name: Scrape — ro/casacivil lei (dispatch)
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -107,6 +110,33 @@ jobs:
             --end ${{ inputs.casacivil_lei_end || '6000' }} \
             $SKIP_FLAG
 
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "rondonia_crawler / casacivil-lei"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  scrape-casacivil-lc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run playwright install chromium --with-deps
+
+      - name: Scrape — ro/casacivil lc (scheduled)
+        if: github.event_name == 'schedule'
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          uv run leizilla scrape \
+            --ente ro --fonte casacivil --tipo lc \
+            --start 1 --end 1300 \
+            --skip-existing
+
       - name: Scrape — ro/casacivil lc (dispatch)
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -120,3 +150,10 @@ jobs:
             --start ${{ inputs.casacivil_lc_start || '1' }} \
             --end ${{ inputs.casacivil_lc_end || '1300' }} \
             $SKIP_FLAG
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "rondonia_crawler / casacivil-lc"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
