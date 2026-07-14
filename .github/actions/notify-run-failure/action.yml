@@ -1,0 +1,58 @@
+name: "Notify run failure"
+description: >
+  Cria (ou comenta em) uma issue de rastreamento quando um job de workflow
+  agendado falha ou é cancelado. Corrige a meta-causa identificada após um
+  ano de crons mortos em silêncio: fail-open é correto para os jobs de
+  batch em si, mas não deveria significar "ninguém percebe". Use com
+  `if: failure() || cancelled()` no step que chama esta action — sem esse
+  `if`, ela roda (e abre issue) em toda execução, inclusive as bem-sucedidas.
+
+inputs:
+  job-label:
+    description: >
+      Identificador curto do job/fonte que falhou (ex.: "rondonia_crawler /
+      assembleia"). Vira parte do título da issue e da chave de
+      deduplicação — mantenha estável entre execuções do mesmo job para que
+      falhas repetidas comentem na mesma issue em vez de abrir uma nova.
+    required: true
+  github-token:
+    description: "Token com permissão de issues:write (normalmente secrets.GITHUB_TOKEN)."
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        JOB_LABEL: ${{ inputs.job-label }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        WORKFLOW: ${{ github.workflow }}
+        REF_NAME: ${{ github.ref_name }}
+        EVENT_NAME: ${{ github.event_name }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        set -euo pipefail
+
+        TITLE="🔴 ${WORKFLOW}: ${JOB_LABEL} falhou/cancelado"
+        BODY="**Execução:** ${RUN_URL}
+        **Status do job:** ${JOB_STATUS}
+        **Branch:** ${REF_NAME}
+        **Evento:** ${EVENT_NAME}
+        **Data (UTC):** $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+        Aberta automaticamente por \`.github/actions/notify-run-failure\`
+        porque este job terminou com \`failure()\` ou \`cancelled()\`."
+
+        # Deduplica por título exato — evita uma issue nova a cada execução
+        # da mesma falha recorrente; comenta na existente em vez disso.
+        EXISTING="$(gh issue list --state open --json number,title \
+          --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -n1)"
+
+        if [ -n "${EXISTING:-}" ]; then
+          echo "Issue #${EXISTING} já existe para '${TITLE}' — comentando."
+          gh issue comment "${EXISTING}" --body "${BODY}"
+        else
+          echo "Criando nova issue: ${TITLE}"
+          gh issue create --title "${TITLE}" --body "${BODY}"
+        fi
