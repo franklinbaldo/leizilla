@@ -29,26 +29,16 @@ jobs:
       - name: Create output dir
         run: mkdir -p /tmp/leizilla-xmls
 
-      - name: Parse — ro/casacivil lei (seed batch, limit 100)
-        # error-threshold 0 = desabilitado de propósito: o run anterior
-        # (gemini-2.5-flash) mostrou 92/95 falhas por 429 RESOURCE_EXHAUSTED,
-        # quotaId GenerateRequestsPerDayPerProjectPerModel-FreeTier=20 — teto
-        # diário do free tier, não OCR ruim. --model troca para
-        # gemini-2.5-flash-lite, que tem cota diária própria e
-        # tipicamente maior (quota é por modelo, não por conta). Ver PR #109
-        # e o achado de free-tier no log desta sessão.
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: |
-          uv run leizilla parse-all \
-            --ente ro --fonte casacivil --tipo lei \
-            --model gemini/gemini-2.5-flash-lite \
-            --start 1 --end 1000 \
-            --limit 100 --output-dir /tmp/leizilla-xmls \
-            --skip-existing --error-threshold 0 --upload
+      # Sem step de parse desta vez: o run anterior já deixou 11 leis novas
+      # publicadas individualmente no IA (upload é síncrono por item), mas a
+      # cadeia abortou antes do release por causa de "Please reduce your
+      # request rate ... appears to be spam" do próprio IA (rajada de ~15
+      # uploads em ~10min) — não um bug de parse. Rodar mais parse agora só
+      # bateria de novo no teto diário do Gemini free tier (RPD=20, já
+      # esgotado em gemini-2.5-flash e gemini-2.5-flash-lite hoje) e faria
+      # mais uploads logo após o aviso do IA. Este run só recolhe o que já
+      # está publicado (fetch-all-parsed) e republica o dataset — um único
+      # upload (o Parquet), não uma rajada.
 
       - name: Fetch all parsed XMLs from IA (cumulative)
         run: |
