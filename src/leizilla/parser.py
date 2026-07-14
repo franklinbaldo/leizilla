@@ -9,6 +9,7 @@ LiteLLM serve (RFC-0006). Precedência: --model > LLM_MODEL > auto pela chave.
 """
 
 import json
+import logging
 import math
 import os
 import urllib.error
@@ -20,6 +21,8 @@ from typing import Any, Dict, Optional, Tuple
 
 from leizilla import config
 from leizilla.ia_utils import resolve_raw_url
+
+logger = logging.getLogger(__name__)
 
 _HAIKU = "claude-haiku-4-5"
 _GEMINI_FLASH = "gemini/gemini-2.5-flash"
@@ -313,30 +316,55 @@ def parse_law(
     raw = (response.choices[0].message.content or "") if response.choices else ""
     result = _extract_json(raw)
     if result is None:
+        logger.warning("%s: LLM response has no extractable JSON: %r", ia_id, raw[:300])
         return None
 
     try:
         confidence = float(result.get("confidence", 0.0))
     except (TypeError, ValueError):
+        logger.warning(
+            "%s: non-numeric confidence value: %r", ia_id, result.get("confidence")
+        )
         return None
     if not math.isfinite(confidence) or confidence < _MIN_CONFIDENCE:
+        logger.warning(
+            "%s: confidence %.2f below threshold %.2f — reason: %s",
+            ia_id,
+            confidence,
+            _MIN_CONFIDENCE,
+            result.get("error", "(LLM não informou motivo)"),
+        )
         return None
 
     xml = result.get("xml", "")
     if not xml or not _is_well_formed(xml):
+        logger.warning(
+            "%s: confidence %.2f mas xml ausente/malformado", ia_id, confidence
+        )
         return None
 
     tipo = result.get("tipo")
     numero = result.get("numero")
     ano = result.get("ano")
     if not tipo or numero is None or not ano:
+        logger.warning(
+            "%s: confidence %.2f mas campos obrigatórios ausentes "
+            "(tipo=%r numero=%r ano=%r)",
+            ia_id,
+            confidence,
+            tipo,
+            numero,
+            ano,
+        )
         return None
     numero_str = str(numero).strip()
     if not numero_str.isdigit():
+        logger.warning("%s: numero não numérico: %r", ia_id, numero)
         return None
     try:
         ano = int(ano)
     except (TypeError, ValueError):
+        logger.warning("%s: ano inválido: %r", ia_id, result.get("ano"))
         return None
     ia_id_parsed = f"leizilla-{ente}-{tipo}-{numero_str.zfill(5)}-{ano}"
 
