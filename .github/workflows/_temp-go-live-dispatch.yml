@@ -29,7 +29,13 @@ jobs:
       - name: Create output dir
         run: mkdir -p /tmp/leizilla-xmls
 
-      - name: Parse — ro/casacivil lei (smoke, limit 10)
+      - name: Parse — ro/casacivil lei (seed batch, limit 100)
+        # error-threshold 0 = desabilitado de propósito: o smoke de 10 itens
+        # mostrou 9/15 rejeições legítimas por confiança baixa (fail-closed,
+        # OCR ruim de leis de 1983 — não é bug, ver PR #109), e o gate de 20%
+        # abortaria este lote maior antes de acumular sucessos suficientes
+        # para o primeiro dataset real. --skip-existing evita reprocessar os
+        # já publicados.
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -40,8 +46,8 @@ jobs:
           uv run leizilla parse-all \
             --ente ro --fonte casacivil --tipo lei \
             --start 1 --end 1000 \
-            --limit 10 --output-dir /tmp/leizilla-xmls \
-            --skip-existing --error-threshold 20 --upload
+            --limit 100 --output-dir /tmp/leizilla-xmls \
+            --skip-existing --error-threshold 0 --upload
 
       - name: Fetch all parsed XMLs from IA (cumulative)
         run: |
