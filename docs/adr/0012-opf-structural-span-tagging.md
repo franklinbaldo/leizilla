@@ -1,11 +1,38 @@
 # ADR-0012 — OPF (token-classifier) como caminho de anotação estrutural das normas, complementar ao parser generativo
 
-**Status**: Aprovada — **fine-tune adiado (2026-06-06, ver atualização abaixo)**
+**Status**: Aprovada — **fine-tune reativado (2026-07-14, ver atualização abaixo)**
 **Data**: 2026-06-05
 **Contexto**: Anotação estrutural de normas — fine-tune do OpenAI Privacy Filter (OPF)
 **Relaciona-se com**: [ADR-0010](0010-raw-content-addressed-parsed-urn.md) (raw OCR
 content-addressed é o insumo), `parser.py` (parser generativo via Claude Haiku),
 [SCHEMA.md](../SCHEMA.md) (modelo dispositivo-cêntrico, rótulo derivado do `path`).
+
+## Atualização (2026-07-14) — fine-tune (Fase 3) REATIVADO como smoke test no gold v0
+
+A atualização de 2026-06-06 (abaixo) condicionava reativar a Fase 3 a evidência de
+OCR ruidoso/formatação irregular/outro ente. O mantenedor decidiu retomar o treino
+agora mesmo assim, como **smoke test explícito sobre o gold v0** (leis federais do
+Planalto, texto limpo, 251 spans, fonte única) — não porque o gatilho de evidência
+foi atingido, mas por decisão direta de prosseguir. Registro isso para transparência:
+a limitação conhecida do v0 segue valendo (`known_limitations` no
+`manifest.json` — "lacks OCR noise the production OPF will see"), e o resultado deste
+run deve ser lido como baseline/smoke test, não como modelo pronto para produção —
+exatamente como o próprio notebook já documenta em sua célula final ("v0 is a smoke
+test + baseline, not a deliverable model").
+
+`notebooks/opf_train_colab.ipynb` já aponta para `main` e o gold v0 já está commitado
+lá — a plumbing de dados (git ref, gold, ontologia) não precisou mudar. O notebook em
+si, porém, tinha três bugs reais de argumento de CLI, achados e corrigidos numa revisão
+desta reativação (verificados contra uma instalação real do `openai/privacy-filter`):
+`--seed` não existe (o flag real é `--shuffle-seed`); o modelo-base persistido no Drive
+nunca era passado a `opf train` via `--checkpoint` (caía no default efêmero
+`/root/.opf/privacy_filter`); e `opf eval` não aceita `--label-space-json` (o checkpoint
+já carrega a ontologia com que foi treinado). Falta só executar o notebook corrigido
+(GPU via Colab, fora do alcance de sessões sem acesso a GPU/Drive interativo).
+Expandir o gold com OCR real de RO (multi-fonte, incluindo casos ruidosos como o de
+`lei-00001-1983` encontrado na sessão de go-live desta mesma data) permanece o caminho
+recomendado para um treino de produção — decisão explicitamente adiada para depois
+deste smoke test, a critério do mantenedor.
 
 ## Atualização (2026-06-06) — fine-tune (Fase 3) ADIADO; ferramentas model-free mantidas
 
