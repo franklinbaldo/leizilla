@@ -113,6 +113,38 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-07-15 — `claude-routine.yml` quebrado silenciosamente desde 2026-06-08
+
+**Achado**: auditoria dos runs agendados (`event: schedule`) mostrou que a
+sessão de manutenção automática (Mon/Thu, `docs/routines/maintenance-prompt.md`)
+falhava em ~20s em **todas as execuções da amostra**, de 2026-06-08 a
+2026-07-13 (11 runs consecutivos) — mais de um mês sem rodar de fato,
+silenciosamente (só um `Notify on failure` — sem alarme visível fora do Actions
+tab). Duas causas, ambas drift de versão da action `anthropics/claude-code-action@beta`:
+
+1. `prompt_file: docs/routines/maintenance-prompt.md` não é mais um input
+   válido da action (`##[warning]Unexpected input(s) 'prompt_file'`) — o
+   prompt real nunca chegava a ser usado.
+2. Sem `github_token` próprio no `with:`, a action tenta obter um token via
+   GitHub OIDC (fluxo padrão do GitHub App gerenciado pela Anthropic), o que
+   exige `permissions: id-token: write` — ausente no workflow, causando
+   `Failed to setup GitHub token: Could not fetch an OIDC token`.
+
+**Correção**: `permissions.id-token: write` adicionado; novo step carrega o
+conteúdo de `maintenance-prompt.md` num output (`$GITHUB_OUTPUT` com heredoc)
+e passa via `prompt: ${{ steps.load_prompt.outputs.text }}` (input atual da
+action; `prompt` só aceita texto literal, não path).
+
+Auditoria também cobriu `wayback-save.yml` (falhava por `--end` inexistente
+na CLI — já corrigido em commit posterior ao da amostra de falha, nenhuma ação
+necessária) e `rondonia_crawler.yml` (cancelamento por timeout do job
+monolítico antigo — já dividido em 3 jobs com timeouts próprios, também sem
+ação necessária). `discover-harvest.yml` teve um `decreto` cancelado por
+timeout de 360min com Discover sozinho levando ~4h — o `max-parallel: 2` do
+PR #112 deve ajudar, mas vale monitorar o próximo sábado; se `decreto`
+continuar estourando, considerar separar Discover e Harvest em jobs com
+timeout próprio.
+
 ### 2026-07-14 — Pacing de parse/harvest dentro de cotas + retry/backoff no upload IA
 
 **Achado**: `parse-release.yml` rodava só às segundas, com 3 jobs paralelos
