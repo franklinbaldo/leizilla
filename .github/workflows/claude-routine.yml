@@ -32,6 +32,10 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  id-token: write  # necessário p/ claude-code-action buscar token via OIDC
+                    # (não passamos github_token próprio); sem isso a action
+                    # falha em "Failed to setup GitHub token" (achado: toda
+                    # execução agendada de 2026-06-08 a 2026-07-13 falhou).
 
 jobs:
   routine:
@@ -41,8 +45,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Carregar prompt de manutenção
+        # O input `prompt` da action só aceita texto literal, não um path
+        # (diferente do `prompt_file` de versões antigas da action, removido
+        # upstream) — carregamos o conteúdo do arquivo aqui.
+        id: load_prompt
+        run: |
+          {
+            echo 'text<<PROMPT_EOF'
+            cat docs/routines/maintenance-prompt.md
+            echo 'PROMPT_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Executar rotina de manutenção
         uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}  # Required: Add ANTHROPIC_API_KEY in Settings → Secrets
-          prompt_file: docs/routines/maintenance-prompt.md
+          prompt: ${{ steps.load_prompt.outputs.text }}
