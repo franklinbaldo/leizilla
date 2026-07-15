@@ -56,7 +56,7 @@
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 | **M14.1** — OPF fine-tune: fundação de prep de dados | 🟡 in-progress | — | ADR-0012 + ontologia `leizilla_normas_v1` + sampler estratificado (`opf-sample`) + helper `opf_annotate.py` vendorado + doc `docs/opf-finetune.md`. Fase 1 de 4 (prep → anotar → treinar Colab → integrar). |
 | **M14.2** — OPF gold v0 (anotação por subagentes) | 🟡 in-progress | — | Gold seed em `data/opf/gold/` (6 leis federais reais, 251 spans) via subagentes LLM (shard-por-doc) + resolução determinística de offset + ensemble de avaliadores (strict/category/blind/adversarial) no eval slice. Fase 2 de 4. |
-| **M14.3** — OPF treino/eval (notebook Colab GPU) | 🟡 reativado | — | `notebooks/opf_train_colab.ipynb` pronto (aponta pro `main`, gold v0 já commitado — nenhuma mudança de código necessária). **Reativado por decisão do mantenedor em 2026-07-14** (não pelo gatilho de evidência da atualização de 2026-06-06 — o v0 segue single-fonte/texto limpo). Falta rodar no Colab (GPU), fora do alcance de sessões sem GPU/Drive interativo. Ver ADR-0012 "Atualização (2026-07-14)". |
+| **M14.3** — OPF treino/eval (notebook Colab GPU) | 🟡 in-progress | — | `notebooks/opf_train_colab.ipynb` pronto (aponta pro `main`, gold v0 já commitado; 3 bugs reais de CLI achados em revisão e corrigidos — `--seed`→`--shuffle-seed`, `--checkpoint` ausente no train, `--label-space-json` inválido no eval). **Reativado por decisão do mantenedor em 2026-07-14** (não pelo gatilho de evidência da atualização de 2026-06-06 — o v0 segue single-fonte/texto limpo). Falta rodar no Colab (GPU), fora do alcance de sessões sem GPU/Drive interativo. Ver ADR-0012 "Atualização (2026-07-14)". |
 | **M14.4** — Segmentador regex baseline + eval/errors/structure vs gold | 🟢 done | — | `segmenter.py` (Pattern B) + CLIs `opf-regex-eval` (`--errors`) e `opf-segment-check`. `evaluate_against_gold` (exact/overlap P/R/F1), `find_errors` (lista FP/FN/boundary com contexto — guiou as regras e achou drift de período no gold + provável omissão), `validate_structure` (validação da norma inteira sem gold: lacunas na numeração de artigos, fora de ordem, ementa/vigência ausentes). Regras: splitter ciente de abreviações/números, verbo operativo na revogação (notas `(Revogado pela…)` excluídas, precision 0.33→1.00 em compilados), strip de marcador líder, guard à direita, marcadores sem período final (gold normalizado). v0: exact micro-F1 **0.95** / overlap **0.99**. 28 testes. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
@@ -121,11 +121,16 @@ agora mesmo assim, como **smoke test explícito** — não porque o gatilho de e
 foi atingido. O gold v0 segue com a limitação conhecida desde M14.2: fonte única
 (Planalto federal), texto limpo (HTML oficial, não `_djvu.txt`), sem ruído de OCR.
 
-Nenhuma mudança de código foi necessária: `notebooks/opf_train_colab.ipynb` já aponta
+A plumbing de dados não precisou mudar: `notebooks/opf_train_colab.ipynb` já aponta
 `GOLD_GIT_URL`/`GOLD_GIT_REF` para `main`, e o gold v0 (`data/opf/gold/`) já está
-commitado lá desde M14.2 (confirmado presente em `origin/main`, commit `6d202e3`).
-Falta apenas executar o notebook — treino em GPU via Colab está fora do alcance de
-sessões sem acesso a GPU/Drive interativo.
+commitado lá desde M14.2 (commit `d9fd0b0`, "feat(opf): gold v0 dataset via labeling +
+evaluator-ensemble subagents"). O notebook em si, porém, tinha três bugs reais de
+argumento de CLI — achados numa revisão desta reativação e corrigidos, verificados
+contra uma instalação real do `openai/privacy-filter`: `--seed` não existe (flag real
+`--shuffle-seed`); o modelo-base persistido no Drive nunca era passado a `opf train`
+via `--checkpoint` (caía no default efêmero); `opf eval` não aceita
+`--label-space-json`. Falta apenas executar o notebook corrigido — treino em GPU via
+Colab está fora do alcance de sessões sem acesso a GPU/Drive interativo.
 
 **Contexto da decisão**: na mesma sessão, o primeiro dataset real (`leizilla-dataset-ro-v0`,
 19 leis de RO) foi publicado no IA (RFC-0004 passos 4-6), incluindo um caso de OCR

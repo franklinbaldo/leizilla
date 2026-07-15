@@ -21,7 +21,13 @@ exatamente como o próprio notebook já documenta em sua célula final ("v0 is a
 test + baseline, not a deliverable model").
 
 `notebooks/opf_train_colab.ipynb` já aponta para `main` e o gold v0 já está commitado
-lá — nenhuma mudança de código foi necessária para destravar o run; falta só executá-lo
+lá — a plumbing de dados (git ref, gold, ontologia) não precisou mudar. O notebook em
+si, porém, tinha três bugs reais de argumento de CLI, achados e corrigidos numa revisão
+desta reativação (verificados contra uma instalação real do `openai/privacy-filter`):
+`--seed` não existe (o flag real é `--shuffle-seed`); o modelo-base persistido no Drive
+nunca era passado a `opf train` via `--checkpoint` (caía no default efêmero
+`/root/.opf/privacy_filter`); e `opf eval` não aceita `--label-space-json` (o checkpoint
+já carrega a ontologia com que foi treinado). Falta só executar o notebook corrigido
 (GPU via Colab, fora do alcance de sessões sem acesso a GPU/Drive interativo).
 Expandir o gold com OCR real de RO (multi-fonte, incluindo casos ruidosos como o de
 `lei-00001-1983` encontrado na sessão de go-live desta mesma data) permanece o caminho

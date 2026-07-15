@@ -1,13 +1,17 @@
 # Fine-tuning OPF to annotate Leizilla normas
 
 > **Status (2026-07-14): the GPU fine-tune (Phase 3) is REACTIVATED as a smoke test on
-> gold v0.** The 2026-06-06 deferral (below) is superseded by mantainer decision, not by
+> gold v0.** The 2026-06-06 deferral (below) is superseded by maintainer decision, not by
 > the evidence trigger it originally called for — the v0 gold is still single-fonte,
-> clean-text federal Planalto (no OCR noise). Run `notebooks/opf_train_colab.ipynb`
-> (already points at `main`, gold v0 already committed — no code changes needed) as a
-> baseline/smoke test, not a production model. See ADR-0012 "Atualização (2026-07-14)"
-> for the full rationale and the recommended next step (expand gold with real,
-> multi-fonte RO OCR before a production-grade run).
+> clean-text federal Planalto (no OCR noise). `notebooks/opf_train_colab.ipynb` already
+> points at `main` and gold v0 is already committed there; a code review of this
+> reactivation also found and fixed three real CLI-argument bugs in the notebook itself
+> (`--seed` doesn't exist — the real flag is `--shuffle-seed`; the Drive-persisted base
+> model was never passed to `opf train` via `--checkpoint`; `opf eval` doesn't accept
+> `--label-space-json`), all verified against a live install of `openai/privacy-filter`.
+> Run it as a baseline/smoke test, not a production model. See ADR-0012
+> "Atualização (2026-07-14)" for the full rationale and the recommended next step (expand
+> gold with real, multi-fonte RO OCR before a production-grade run).
 
 This is Leizilla's concrete recipe for the [`opf-finetune`
 skill](https://github.com/franklinbaldo/skills/tree/main/opf-finetune). Read the skill
