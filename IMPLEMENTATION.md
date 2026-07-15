@@ -113,6 +113,24 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-07-14 — M14.3: manifesto do notebook OPF ganha proveniência completa (fast follow do PR #110)
+
+A revisão do PR #110 (que corrigiu os 3 bugs de CLI do notebook) apontou uma ressalva
+não-bloqueante: `run_manifest.json` registrava dados/seed/config, mas não o SHA do
+`openai/privacy-filter` (código nem peso-base), nem versões de `opf`/`transformers`/
+`torch`/`datasets`, nem o GPU/CUDA do runtime — a palavra "reproducibility" no
+comentário da célula era mais forte do que o notebook de fato entregava.
+
+Adicionado ao manifesto: `base_model_hf_sha` (revisão do Hub resolvida via `HfApi` e
+**pinada** no `snapshot_download`, não só lida depois — evita race entre resolver e
+baixar; persistida num sidecar `.base_model_sha.txt` ao lado do checkpoint no Drive,
+lida de volta em runs que restauram do cache em vez de baixar de novo),
+`privacy_filter_commit` (SHA completo do clone, capturado incondicionalmente — não só
+no primeiro clone), `opf_version`/`transformers_version`/`torch_version`/
+`datasets_version` (via `importlib.metadata`), `cuda_version` e `gpu_info`. Escopo
+deliberadamente restrito ao notebook — nenhuma mudança na decisão de reativação em si
+(ADR-0012 não muda).
+
 ### 2026-07-14 — M14.3: fine-tune OPF reativado (smoke test no gold v0), por decisão do mantenedor
 
 Supersede a atualização de 2026-06-06 da ADR-0012 (fine-tune adiado até evidência de
