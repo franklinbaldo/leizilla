@@ -8,10 +8,12 @@ import io
 import json
 import logging
 import os
+import random
 import re
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -37,6 +39,7 @@ from leizilla.ia_utils import (
     uuid5_collision,
     uuid5_name,
 )
+from leizilla.ratelimit import make_rate_limiter
 
 _DATASET_IDENTIFIER_RE = (
     r"^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)$"
@@ -581,12 +584,84 @@ def _ia_subprocess_env(
     return {**os.environ, "IA_CONFIG_FILE": cfg_path}
 
 
+# Padrões no stderr do `ia upload` que indicam falha transitória (retry pode ajudar).
+# Único achado real em produção até agora (2026-07-14, sessão de go-live): uma rajada
+# de ~15 uploads em ~10min levou o IA a recusar com "Please reduce your request
+# rate ... appears to be spam" — sem 429 numérico nem Retry-After no corpo. Por
+# design, tudo que NÃO casar aqui não é reentregue (credencial inválida, arquivo
+# rejeitado, conflito lógico — repetir não muda o resultado).
+_RETRYABLE_IA_ERROR_RE = re.compile(
+    r"reduce your request rate"
+    r"|\b(429|500|502|503|504)\b"
+    r"|connection (reset|refused|aborted)"
+    r"|read timed out"
+    r"|\btimeout\b",
+    re.IGNORECASE,
+)
+_IA_UPLOAD_MIN_INTERVAL_S = 2.0  # espaçamento mínimo entre uploads bem-sucedidos
+_IA_UPLOAD_MAX_ATTEMPTS = 5
+_IA_UPLOAD_BASE_DELAY_S = 2.0
+_IA_UPLOAD_MAX_DELAY_S = 60.0
+_IA_RATE_LIMIT_KEY = "https://archive.org/"  # host fixo p/ make_rate_limiter (ADR-0008)
+
+
 class InternetArchivePublisher:
     """Upload para IA e geração de datasets Parquet."""
 
     def __init__(self) -> None:
         self.access_key = config.IA_ACCESS_KEY
         self.secret_key = config.IA_SECRET_KEY
+        self._upload_rate_limiter = make_rate_limiter(_IA_UPLOAD_MIN_INTERVAL_S)
+
+    def _run_ia_upload(self, args: list[str]) -> "subprocess.CompletedProcess[str]":
+        """Roda ``ia upload ...`` com espaçamento + retry exponencial (ADR-0008).
+
+        Duas defesas contra o throttle/spam-flag do IA visto em produção
+        (2026-07-14, ~15 uploads em ~10min): (1) espaça uploads sucessivos por
+        ``_IA_UPLOAD_MIN_INTERVAL_S`` via o rate limiter por host já usado no
+        scraper (``leizilla.ratelimit``); (2) em falha, tenta de novo só se o
+        stderr casar ``_RETRYABLE_IA_ERROR_RE`` — erro de credencial, arquivo
+        inválido ou conflito lógico propaga na primeira tentativa.
+
+        Nota de limitação: isto invoca o CLI ``ia`` via subprocess, não a
+        biblioteca ``internetarchive`` diretamente — só vemos o texto do
+        stderr, não os headers HTTP reais. Não há ``Retry-After`` para honrar
+        aqui (a mensagem de throttle observada também não embute um valor
+        numérico); o backoff é uma aproximação por tentativa, não um
+        Retry-After de protocolo.
+
+        O rate limiter só paceia contra a chamada ANTERIOR a ``_run_ia_upload``
+        (uma vez, antes do loop) — não a cada tentativa de retry interna, já
+        que o backoff exponencial já espaça as tentativas da MESMA chamada;
+        pacear os dois ao mesmo tempo só somaria esperas redundantes.
+        """
+        self._upload_rate_limiter(_IA_RATE_LIMIT_KEY)
+        env = _ia_subprocess_env(self.access_key, self.secret_key)
+        for attempt in range(1, _IA_UPLOAD_MAX_ATTEMPTS + 1):
+            try:
+                return subprocess.run(
+                    args, capture_output=True, text=True, check=True, env=env
+                )
+            except subprocess.CalledProcessError as e:
+                if (
+                    attempt == _IA_UPLOAD_MAX_ATTEMPTS
+                    or not _RETRYABLE_IA_ERROR_RE.search(e.stderr or "")
+                ):
+                    raise
+                delay = min(
+                    _IA_UPLOAD_MAX_DELAY_S,
+                    _IA_UPLOAD_BASE_DELAY_S * (2 ** (attempt - 1)),
+                )
+                delay += random.uniform(0, delay * 0.25)  # jitter
+                logger.warning(
+                    "ia upload: erro transiente (tentativa %d/%d), retry em %.1fs: %s",
+                    attempt,
+                    _IA_UPLOAD_MAX_ATTEMPTS,
+                    delay,
+                    (e.stderr or "").strip()[:200],
+                )
+                time.sleep(delay)
+        raise AssertionError("unreachable — loop always returns or raises")
 
     def upload_raw(
         self,
@@ -679,7 +754,7 @@ class InternetArchivePublisher:
                 f"identificador {ia_id}, capturado pelo projeto Leizilla."
             )
             try:
-                subprocess.run(
+                self._run_ia_upload(
                     [
                         "ia",
                         "upload",
@@ -701,11 +776,7 @@ class InternetArchivePublisher:
                         f"coverage:{coverage}",
                         "--metadata",
                         f"description:{desc}",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    env=_ia_subprocess_env(self.access_key, self.secret_key),
+                    ]
                 )
             except FileNotFoundError:
                 return {
@@ -815,7 +886,7 @@ class InternetArchivePublisher:
                 f"identificador {ia_id}, capturado pelo projeto Leizilla."
             )
             try:
-                subprocess.run(
+                self._run_ia_upload(
                     [
                         "ia",
                         "upload",
@@ -837,11 +908,7 @@ class InternetArchivePublisher:
                         f"coverage:{coverage}",
                         "--metadata",
                         f"description:{desc}",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    env=_ia_subprocess_env(self.access_key, self.secret_key),
+                    ]
                 )
             except FileNotFoundError:
                 return {
@@ -895,7 +962,7 @@ class InternetArchivePublisher:
                 files.append(str(meta_dst))
             files.append(str(index_path))
             try:
-                subprocess.run(
+                self._run_ia_upload(
                     [
                         "ia",
                         "upload",
@@ -911,11 +978,7 @@ class InternetArchivePublisher:
                         "language:pt",
                         "--metadata",
                         f"coverage:{_entity_coverage(ente)}",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    env=_ia_subprocess_env(self.access_key, self.secret_key),
+                    ]
                 )
             except subprocess.CalledProcessError as e:
                 logger.warning(
@@ -931,7 +994,7 @@ class InternetArchivePublisher:
             index_path = Path(tmp) / INDEX_FILENAME
             index_path.write_text(index_csv, encoding="utf-8")
             try:
-                subprocess.run(
+                self._run_ia_upload(
                     [
                         "ia",
                         "upload",
@@ -939,11 +1002,7 @@ class InternetArchivePublisher:
                         str(index_path),
                         "--metadata",
                         "mediatype:texts",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    env=_ia_subprocess_env(self.access_key, self.secret_key),
+                    ]
                 )
             except subprocess.CalledProcessError as e:
                 logger.warning("reconcile: reescrita do índice de espera falhou: %s", e)
@@ -1144,7 +1203,7 @@ class InternetArchivePublisher:
                 f"processado pelo projeto Leizilla."
             )
             try:
-                subprocess.run(
+                self._run_ia_upload(
                     [
                         "ia",
                         "upload",
@@ -1165,11 +1224,7 @@ class InternetArchivePublisher:
                         f"coverage:{coverage}",
                         "--metadata",
                         f"description:{desc}",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    env=_ia_subprocess_env(self.access_key, self.secret_key),
+                    ]
                 )
                 return {
                     "success": True,
@@ -1226,7 +1281,7 @@ class InternetArchivePublisher:
                 f"Contém {effective_row_count} linhas."
             )
             try:
-                subprocess.run(
+                self._run_ia_upload(
                     [
                         "ia",
                         "upload",
@@ -1247,11 +1302,7 @@ class InternetArchivePublisher:
                         f"coverage:{coverage}",
                         "--metadata",
                         f"description:{desc}",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    env=_ia_subprocess_env(self.access_key, self.secret_key),
+                    ]
                 )
                 return {
                     "success": True,
@@ -1296,7 +1347,7 @@ class InternetArchivePublisher:
             shutil.copy2(str(file_path), str(dst_path))
 
             try:
-                subprocess.run(
+                self._run_ia_upload(
                     [
                         "ia",
                         "upload",
@@ -1316,11 +1367,7 @@ class InternetArchivePublisher:
                         f"coverage:{coverage}",
                         "--metadata",
                         f"description:{desc}",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    env=_ia_subprocess_env(self.access_key, self.secret_key),
+                    ]
                 )
                 return {"success": True}
             except FileNotFoundError:

@@ -2,7 +2,9 @@ name: Discover & Harvest (manifest-driven)
 
 on:
   schedule:
-    # Sábado 02:00 UTC — jobs paralelos por tipo garantem ~7x throughput vs serial
+    # Sábado 02:00 UTC — paralelismo dos 7 tipos limitado a 2 por vez
+    # (max-parallel na matrix abaixo), pra não fazer o IA recusar a rajada
+    # de uploads como spam (achado de produção, 2026-07-14).
     - cron: "0 2 * * 6"
   workflow_dispatch:
     inputs:
@@ -26,6 +28,12 @@ on:
 permissions:
   contents: read
   issues: write
+
+# Singleton: evita um dispatch manual correndo ao mesmo tempo que o cron
+# semanal (ambos disputariam upload no IA e discovery duplicado).
+concurrency:
+  group: discover-harvest
+  cancel-in-progress: false
 
 jobs:
   # ── DISPATCH com tipo específico ──────────────────────────────────────────
@@ -62,13 +70,19 @@ jobs:
           job-label: "discover-harvest / ${{ inputs.tipo }}"
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── SCHEDULED ou DISPATCH sem tipo: todos os tipos em paralelo ────────────
+  # ── SCHEDULED ou DISPATCH sem tipo: todos os tipos, paralelismo limitado ──
   harvest-parallel:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.tipo == '')
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
       fail-fast: false
+      # max-parallel: 2 (não 7, o default) — os 7 jobs fariam upload pro IA
+      # ao mesmo tempo; uma rajada assim levou o IA a recusar uploads como
+      # spam em produção (2026-07-14: "Please reduce your request rate").
+      # `_run_ia_upload` (publisher.py) já paceia/retry por processo, mas não
+      # protege contra 7 PROCESSOS distintos batendo juntos.
+      max-parallel: 2
       matrix:
         tipo: [lei, lc, decreto, ec, resolucao, portaria, decreto-lei]
 

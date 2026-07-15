@@ -244,6 +244,137 @@ class TestUploadParsed:
         assert "upload failed" in result["error"]
 
 
+class TestRunIaUploadRetry:
+    """_run_ia_upload: retry exponencial pautado por padrão de erro no stderr do
+    `ia` (achado real de produção, 2026-07-14: rajada de uploads levou o IA a
+    recusar com 'Please reduce your request rate ... appears to be spam')."""
+
+    def _publisher(self) -> InternetArchivePublisher:
+        pub = InternetArchivePublisher()
+        pub.access_key = "test-key"
+        pub.secret_key = "test-secret"
+        return pub
+
+    @patch("time.sleep")
+    def test_succeeds_without_retry_on_first_attempt(self, mock_sleep):
+        pub = self._publisher()
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = pub._run_ia_upload(["ia", "upload", "some-id"])
+        assert result.returncode == 0
+        assert mock_run.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @patch("time.sleep")
+    def test_retries_on_rate_limit_error_then_succeeds(self, mock_sleep):
+        import subprocess
+
+        pub = self._publisher()
+        rate_limit_error = subprocess.CalledProcessError(
+            1,
+            "ia",
+            stderr=(
+                "Please reduce your request rate. - Your upload of "
+                "leizilla-ro-lei-00290-1984 appears to be spam."
+            ),
+        )
+        success = MagicMock(returncode=0)
+        with patch(
+            "subprocess.run", side_effect=[rate_limit_error, rate_limit_error, success]
+        ) as mock_run:
+            result = pub._run_ia_upload(["ia", "upload", "some-id"])
+        assert result is success
+        assert mock_run.call_count == 3
+        assert mock_sleep.call_count == 2  # backoff before attempt 2 and attempt 3
+
+    @patch("time.sleep")
+    def test_retries_on_5xx_and_timeout_errors(self, mock_sleep):
+        import subprocess
+
+        pub = self._publisher()
+        success = MagicMock(returncode=0)
+        for stderr in (
+            "503 Service Unavailable",
+            "connection reset by peer",
+            "read timed out",
+        ):
+            err = subprocess.CalledProcessError(1, "ia", stderr=stderr)
+            with patch("subprocess.run", side_effect=[err, success]) as mock_run:
+                result = pub._run_ia_upload(["ia", "upload", "some-id"])
+            assert result is success
+            assert mock_run.call_count == 2
+
+    @patch("time.sleep")
+    def test_does_not_retry_non_retryable_error(self, mock_sleep):
+        import subprocess
+
+        pub = self._publisher()
+        auth_error = subprocess.CalledProcessError(
+            1, "ia", stderr="Unauthorized: invalid access key"
+        )
+        with patch("subprocess.run", side_effect=auth_error) as mock_run:
+            try:
+                pub._run_ia_upload(["ia", "upload", "some-id"])
+                raise AssertionError("expected CalledProcessError to propagate")
+            except subprocess.CalledProcessError:
+                pass
+        assert mock_run.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @patch("time.sleep")
+    def test_gives_up_after_max_attempts_on_persistent_rate_limit(self, mock_sleep):
+        import subprocess
+
+        pub = self._publisher()
+        rate_limit_error = subprocess.CalledProcessError(
+            1, "ia", stderr="Please reduce your request rate."
+        )
+        with patch("subprocess.run", side_effect=rate_limit_error) as mock_run:
+            try:
+                pub._run_ia_upload(["ia", "upload", "some-id"])
+                raise AssertionError("expected CalledProcessError to propagate")
+            except subprocess.CalledProcessError:
+                pass
+        assert mock_run.call_count == 5  # _IA_UPLOAD_MAX_ATTEMPTS
+
+    @patch("time.sleep")
+    def test_backoff_delay_grows_exponentially(self, mock_sleep):
+        import subprocess
+
+        pub = self._publisher()
+        rate_limit_error = subprocess.CalledProcessError(
+            1, "ia", stderr="503 Service Unavailable"
+        )
+        success = MagicMock(returncode=0)
+        with patch(
+            "subprocess.run", side_effect=[rate_limit_error, rate_limit_error, success]
+        ):
+            pub._run_ia_upload(["ia", "upload", "some-id"])
+        delays = [call.args[0] for call in mock_sleep.call_args_list]
+        assert len(delays) == 2
+        assert delays[0] < delays[1]
+
+    def test_paces_successive_uploads_via_shared_rate_limiter(self):
+        pub = self._publisher()
+        with (
+            patch.object(pub, "_upload_rate_limiter") as mock_limiter,
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
+            pub._run_ia_upload(["ia", "upload", "id-1"])
+            pub._run_ia_upload(["ia", "upload", "id-2"])
+        assert mock_limiter.call_count == 2
+
+    def test_file_not_found_is_not_retried(self):
+        pub = self._publisher()
+        with patch("subprocess.run", side_effect=FileNotFoundError("no ia binary")):
+            try:
+                pub._run_ia_upload(["ia", "upload", "some-id"])
+                raise AssertionError("expected FileNotFoundError to propagate")
+            except FileNotFoundError:
+                pass
+
+
 class TestListParsedRawIds:
     """Testes para list_parsed_raw_ids — consulta IA sem credenciais."""
 
