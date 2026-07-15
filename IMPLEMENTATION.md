@@ -113,6 +113,57 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-07-14 — Pacing de parse/harvest dentro de cotas + retry/backoff no upload IA
+
+**Achado**: `parse-release.yml` rodava só às segundas, com 3 jobs paralelos
+(assembleia + casacivil-lei + casacivil-lc) a `--limit 50` cada — até 150
+tentativas de parse num único dia, contra um orçamento real de free tier de
+**~20 requisições/dia por modelo** (confirmado em produção nesta mesma
+sessão: `429 RESOURCE_EXHAUSTED`, `quotaId
+GenerateRequestsPerDayPerProjectPerModel-FreeTier`, `quotaValue: 20`, tanto
+para `gemini-2.5-flash` quanto `gemini-2.5-flash-lite`). As 3 fontes
+competiam pelo mesmo orçamento diário compartilhado, e a maior parte das
+150 tentativas terminava em 429 — desperdício, não distribuição. Achado
+análogo em `discover-harvest.yml`: matrix de 7 tipos em paralelo (sem
+`max-parallel`) faz até 7 processos de upload baterem no IA ao mesmo tempo;
+uma rajada de ~15 uploads em ~10min já levou o IA a recusar como spam
+("Please reduce your request rate...") na sessão de go-live desta mesma
+data.
+
+**Correção — `fix(ci): pace parsing and IA uploads within service quotas`**:
+
+1. **`parse-release.yml`**: cron mudou de semanal (segunda) para **diário**,
+   `--limit 50` → **`--limit 6`** por fonte (18/dia, margem sob o teto de
+   20), e as 3 fontes agendadas passam a rodar **em série** via `needs`
+   (não mais em paralelo) — evita que rodem simultaneamente disputando o
+   mesmo orçamento de LLM. `if: always()` nas dependentes garante que uma
+   fonte falhando não pule as seguintes. `concurrency: group: parse-release`
+   impede que um dispatch manual sobreponha o cron.
+2. **`discover-harvest.yml`**: `max-parallel: 2` na matrix de 7 tipos (era
+   sem limite) + `concurrency: group: discover-harvest`.
+3. **`publisher.py`**: novo método `InternetArchivePublisher._run_ia_upload`
+   substitui as 7 chamadas diretas a `subprocess.run(["ia", "upload", ...])`
+   — retry exponencial (até 5 tentativas, backoff 2s→60s + jitter) **só**
+   para stderr que casa um padrão de erro transitório confirmado (rate
+   limit do IA, 5xx, connection reset/timeout); erro de credencial, arquivo
+   inválido ou conflito lógico propaga na primeira tentativa, sem retry.
+   Espaça uploads sucessivos via `make_rate_limiter` (extraído de
+   `scraper.py` para o novo módulo `leizilla/ratelimit.py`, reaproveitado
+   sem duplicar — import cíclico impedia importar direto de `scraper.py`).
+   **Limitação documentada**: como o upload é via subprocess do CLI `ia`
+   (não a lib `internetarchive`), só há acesso ao stderr como texto, não
+   aos headers HTTP reais — não há `Retry-After` de protocolo para honrar,
+   o backoff é uma aproximação. 8 novos testes em
+   `TestRunIaUploadRetry` (`tests/test_publisher.py`) com respostas
+   simuladas (sucesso, retry-então-sucesso, erro não retryable, esgotamento
+   de tentativas, crescimento exponencial do backoff, pacing entre uploads).
+
+**Não feito nesta PR** (fora de escopo, mencionado para o futuro): seletor
+que transfira orçamento não usado de uma fonte vazia para a fila seguinte;
+troca do CLI `ia` pela biblioteca `internetarchive` (daria acesso a
+`Retry-After` real); `max-parallel: 1` estrito no harvest (ficou em 2,
+equilíbrio entre throughput e risco de throttle).
+
 ### 2026-07-14 — M14.3: manifesto do notebook OPF ganha proveniência completa (fast follow do PR #110)
 
 A revisão do PR #110 (que corrigiu os 3 bugs de CLI do notebook) apontou uma ressalva

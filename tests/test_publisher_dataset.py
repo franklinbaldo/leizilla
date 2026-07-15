@@ -46,7 +46,10 @@ def _make_parquet(tmp_path: Path) -> Path:
 
 
 def _publisher(access: str = "key", secret: str = "secret") -> InternetArchivePublisher:
-    pub = InternetArchivePublisher.__new__(InternetArchivePublisher)
+    # __init__ real (não __new__) -- precisamos do _upload_rate_limiter que ele
+    # cria; sobrescrever access_key/secret_key depois é só pra controlar o teste
+    # sem depender de config.IA_ACCESS_KEY/IA_SECRET_KEY do ambiente.
+    pub = InternetArchivePublisher()
     pub.access_key = access
     pub.secret_key = secret
     return pub

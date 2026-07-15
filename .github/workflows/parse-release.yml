@@ -2,7 +2,14 @@ name: Parse + ETL + Release Dataset
 
 on:
   schedule:
-    - cron: "0 6 * * 1"  # Monday 06:00 UTC — dia após scraping dominical
+    # Diário 06:00 UTC. Antes rodava só segunda com --limit 50 x 3 fontes em
+    # paralelo (até 150 parses/dia) contra um orçamento real de free-tier de
+    # ~20 requisições/dia por modelo (confirmado em produção, 2026-07-14:
+    # 429 RESOURCE_EXHAUSTED, quotaId GenerateRequestsPerDayPerProjectPerModel,
+    # quotaValue 20) — as 3 fontes competiam pelo mesmo orçamento diário
+    # inteiro num único dia da semana, desperdiçando a maior parte das
+    # chamadas em 429. Pacing novo: 6+6+6=18/dia, com margem sob o teto.
+    - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
       ente:
@@ -40,9 +47,19 @@ permissions:
   contents: read
   issues: write
 
+# Singleton: um dispatch manual nunca deve rodar ao mesmo tempo que o cron
+# diário (ambos disputariam o mesmo orçamento de LLM/IA) — a segunda run
+# fica na fila em vez de correr em paralelo.
+concurrency:
+  group: parse-release
+  cancel-in-progress: false
+
 jobs:
-  # Um job por fonte/tipo, cada um com seu próprio timeout — o job "etl"
-  # (fetch-all-parsed → consolidate → release) só depende deles via `needs`
+  # As 3 fontes agendadas rodam em SÉRIE (via `needs`), não em paralelo: cada
+  # uma usa o mesmo GEMINI_API_KEY, e a cota do free tier é por modelo por
+  # projeto (não por job) — rodar em paralelo só faz duas delas queimarem o
+  # orçamento em 429 enquanto a primeira ainda está consumindo. O job "etl"
+  # (fetch-all-parsed → consolidate → release) só depende delas via `needs`
   # e roda mesmo se algum parse individual falhar ou for pulado (if: always()),
   # em vez de compartilhar um único job monolítico onde um parse travado
   # impedia a publicação do dataset.
@@ -68,7 +85,7 @@ jobs:
           uv run leizilla parse-all \
             --ente ro --fonte assembleia \
             --start 1 --end 5000 \
-            --limit 50 --output-dir /tmp/leizilla-xmls \
+            --limit 6 --output-dir /tmp/leizilla-xmls \
             --skip-existing --error-threshold 20 --upload
 
       - name: Notify on failure
@@ -79,7 +96,8 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
   parse-casacivil-lei:
-    if: github.event_name == 'schedule'
+    needs: parse-assembleia
+    if: always() && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -99,7 +117,7 @@ jobs:
           uv run leizilla parse-all \
             --ente ro --fonte casacivil --tipo lei \
             --start 1 --end 6000 \
-            --limit 50 --output-dir /tmp/leizilla-xmls \
+            --limit 6 --output-dir /tmp/leizilla-xmls \
             --skip-existing --error-threshold 20 --upload
 
       - name: Notify on failure
@@ -110,7 +128,8 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
   parse-casacivil-lc:
-    if: github.event_name == 'schedule'
+    needs: parse-casacivil-lei
+    if: always() && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -130,7 +149,7 @@ jobs:
           uv run leizilla parse-all \
             --ente ro --fonte casacivil --tipo lc \
             --start 1 --end 1300 \
-            --limit 50 --output-dir /tmp/leizilla-xmls \
+            --limit 6 --output-dir /tmp/leizilla-xmls \
             --skip-existing --error-threshold 20 --upload
 
       - name: Notify on failure
