@@ -1,12 +1,13 @@
 # Fine-tuning OPF to annotate Leizilla normas
 
-> **Status (2026-06-06): the GPU fine-tune (Phase 3) is DEFERRED.** The DITEL ingestion work
-> (PR #85) confirmed RO laws are born-digital and LC 95-regular, and the deterministic
-> `segmenter.py` already scores exact 0.95 / overlap 0.99 — so regex + the Claude parser
-> cover the regular case without a model. The **model-free tooling here is active and
-> useful** (segmenter, `evaluate_against_gold`/`find_errors`, `validate_structure`); only the
-> *training* is on hold, to be revisited with evidence from OCR-noisy/irregular sources or
-> other entes. See ADR-0012 "Atualização (2026-06-06)".
+> **Status (2026-07-14): the GPU fine-tune (Phase 3) is REACTIVATED as a smoke test on
+> gold v0.** The 2026-06-06 deferral (below) is superseded by mantainer decision, not by
+> the evidence trigger it originally called for — the v0 gold is still single-fonte,
+> clean-text federal Planalto (no OCR noise). Run `notebooks/opf_train_colab.ipynb`
+> (already points at `main`, gold v0 already committed — no code changes needed) as a
+> baseline/smoke test, not a production model. See ADR-0012 "Atualização (2026-07-14)"
+> for the full rationale and the recommended next step (expand gold with real,
+> multi-fonte RO OCR before a production-grade run).
 
 This is Leizilla's concrete recipe for the [`opf-finetune`
 skill](https://github.com/franklinbaldo/skills/tree/main/opf-finetune). Read the skill

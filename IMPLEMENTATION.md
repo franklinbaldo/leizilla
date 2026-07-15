@@ -56,7 +56,7 @@
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 | **M14.1** — OPF fine-tune: fundação de prep de dados | 🟡 in-progress | — | ADR-0012 + ontologia `leizilla_normas_v1` + sampler estratificado (`opf-sample`) + helper `opf_annotate.py` vendorado + doc `docs/opf-finetune.md`. Fase 1 de 4 (prep → anotar → treinar Colab → integrar). |
 | **M14.2** — OPF gold v0 (anotação por subagentes) | 🟡 in-progress | — | Gold seed em `data/opf/gold/` (6 leis federais reais, 251 spans) via subagentes LLM (shard-por-doc) + resolução determinística de offset + ensemble de avaliadores (strict/category/blind/adversarial) no eval slice. Fase 2 de 4. |
-| **M14.3** — OPF treino/eval (notebook Colab GPU) | ⚪ adiado | — | `notebooks/opf_train_colab.ipynb` pronto, mas o **fine-tune está adiado** (2026-06-06): regex (`segmenter.py`, exact 0.95/overlap 0.99) + parse Claude cobrem o regime regular/born-digital de RO (confirmado pela ingestão DITEL, PR #85). Reativar com evidência de fontes OCR-ruidosas/irregulares ou outros entes. Ver ADR-0012 "Atualização (2026-06-06)". |
+| **M14.3** — OPF treino/eval (notebook Colab GPU) | 🟡 reativado | — | `notebooks/opf_train_colab.ipynb` pronto (aponta pro `main`, gold v0 já commitado — nenhuma mudança de código necessária). **Reativado por decisão do mantenedor em 2026-07-14** (não pelo gatilho de evidência da atualização de 2026-06-06 — o v0 segue single-fonte/texto limpo). Falta rodar no Colab (GPU), fora do alcance de sessões sem GPU/Drive interativo. Ver ADR-0012 "Atualização (2026-07-14)". |
 | **M14.4** — Segmentador regex baseline + eval/errors/structure vs gold | 🟢 done | — | `segmenter.py` (Pattern B) + CLIs `opf-regex-eval` (`--errors`) e `opf-segment-check`. `evaluate_against_gold` (exact/overlap P/R/F1), `find_errors` (lista FP/FN/boundary com contexto — guiou as regras e achou drift de período no gold + provável omissão), `validate_structure` (validação da norma inteira sem gold: lacunas na numeração de artigos, fora de ordem, ementa/vigência ausentes). Regras: splitter ciente de abreviações/números, verbo operativo na revogação (notas `(Revogado pela…)` excluídas, precision 0.33→1.00 em compilados), strip de marcador líder, guard à direita, marcadores sem período final (gold normalizado). v0: exact micro-F1 **0.95** / overlap **0.99**. 28 testes. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
@@ -112,6 +112,32 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-07-14 — M14.3: fine-tune OPF reativado (smoke test no gold v0), por decisão do mantenedor
+
+Supersede a atualização de 2026-06-06 da ADR-0012 (fine-tune adiado até evidência de
+OCR ruidoso/formatação irregular/outro ente). O mantenedor decidiu retomar a Fase 3
+agora mesmo assim, como **smoke test explícito** — não porque o gatilho de evidência
+foi atingido. O gold v0 segue com a limitação conhecida desde M14.2: fonte única
+(Planalto federal), texto limpo (HTML oficial, não `_djvu.txt`), sem ruído de OCR.
+
+Nenhuma mudança de código foi necessária: `notebooks/opf_train_colab.ipynb` já aponta
+`GOLD_GIT_URL`/`GOLD_GIT_REF` para `main`, e o gold v0 (`data/opf/gold/`) já está
+commitado lá desde M14.2 (confirmado presente em `origin/main`, commit `6d202e3`).
+Falta apenas executar o notebook — treino em GPU via Colab está fora do alcance de
+sessões sem acesso a GPU/Drive interativo.
+
+**Contexto da decisão**: na mesma sessão, o primeiro dataset real (`leizilla-dataset-ro-v0`,
+19 leis de RO) foi publicado no IA (RFC-0004 passos 4-6), incluindo um caso de OCR
+genuinamente ruidoso (`lei-00001-1983`, trecho de artigo corrompido) que ilustra — mas
+não por si só configura o gatilho formal da ADR-0012 (que pede medição contra o
+baseline 0.95/0.99, não um exemplo isolado) — o tipo de evidência que a atualização de
+2026-06-06 previa.
+
+**Recomendação registrada, não executada**: expandir o gold com OCR real e ruidoso de
+RO (multi-fonte, via `opf-sample` sobre os raw items já publicados + o mesmo método de
+anotação por subagentes de M14.2) antes de um treino com pretensão de produção. Ver
+ADR-0012 "Atualização (2026-07-14)" e `docs/opf-finetune.md` para o detalhe completo.
 
 ### 2026-07-12 — issue #105: `discover-harvest.yml` agendado agora escopa `--fonte`
 
