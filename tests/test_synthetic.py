@@ -74,9 +74,9 @@ class TestBuildNorma:
             neg_start = text.index(neg)
             neg_end = neg_start + len(neg)
             for sp in spans:
-                assert not (
-                    sp["start"] >= neg_start and sp["end"] <= neg_end
-                ), f"span {sp} labels inside hard negative {neg!r}"
+                assert not (sp["start"] >= neg_start and sp["end"] <= neg_end), (
+                    f"span {sp} labels inside hard negative {neg!r}"
+                )
 
     def test_clean_profile_agrees_with_regex_baseline_on_markers(self) -> None:
         """On clean (no OCR noise) text the regex baseline should re-find the

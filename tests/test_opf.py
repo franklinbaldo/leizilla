@@ -268,8 +268,23 @@ class TestCmdOpfBootstrap:
         rec = json.loads(boot.read_text(encoding="utf-8").splitlines()[0])
         assert rec["info"]["prelabeled_by"] == "regex_segmenter_v1"
         assert rec["label"]
-        # the starved-category warning fires when a category is absent
-        assert "AVISO" in result.output or "ali_marcador" not in result.output
+
+    def test_warns_on_starved_category(self, tmp_path: Path) -> None:
+        # A doc with only an art_marcador span (no ementa/vigencia/revogacao/
+        # ali_marcador) should trigger the starved-category AVISO for all four.
+        pool = tmp_path / "pool.jsonl"
+        opf.write_pool(
+            [{"text": "Art. 1º Fica criado o programa.", "label": [], "info": {}}],
+            pool,
+        )
+        runner = CliRunner()
+        result = runner.invoke(
+            app, ["opf-bootstrap", "--pool", str(pool), "--out-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        assert "AVISO" in result.output
+        for cat in ("ementa", "vigencia", "revogacao", "ali_marcador"):
+            assert cat in result.output
 
     def test_missing_pool_exits_nonzero(self, tmp_path: Path) -> None:
         runner = CliRunner()

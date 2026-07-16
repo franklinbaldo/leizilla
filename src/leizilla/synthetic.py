@@ -38,6 +38,7 @@ from __future__ import annotations
 import random
 from typing import Dict, List, Tuple
 
+from leizilla.opf import CATEGORY_VERSION
 from leizilla.segmenter import Span
 
 # --- phrase banks (fictional subject matter; structure mirrors real normas) -----------
@@ -101,8 +102,14 @@ _ORDINALS = ["º", "°", " o"]  # all three tolerated by the regex regime (_ORD)
 # period and misreads § as a letter; a human annotating degraded OCR gold would
 # still tag these as markers, so the model must learn them — this residual is
 # exactly where OPF earns its keep over the 0.95-F1 regex.
-_ART_TEMPLATES_NOISE = ["Art. {n}{o}", "Art {n}{o}"]
-_PAR_TEMPLATES_NOISE = ["§ {n}{o}", "S {n}{o}"]
+#
+# Deliberately single-template (not a period-preserving/period-dropping pair):
+# segmenter._ORD already tolerates every ordinal variant in _ORDINALS, so a
+# pair would let the ordinal-only branch roll a still-regex-matching "Art. 5º"
+# surface half the time under a doc flagged ocr_noise=True, diluting the
+# off-regex training signal the noise regime exists to provide.
+_ART_TEMPLATES_NOISE = ["Art {n}{o}"]
+_PAR_TEMPLATES_NOISE = ["S {n}{o}"]
 
 
 class _Builder:
@@ -223,9 +230,12 @@ def build_dataset(
     """
     records: List[Dict[str, object]] = []
     totals: Dict[str, int] = {}
+    noise_rng = random.Random(seed)
     for i in range(n):
         doc_seed = seed * 100_000 + i
-        noise = (i / max(n, 1)) < ocr_noise_fraction
+        # A per-doc draw (not an index-prefix cutoff) so noisy docs are spread
+        # across the dataset instead of all clustering at the head of the file.
+        noise = noise_rng.random() < ocr_noise_fraction
         text, spans = build_norma(
             doc_seed, ali_per_inciso=ali_per_inciso, ocr_noise=noise
         )
@@ -244,6 +254,7 @@ def build_dataset(
             }
         )
     manifest: Dict[str, object] = {
+        "category_version": CATEGORY_VERSION,
         "source": "synthetic",
         "generator": "leizilla.synthetic.build_norma",
         "n": n,
