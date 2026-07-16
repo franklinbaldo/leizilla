@@ -160,12 +160,13 @@ opf train train.jsonl \
   --output-dir ./ckpt_leizilla_v1_e1
 opf train train.jsonl \
   --validation-dataset val.jsonl \
-  --label-space-json /path/to/data/opf/label_space.json \
   --epochs 1 --batch-size 1 --learning-rate 5e-5 \
   --checkpoint ./ckpt_leizilla_v1_e1 \
   --output-dir ./ckpt_leizilla_v1_e2
-# ... repeat; then evaluate (opf eval takes no --label-space-json — the
-# checkpoint already encodes the label space):
+# ... repeat (no --label-space-json once --checkpoint is set — same reasoning
+# as `opf eval` below: the checkpoint already encodes the label space, and
+# re-passing it every epoch risks rebuilding the head on every resume); then
+# evaluate:
 opf eval test.jsonl --checkpoint ./ckpt_leizilla_v1_e2 --per-class
 ```
 
