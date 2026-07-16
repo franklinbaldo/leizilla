@@ -109,6 +109,57 @@ Commit `data/opf/gold/{train,val,test}.jsonl` + `data/opf/gold/manifest.json` to
 (the `.gitignore` whitelist already allows `data/opf/gold/**`). The split must be
 PT-BR, in-domain, and leak-free (no same/near-duplicate doc across splits).
 
+### Phase 2.5 — scale the gold (three paths, cheapest first)
+
+Scaling past v0 does **not** mean re-running the de-novo labeling flow on more
+documents. Three paths, ordered by cost per gold document — validated on the sibling
+causaganha segmenter (2026-07-16), which scaled 20 → 106 real gold docs in one day
+with the same tooling:
+
+**Path 1 — regex-bootstrap + subagent *audit* (default).** The regex baseline already
+scores exact micro-F1 0.95 on gold, which flips the labeling economics: pre-label every
+sampled document with it, then have one subagent per document only **verify and
+correct** — confirm the easy markers, fix the known residuals (`§` inside citation
+lists, ementa preamble over-capture). An audit pass is much cheaper and more reliable
+per document than labeling from scratch:
+
+```bash
+uv run leizilla opf-sample    --ente ro --fontes assembleia,casacivil --n 50 --seed 13
+uv run leizilla opf-bootstrap --pool data/opf/pool/pool.jsonl
+# -> data/opf/pool/bootstrapped.jsonl   (regex pre-labels, info.audit_status=pending)
+# -> data/opf/pool/bootstrap_manifest.json (spans per category — read this FIRST)
+```
+
+Each bootstrapped record carries `info.prelabeled_by="regex_segmenter_v1"` — keep that
+provenance through to the gold manifest so bootstrapped gold is always distinguishable
+from de-novo gold. After the audit, run the usual `validate` + preview gates before
+promotion; the eval slice still gets the 4-role ensemble regardless of how the labels
+were produced.
+
+**Path 2 — project parsed XML back onto OCR text (silver at scale).** The parse
+pipeline already produced XSD-validated Leizilla XML for whole normas (M4/M12) — each
+dispositivo carries its rótulo (`Art. 5º`, `§ 2º`, …). Aligning those rótulos back to
+the source OCR text yields marker spans mechanically, at whatever scale the parsed
+corpus has. Treat the result as **silver** (training-mix material), never eval gold:
+the parser's own errors would leak into the labels. Same two gates as any
+weak-supervision source: mechanical validation, then a stratified spot-check audit
+before it enters a training mix.
+
+**Path 3 — targeted pre-filters for the starved categories.** When
+`bootstrap_manifest.json` shows a category with little/no support in a general sample
+(the sibling project's measured lesson: an 18-doc general round produced *zero* new
+spans for its rarest category, while an 8-doc pre-filtered round hit 7/8), don't sample
+more general documents — pre-filter the pool for where the category actually lives
+before dispatching auditors:
+
+- `ali_marcador` → documents dense in `^[a-z]\)` lines (CLT/CDC-style coded statutes);
+- `vigencia` / `revogacao` → emendas and leis matching `entra em vigor|revogam-se`;
+- keep the **staged vs. active** convention (above) while a category crosses ~25 spans.
+
+Stratification rule unchanged in every path: equal allocation per fonte (skill
+Warning 1) — the OCR-noisy assembleia/casacivil documents are the valuable ones, not
+more clean Planalto text.
+
 ### Phase 3 — train + eval (Colab GPU)
 
 Training needs a GPU and the OPF CLI; CI does not run it. The ready-to-run notebook is
