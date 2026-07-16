@@ -1475,6 +1475,54 @@ def cmd_opf_bootstrap(
     echo(f"manifest -> {manifest_path}")
 
 
+@app.command("opf-synth")
+def cmd_opf_synth(
+    n: int = typer.Option(100, help="Quantidade de normas sintéticas"),
+    seed: int = typer.Option(13, help="Seed do gerador (reprodutibilidade)"),
+    ali_per_inciso: int = typer.Option(
+        2, help="Densidade de ali_marcador (alíneas por inciso)"
+    ),
+    ocr_noise_fraction: float = typer.Option(
+        0.3, help="Fração de docs com superfícies do regime OCR (ex.: '§ 1 o')"
+    ),
+    out_dir: Path = typer.Option(
+        Path("data/opf/synthetic"),
+        help="Diretório de saída (synthetic.jsonl + synthetic_manifest.json)",
+    ),
+) -> None:
+    """Gerar normas sintéticas com offsets exatos (fase 2.5, caminho 4).
+
+    SOMENTE para o mix de treino — nunca val/test (eval fica real e verificado).
+    Alimenta sob demanda as categorias escassas (ali_marcador, vigencia,
+    revogacao), injeta hard negatives dos modos de falha auditados do regex
+    (art. minúsculo em citação, § em cadeia de referência, nota de histórico
+    '(Revogado pela Lei…)') e ensaia superfícies do regime OCR que o baseline
+    regex perde por construção. Ver docs/opf-finetune.md.
+    """
+    from leizilla import synthetic
+
+    records, manifest = synthetic.build_dataset(
+        n,
+        seed=seed,
+        ali_per_inciso=ali_per_inciso,
+        ocr_noise_fraction=ocr_noise_fraction,
+    )
+
+    from leizilla import opf
+
+    synth_path = out_dir / "synthetic.jsonl"
+    manifest_path = out_dir / "synthetic_manifest.json"
+    written = opf.write_pool(records, synth_path)
+    opf.write_manifest(manifest, manifest_path)
+
+    echo(f"{written} normas sintéticas -> {synth_path}")
+    spans_per_cat = cast(Dict[str, int], manifest["spans_per_category"])
+    for cat, count in spans_per_cat.items():
+        echo(f"  {cat}: {count} spans")
+    echo(f"manifest -> {manifest_path}")
+    echo("\nUso: mix de treino apenas — NUNCA val/test.")
+
+
 @app.command("opf-regex-eval")
 def cmd_opf_regex_eval(
     gold_dir: Path = typer.Option(

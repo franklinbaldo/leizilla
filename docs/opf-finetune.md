@@ -109,10 +109,10 @@ Commit `data/opf/gold/{train,val,test}.jsonl` + `data/opf/gold/manifest.json` to
 (the `.gitignore` whitelist already allows `data/opf/gold/**`). The split must be
 PT-BR, in-domain, and leak-free (no same/near-duplicate doc across splits).
 
-### Phase 2.5 — scale the gold (three paths, cheapest first)
+### Phase 2.5 — scale the gold (four paths, cheapest first)
 
 Scaling past v0 does **not** mean re-running the de-novo labeling flow on more
-documents. Three paths, ordered by cost per gold document — validated on the sibling
+documents. Four paths, ordered by cost per gold document — validated on the sibling
 causaganha segmenter (2026-07-16), which scaled 20 → 106 real gold docs in one day
 with the same tooling:
 
@@ -155,6 +155,33 @@ before dispatching auditors:
 - `ali_marcador` → documents dense in `^[a-z]\)` lines (CLT/CDC-style coded statutes);
 - `vigencia` / `revogacao` → emendas and leis matching `entra em vigor|revogam-se`;
 - keep the **staged vs. active** convention (above) while a category crosses ~25 spans.
+
+**Path 4 — synthetic normas (offsets exact by construction).** Legislative structure
+is highly templated, which makes a deterministic renderer unusually effective here —
+the approach is ported from causaganha's synthetic segmenter (RFC 0011 there), where
+it was validated against a real fine-tune:
+
+```bash
+uv run leizilla opf-synth --n 200 --seed 13 --ali-per-inciso 3
+# -> data/opf/synthetic/synthetic.jsonl + synthetic_manifest.json
+```
+
+What synthetic uniquely buys, beyond volume:
+
+- **Starved categories on demand** — every real law has ~1 `ementa`/`vigencia`/
+  `revogacao`; the renderer emits them per document and `ali_marcador` at any density.
+- **Hard negatives as first-class citizens** — marker-shaped surfaces that must NOT be
+  labeled, drawn from the regex baseline's own audited failure modes (lowercase `art.`
+  cross-references, `§` inside citation chains, compiled-text `(Revogado pela Lei …)`
+  history notes). A model only learns a distinction its training data contains.
+- **Off-regex OCR surfaces** — degradations the regex misses *by construction*
+  (dropped period in `Art 5º`, `§` misread as `S`), i.e. exactly the residual where
+  OPF must earn its keep over the 0.95-F1 baseline.
+
+Ground rules: synthetic goes into the **training mix only**, never val/test; every
+record carries `info.source="synthetic"` + generator seed; marker surfaces on the
+clean profile must stay regex-parseable (enforced by test — synthetic that drifts
+off-regime would teach conventions the corpus doesn't have).
 
 Stratification rule unchanged in every path: equal allocation per fonte (skill
 Warning 1) — the OCR-noisy assembleia/casacivil documents are the valuable ones, not
