@@ -120,13 +120,53 @@ never `uv run`; persist base once; save checkpoint immediately; push `--n-ctx` u
 safe to run on the v0 gold as a smoke test + baseline. See the skill's `colab-and-drive.md`
 for the Drive-layout rationale.
 
+> **Measured T4/Colab lessons (2026-07-16)** — from real `opf train` runs on the same
+> free-tier target (T4 GPU, ~13 GB host RAM), sibling project causaganha's segmenter:
+>
+> 1. **One `opf train` process must never run more than 1 epoch.** The runner clones the
+>    *entire* model to host RAM every time validation loss improves and holds the clone
+>    until the process exits (`opf/_train/runner.py`, `best_state`). On a ~13 GB Colab
+>    host this SIGKILLs (-9) mid-epoch-2/3 — reproduced twice with 3-second RAM traces
+>    (2.9 GB steady → 8.3 GB after epoch 1 → 10.6 GB, killed). Multi-epoch training must
+>    be a **chain of single-epoch processes**, each resumed via `--checkpoint` from the
+>    previous epoch's `--output-dir` (fresh process = RAM back to ~1.1 GB; validated
+>    over 16 consecutive epoch-processes). The notebook's train cell does this.
+> 2. **`--batch-size 1` on a T4.** The opf default (4) CUDA-OOMs: batch=1 already uses
+>    12.4/15.4 GB VRAM with ~10k-token windows; batch=2 died inside the first forward
+>    pass. Prefer more epochs over gradient accumulation — with a tiny gold, optimizer
+>    steps per epoch are the scarce resource (grad-accum 4 cut steps to 19/epoch and
+>    measurably slowed convergence).
+> 3. **`--learning-rate 5e-5`, not the 1e-5 default.** A custom label space rebuilds the
+>    output head with nearly every row randomly initialized (`fallback=…` in the train
+>    log); measured head-to-head, lr 5e-5 reached val_loss 0.419 in 2 epochs where
+>    lr 1e-5 needed 4 epochs to reach only 0.531.
+> 4. **Early epochs report token accuracy ≈ 92% with span F1 = exactly 0 for every
+>    category** — the all-background ("O") regime under class imbalance, not a broken
+>    model. Evaluate every ~2 epochs to see when span predictions lift off, and never
+>    compare an early-epoch 0 against the regex baseline's 0.95 as if it were final.
+> 5. `finetune_summary.json`'s per-epoch metrics live under the `epoch_metrics` key
+>    (`best_metric`/`best_epoch` are top-level). opf has **no** W&B/tensorboard
+>    integration (verified: zero references in the repo) — wire dashboards yourself by
+>    parsing that file per epoch-process.
+
 ```bash
 git clone https://github.com/openai/privacy-filter && cd privacy-filter && pip install -e .
+# Multi-epoch = chain of single-epoch processes (lesson 1 above); epoch 1 starts
+# from the base checkpoint, epoch N+1 resumes from epoch N's output.
 opf train train.jsonl \
   --validation-dataset val.jsonl \
   --label-space-json /path/to/data/opf/label_space.json \
-  --output-dir ./ckpt_leizilla_v1
-opf eval test.jsonl --label-space-json /path/to/data/opf/label_space.json
+  --epochs 1 --batch-size 1 --learning-rate 5e-5 \
+  --output-dir ./ckpt_leizilla_v1_e1
+opf train train.jsonl \
+  --validation-dataset val.jsonl \
+  --label-space-json /path/to/data/opf/label_space.json \
+  --epochs 1 --batch-size 1 --learning-rate 5e-5 \
+  --checkpoint ./ckpt_leizilla_v1_e1 \
+  --output-dir ./ckpt_leizilla_v1_e2
+# ... repeat; then evaluate (opf eval takes no --label-space-json — the
+# checkpoint already encodes the label space):
+opf eval test.jsonl --checkpoint ./ckpt_leizilla_v1_e2 --per-class
 ```
 
 Confirm flags with `opf train --help`. Watch **span-level F1 split into exact vs.
