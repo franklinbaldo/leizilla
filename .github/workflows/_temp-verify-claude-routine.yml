@@ -1,0 +1,46 @@
+name: TEMP — Verify claude-routine.yml fix (PR #113)
+
+# Workflow temporário, só pra confirmar que o fix da PR #113 (id-token: write +
+# prompt carregado via step output) realmente funciona, sem esperar até
+# segunda 10:00 UTC. Espelha o job de claude-routine.yml, mudando só o
+# trigger pra `push` (não precisamos de actions:write pra isso, só
+# contents:write, que a integração desta sessão já tem). Apagar depois de
+# confirmar.
+
+on:
+  push:
+    branches:
+      - temp/verify-claude-routine
+
+concurrency:
+  group: temp-verify-claude-routine
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  routine:
+    name: Sessão de manutenção (verificação)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Carregar prompt de manutenção
+        id: load_prompt
+        run: |
+          {
+            echo 'text<<PROMPT_EOF'
+            cat docs/routines/maintenance-prompt.md
+            echo 'PROMPT_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Executar rotina de manutenção
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: ${{ steps.load_prompt.outputs.text }}
