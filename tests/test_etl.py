@@ -120,6 +120,12 @@ class TestXmlToRowsSimple:
     def test_ate_is_none_single_versao(self) -> None:
         assert all(r["ate"] is None for r in self.rows)
 
+    def test_versao_id_format(self) -> None:
+        # Issue #119: versao_id must include lei_id to be globally unique in Parquet
+        # Expected format: {lei_id}#{path}#{em}
+        art1 = next(r for r in self.rows if r["dispositivo_path"] == "art-1")
+        assert art1["versao_id"] == "leizilla-ro-lei-09999-1999#art-1#1999-06-15"
+
     def test_inicio_tipo_default(self) -> None:
         assert all(r["inicio_tipo"] == "data-publicacao" for r in self.rows)
 
@@ -336,6 +342,27 @@ class TestConsolidateXmls:
         lei_ids = {r["lei_id"] for r in rows}
         assert "leizilla-ro-lei-09999-1999" in lei_ids
         assert "leizilla-ro-lei-00500-1990" in lei_ids
+
+    def test_versao_id_unique_across_laws(self) -> None:
+        # Issue #119: Same path#em in two different laws must get distinct versao_ids
+        items = [
+            ("lei-1", "ro", _SIMPLE),
+            ("lei-2", "ro", _SIMPLE),  # Same XML, different lei_id
+        ]
+        rows = consolidate_xmls(items)
+        # 5 rows per law = 10 rows total, 10 unique versao_ids
+        versao_ids = {r["versao_id"] for r in rows}
+        assert len(versao_ids) == 10
+        assert "lei-1#art-1#1999-06-15" in versao_ids
+        assert "lei-2#art-1#1999-06-15" in versao_ids
+
+    def test_duplicate_versao_id_raises(self) -> None:
+        items = [
+            ("lei-1", "ro", _SIMPLE),
+            ("lei-1", "ro", _SIMPLE),  # Exact same lei_id and XML -> duplicate IDs
+        ]
+        with pytest.raises(ValueError, match="Duplicate versao_id detected"):
+            consolidate_xmls(items)
 
     def test_empty_input(self) -> None:
         assert consolidate_xmls([]) == []
