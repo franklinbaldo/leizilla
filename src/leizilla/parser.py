@@ -93,8 +93,15 @@ Path rules:
 - Organizational paths (namespaced): tit-N, tit-N-cap-N, tit-N-cap-N-sec-N
 - Use lower-case with hyphens only, first char must be a-z
 - Paths MUST be unique within the document. Before you output, verify no two
-  <dispositivo> share the same path. If the source repeats an article/inciso
-  number, emit it once (the authoritative occurrence) — never a duplicate path.
+  <dispositivo> share the same path. If the source appears to repeat an
+  article/inciso number (OCR duplication, ambiguous renumbering), do NOT pick
+  one occurrence and silently drop the other — that discards normative text.
+  If the repeated occurrences carry the same content, merge them into a
+  single <dispositivo> keeping the full text. If they conflict and cannot be
+  safely disambiguated, fold the ambiguous text into the enclosing
+  dispositivo's path as running text instead of guessing a split — or, if
+  even that is unsafe, set "confidence" below 0.5 and explain the ambiguity
+  in "error" rather than emitting a document that silently lost text.
 
 Provenance (mandatory):
 - Every <versao> MUST contain exactly one <fonte ia-id="{ia_id}"/>, with the
@@ -114,10 +121,15 @@ URN rules — the urn-lex on <lei> and the "urn_lex" field must be identical:
     medida provisória      -> medida.provisoria
     resolução              -> resolucao
     portaria               -> portaria
-- YYYY-MM-DD is the law's ACTUAL publication/enactment date read from the text
-  (the dateline, "Publicada no D.O.E. de…", or the closing "Palácio…, em DD de
-  MÊS de AAAA"). Use a year-only date (just YYYY) when the day/month are missing.
-  Do NOT substitute today's date into the URN.
+- YYYY-MM-DD is the date of the ACT ITSELF — signature/promulgation date, not
+  the publication date (LexML Parte 2 §10.1 treats publication as a separate
+  event from the norm's representative date). Read it from the closing
+  formula ("Palácio…, em DD de MÊS de AAAA") or an equivalent signature
+  dateline. Do NOT use a "Publicada no D.O.E. de…" notice for this date —
+  that is the publication date, and using it here would produce a different
+  URN for the same norm depending on which notice the source happens to
+  carry. Use a year-only date (just YYYY) when the day/month of the act's own
+  date are missing. Do NOT substitute today's date into the URN.
 - NUMERO is the digits-only law number (same value as the "numero" field).
 
 Use vigente-em={today} — this is the "as of" reference for the snapshot and is
@@ -262,6 +274,30 @@ def _is_well_formed(xml_str: str) -> bool:
         return False
 
 
+_LEI_NS = "{https://leizilla.org/lei/0.1}"
+
+
+def _find_provenance_mismatch(root: ET.Element, ia_id: str) -> Optional[str]:
+    """Check every <versao> carries exactly one <fonte ia-id="{ia_id}"/>.
+
+    The XSD itself allows multiple <fonte> per <versao> (future multi-witness
+    reconciliation) and only validates the ia-id's generic format, so a model
+    that hallucinates an extra source or a different well-formed raw id would
+    otherwise pass unnoticed. This narrower single-source invariant is what
+    the prompt promises for LLM-parsed output specifically, so it is enforced
+    here rather than in the XSD. Returns a reason string on mismatch, else
+    None.
+    """
+    for versao in root.iter(f"{_LEI_NS}versao"):
+        fontes = versao.findall(f"{_LEI_NS}fonte")
+        if len(fontes) != 1:
+            return f"versao com {len(fontes)} <fonte> (esperado exatamente 1)"
+        fonte_id = fontes[0].get("ia-id")
+        if fonte_id != ia_id:
+            return f"fonte ia-id={fonte_id!r} != ia_id esperado {ia_id!r}"
+    return None
+
+
 def parse_law(
     ocr_text: str,
     ia_id: str,
@@ -361,6 +397,16 @@ def parse_law(
     if not xml or not _is_well_formed(xml):
         logger.warning(
             "%s: confidence %.2f mas xml ausente/malformado", ia_id, confidence
+        )
+        return None
+
+    provenance_error = _find_provenance_mismatch(ET.fromstring(xml), ia_id)
+    if provenance_error:
+        logger.warning(
+            "%s: confidence %.2f mas proveniência inválida: %s",
+            ia_id,
+            confidence,
+            provenance_error,
         )
         return None
 
