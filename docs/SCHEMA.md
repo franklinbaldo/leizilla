@@ -344,7 +344,7 @@ Agrupadas por origem (lei / dispositivo / versão). Toda metadata de lei e dispo
 
 | coluna | tipo | nullable | nota |
 |---|---|---|---|
-| `versao_id` | VARCHAR | NO | `{dispositivo_path}#{em}` |
+| `versao_id` | VARCHAR | NO | `{lei_id}#{dispositivo_path}#{em}` |
 | `em` | DATE | NO | data de início da versão (chave natural) |
 | `ate` | DATE | YES | inferido; NULL = ainda vigente |
 | `alterado_por` | VARCHAR | YES | URN da lei alteradora |

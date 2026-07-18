@@ -268,7 +268,7 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                         }
                     )
 
-                versao_id = f"{path}#{em.isoformat() if em else 'unknown'}"
+                versao_id = f"{lei_id}#{path}#{em.isoformat() if em else 'unknown'}"
 
                 rows.append(
                     {
@@ -303,8 +303,15 @@ def consolidate_xmls(
 ) -> list[dict[str, Any]]:
     """Convert multiple (lei_id, ente, xml_content) items to versoes rows."""
     rows: list[dict[str, Any]] = []
+    seen_versao_ids: set[str] = set()
     for lei_id, ente, xml_content in xml_items:
-        rows.extend(xml_to_rows(xml_content, lei_id, ente))
+        lei_rows = xml_to_rows(xml_content, lei_id, ente)
+        for row in lei_rows:
+            vid = row["versao_id"]
+            if vid in seen_versao_ids:
+                raise ValueError(f"Duplicate versao_id detected: {vid}")
+            seen_versao_ids.add(vid)
+        rows.extend(lei_rows)
     return rows
 
 
