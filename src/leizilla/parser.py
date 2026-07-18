@@ -64,9 +64,9 @@ Required fields:
 - "xml": complete Leizilla XML v0.1 string (see format below)
 - "confidence": float 0.0–1.0 (how well you parsed the text)
 - "tipo": document type slug — "lei", "decreto", "lei-complementar", etc.
-- "numero": law number as string (e.g. "9999")
+- "numero": law number as string, digits only (e.g. "9999")
 - "ano": year as integer
-- "urn_lex": URN LEX string, or null if date cannot be determined
+- "urn_lex": URN LEX string (see URN rules); null only if the text has no date at all
 
 Leizilla XML v0.1 format (namespace https://leizilla.org/lei/0.1):
 
@@ -91,16 +91,37 @@ Leizilla XML v0.1 format (namespace https://leizilla.org/lei/0.1):
 Path rules:
 - Normative paths (global): ementa, preambulo, art-N, art-N-par-unico, art-N-par-M, art-N-inc-N, art-N-inc-N-ali-a
 - Organizational paths (namespaced): tit-N, tit-N-cap-N, tit-N-cap-N-sec-N
-- Paths must be unique within the document
 - Use lower-case with hyphens only, first char must be a-z
+- Paths MUST be unique within the document. Before you output, verify no two
+  <dispositivo> share the same path. If the source repeats an article/inciso
+  number, emit it once (the authoritative occurrence) — never a duplicate path.
 
-URN format for state laws (ente={ente_name}):
-  urn:lex:br;{ente_name}:estadual:lei:YYYY-MM-DD;NUMERO
-For federal laws (ente=federal):
-  urn:lex:br:federal:lei:YYYY-MM-DD;NUMERO
+Provenance (mandatory):
+- Every <versao> MUST contain exactly one <fonte ia-id="{ia_id}"/>, with the
+  ia-id EXACTLY "{ia_id}" — never empty, never omitted, never a different value.
 
-Use vigente-em={today} unless you know a better date.
-All dispositivos share the same fonte ia-id: {ia_id}
+URN rules — the urn-lex on <lei> and the "urn_lex" field must be identical:
+  state laws (ente={ente_name}):  urn:lex:br;{ente_name}:estadual:TIPO:YYYY-MM-DD;NUMERO
+  federal laws (ente=federal):    urn:lex:br:federal:TIPO:YYYY-MM-DD;NUMERO
+- TIPO is the LexML token for THIS document — NOT always "lei". The "lei" in the
+  example above is illustrative; replace it per this map (LexML uses dots in the
+  URN token, never hyphens):
+    lei                    -> lei
+    lei complementar       -> lei.complementar
+    decreto                -> decreto
+    decreto-lei            -> decreto.lei
+    emenda constitucional  -> emenda.constitucional
+    medida provisória      -> medida.provisoria
+    resolução              -> resolucao
+    portaria               -> portaria
+- YYYY-MM-DD is the law's ACTUAL publication/enactment date read from the text
+  (the dateline, "Publicada no D.O.E. de…", or the closing "Palácio…, em DD de
+  MÊS de AAAA"). Use a year-only date (just YYYY) when the day/month are missing.
+  Do NOT substitute today's date into the URN.
+- NUMERO is the digits-only law number (same value as the "numero" field).
+
+Use vigente-em={today} — this is the "as of" reference for the snapshot and is
+independent of the publication date encoded in the URN.
 
 If text is unreadable, not a law, or confidence < 0.5, output only:
 {{"confidence": 0.0, "error": "brief reason"}}
