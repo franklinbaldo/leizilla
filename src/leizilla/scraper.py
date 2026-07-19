@@ -85,7 +85,10 @@ def scrape_one(
         return {"success": False, "reason": "fetch-failed", "url": pdf_url}
 
     if pdf_bytes[:4] != b"%PDF":
-        print(f"[WARN] not a valid PDF for {lei_data.get('chave')} ({pdf_url}): header={pdf_bytes[:32]!r}", file=sys.stderr)
+        print(
+            f"[WARN] not a valid PDF for {lei_data.get('chave')} ({pdf_url}): header={pdf_bytes[:32]!r}",
+            file=sys.stderr,
+        )
         return {"success": False, "reason": "not-pdf", "url": pdf_url}
 
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
