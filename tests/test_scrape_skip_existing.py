@@ -167,6 +167,152 @@ class TestCmdScrapeSkipExisting:
         )
         mock_scrape.assert_called_once()
 
+    @patch("leizilla.scraper.scrape_one_html")
+    @patch("leizilla.publisher.InternetArchivePublisher")
+    @patch(
+        "leizilla.publisher.list_raw_ids",
+        return_value={"leizilla-raw-federal-planalto-lei-00001"},
+    )
+    @patch("leizilla.fontes.federal.discover_planalto_laws")
+    def test_planalto_limit(self, mock_discover, mock_list, mock_pub_cls, mock_scrape):
+        """Testa se o limit interrompe corretamente os novos itens, sem contar os pulados."""
+        mock_discover.return_value = [
+            {
+                "ente": "federal",
+                "fonte": "planalto",
+                "chave": "lei-00001",
+                "url_original": "https://www.planalto.gov.br/ccivil_03/leis/L1.htm",
+            },
+            {
+                "ente": "federal",
+                "fonte": "planalto",
+                "chave": "lei-00002",
+                "url_original": "https://www.planalto.gov.br/ccivil_03/leis/L2.htm",
+            },
+            {
+                "ente": "federal",
+                "fonte": "planalto",
+                "chave": "lei-00003",
+                "url_original": "https://www.planalto.gov.br/ccivil_03/leis/L3.htm",
+            },
+        ]
+        mock_pub_cls.return_value = MagicMock()
+        mock_scrape.return_value = _UPLOAD_OK
+
+        result = runner.invoke(
+            app,
+            [
+                "scrape",
+                "--ente",
+                "federal",
+                "--fonte",
+                "planalto",
+                "--tipo",
+                "lei",
+                "--start",
+                "1",
+                "--end",
+                "3",
+                "--skip-existing",
+                "--limit",
+                "1",
+            ],
+        )
+
+        # O item 1 deve ser pulado, o item 2 deve ser processado, o item 3 deve ser interrompido pelo limit.
+        mock_scrape.assert_called_once()
+        assert "1 pulados" in result.output
+        assert "1/3 com sucesso" in result.output
+
+    @patch("leizilla.scraper.scrape_one")
+    @patch("leizilla.publisher.InternetArchivePublisher")
+    @patch(
+        "leizilla.publisher.list_raw_ids",
+        return_value={"leizilla-raw-ro-casacivil-lei-00001"},
+    )
+    @patch("leizilla.crawler.discover_casacivil_laws")
+    def test_casacivil_limit(self, mock_discover, mock_list, mock_pub_cls, mock_scrape):
+        """Testa se o limit interrompe corretamente os PDFs, sem contar os pulados."""
+        mock_discover.return_value = [
+            {
+                "ente": "ro",
+                "fonte": "casacivil",
+                "chave": "lei-00001",
+                "url_original": "http://ditel/L1.pdf",
+                "url_pdf_original": "http://ditel/L1.pdf",
+            },
+            {
+                "ente": "ro",
+                "fonte": "casacivil",
+                "chave": "lei-00002",
+                "url_original": "http://ditel/L2.pdf",
+                "url_pdf_original": "http://ditel/L2.pdf",
+            },
+            {
+                "ente": "ro",
+                "fonte": "casacivil",
+                "chave": "lei-00003",
+                "url_original": "http://ditel/L3.pdf",
+                "url_pdf_original": "http://ditel/L3.pdf",
+            },
+        ]
+        mock_pub_cls.return_value = MagicMock()
+        mock_scrape.return_value = _UPLOAD_OK
+
+        with (
+            patch("leizilla.discovery.WaybackCdxDiscovery.run", return_value=[]),
+            patch(
+                "leizilla.discovery.load_manifest",
+                return_value={
+                    "fontes": {
+                        "casacivil": {
+                            "probe": [
+                                {"templates": ["http://ditel/L{num}.pdf"], "start": 1}
+                            ]
+                        }
+                    }
+                },
+            ),
+        ):
+            with patch("leizilla.cli.asyncio.run") as mock_asyncio:
+                # Simular o comportamento do asyncio.run chamando a corrotina
+                def side_effect(coro):
+                    import asyncio
+
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        return loop.run_until_complete(coro)
+                    finally:
+                        loop.close()
+
+                mock_asyncio.side_effect = side_effect
+
+                result = runner.invoke(
+                    app,
+                    [
+                        "scrape",
+                        "--ente",
+                        "ro",
+                        "--fonte",
+                        "casacivil",
+                        "--tipo",
+                        "lei",
+                        "--start",
+                        "1",
+                        "--end",
+                        "3",
+                        "--skip-existing",
+                        "--limit",
+                        "1",
+                    ],
+                )
+
+        # O item 1 deve ser pulado, o item 2 deve ser processado, o item 3 deve ser interrompido pelo limit.
+        mock_scrape.assert_called_once()
+        assert "1 pulados" in result.output
+        assert "1/3 com sucesso" in result.output
+
     @patch("leizilla.publisher.list_raw_ids", return_value=set())
     def test_skip_existing_reports_ia_count_in_output(self, mock_list):
         """Com --skip-existing, output inclui contagem de itens existentes no IA."""

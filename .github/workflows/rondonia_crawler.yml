@@ -53,7 +53,8 @@ jobs:
           uv run leizilla scrape \
             --ente ro --fonte assembleia \
             --start 1 --end 5000 \
-            --skip-existing
+            --skip-existing \
+            --limit 500
 
       - name: Scrape — ro/assembleia (dispatch)
         if: github.event_name == 'workflow_dispatch'
@@ -94,7 +95,8 @@ jobs:
           uv run leizilla scrape \
             --ente ro --fonte casacivil --tipo lei \
             --start 1 --end 6000 \
-            --skip-existing
+            --skip-existing \
+            --limit 500
 
       - name: Scrape — ro/casacivil lei (dispatch)
         if: github.event_name == 'workflow_dispatch'
@@ -135,7 +137,8 @@ jobs:
           uv run leizilla scrape \
             --ente ro --fonte casacivil --tipo lc \
             --start 1 --end 1300 \
-            --skip-existing
+            --skip-existing \
+            --limit 500
 
       - name: Scrape — ro/casacivil lc (dispatch)
         if: github.event_name == 'workflow_dispatch'
