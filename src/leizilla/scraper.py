@@ -84,6 +84,13 @@ def scrape_one(
     if pdf_bytes is None:
         return {"success": False, "reason": "fetch-failed", "url": pdf_url}
 
+    # Valida magic bytes também no fallback direto — um WAF pode servir uma
+    # página de erro HTML com status 200 numa URL .pdf. O caminho Wayback já
+    # descarta esse caso acima (retry via fallback); este check final cobre o
+    # fallback em si, igual ao que harvest_pending_resources já faz.
+    if pdf_bytes[:4] != b"%PDF":
+        return {"success": False, "reason": "not-pdf", "url": pdf_url}
+
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
         f.write(pdf_bytes)
         tmp_path = Path(f.name)
