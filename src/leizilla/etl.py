@@ -159,6 +159,43 @@ def _iter_dispositivos(parent: ET.Element) -> list[ET.Element]:
     return parent.findall(f"{{{NS}}}dispositivo")
 
 
+PARQUET_SCHEMA: dict[str, str] = {
+    "lei_id": "VARCHAR",
+    "ente": "VARCHAR",
+    "tipo_lei": "VARCHAR",
+    "numero_lei": "VARCHAR",
+    "ano_lei": "INTEGER",
+    "data_publicacao": "DATE",
+    "urn_lex_lei": "VARCHAR",
+    "vigente_em": "DATE",
+    "lei_revogada": "BOOLEAN",
+    "lei_revogada_em": "DATE",
+    "lei_revogada_por": "VARCHAR",
+    "lei_revogada_tipo": "VARCHAR",
+    "dispositivo_path": "VARCHAR",
+    "dispositivo_tipo": "VARCHAR",
+    "dispositivo_ordem": "INTEGER",
+    "dispositivo_parent_path": "VARCHAR",
+    "dispositivo_revogado": "BOOLEAN",
+    "dispositivo_revogado_em": "DATE",
+    "dispositivo_revogado_por": "VARCHAR",
+    "dispositivo_revogado_tipo": "VARCHAR",
+    "urn_dispositivo": "VARCHAR",
+    "versao_id": "VARCHAR",
+    "em": "DATE",
+    "ate": "DATE",
+    "alterado_por": "VARCHAR",
+    "inicio_tipo": "VARCHAR",
+    "texto": "VARCHAR",
+    "texto_normalizado": "VARCHAR",
+    "fontes": "VARCHAR",
+    "num_fontes": "INTEGER",
+    "tem_divergencia": "BOOLEAN",
+    "hash_texto": "VARCHAR",
+    "quality": "VARCHAR",
+}
+
+
 def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]]:
     """Parse Leizilla XML v0.1 into versoes rows per SCHEMA.md §3.1."""
     root = ET.fromstring(xml_content)
@@ -322,7 +359,7 @@ def _json_default(obj: object) -> str:
 
 
 def write_parquet(rows: list[dict[str, Any]], output_path: Path) -> None:
-    """Write versoes rows to Parquet (SNAPPY) via DuckDB read_json_auto."""
+    """Write versoes rows to Parquet (SNAPPY) via DuckDB read_json with explicit schema."""
     import os
     import tempfile
 
@@ -341,9 +378,17 @@ def write_parquet(rows: list[dict[str, Any]], output_path: Path) -> None:
 
         conn = duckdb.connect()
         try:
+            # Generate the dictionary string representation expected by DuckDB
+            columns_str = (
+                "{"
+                + ", ".join(f"'{k}': '{v}'" for k, v in PARQUET_SCHEMA.items())
+                + "}"
+            )
             # Use parameterized ? to avoid SQL string interpolation for file paths
+            # but schema dictionary has to be inline
             conn.execute(
-                "CREATE TABLE _rows AS SELECT * FROM read_json_auto(?)", [tmp_path]
+                f"CREATE TABLE _rows AS SELECT * FROM read_json(?, columns={columns_str})",
+                [tmp_path],
             )
             conn.table("_rows").write_parquet(str(output_path), compression="snappy")
         finally:
