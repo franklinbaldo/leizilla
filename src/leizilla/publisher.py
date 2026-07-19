@@ -1,6 +1,5 @@
 """Publicação no Internet Archive e exportação de datasets."""
 
-import atexit
 import configparser
 import csv
 import hashlib
@@ -547,9 +546,6 @@ def _unidentified_title(ente: str, fonte: str) -> str:
     return f"Leizilla Raw {ente.upper()} {fonte.upper()} UNIDENTIFIED"
 
 
-_ia_config_cache: Dict[tuple[str, str], str] = {}
-
-
 def _ia_subprocess_env(
     access_key: Optional[str], secret_key: Optional[str]
 ) -> Optional[Dict[str, str]]:
@@ -557,31 +553,28 @@ def _ia_subprocess_env(
 
     O CLI ``ia`` ignora ``IA_ACCESS_KEY``/``IA_SECRET_KEY`` e não tem flags de
     chave: ele só lê credenciais de um arquivo de config, cujo caminho pode ser
-    sobrescrito via a env var ``IA_CONFIG_FILE``. Escrevemos um ``ia.ini`` mínimo
-    (uma vez por par de credenciais) e apontamos o subprocess para ele, para que
-    o upload funcione sem um ``~/.config/internetarchive/ia.ini`` pré-existente.
+    sobrescrito via a env var ``IA_CONFIG_FILE``. Escrevemos um ``ia.ini``
+    mínimo (permissões 0600, padrão do ``NamedTemporaryFile``) e apontamos o
+    subprocess para ele, para que o upload funcione sem um
+    ``~/.config/internetarchive/ia.ini`` pré-existente.
+
+    Escreve um arquivo novo a cada chamada — não reaproveita um cache
+    process-wide — para que o caller (``_run_ia_upload``) possa apagá-lo logo
+    após o uso, num ``finally``. Um cache de vida longa só seria removido via
+    ``atexit``, que não roda sob SIGKILL (cancelamento hard de job em CI),
+    deixando a credencial em texto plano no disco pelo resto da vida do
+    container.
     """
     if not access_key or not secret_key:
         return None
-    key = (access_key, secret_key)
-    cfg_path = _ia_config_cache.get(key)
-    if cfg_path is None:
-        cfg = configparser.ConfigParser()
-        cfg["s3"] = {"access": access_key, "secret": secret_key}
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".ini", delete=False, encoding="utf-8"
-        )
-        cfg.write(tmp)
-        tmp.close()
-        cfg_path = tmp.name
-        _ia_config_cache[key] = cfg_path
-        _final_path = cfg_path
-
-        def _cleanup() -> None:
-            Path(_final_path).unlink(missing_ok=True)
-
-        atexit.register(_cleanup)
-    return {**os.environ, "IA_CONFIG_FILE": cfg_path}
+    cfg = configparser.ConfigParser()
+    cfg["s3"] = {"access": access_key, "secret": secret_key}
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".ini", delete=False, encoding="utf-8"
+    )
+    cfg.write(tmp)
+    tmp.close()
+    return {**os.environ, "IA_CONFIG_FILE": tmp.name}
 
 
 # Padrões no stderr do `ia upload` que indicam falha transitória (retry pode ajudar).
@@ -634,34 +627,42 @@ class InternetArchivePublisher:
         (uma vez, antes do loop) — não a cada tentativa de retry interna, já
         que o backoff exponencial já espaça as tentativas da MESMA chamada;
         pacear os dois ao mesmo tempo só somaria esperas redundantes.
+
+        O ``ia.ini`` temporário (credenciais em texto plano) é removido no
+        ``finally`` assim que esta chamada termina — não sobrevive além dela.
         """
         self._upload_rate_limiter(_IA_RATE_LIMIT_KEY)
         env = _ia_subprocess_env(self.access_key, self.secret_key)
-        for attempt in range(1, _IA_UPLOAD_MAX_ATTEMPTS + 1):
-            try:
-                return subprocess.run(
-                    args, capture_output=True, text=True, check=True, env=env
-                )
-            except subprocess.CalledProcessError as e:
-                if (
-                    attempt == _IA_UPLOAD_MAX_ATTEMPTS
-                    or not _RETRYABLE_IA_ERROR_RE.search(e.stderr or "")
-                ):
-                    raise
-                delay = min(
-                    _IA_UPLOAD_MAX_DELAY_S,
-                    _IA_UPLOAD_BASE_DELAY_S * (2 ** (attempt - 1)),
-                )
-                delay += random.uniform(0, delay * 0.25)  # jitter
-                logger.warning(
-                    "ia upload: erro transiente (tentativa %d/%d), retry em %.1fs: %s",
-                    attempt,
-                    _IA_UPLOAD_MAX_ATTEMPTS,
-                    delay,
-                    (e.stderr or "").strip()[:200],
-                )
-                time.sleep(delay)
-        raise AssertionError("unreachable — loop always returns or raises")
+        cfg_path = env.get("IA_CONFIG_FILE") if env else None
+        try:
+            for attempt in range(1, _IA_UPLOAD_MAX_ATTEMPTS + 1):
+                try:
+                    return subprocess.run(
+                        args, capture_output=True, text=True, check=True, env=env
+                    )
+                except subprocess.CalledProcessError as e:
+                    if (
+                        attempt == _IA_UPLOAD_MAX_ATTEMPTS
+                        or not _RETRYABLE_IA_ERROR_RE.search(e.stderr or "")
+                    ):
+                        raise
+                    delay = min(
+                        _IA_UPLOAD_MAX_DELAY_S,
+                        _IA_UPLOAD_BASE_DELAY_S * (2 ** (attempt - 1)),
+                    )
+                    delay += random.uniform(0, delay * 0.25)  # jitter
+                    logger.warning(
+                        "ia upload: erro transiente (tentativa %d/%d), retry em %.1fs: %s",
+                        attempt,
+                        _IA_UPLOAD_MAX_ATTEMPTS,
+                        delay,
+                        (e.stderr or "").strip()[:200],
+                    )
+                    time.sleep(delay)
+            raise AssertionError("unreachable — loop always returns or raises")
+        finally:
+            if cfg_path is not None:
+                Path(cfg_path).unlink(missing_ok=True)
 
     def upload_raw(
         self,

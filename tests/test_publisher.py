@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import os
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -31,16 +33,38 @@ class TestIASubprocessEnv:
         env = _ia_subprocess_env("AKIA-test", "shh-secret")
         assert env is not None
         cfg_path = env["IA_CONFIG_FILE"]
-        content = Path(cfg_path).read_text(encoding="utf-8")
-        assert "[s3]" in content
-        assert "AKIA-test" in content
-        assert "shh-secret" in content
+        try:
+            content = Path(cfg_path).read_text(encoding="utf-8")
+            assert "[s3]" in content
+            assert "AKIA-test" in content
+            assert "shh-secret" in content
+        finally:
+            Path(cfg_path).unlink(missing_ok=True)
 
-    def test_caches_config_per_credential_pair(self):
+    def test_config_file_has_owner_only_permissions(self):
+        # Credentials on disk in plaintext — must not be group/world-readable.
+        env = _ia_subprocess_env("AKIA-test", "shh-secret")
+        assert env is not None
+        cfg_path = env["IA_CONFIG_FILE"]
+        try:
+            mode = stat.S_IMODE(os.stat(cfg_path).st_mode)
+            assert mode == 0o600
+        finally:
+            Path(cfg_path).unlink(missing_ok=True)
+
+    def test_no_longer_caches_across_calls(self):
+        # A process-wide cache only cleaned up via atexit leaves the plaintext
+        # credential file on disk for the container's whole lifetime, and
+        # atexit doesn't run on SIGKILL (hard CI job cancellation). Each call
+        # now writes its own file; the caller deletes it right after use.
         first = _ia_subprocess_env("dup-key", "dup-secret")
         second = _ia_subprocess_env("dup-key", "dup-secret")
         assert first is not None and second is not None
-        assert first["IA_CONFIG_FILE"] == second["IA_CONFIG_FILE"]
+        try:
+            assert first["IA_CONFIG_FILE"] != second["IA_CONFIG_FILE"]
+        finally:
+            Path(first["IA_CONFIG_FILE"]).unlink(missing_ok=True)
+            Path(second["IA_CONFIG_FILE"]).unlink(missing_ok=True)
 
 
 class TestRawIdentifier:
@@ -373,6 +397,45 @@ class TestRunIaUploadRetry:
                 raise AssertionError("expected FileNotFoundError to propagate")
             except FileNotFoundError:
                 pass
+
+    def test_deletes_temp_credential_file_after_success(self):
+        # The plaintext ia.ini must not outlive this single call — see #124.
+        pub = self._publisher()
+        captured_env = {}
+
+        def _capture_env_then_fake_success(args, **kwargs):
+            captured_env.update(kwargs.get("env") or {})
+            return MagicMock(returncode=0)
+
+        with patch("subprocess.run", side_effect=_capture_env_then_fake_success):
+            pub._run_ia_upload(["ia", "upload", "some-id"])
+        cfg_path = captured_env["IA_CONFIG_FILE"]
+        assert not Path(cfg_path).exists()
+
+    def test_deletes_temp_credential_file_after_exhausted_retries(self):
+        import subprocess
+
+        pub = self._publisher()
+        captured_env = {}
+        error = subprocess.CalledProcessError(
+            1, "ia", stderr="Please reduce your request rate."
+        )
+
+        def _capture_env_then_fail(args, **kwargs):
+            captured_env.update(kwargs.get("env") or {})
+            raise error
+
+        with (
+            patch("time.sleep"),
+            patch("subprocess.run", side_effect=_capture_env_then_fail),
+        ):
+            try:
+                pub._run_ia_upload(["ia", "upload", "some-id"])
+                raise AssertionError("expected CalledProcessError to propagate")
+            except subprocess.CalledProcessError:
+                pass
+        cfg_path = captured_env["IA_CONFIG_FILE"]
+        assert not Path(cfg_path).exists()
 
 
 class TestListParsedRawIds:
