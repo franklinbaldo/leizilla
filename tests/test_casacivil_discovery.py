@@ -1,5 +1,8 @@
 """Testes para discover_casacivil_laws — enumeração sem Playwright."""
 
+from unittest.mock import patch
+from leizilla.discovery import CasacivilIndexDiscovery
+
 import pytest
 
 from leizilla.crawler import (
@@ -85,3 +88,59 @@ class TestDiscoverCasacivilLaws:
             assert len(laws) == 5
         finally:
             socket.getaddrinfo = original_getaddrinfo
+
+
+
+
+
+
+class TestCasacivilIndexDiscovery:
+    @patch("leizilla.scraper.robots.is_allowed", return_value=True)
+    @patch("leizilla.wayback.closest_snapshot", return_value=None)
+    @patch("urllib.request.urlopen")
+    def test_casacivil_index_discovery_enumerates_all_tipos(self, mock_urlopen, mock_snap, mock_robots):
+        from unittest.mock import MagicMock
+        config = {
+            "strategy": "casacivil-index",
+            "url": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/",
+        }
+
+        with open("tests/fixtures/casacivil_index.html", "r") as f:
+            html_content = f.read()
+
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.read.return_value = html_content.encode("utf-8")
+        mock_urlopen.return_value = mock_resp
+
+        discoverer = CasacivilIndexDiscovery(config, "ro", "casacivil")
+        resources = discoverer.run()
+
+        assert len(resources) == 7
+
+        chaves = [r["chave"] for r in resources]
+        assert "lei-06001" in chaves
+        assert "lc-01301" in chaves
+        assert "ec-00146" in chaves
+        assert "decreto-00001" in chaves
+        assert "decreto-lei-00002" in chaves
+        assert "resolucao-00003" in chaves
+        assert "portaria-00004" in chaves
+
+        urls = [r["url"] for r in resources]
+        assert "https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L6001.pdf" in urls
+        assert "https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/EC146.pdf" in urls
+
+    @patch("leizilla.scraper.robots.is_allowed", return_value=True)
+    @patch("leizilla.wayback.closest_snapshot", return_value=None)
+    @patch("urllib.request.urlopen", side_effect=Exception("Network failure"))
+    def test_casacivil_index_discovery_fails_open(self, mock_urlopen, mock_snap, mock_robots):
+        config = {
+            "strategy": "casacivil-index",
+            "url": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/",
+        }
+
+        discoverer = CasacivilIndexDiscovery(config, "ro", "casacivil")
+        resources = discoverer.run()
+
+        assert resources == []
