@@ -174,9 +174,7 @@ class TestCmdScrapeSkipExisting:
         return_value={"leizilla-raw-federal-planalto-lei-00001"},
     )
     @patch("leizilla.fontes.federal.discover_planalto_laws")
-    def test_planalto_limit(
-        self, mock_discover, mock_list, mock_pub_cls, mock_scrape
-    ):
+    def test_planalto_limit(self, mock_discover, mock_list, mock_pub_cls, mock_scrape):
         """Testa se o limit interrompe corretamente os novos itens, sem contar os pulados."""
         mock_discover.return_value = [
             {
@@ -233,9 +231,7 @@ class TestCmdScrapeSkipExisting:
         return_value={"leizilla-raw-ro-casacivil-lei-00001"},
     )
     @patch("leizilla.crawler.discover_casacivil_laws")
-    def test_casacivil_limit(
-        self, mock_discover, mock_list, mock_pub_cls, mock_scrape
-    ):
+    def test_casacivil_limit(self, mock_discover, mock_list, mock_pub_cls, mock_scrape):
         """Testa se o limit interrompe corretamente os PDFs, sem contar os pulados."""
         mock_discover.return_value = [
             {
@@ -263,19 +259,33 @@ class TestCmdScrapeSkipExisting:
         mock_pub_cls.return_value = MagicMock()
         mock_scrape.return_value = _UPLOAD_OK
 
-        with patch("leizilla.discovery.WaybackCdxDiscovery.run", return_value=[]), \
-             patch("leizilla.discovery.load_manifest", return_value={"fontes": {"casacivil": {"probe": [{"templates": ["http://ditel/L{num}.pdf"], "start": 1}]}}}):
-
+        with (
+            patch("leizilla.discovery.WaybackCdxDiscovery.run", return_value=[]),
+            patch(
+                "leizilla.discovery.load_manifest",
+                return_value={
+                    "fontes": {
+                        "casacivil": {
+                            "probe": [
+                                {"templates": ["http://ditel/L{num}.pdf"], "start": 1}
+                            ]
+                        }
+                    }
+                },
+            ),
+        ):
             with patch("leizilla.cli.asyncio.run") as mock_asyncio:
                 # Simular o comportamento do asyncio.run chamando a corrotina
                 def side_effect(coro):
                     import asyncio
+
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
                         return loop.run_until_complete(coro)
                     finally:
                         loop.close()
+
                 mock_asyncio.side_effect = side_effect
 
                 result = runner.invoke(
