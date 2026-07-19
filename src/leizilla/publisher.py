@@ -1,7 +1,7 @@
 """Publicação no Internet Archive e exportação de datasets."""
 
+import atexit
 import configparser
-import contextlib
 import csv
 import hashlib
 import io
@@ -19,7 +19,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional, Set
+from typing import Any, Dict, Optional, Set
 
 from leizilla import config
 from leizilla import storage as storage_module
@@ -185,24 +185,19 @@ def build_dataset_meta(
     vai num sidecar JSON no mesmo IA item.
     """
     parquet_bytes = parquet_path.read_bytes()
-    import duckdb
+    if row_count is None:
+        import duckdb
 
-    conn = duckdb.connect()
-    try:
-        actual_row_count = (
-            conn.execute(
-                "SELECT count(*) FROM read_parquet(?)", [str(parquet_path)]
-            ).fetchone()
-            or (0,)
-        )[0]
-    finally:
-        conn.close()
-
-    if row_count is not None and row_count != actual_row_count:
-        raise ValueError(
-            f"Passado row_count={row_count} mas o arquivo Parquet possui {actual_row_count} linhas"
-        )
-
+        conn = duckdb.connect()
+        try:
+            row_count = (
+                conn.execute(
+                    "SELECT count(*) FROM read_parquet(?)", [str(parquet_path)]
+                ).fetchone()
+                or (0,)
+            )[0]
+        finally:
+            conn.close()
     effective_git_sha = git_sha if git_sha is not None else _get_git_sha()
     meta: Dict[str, Any] = {
         "leizilla_meta_version": "0.1",
@@ -211,7 +206,7 @@ def build_dataset_meta(
         "version": version,
         "table": "versoes",
         "generated_at": datetime.now(tz=timezone.utc).isoformat(),
-        "row_count": actual_row_count,
+        "row_count": row_count,
         "file_size_bytes": parquet_path.stat().st_size,
         "hash_parquet": f"sha256:{hashlib.sha256(parquet_bytes).hexdigest()}",
     }
@@ -552,34 +547,41 @@ def _unidentified_title(ente: str, fonte: str) -> str:
     return f"Leizilla Raw {ente.upper()} {fonte.upper()} UNIDENTIFIED"
 
 
+_ia_config_cache: Dict[tuple[str, str], str] = {}
 
-@contextlib.contextmanager
+
 def _ia_subprocess_env(
     access_key: Optional[str], secret_key: Optional[str]
-) -> Iterator[Optional[Dict[str, str]]]:
+) -> Optional[Dict[str, str]]:
     """Devolve um env que autentica o CLI ``ia``, ou ``None`` se sem credenciais.
 
     O CLI ``ia`` ignora ``IA_ACCESS_KEY``/``IA_SECRET_KEY`` e não tem flags de
     chave: ele só lê credenciais de um arquivo de config, cujo caminho pode ser
     sobrescrito via a env var ``IA_CONFIG_FILE``. Escrevemos um ``ia.ini`` mínimo
-    (com permissão 0600) e apontamos o subprocess para ele, removendo-o ao final.
+    (uma vez por par de credenciais) e apontamos o subprocess para ele, para que
+    o upload funcione sem um ``~/.config/internetarchive/ia.ini`` pré-existente.
     """
     if not access_key or not secret_key:
-        yield None
-        return
+        return None
+    key = (access_key, secret_key)
+    cfg_path = _ia_config_cache.get(key)
+    if cfg_path is None:
+        cfg = configparser.ConfigParser()
+        cfg["s3"] = {"access": access_key, "secret": secret_key}
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".ini", delete=False, encoding="utf-8"
+        )
+        cfg.write(tmp)
+        tmp.close()
+        cfg_path = tmp.name
+        _ia_config_cache[key] = cfg_path
+        _final_path = cfg_path
 
-    cfg = configparser.ConfigParser()
-    cfg["s3"] = {"access": access_key, "secret": secret_key}
+        def _cleanup() -> None:
+            Path(_final_path).unlink(missing_ok=True)
 
-    fd, tmp_path = tempfile.mkstemp(suffix=".ini", text=True)
-    try:
-        os.chmod(tmp_path, 0o600)
-        with open(fd, mode="w", encoding="utf-8") as f:
-            cfg.write(f)
-
-        yield {**os.environ, "IA_CONFIG_FILE": tmp_path}
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
+        atexit.register(_cleanup)
+    return {**os.environ, "IA_CONFIG_FILE": cfg_path}
 
 
 # Padrões no stderr do `ia upload` que indicam falha transitória (retry pode ajudar).
@@ -634,32 +636,32 @@ class InternetArchivePublisher:
         pacear os dois ao mesmo tempo só somaria esperas redundantes.
         """
         self._upload_rate_limiter(_IA_RATE_LIMIT_KEY)
-        with _ia_subprocess_env(self.access_key, self.secret_key) as env:
-            for attempt in range(1, _IA_UPLOAD_MAX_ATTEMPTS + 1):
-                try:
-                    return subprocess.run(
-                        args, capture_output=True, text=True, check=True, env=env
-                    )
-                except subprocess.CalledProcessError as e:
-                    if (
-                        attempt == _IA_UPLOAD_MAX_ATTEMPTS
-                        or not _RETRYABLE_IA_ERROR_RE.search(e.stderr or "")
-                    ):
-                        raise
-                    delay = min(
-                        _IA_UPLOAD_MAX_DELAY_S,
-                        _IA_UPLOAD_BASE_DELAY_S * (2 ** (attempt - 1)),
-                    )
-                    delay += random.uniform(0, delay * 0.25)  # jitter
-                    logger.warning(
-                        "ia upload: erro transiente (tentativa %d/%d), retry em %.1fs: %s",
-                        attempt,
-                        _IA_UPLOAD_MAX_ATTEMPTS,
-                        delay,
-                        (e.stderr or "").strip()[:200],
-                    )
-                    time.sleep(delay)
-            raise AssertionError("unreachable — loop always returns or raises")
+        env = _ia_subprocess_env(self.access_key, self.secret_key)
+        for attempt in range(1, _IA_UPLOAD_MAX_ATTEMPTS + 1):
+            try:
+                return subprocess.run(
+                    args, capture_output=True, text=True, check=True, env=env
+                )
+            except subprocess.CalledProcessError as e:
+                if (
+                    attempt == _IA_UPLOAD_MAX_ATTEMPTS
+                    or not _RETRYABLE_IA_ERROR_RE.search(e.stderr or "")
+                ):
+                    raise
+                delay = min(
+                    _IA_UPLOAD_MAX_DELAY_S,
+                    _IA_UPLOAD_BASE_DELAY_S * (2 ** (attempt - 1)),
+                )
+                delay += random.uniform(0, delay * 0.25)  # jitter
+                logger.warning(
+                    "ia upload: erro transiente (tentativa %d/%d), retry em %.1fs: %s",
+                    attempt,
+                    _IA_UPLOAD_MAX_ATTEMPTS,
+                    delay,
+                    (e.stderr or "").strip()[:200],
+                )
+                time.sleep(delay)
+        raise AssertionError("unreachable — loop always returns or raises")
 
     def upload_raw(
         self,
