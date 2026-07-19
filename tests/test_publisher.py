@@ -23,24 +23,32 @@ class TestIASubprocessEnv:
     """O CLI `ia` só lê credenciais de um config file; injetamos via IA_CONFIG_FILE."""
 
     def test_returns_none_without_credentials(self):
-        assert _ia_subprocess_env(None, None) is None
-        assert _ia_subprocess_env("", "secret") is None
-        assert _ia_subprocess_env("access", "") is None
+        with _ia_subprocess_env(None, None) as env:
+            assert env is None
+        with _ia_subprocess_env("", "secret") as env:
+            assert env is None
+        with _ia_subprocess_env("access", "") as env:
+            assert env is None
 
     def test_points_ia_config_file_at_temp_ini_with_keys(self):
-        env = _ia_subprocess_env("AKIA-test", "shh-secret")
-        assert env is not None
-        cfg_path = env["IA_CONFIG_FILE"]
-        content = Path(cfg_path).read_text(encoding="utf-8")
-        assert "[s3]" in content
-        assert "AKIA-test" in content
-        assert "shh-secret" in content
+        with _ia_subprocess_env("AKIA-test", "shh-secret") as env:
+            assert env is not None
+            cfg_path = env["IA_CONFIG_FILE"]
+            content = Path(cfg_path).read_text(encoding="utf-8")
+            assert "[s3]" in content
+            assert "AKIA-test" in content
+            assert "shh-secret" in content
+            # Ensure it is created with 0600
+            import os
+            assert oct(os.stat(cfg_path).st_mode).endswith("600")
 
-    def test_caches_config_per_credential_pair(self):
-        first = _ia_subprocess_env("dup-key", "dup-secret")
-        second = _ia_subprocess_env("dup-key", "dup-secret")
-        assert first is not None and second is not None
-        assert first["IA_CONFIG_FILE"] == second["IA_CONFIG_FILE"]
+    def test_deletes_file_after_context(self):
+        cfg_path = None
+        with _ia_subprocess_env("dup-key", "dup-secret") as env:
+            assert env is not None
+            cfg_path = env["IA_CONFIG_FILE"]
+            assert Path(cfg_path).exists()
+        assert not Path(cfg_path).exists()
 
 
 class TestRawIdentifier:

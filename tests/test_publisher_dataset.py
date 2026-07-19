@@ -79,7 +79,7 @@ class TestBuildDatasetMeta:
 
     def test_ente_and_version(self, tmp_path: Path) -> None:
         p = _make_parquet(tmp_path)
-        meta = build_dataset_meta(p, "federal", 1, row_count=0)
+        meta = build_dataset_meta(p, "federal", 1, row_count=1)
         assert meta["ente"] == "federal"
         assert meta["version"] == 1
 
@@ -92,8 +92,10 @@ class TestBuildDatasetMeta:
 
     def test_row_count_explicit(self, tmp_path: Path) -> None:
         p = _make_parquet(tmp_path)
-        meta = build_dataset_meta(p, "ro", 0, row_count=42)
-        assert meta["row_count"] == 42
+        import pytest
+        # The new implementation raises ValueError when explicitly passed row_count doesn't match actual_row_count
+        with pytest.raises(ValueError, match="Passado row_count=42 mas o arquivo Parquet possui 1 linhas"):
+            build_dataset_meta(p, "ro", 0, row_count=42)
 
     def test_row_count_auto_from_parquet(self, tmp_path: Path) -> None:
         p = _make_parquet(tmp_path)
@@ -168,7 +170,10 @@ class TestUploadDataset:
         pub = _publisher()
         mock_cp = MagicMock(returncode=0, stdout="", stderr="")
         with patch("subprocess.run", return_value=mock_cp):
-            result = pub.upload_dataset(p, "ro", 0, row_count=7, git_sha=None)
+            with patch("duckdb.connect") as mock_duckdb:
+                mock_conn = mock_duckdb.return_value
+                mock_conn.execute.return_value.fetchone.return_value = (7,)
+                result = pub.upload_dataset(p, "ro", 0, row_count=7, git_sha=None)
         assert result["row_count"] == 7
 
     def test_version_in_identifier(self, tmp_path: Path) -> None:
@@ -176,7 +181,10 @@ class TestUploadDataset:
         pub = _publisher()
         mock_cp = MagicMock(returncode=0, stdout="", stderr="")
         with patch("subprocess.run", return_value=mock_cp):
-            result = pub.upload_dataset(p, "federal", 2, row_count=0, git_sha=None)
+            with patch("duckdb.connect") as mock_duckdb:
+                mock_conn = mock_duckdb.return_value
+                mock_conn.execute.return_value.fetchone.return_value = (0,)
+                result = pub.upload_dataset(p, "federal", 2, row_count=0, git_sha=None)
         assert result["ia_id"] == "leizilla-dataset-federal-v2"
 
     def test_negative_version_raises(self, tmp_path: Path) -> None:
