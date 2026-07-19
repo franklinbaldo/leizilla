@@ -396,21 +396,97 @@ class TestWriteParquet:
         ).fetchone()[0]  # type: ignore[index]
         assert count == len(rows)
 
-    def test_roundtrip_columns_present(self, tmp_path: Path) -> None:
+    def test_schema_matches_pinned(self, tmp_path: Path) -> None:
+        """The exported Parquet schema must strictly match docs/SCHEMA.md §3.1."""
         import duckdb
+        from leizilla.etl import PARQUET_SCHEMA
 
         rows = xml_to_rows(_SIMPLE, "leizilla-ro-lei-09999-1999", "ro")
         out = tmp_path / "versoes.parquet"
         write_parquet(rows, out)
-        cols = {
-            row[0]
-            for row in duckdb.execute(
-                "SELECT column_name FROM (DESCRIBE SELECT * FROM read_parquet(?))",
-                [str(out)],
-            ).fetchall()
+
+        # Mapping from DuckDB logical types back to our generic types
+        duckdb_to_our_types = {
+            "VARCHAR": "VARCHAR",
+            "BIGINT": "INTEGER",
+            "INTEGER": "INTEGER",
+            "DATE": "DATE",
+            "BOOLEAN": "BOOLEAN",
         }
-        required = {"lei_id", "ente", "dispositivo_path", "em", "texto", "fontes"}
-        assert required.issubset(cols)
+
+        actual_schema = {}
+        for row in duckdb.execute(
+            "SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet(?))",
+            [str(out)],
+        ).fetchall():
+            col_name, col_type = row[0], row[1]
+            actual_schema[col_name] = duckdb_to_our_types.get(col_type, col_type)
+
+        assert actual_schema == PARQUET_SCHEMA
+
+    def test_schema_is_stable_with_all_nulls(self, tmp_path: Path) -> None:
+        """Regression test for #123: all-null columns must not infer as VARCHAR or NULL."""
+        import duckdb
+        from leizilla.etl import PARQUET_SCHEMA
+        import datetime
+
+        # Create a single row where all optional columns are None
+        row = {
+            "lei_id": "123",
+            "ente": "ro",
+            "tipo_lei": "lei",
+            "numero_lei": "72-a",
+            "ano_lei": 2020,
+            "data_publicacao": datetime.date(2020, 1, 1),
+            "urn_lex_lei": None,
+            "vigente_em": datetime.date(2020, 1, 1),
+            "lei_revogada": False,
+            "lei_revogada_em": None,
+            "lei_revogada_por": None,
+            "lei_revogada_tipo": None,
+            "dispositivo_path": "art1",
+            "dispositivo_tipo": "artigo",
+            "dispositivo_ordem": 0,
+            "dispositivo_parent_path": None,
+            "dispositivo_revogado": False,
+            "dispositivo_revogado_em": None,
+            "dispositivo_revogado_por": None,
+            "dispositivo_revogado_tipo": None,
+            "urn_dispositivo": None,
+            "versao_id": "v1",
+            "em": datetime.date(2020, 1, 1),
+            "ate": None,
+            "alterado_por": None,
+            "inicio_tipo": "data-publicacao",
+            "texto": None,
+            "texto_normalizado": None,
+            "fontes": "[]",
+            "num_fontes": 0,
+            "tem_divergencia": False,
+            "hash_texto": None,
+            "quality": None,
+        }
+
+        out = tmp_path / "nulls.parquet"
+        write_parquet([row], out)
+
+        duckdb_to_our_types = {
+            "VARCHAR": "VARCHAR",
+            "BIGINT": "INTEGER",
+            "INTEGER": "INTEGER",
+            "DATE": "DATE",
+            "BOOLEAN": "BOOLEAN",
+        }
+
+        actual_schema = {}
+        for r in duckdb.execute(
+            "SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet(?))",
+            [str(out)],
+        ).fetchall():
+            col_name, col_type = r[0], r[1]
+            actual_schema[col_name] = duckdb_to_our_types.get(col_type, col_type)
+
+        assert actual_schema == PARQUET_SCHEMA
 
     def test_creates_parent_dir(self, tmp_path: Path) -> None:
         rows = xml_to_rows(_SIMPLE, "leizilla-ro-lei-09999-1999", "ro")
