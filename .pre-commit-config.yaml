@@ -24,6 +24,7 @@ repos:
     hooks:
       - id: mypy
         args: [--no-strict-optional, --ignore-missing-imports] # Ajuste conforme a necessidade do projeto
+        additional_dependencies: [types-requests] # sem stubs o hook falha (import-untyped) em wayback/doctor/crawler
 ci:
   autofix_commit_msg: "style: auto-fixes from pre-commit hooks"
   autoupdate_commit_msg: "chore: pre-commit autoupdate"
