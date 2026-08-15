@@ -247,7 +247,9 @@ class CasacivilIndexDiscovery:
         self.fonte = fonte
 
     def run(self, storage: Optional[DuckDBStorage] = None) -> List[Dict[str, Any]]:
-        # Obey ADR-0004: prefer Wayback
+        # ADR-0004 continua Wayback-first, mas uma enumeração autoritativa precisa ser
+        # atual. Um snapshot histórico serve à proveniência, não à descoberta de
+        # novidades: só reutilizamos capturas dentro da janela de frescor padrão (24 h).
         from leizilla import wayback
 
         logger.info(
@@ -255,11 +257,10 @@ class CasacivilIndexDiscovery:
         )
         resources = []
 
-        wb_snap = wayback.closest_snapshot(self.url)
+        wb_url = wayback.check_available(self.url)
         html_content = None
 
-        if wb_snap:
-            wb_url, _ = wb_snap
+        if wb_url:
             html_bytes = wayback.fetch_bytes(wb_url)
             if html_bytes is not None:
                 html_content = html_bytes.decode("utf-8", errors="ignore")
@@ -272,7 +273,8 @@ class CasacivilIndexDiscovery:
                 logger.error(f"robots.txt blocked fetch for {self.url}")
                 return []
 
-            # Fetch using standard Python library directly, avoiding "wayback.fetch_bytes" abstraction for live domains
+            # Fetch using standard Python library directly, avoiding
+            # "wayback.fetch_bytes" abstraction for live domains.
             import time
 
             time.sleep(1.0)  # rate limit
