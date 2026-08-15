@@ -2,210 +2,133 @@
 
 > **O dinossauro que devora PDFs jurídicos e cospe dados abertos.**
 
-Sistema de indexação de documentos legais brasileiros que **já funciona**. Projeto-irmão do **CausaGanha**, com foco exclusivo em **indexar todas as leis brasileiras**, começando por **Rondônia**. Infra mínima, transparência radical e 100% estático — sem servidores, sem backend para manter.
+Leizilla é um projeto de indexação de legislação brasileira, começando por Rondônia. O objetivo é transformar fontes oficiais e documentos preservados em um acervo pesquisável, auditável e reutilizável — com publicação estática, sem backend de aplicação para manter.
 
----
+## 🌐 Usar o Leizilla
+
+- **Portal público:** https://franklinbaldo.github.io/leizilla/
+- **Dataset Rondônia v0 no Internet Archive:** https://archive.org/details/leizilla-dataset-ro-v0
+- **Parquet usado pelo próprio portal:** https://archive.org/download/leizilla-dataset-ro-v0/versoes.parquet
+- **Metadados da release:** https://archive.org/download/leizilla-dataset-ro-v0/dataset_meta.json
+
+O portal consulta o Parquet diretamente no navegador com DuckDB-WASM. A página de dados também mostra uma consulta mínima reproduzível para testar o mesmo artefato fora do site.
 
 ## ✅ Estado atual
 
-**MVP Funcional**: Pipeline completo implementado com crawler, armazenamento DuckDB, upload para Internet Archive e exportação de datasets.
+O primeiro dataset público de Rondônia (**RO v0**) já foi publicado no Internet Archive e o frontend está apontando para esse artefato.
 
-### 🚀 O que já funciona:
+Isso significa **dataset publicado**, não **cobertura completa de Rondônia**. A cobertura ainda é incremental: o pipeline continua ampliando e conferindo as fontes, e o roadmap mantém como próximo marco a cobertura estadual mais completa e releases recorrentes.
 
-- ✅ **CLI completa** com comandos discover/download/upload/export/search
-- ✅ **Crawler assíncrono** com Playwright para sites governamentais
-- ✅ **Schema DuckDB** completo com operações CRUD
-- ✅ **Integração Internet Archive** para OCR gratuito e distribuição
-- ✅ **Exportação Parquet/JSONL** para datasets abertos
-- ✅ **CLI moderna** com Typer e subcomandos
-- ✅ **Ambiente de desenvolvimento** com type checking e linting
+Hoje o projeto já possui:
 
----
+- portal Astro/Svelte estático com busca e navegação sobre o dataset;
+- DuckDB-WASM no cliente, lendo o Parquet público diretamente;
+- páginas de lei, cobertura e evidências/proveniência;
+- pipeline de descoberta, coleta, parse/ETL e publicação;
+- preservação de documentos e artefatos no Internet Archive;
+- exportação de dados estruturados e metadados de release;
+- CLI Python para operações locais e de desenvolvimento;
+- workflows de CI, coleta, release e deploy.
 
-## 🛠️ Stack implementada
+## 🔄 Como os dados chegam ao portal
 
-| Domínio           | Ferramenta / Serviço         | Status                                               |
-| ----------------- | ---------------------------- | ---------------------------------------------------- |
-| **Linguagem**     | **Python 3.12**              | ✅ Implementado                                      |
-| **Crawling**      | **Playwright** + **AnyIO**   | ✅ Crawler assíncrono funcional                      |
-| **ETL & Storage** | **DuckDB**                   | ✅ Schema completo + CRUD                            |
-| **Backup & OCR**  | **Internet Archive**         | ✅ Upload e integração                               |
-| **Distribuição**  | **Parquet** + **JSON Lines** | ✅ Exportação implementada                           |
-| **Build & CI**    | **GitHub Actions** + **uv**  | ✅ Scripts automatizados (linting, Rondônia crawler) |
-| **Dependências**  | **uv**                       | ✅ Ambiente configurado                              |
-| **Qualidade**     | **ruff** + **mypy**          | ✅ Linting e tipos                                   |
+A cadeia pública é, em linhas gerais:
 
----
+```text
+fontes oficiais
+    ↓
+descoberta e coleta
+    ↓
+documentos preservados / evidências
+    ↓
+parse + ETL
+    ↓
+dataset versionado no Internet Archive
+    ↓
+Parquet + dataset_meta.json
+    ↓
+portal estático / DuckDB-WASM
+```
 
-## 🤖 CI/CD (GitHub Actions)
+O portal não mantém uma cópia privada dos dados: o Parquet público é o artefato consultado pela interface e pode ser reutilizado independentemente.
 
-O projeto utiliza GitHub Actions para automação de tarefas:
+## 🔎 Consultar o dataset fora do site
 
-1.  **Linting**: A cada push ou pull request para a branch `main`, o código é verificado com Ruff (linter e formatter) e Mypy (type checking). Veja o workflow em `.github/workflows/lint.yml`.
-2.  **Rondônia Law Crawler**:
-    - **O quê**: Este workflow automatizado descobre novas leis no portal de Rondônia, baixa os PDFs correspondentes e os envia para o Internet Archive.
-    - **Quando**: Roda semanalmente (todos os domingos à meia-noite UTC) e pode ser disparado manualmente.
-    - **Arquivo**: `.github/workflows/rondonia_crawler.yml`
-    - **Scripts principais**:
-      - `scripts/run_rondonia_crawler.py`: Handles crawling laws and uploading them.
-      - `scripts/backup_database.py`: Handles backing up the `leizilla.duckdb` database file.
-    - **Configuração (Requerido)**: Para que o upload para o Internet Archive funcione, os seguintes secrets precisam ser configurados no repositório GitHub (`Settings > Secrets and variables > Actions`):
-      - `IA_ACCESS_KEY`: Sua chave de acesso do Internet Archive.
-      - `IA_SECRET_KEY`: Sua chave secreta do Internet Archive.
-    - **Funcionamento**:
-      - O script `run_rondonia_crawler.py` utiliza `LeisCrawler` para buscar leis (atualmente configurado para um pequeno range de `coddoc` IDs para demonstração) e `InternetArchivePublisher` para o upload dos PDFs.
-      - Em seguida, o script `backup_database.py` é executado. Ele primeiro tenta realizar um `CHECKPOINT` no DuckDB para garantir consistência, e depois usa `InternetArchivePublisher` para fazer upload do arquivo `data/leizilla.duckdb` para uma coleção dedicada no Internet Archive (atualmente `leizilla-database-backups`). Este passo de backup é configurado para tentar rodar mesmo que o passo de crawling de leis falhe.
-      - A configuração de `PYTHONPATH` no workflow garante que os módulos em `src/` sejam encontrados por ambos os scripts.
+Com DuckDB instalado, uma verificação mínima é:
 
----
+```sql
+SELECT count(*)
+FROM read_parquet(
+  'https://archive.org/download/leizilla-dataset-ro-v0/versoes.parquet'
+);
+```
 
-## 🌐 Pipeline implementado
+Para conferir a release, compare o resultado e os demais dados do artefato com `dataset_meta.json`, que registra metadados como contagem, hash e revisão de origem quando disponíveis.
 
-1. **Descoberta**: `uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10` - encontra leis no portal oficial
-2. **Download**: `uv run leizilla download --origem rondonia --limit 5` - baixa PDFs para processamento local
-3. **Upload IA**: `uv run leizilla upload --limit 3` - envia para Internet Archive (OCR gratuito + torrents)
-4. **Exportação**: `uv run leizilla export --origem rondonia --year 2020` - gera datasets Parquet/JSONL
-5. **Pipeline completo**: `uv run leizilla pipeline --origem rondonia --year 2020 --limit 5` - executa tudo em sequência
+## 🛠️ Desenvolvimento local
 
----
-
-## 🚀 Começar agora
-
-### **Instalação e uso**
+O projeto usa Python 3.12+ e `uv`.
 
 ```bash
-# 1. Instalar uv (gerenciador Python ultra-rápido)
-curl -LsSf https://astral.sh/uv/install.sh | sh  # Linux/macOS
-# ou no Windows: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-# 2. Clonar e configurar
 git clone https://github.com/franklinbaldo/leizilla.git
 cd leizilla
-uv venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
 uv sync --dev
-
-# 3. Configurar ambiente (opcional - apenas para upload IA)
-# export IA_ACCESS_KEY="sua_chave"
-# export IA_SECRET_KEY="sua_chave_secreta"
-
-# 4. Verificar instalação
-uv run leizilla dev setup
+uv run leizilla --help
 ```
 
-### **Usar o sistema**
+Alguns comandos disponíveis no CLI:
 
 ```bash
-# Pipeline básico - descobrir e baixar leis de Rondônia 2020
+# descobrir documentos
 uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10
+
+# baixar documentos descobertos
 uv run leizilla download --origem rondonia --limit 5
 
-# Ver estatísticas
+# consultar estatísticas locais
 uv run leizilla stats
 
-# Buscar no banco local
+# buscar no banco local
 uv run leizilla search --text "lei complementar"
-
-# Pipeline completo automatizado
-uv run leizilla pipeline --origem rondonia --start-coddoc 1 --end-coddoc 10 --limit 10 --crawler-type simple
 ```
 
-### **Comandos disponíveis**
+Para desenvolvimento e operação, leia também [CLAUDE.md](CLAUDE.md), [CONTRIBUTING.md](CONTRIBUTING.md) e as decisões em [`docs/`](docs/).
 
-| Finalidade            | Comando                     | Exemplo                                                                                             |
-| --------------------- | --------------------------- | --------------------------------------------------------------------------------------------------- |
-| **Descobrir leis**    | `uv run leizilla discover`  | `uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10 --crawler-type simple` |
-| **Download PDFs**     | `uv run leizilla download`  | `uv run leizilla download --origem rondonia --limit 5`                                              |
-| **Upload para IA**    | `uv run leizilla upload`    | `uv run leizilla upload --limit 3`                                                                  |
-| **Exportar dados**    | `uv run leizilla export`    | `uv run leizilla export --origem rondonia`                                                          |
-| **Pipeline completo** | `uv run leizilla pipeline`  | `uv run leizilla pipeline --origem rondonia --start-coddoc 1 --end-coddoc 10`                       |
-| **Desenvolvimento**   | `uv run leizilla dev check` | `uv run leizilla dev setup`, `uv run leizilla dev test`                                             |
+## 🧱 Stack
 
-**💡 Vantagem**: Interface CLI moderna com Typer, help integrado (`--help`) e zero dependências extras!
-
----
-
-## 📊 Estrutura do projeto
-
-```
-src/                   # Código-fonte (estrutura flat)
-├── config.py         # Configuração centralizada
-├── storage.py         # Schema DuckDB + operações
-├── crawler.py         # Web crawling assíncrono
-├── publisher.py       # Internet Archive + exports
-└── cli.py             # Interface linha de comando
-tests/                 # Testes automatizados
-docs/adr/              # Decisões arquiteturais
-data/                  # Dados locais (gitignored)
-  └─ leizilla.duckdb   # Banco DuckDB local
-```
-
-## 💻 Especificação do Portal Frontend
-
-A apresentação do portal público do Leizilla seguirá as seguintes diretrizes de design e funcionalidade:
-
-* **Estilo e Apresentação Visual:** Interface moderna de alto padrão com tema **Dark Mode** e efeitos de **Glassmorphism**, com tipografia premium e micro-animações responsivas.
-* **Mecanismo de Busca:** Barra de pesquisa unificada conectada diretamente ao **DuckDB-WASM** no lado do cliente. Filtros rápidos por **Ano**, **Tipo de Lei** e **Ente** que renderizam resultados e gráficos analíticos instantaneamente na tela.
-* **Exibição dos Resultados:** Cada lei será apresentada individualmente mostrando título, resumo/ementa, data de publicação, link original para download do PDF arquivado no Internet Archive e um **visualizador de texto integrado (OCR)** com destaque dos termos pesquisados (*highlighting*).
-
----
+| Domínio | Ferramenta / serviço |
+| --- | --- |
+| Linguagem | Python 3.12 |
+| Portal | Astro + Svelte |
+| Consulta no navegador | DuckDB-WASM |
+| ETL / armazenamento local | DuckDB |
+| Coleta | Playwright + AnyIO |
+| Preservação / distribuição | Internet Archive |
+| Dados publicados | Parquet + metadados de release |
+| Automação | GitHub Actions |
+| Dependências Python | uv |
+| Qualidade | Ruff + mypy + testes |
 
 ## 🗺 Roadmap
 
-Roadmap re-baselineado em 2026-07-07 pela [RFC-0004](docs/rfc/0004-go-live-rondonia.md)
-(esta tabela é a única fonte do roadmap — regra da [RFC-0002](docs/rfc/0002-governanca-documental.md)).
-O histórico do roadmap original (2025) está em [docs/archive/MASTERPLAN.md](docs/archive/MASTERPLAN.md).
+O roadmap foi re-baselineado pela [RFC-0004](docs/rfc/0004-go-live-rondonia.md); a governança documental está na [RFC-0002](docs/rfc/0002-governanca-documental.md).
 
-| Período       | Entregável                                                                          | Status                                                              |
-| ------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| **Q3 / 2026** | Go-live: dataset RO v0 publicado no IA + frontend apontando para ele                | 🔄 Em andamento — código pronto, secrets configurados; falta rodar o smoke batch e publicar o dataset (passos 3–6 da RFC-0004) |
-| **Q4 / 2026** | Cobertura RO completa (assembleia + casacivil lei/lc) + releases semanais + M5.3    | 📋 Planejado                                                         |
-| **Q1 / 2027** | Federal (Planalto 1988–presente) em produção                                        | 📋 Planejado                                                         |
-| **Q2 / 2027** | Busca semântica (embeddings no DuckDB) + novo ente (SP)                             | 📋 Planejado                                                         |
+| Período | Entregável | Estado |
+| --- | --- | --- |
+| **Q3 / 2026** | Go-live do dataset RO v0 + frontend apontando para ele | ✅ Publicado; cobertura segue incremental |
+| **Q4 / 2026** | Cobertura RO mais completa + releases recorrentes | 📋 Planejado |
+| **Q1 / 2027** | Federal (Planalto 1988–presente) | 📋 Planejado |
+| **Q2 / 2027** | Busca semântica + novo ente | 📋 Planejado |
 
-> Nota de status honesto: o frontend (M5.1/M5.2) está pronto e o **M13 — Produto
-> público v1** (página própria de lei, painel `/cobertura/`, evidência auditável)
-> está em implementação, mas **nenhum dataset foi publicado no Internet Archive
-> ainda**. O gargalo deixou de ser secrets — `IA_ACCESS_KEY`, `IA_SECRET_KEY` e
-> `GEMINI_API_KEY` já estão configurados e a autenticação no IA foi confirmada
-> (2026-07-12) — e passou a ser executar o runbook de produção (smoke batch →
-> OCR/parse → consolidação → publicação). Ver RFC-0004.
+O estado de publicação e o estado de cobertura são coisas diferentes: uma release pública pode existir enquanto a coleta e a reconciliação das fontes continuam avançando.
 
----
+## 🔗 Projeto-irmão
 
-## 🔗 Links importantes
-
-- **[CLAUDE.md](CLAUDE.md)**: Guia completo para desenvolvimento
-- **[CONTRIBUTING.md](CONTRIBUTING.md)**: Como contribuir
-- **[docs/adr/](docs/adr/)**: Decisões arquiteturais
-- **[CausaGanha](https://github.com/franklinbaldo/causaganha)**: Projeto-irmão (validação Internet Archive)
-
----
-
-## 🤝 Contribuir
-
-### **Formas de ajudar:**
-
-- **Testes de qualidade**: Executar pipeline em diferentes ambientes
-- **Novas fontes**: Portais de legislação de outros estados
-- **Otimizações**: Melhorias no crawler e processamento
-- **Documentação**: Exemplos de uso e tutoriais
-
-**Código pronto?** Leia **[CONTRIBUTING.md](CONTRIBUTING.md)** para o fluxo completo.
-
----
-
-## 🔧 Tecnologias em destaque
-
-- **Internet Archive**: OCR gratuito + distribuição P2P automática
-- **DuckDB**: Banco analítico embarcado, exporta Parquet nativamente
-- **Playwright**: Render completo de sites governamentais com JavaScript
-- **uv**: Gerenciamento ultrarrápido de dependências Python
-
----
+O [CausaGanha](https://github.com/franklinbaldo/causaganha) compartilha com o Leizilla interesses em preservação, dados públicos e infraestrutura verificável, mas os dois projetos têm domínios e produtos próprios.
 
 ## Licença
 
-- **Código**: MIT
-- **Dados legais**: Domínio público
+- **Código:** MIT
+- **Dados legais:** domínio público
 
-> _Leizilla saiu da fase filhote — já é um T-Rex devorando PDFs e cuspindo dados estruturados. Junte-se à revolução dos dados abertos!_ 🦖⚖️
+> _Leizilla saiu da fase filhote — já tem um dataset público para devorar junto._ 🦖⚖️
