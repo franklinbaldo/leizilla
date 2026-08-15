@@ -90,16 +90,15 @@ class TestDiscoverCasacivilLaws:
             socket.getaddrinfo = original_getaddrinfo
 
 
-
-
-
-
 class TestCasacivilIndexDiscovery:
     @patch("leizilla.scraper.robots.is_allowed", return_value=True)
     @patch("leizilla.wayback.closest_snapshot", return_value=None)
     @patch("urllib.request.urlopen")
-    def test_casacivil_index_discovery_enumerates_all_tipos(self, mock_urlopen, mock_snap, mock_robots):
+    def test_casacivil_index_discovery_enumerates_all_tipos(
+        self, mock_urlopen, mock_snap, mock_robots
+    ):
         from unittest.mock import MagicMock
+
         config = {
             "strategy": "casacivil-index",
             "url": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/",
@@ -134,7 +133,9 @@ class TestCasacivilIndexDiscovery:
     @patch("leizilla.scraper.robots.is_allowed", return_value=True)
     @patch("leizilla.wayback.closest_snapshot", return_value=None)
     @patch("urllib.request.urlopen", side_effect=Exception("Network failure"))
-    def test_casacivil_index_discovery_fails_open(self, mock_urlopen, mock_snap, mock_robots):
+    def test_casacivil_index_discovery_fails_open(
+        self, mock_urlopen, mock_snap, mock_robots
+    ):
         config = {
             "strategy": "casacivil-index",
             "url": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/",

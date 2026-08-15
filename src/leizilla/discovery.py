@@ -238,10 +238,6 @@ class SequentialDiscovery:
         return resources
 
 
-
-
-
-
 class CasacivilIndexDiscovery:
     """Estratégia de descobrimento que lê a página de índice da Casa Civil."""
 
@@ -254,7 +250,9 @@ class CasacivilIndexDiscovery:
         # Obey ADR-0004: prefer Wayback
         from leizilla import wayback
 
-        logger.info(f"Rodando CasacivilIndex Discovery para {self.ente}/{self.fonte} na URL {self.url}...")
+        logger.info(
+            f"Rodando CasacivilIndex Discovery para {self.ente}/{self.fonte} na URL {self.url}..."
+        )
         resources = []
 
         wb_snap = wayback.closest_snapshot(self.url)
@@ -269,17 +267,18 @@ class CasacivilIndexDiscovery:
         if html_content is None:
             # Note: ADR-0008 says we need to obey robots + ~1 req/s rate limit
             from leizilla.scraper import robots
+
             if not robots.is_allowed(self.url):
                 logger.error(f"robots.txt blocked fetch for {self.url}")
                 return []
 
             # Fetch using standard Python library directly, avoiding "wayback.fetch_bytes" abstraction for live domains
             import time
-            time.sleep(1.0) # rate limit
+
+            time.sleep(1.0)  # rate limit
             try:
                 req = urllib.request.Request(
-                    self.url,
-                    headers={"User-Agent": "leizilla-crawler/0.1"}
+                    self.url, headers={"User-Agent": "leizilla-crawler/0.1"}
                 )
                 with urllib.request.urlopen(req, timeout=30.0) as r:
                     html_content = r.read().decode("utf-8", errors="ignore")
@@ -306,15 +305,17 @@ class CasacivilIndexDiscovery:
 
             absolute_url = urllib.parse.urljoin(self.url, href)
 
-            resources.append({
-                "url": absolute_url,
-                "ente": self.ente,
-                "fonte": self.fonte,
-                "tipo_documento": tipo,
-                "chave": chave,
-                "status": "pending",
-                "wayback_snapshot": None,
-            })
+            resources.append(
+                {
+                    "url": absolute_url,
+                    "ente": self.ente,
+                    "fonte": self.fonte,
+                    "tipo_documento": tipo,
+                    "chave": chave,
+                    "status": "pending",
+                    "wayback_snapshot": None,
+                }
+            )
 
         logger.info(
             f"CasacivilIndex Discovery concluído: {len(resources)} recursos encontrados"
