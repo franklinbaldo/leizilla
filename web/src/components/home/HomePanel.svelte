@@ -160,6 +160,25 @@
           </li>
         {/if}
       </ul>
+
+      <details>
+        <summary>Testar o dataset com DuckDB</summary>
+        <p>
+          A mesma URL pública pode ser consultada sem baixar o repositório. Esta consulta conta
+          as linhas publicadas:
+        </p>
+        <pre><code>{`SELECT count(*) AS linhas
+FROM read_parquet('${DATASET_PARQUET_URL}');`}</code></pre>
+        {#if DATASET_META_URL}
+          <p>
+            <small>
+              Confira o resultado em <code>linhas</code> contra <code>row_count</code> no
+              <a href={DATASET_META_URL} rel="external">dataset_meta.json</a>. O mesmo arquivo
+              registra hash e git SHA da publicação.
+            </small>
+          </p>
+        {/if}
+      </details>
     </article>
   </section>
 {/if}
@@ -227,5 +246,11 @@
   }
   .dados ul {
     margin-bottom: 0;
+  }
+  .dados details {
+    margin-top: 1rem;
+  }
+  .dados pre {
+    overflow-x: auto;
   }
 </style>
