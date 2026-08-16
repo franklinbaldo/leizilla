@@ -2,15 +2,17 @@
   // Página da lei — /lei/?id={lei_id}, deep-link por hash (#art-5-par-2).
   // Ilha client:only: location/document existem por construção.
   import { getLeiRows, type LeiRow } from '../../lib/db';
-  import { formatEnte, leiTitle, withBase } from '../../lib/format';
+  import { breadcrumb, formatEnte, leiTitle, withBase } from '../../lib/format';
   import DatasetUnavailable from '../DatasetUnavailable.svelte';
   import DispositivoTree from './DispositivoTree.svelte';
   import Versoes from './Versoes.svelte';
   import Evidencias from './Evidencias.svelte';
   import Dados from './Dados.svelte';
-  import { buildTree, copyText, fmtDate } from './model';
+  import { buildTree, copyText, currentRows, fmtDate } from './model';
 
-  const leiId = new URLSearchParams(location.search).get('id')?.trim() ?? '';
+  const params = new URLSearchParams(location.search);
+  const leiId = params.get('id')?.trim() ?? '';
+  const searchTerm = params.get('q')?.trim() ?? '';
 
   let rows = $state<LeiRow[]>([]);
   let loading = $state(Boolean(leiId));
@@ -22,6 +24,22 @@
   const meta = $derived(rows[0] ?? null);
   const texto = $derived(buildTree(rows));
   const paths = $derived(new Set(rows.map((r) => r.dispositivo_path)));
+
+  function foldSearch(value: string): string {
+    return value
+      .normalize('NFD')
+      .replace(/\p{M}/gu, '')
+      .toLocaleLowerCase('pt-BR');
+  }
+
+  const foldedSearchTerm = foldSearch(searchTerm);
+  const searchMatches = $derived.by(() => {
+    if (!foldedSearchTerm) return [];
+    return currentRows(rows).filter((row) => {
+      const text = row.texto_normalizado ?? row.texto ?? '';
+      return foldSearch(text).includes(foldedSearchTerm);
+    });
+  });
 
   $effect(() => {
     if (!leiId) return;
@@ -75,6 +93,21 @@
     const onHash = () => resolveHash(false);
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
+  });
+
+  // `q` preserva o contexto da busca. Marcamos todos os dispositivos vigentes
+  // correspondentes, enquanto o hash continua distinguindo o match atualmente
+  // focado. A lista textual abaixo mantém a navegação compreensível sem cor.
+  $effect(() => {
+    if (loading || error || !searchTerm || rows.length === 0) return;
+    const matchPaths = searchMatches.map((row) => row.dispositivo_path);
+    const raf = requestAnimationFrame(() => {
+      document.querySelectorAll('.busca-match').forEach((el) => el.classList.remove('busca-match'));
+      for (const path of matchPaths) {
+        document.getElementById(path)?.classList.add('busca-match');
+      }
+    });
+    return () => cancelAnimationFrame(raf);
   });
 
   // Cópia da URN-LEX no cabeçalho.
@@ -161,6 +194,28 @@
       </article>
     {/if}
   </header>
+
+  {#if searchTerm}
+    <aside class="contexto-busca" aria-label="Contexto da busca">
+      <p>
+        <strong>Busca:</strong> “{searchTerm}” · {searchMatches.length}
+        dispositivo{searchMatches.length !== 1 ? 's' : ''}
+        correspondente{searchMatches.length !== 1 ? 's' : ''} nesta norma.
+      </p>
+      {#if searchMatches.length > 0}
+        <nav class="ocorrencias" aria-label={`Ocorrências de ${searchTerm}`}>
+          {#each searchMatches as row, index (row.dispositivo_path)}
+            <a href={`#${row.dispositivo_path}`}>
+              {index + 1}. {breadcrumb(row.dispositivo_path)}
+            </a>
+          {/each}
+        </nav>
+      {/if}
+      <a class="voltar-resultados" href={withBase(`/?q=${encodeURIComponent(searchTerm)}`)}>
+        ← Voltar aos resultados da busca
+      </a>
+    </aside>
+  {/if}
 
   <nav class="secoes" aria-label="Seções desta página">
     <a href="#pagina-texto">Texto</a>
@@ -252,6 +307,32 @@
   }
   .banner-revogada code {
     word-break: break-all;
+  }
+
+  .contexto-busca {
+    margin: 0.75rem 0 1rem;
+    padding: 0.65rem 0 0.65rem 0.9rem;
+    border-left: 4px solid var(--pico-primary, #0172ad);
+  }
+  .contexto-busca p {
+    margin: 0 0 0.4rem;
+  }
+  .ocorrencias {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.85rem;
+    margin: 0 0 0.45rem;
+    font-size: 0.88em;
+  }
+  .ocorrencias a {
+    white-space: nowrap;
+  }
+  .voltar-resultados {
+    font-size: 0.88em;
+  }
+  :global(.busca-match) {
+    background: var(--pico-primary-focus, rgba(2, 154, 232, 0.12));
+    box-shadow: inset 3px 0 0 var(--pico-primary, #0172ad);
   }
 
   .secoes {

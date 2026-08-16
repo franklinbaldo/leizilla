@@ -25,9 +25,12 @@
   // (PRD §6) — o badge é o mesmo para toda linha, com a descrição no title.
   const stageS4 = STAGES.find((s) => s.id === 'S4');
 
+  // Preserva uma busca vinda da página da lei (`Voltar aos resultados`).
+  const initialTerm = new URLSearchParams(location.search).get('q')?.trim() ?? '';
+
   // --- Svelte 5 state for UI ---
-  let rawTerm = $state('');
-  let debouncedTerm = $state('');
+  let rawTerm = $state(initialTerm);
+  let debouncedTerm = $state(initialTerm);
   let ente = $state(''); // Padrão: Todos os entes
   let enteOptions = $state<string[]>([]); // entes realmente presentes no dataset
   let tipoLei = $state(''); // Rótulo selecionado (agrupa aliases); '' = todos
@@ -110,6 +113,19 @@
   // um resumo da norma, não um "match".
   function isDispositivoHit(row: GroupedHit): boolean {
     return Boolean(debouncedTerm.trim()) && row.dispositivo_path !== 'ementa';
+  }
+
+  // Mantém o termo textual ao entrar na norma. O hash continua apontando para
+  // o primeiro dispositivo encontrado, mas `q` permite reconstruir todo o
+  // contexto da busca na página da lei e ao voltar aos resultados.
+  function resultLeiUrl(leiId: string, dispositivoPath?: string): string {
+    const href = leiUrl(leiId, dispositivoPath);
+    const term = debouncedTerm.trim();
+    if (!term) return href;
+    const hashAt = href.indexOf('#');
+    const base = hashAt >= 0 ? href.slice(0, hashAt) : href;
+    const hash = hashAt >= 0 ? href.slice(hashAt) : '';
+    return `${base}&q=${encodeURIComponent(term)}${hash}`;
   }
 
   // --- Bridge: Svelte 5 state → Svelte 4 stores (TanStack Query interface) ---
@@ -213,7 +229,7 @@
         <article class="hit">
           <header class="hit-header">
             <h3 class="hit-title">
-              <a href={leiUrl(row.lei_id)}>{leiTitle(row)}</a>
+              <a href={resultLeiUrl(row.lei_id)}>{leiTitle(row)}</a>
             </h3>
             <span class="badge">{formatEnte(row.ente)}</span>
             {#if stageS4}
@@ -225,7 +241,7 @@
 
           {#if isDispositivoHit(row)}
             <p class="hit-where">{breadcrumb(row.dispositivo_path)}</p>
-            <a class="hit-excerpt-link" href={leiUrl(row.lei_id, row.dispositivo_path)}>
+            <a class="hit-excerpt-link" href={resultLeiUrl(row.lei_id, row.dispositivo_path)}>
               <p class="hit-excerpt">{row.texto || 'Sem texto disponível'}</p>
             </a>
           {:else}
@@ -240,7 +256,7 @@
 
           {#if row.match_count > 1}
             <p class="hit-more">
-              <a href={leiUrl(row.lei_id)}>
+              <a href={resultLeiUrl(row.lei_id)}>
                 +{row.match_count - 1} outro{row.match_count - 1 !== 1 ? 's' : ''}
                 dispositivo{row.match_count - 1 !== 1 ? 's' : ''}
                 corresponde{row.match_count - 1 !== 1 ? 'm' : ''}

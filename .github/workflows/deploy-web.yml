@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     paths: ["web/**"]
+  pull_request:
+    paths: ["web/**"]
   workflow_dispatch:
 
 permissions:
@@ -12,7 +14,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'deploy' }}
   cancel-in-progress: false
 
 jobs:
@@ -45,6 +47,7 @@ jobs:
           path: web/dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:
