@@ -24,6 +24,16 @@ class DiscoveryStrategyProtocol(Protocol):
     def run(self) -> List[Dict[str, Any]]: ...
 
 
+def _ditel_editorial_number(value: str) -> Optional[str]:
+    """Return the leading number when the suffix is verified DITEL editorial text."""
+    match = re.fullmatch(
+        r"(\d+)(?:\s*-\s*|\s+)(?:COMPILAD[AO]|REVOGAD[AO])"
+        r"(?:(?:\s*-\s*|\s+)(?:COMPILAD[AO]|REVOGAD[AO]))*",
+        value,
+    )
+    return match.group(1) if match else None
+
+
 def parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
     """Extrai tipo_documento e chave formatada do nome do arquivo.
 
@@ -54,8 +64,9 @@ def parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
             return "decreto", f"decreto-{int(num_part):05d}"
     elif name.startswith("LC"):
         num_part = name[2:]
-        if num_part.isdigit():
-            return "lc", f"lc-{int(num_part):05d}"
+        number = num_part if num_part.isdigit() else _ditel_editorial_number(num_part)
+        if number is not None:
+            return "lc", f"lc-{int(number):05d}"
     elif name.startswith("EC"):
         num_part = name[2:]
         if num_part.isdigit():
@@ -66,8 +77,9 @@ def parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
             return "decreto-lei", f"decreto-lei-{int(num_part):05d}"
     elif name.startswith("L"):
         num_part = name[1:]
-        if num_part.isdigit():
-            return "lei", f"lei-{int(num_part):05d}"
+        number = num_part if num_part.isdigit() else _ditel_editorial_number(num_part)
+        if number is not None:
+            return "lei", f"lei-{int(number):05d}"
     elif name.startswith("D"):
         num_part = name[1:]
         if num_part.isdigit():
