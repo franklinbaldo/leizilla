@@ -46,8 +46,7 @@ def test_legacy_duckdb_data_publicacao_migrates_losslessly(tmp_path) -> None:
     try:
         migrated = db.connect()
         columns = {
-            row[1]
-            for row in migrated.execute("PRAGMA table_info('leis')").fetchall()
+            row[1] for row in migrated.execute("PRAGMA table_info('leis')").fetchall()
         }
         assert "data_ato" in columns
         assert "data_publicacao" not in columns
