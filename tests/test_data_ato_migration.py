@@ -24,6 +24,7 @@ def test_urn_representative_date_is_exposed_as_data_ato() -> None:
 
 
 def test_legacy_duckdb_data_publicacao_migrates_losslessly(tmp_path) -> None:
+    """A database created by the pre-#129 schema migrates in place without loss."""
     db_path = tmp_path / "legacy.duckdb"
     conn = duckdb.connect(str(db_path))
     conn.execute(
@@ -31,14 +32,38 @@ def test_legacy_duckdb_data_publicacao_migrates_losslessly(tmp_path) -> None:
         CREATE TABLE leis (
             id VARCHAR PRIMARY KEY,
             titulo TEXT NOT NULL,
+            numero VARCHAR,
+            ano INTEGER,
             data_publicacao DATE,
-            ente VARCHAR NOT NULL
+            tipo_lei VARCHAR,
+            ente VARCHAR NOT NULL,
+            texto_completo TEXT,
+            texto_normalizado TEXT,
+            metadados JSON,
+            url_original VARCHAR,
+            local_pdf_path VARCHAR,
+            url_pdf_ia VARCHAR,
+            hash_conteudo VARCHAR,
+            status VARCHAR DEFAULT 'ativo',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
     )
     conn.execute(
-        "INSERT INTO leis VALUES (?, ?, ?, ?)",
-        ["ro-lei-123", "Lei 123", datetime.date(2024, 5, 10), "ro"],
+        """
+        INSERT INTO leis (id, titulo, numero, ano, data_publicacao, tipo_lei, ente)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            "ro-lei-123",
+            "Lei 123",
+            "123",
+            2024,
+            datetime.date(2024, 5, 10),
+            "lei",
+            "ro",
+        ],
     )
     conn.close()
 
