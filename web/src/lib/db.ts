@@ -24,16 +24,10 @@ export const DATASET_META_URL: string | null = DATASET_IA_ITEM
 
 const WASM_VERSION = '1.32.0';
 
-// Os três hosts de runtime (CDN do WASM, repositório de extensões do DuckDB e
-// o Parquet no IA) são substituíveis via env para permitir self-hosting — o
-// projeto preza resiliência distribuída, e um CDN fora do ar não deveria
-// derrubar a busca. Defaults preservam o comportamento padrão do duckdb-wasm.
 const CDN =
   (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_DUCKDB_CDN) ||
   `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${WASM_VERSION}/dist/`;
 
-// Ex.: 'https://example.org/duckdb-ext' com layout {repo}/{versão}/{plataforma}/
-// parquet.duckdb_extension.wasm. Vazio = extensions.duckdb.org (default).
 const EXT_REPO =
   (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_DUCKDB_EXT_REPO) || '';
 
@@ -51,11 +45,6 @@ const BUNDLES: duckdb.DuckDBBundles = {
 
 let _db: duckdb.AsyncDuckDB | null = null;
 let _initPromise: Promise<duckdb.AsyncDuckDB> | null = null;
-
-// Sem timeout, um fetch pendurado do Parquet (CDN/IA instável, item ainda não
-// publicado) deixa a UI num spinner eterno em vez do estado honesto de
-// indisponibilidade. O cooldown evita que retries da camada de query
-// re-esperem o timeout inteiro a cada tentativa.
 const INIT_TIMEOUT_MS = 30_000;
 const INIT_FAILURE_COOLDOWN_MS = 30_000;
 let _lastInitFailure: { at: number; error: Error } | null = null;
@@ -64,7 +53,6 @@ function withInitTimeout(p: Promise<duckdb.AsyncDuckDB>): Promise<duckdb.AsyncDu
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      // Se a init concluir depois do timeout, encerra o worker órfão.
       p.then((db) => db.terminate().catch(() => {})).catch(() => {});
       reject(
         new Error(
@@ -90,7 +78,6 @@ async function _init(): Promise<duckdb.AsyncDuckDB> {
     const conn = await db.connect();
     try {
       if (EXT_REPO) {
-        // Antes do read_parquet: a extensão parquet é autocarregada no bind.
         await conn.query(
           `SET custom_extension_repository='${EXT_REPO.replace(/'/g, "''")}';`,
         );
@@ -102,10 +89,10 @@ async function _init(): Promise<duckdb.AsyncDuckDB> {
       await conn.close();
     }
   } catch (e) {
-    await db.terminate().catch(() => {}); // cleanup orphaned worker; ignore secondary errors
+    await db.terminate().catch(() => {});
     throw e;
   } finally {
-    URL.revokeObjectURL(workerUrl); // always revoke, even if instantiate fails
+    URL.revokeObjectURL(workerUrl);
   }
 
   return db;
@@ -114,8 +101,6 @@ async function _init(): Promise<duckdb.AsyncDuckDB> {
 export function getDb(): Promise<duckdb.AsyncDuckDB> {
   if (_db) return Promise.resolve(_db);
   if (!_initPromise) {
-    // Falha recente → rejeita imediatamente durante o cooldown, para que
-    // retries em camadas superiores mostrem logo o estado de indisponibilidade.
     if (_lastInitFailure && Date.now() - _lastInitFailure.at < INIT_FAILURE_COOLDOWN_MS) {
       return Promise.reject(_lastInitFailure.error);
     }
@@ -126,7 +111,7 @@ export function getDb(): Promise<duckdb.AsyncDuckDB> {
         return db;
       },
       (err) => {
-        _initPromise = null; // allow retry on next call after transient failure
+        _initPromise = null;
         _lastInitFailure = { at: Date.now(), error: err instanceof Error ? err : new Error(String(err)) };
         throw err;
       },
@@ -135,18 +120,13 @@ export function getDb(): Promise<duckdb.AsyncDuckDB> {
   return _initPromise;
 }
 
-/**
- * Uma linha do Parquet `versoes` (SCHEMA.md §3.1) — grain lei × dispositivo ×
- * versão. Colunas DATE chegam como string ou Date dependendo do caminho de
- * desserialização do Arrow; use `formatDate` de format.ts para exibir.
- */
 export interface LeiRow {
   lei_id: string;
   ente: string;
   tipo_lei: string;
   numero_lei: string | null;
   ano_lei: number;
-  data_publicacao: string | Date | null;
+  data_ato: string | Date | null;
   urn_lex_lei: string | null;
   vigente_em: string | Date | null;
   lei_revogada: boolean;
@@ -167,7 +147,6 @@ export interface LeiRow {
   ate: string | Date | null;
   alterado_por: string | null;
   inicio_tipo: string;
-  /** JSON serializado: [{ia_id, diverge?, texto_divergente?}] — parseFontes() */
   fontes: string | null;
   num_fontes: number;
   tem_divergencia: boolean;
@@ -180,8 +159,6 @@ export const PAGE_SIZE = 20;
 
 export interface SearchOptions {
   ente?: string;
-  // Um valor exato, ou vários aliases equivalentes (ex: ['lei.complementar','lc'])
-  // que o filtro casa via tipo_lei IN (...).
   tipoLei?: string | string[];
   year?: number;
   page?: number;
@@ -199,16 +176,11 @@ function buildWhere(query: string, opts: SearchOptions = {}) {
     clauses.push('texto_normalizado ILIKE ?');
     params.push(`%${query.trim()}%`);
   }
-  // Sem busca textual (modo navegação) NÃO filtramos por dispositivo aqui:
-  // colapsamos para uma linha representativa por norma em searchLeisFiltered,
-  // para não esconder leis publicadas sem ementa (SCHEMA.md §0.6).
   if (ente) {
     clauses.push('ente = ?');
     params.push(ente);
   }
   if (tipoLei) {
-    // tipoLei pode ser um valor único ou vários aliases do mesmo tipo de norma
-    // (lei.complementar / lc) — casamos todos de uma vez.
     const vals = (Array.isArray(tipoLei) ? tipoLei : [tipoLei]).filter(Boolean);
     if (vals.length === 1) {
       clauses.push('tipo_lei = ?');
@@ -219,7 +191,6 @@ function buildWhere(query: string, opts: SearchOptions = {}) {
     }
   }
   if (year != null && year > 0) {
-    // em is a DATE column inferred by read_json_auto; YEAR(NULL) = NULL → safe
     clauses.push('YEAR(em) = ?');
     params.push(year);
   }
@@ -253,22 +224,13 @@ async function runSql<T>(
 
 export async function searchLeisFiltered(query: string, opts: SearchOptions = {}): Promise<LeiRow[]> {
   const { page = 0, pageSize = PAGE_SIZE } = opts;
-  // Math.trunc + bounds enforce integer values — LIMIT/OFFSET cannot be injected.
-  // DuckDB prepared statements do not support ? placeholders in LIMIT/OFFSET clauses.
-  // Number.isFinite guard prevents NaN from reaching the SQL string (e.g. if caller
-  // passes NaN explicitly; normal path always receives valid integers from PAGE_SIZE).
   const safeSize = Math.min(100, Math.max(1, Math.trunc(Number.isFinite(pageSize) ? pageSize : PAGE_SIZE)));
   const offset = Math.max(0, Math.trunc(Number.isFinite(page) ? page : 0)) * safeSize;
   const { where, params } = buildWhere(query, opts);
   let sql: string;
   if (query.trim()) {
-    // Busca textual: uma linha por dispositivo que casa (mostra os trechos).
-    // ORDER BY (lei_id, dispositivo_path) is globally unique → stable pagination.
     sql = `SELECT * FROM versoes WHERE ${where} ORDER BY lei_id, dispositivo_path LIMIT ${safeSize} OFFSET ${offset}`;
   } else {
-    // Navegação: uma linha representativa por norma. Preferimos a ementa, com
-    // fallback para o primeiro dispositivo (leis em estágio incremental podem
-    // não ter ementa; SCHEMA.md §0.6) — assim nenhuma norma publicada some.
     sql = `SELECT * EXCLUDE (_rn) FROM (
         SELECT *, ROW_NUMBER() OVER (
           PARTITION BY lei_id
@@ -286,8 +248,6 @@ export async function countLeisFiltered(
   opts: Pick<SearchOptions, 'ente' | 'tipoLei' | 'year'> = {},
 ): Promise<number> {
   const { where, params } = buildWhere(query, opts);
-  // Navegação conta normas distintas (1 linha representativa por lei_id); busca
-  // textual conta dispositivos que casam — coerente com searchLeisFiltered.
   const countExpr = query.trim() ? 'COUNT(*)' : 'COUNT(DISTINCT lei_id)';
   const rows = await runSql<{ cnt: bigint | number }>(
     `SELECT ${countExpr}::BIGINT AS cnt FROM versoes WHERE ${where}`,
@@ -297,13 +257,6 @@ export async function countLeisFiltered(
   return Number(rows[0]?.cnt ?? 0);
 }
 
-/**
- * Distinct `tipo_lei` values present in the dataset, for the type filter.
- *
- * Driven by the data so the dropdown always uses the persisted representation
- * (the ETL stores e.g. `lei.complementar` or `lc`, never a hardcoded slug) —
- * a hardcoded option list would silently filter to zero matches if it drifted.
- */
 export async function listTiposLei(): Promise<string[]> {
   const rows = await runSql<{ tipo_lei: string }>(
     "SELECT DISTINCT tipo_lei FROM versoes " +
@@ -319,22 +272,10 @@ export async function searchLeis(query: string, limit = 20): Promise<LeiRow[]> {
   return searchLeisFiltered(query, { pageSize: limit });
 }
 
-// ---------------------------------------------------------------------------
-// Busca agrupada por lei — resultados como normas, não linhas isoladas
-// ---------------------------------------------------------------------------
-
-/** Resultado de busca textual agrupado: uma norma + o melhor trecho que casou. */
 export interface GroupedHit extends LeiRow {
-  /** Quantos dispositivos desta lei casaram com o termo. */
   match_count: number;
 }
 
-/**
- * Busca textual agrupada por norma: retorna uma linha representativa por lei
- * (o primeiro dispositivo que casa, em ordem documental) mais o total de
- * dispositivos que casaram (`match_count`). Sem termo, degrada para a
- * navegação por norma de `searchLeisFiltered`.
- */
 export async function searchGroupedByLei(
   query: string,
   opts: SearchOptions = {},
@@ -359,7 +300,6 @@ export async function searchGroupedByLei(
   return runSql(sql, params, (r) => (r as { toJSON(): GroupedHit }).toJSON());
 }
 
-/** Conta normas distintas que casam (paginação da busca agrupada). */
 export async function countLeisGrouped(
   query: string,
   opts: Pick<SearchOptions, 'ente' | 'tipoLei' | 'year'> = {},
@@ -373,15 +313,6 @@ export async function countLeisGrouped(
   return Number(rows[0]?.cnt ?? 0);
 }
 
-// ---------------------------------------------------------------------------
-// Página da lei — todas as linhas de uma norma (inclui versões históricas)
-// ---------------------------------------------------------------------------
-
-/**
- * Todas as linhas (dispositivo × versão) de uma lei, em ordem documental e
- * cronológica. Inclui versões passadas (`ate` preenchido) — a página da lei
- * decide o que mostrar em "Texto" (vigente) vs "Versões" (histórico).
- */
 export async function getLeiRows(leiId: string): Promise<LeiRow[]> {
   return runSql(
     'SELECT * FROM versoes WHERE lei_id = ? ORDER BY dispositivo_ordem, dispositivo_path, em',
@@ -389,10 +320,6 @@ export async function getLeiRows(leiId: string): Promise<LeiRow[]> {
     toJson,
   );
 }
-
-// ---------------------------------------------------------------------------
-// Cobertura — números reais derivados do dataset publicado (PRD §10.4)
-// ---------------------------------------------------------------------------
 
 export interface CoverageStats {
   leis: number;
@@ -405,7 +332,6 @@ export interface CoverageStats {
   vigente_em_max: string | Date | null;
 }
 
-/** Estatísticas globais do dataset — tudo aqui é estágio S4 por construção. */
 export async function getCoverageStats(): Promise<CoverageStats> {
   const rows = await runSql<Record<string, unknown>>(
     `SELECT
@@ -442,7 +368,6 @@ export interface EnteCoverage {
   ano_max: number | null;
 }
 
-/** Cobertura por ente — alimenta filtros honestos (só o que existe no dataset). */
 export async function getCoverageByEnte(): Promise<EnteCoverage[]> {
   const rows = await runSql<Record<string, unknown>>(
     `SELECT ente,
@@ -463,7 +388,6 @@ export async function getCoverageByEnte(): Promise<EnteCoverage[]> {
   }));
 }
 
-/** Entes realmente presentes no dataset — nunca liste cobertura que não existe. */
 export async function listEntes(): Promise<string[]> {
   const rows = await runSql<{ ente: string }>(
     'SELECT DISTINCT ente FROM versoes ORDER BY ente',
@@ -473,10 +397,7 @@ export async function listEntes(): Promise<string[]> {
   return rows.map((r) => r.ente).filter(Boolean);
 }
 
-/**
- * Normas mais recentes do dataset (linha representativa por lei, preferindo a
- * ementa), ordenadas por data de publicação e ano. Para a vitrine da home.
- */
+/** Normas mais recentes, ordenadas pela data do ato representativa da URN. */
 export async function getRecentLeis(limit = 8): Promise<LeiRow[]> {
   const safe = Math.min(50, Math.max(1, Math.trunc(limit)));
   const sql = `SELECT * EXCLUDE (_rn) FROM (
@@ -486,7 +407,7 @@ export async function getRecentLeis(limit = 8): Promise<LeiRow[]> {
       ) AS _rn
       FROM versoes WHERE ate IS NULL
     ) WHERE _rn = 1
-    ORDER BY data_publicacao DESC NULLS LAST, ano_lei DESC, lei_id DESC
+    ORDER BY data_ato DESC NULLS LAST, ano_lei DESC, lei_id DESC
     LIMIT ${safe}`;
   return runSql(sql, [], toJson);
 }
