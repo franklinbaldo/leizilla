@@ -26,14 +26,16 @@ def test_urn_representative_date_is_exposed_as_data_ato() -> None:
 def test_legacy_duckdb_data_publicacao_migrates_losslessly(tmp_path) -> None:
     db_path = tmp_path / "legacy.duckdb"
     conn = duckdb.connect(str(db_path))
-    conn.execute("""
+    conn.execute(
+        """
         CREATE TABLE leis (
             id VARCHAR PRIMARY KEY,
             titulo TEXT NOT NULL,
             data_publicacao DATE,
             ente VARCHAR NOT NULL
         )
-    """)
+        """
+    )
     conn.execute(
         "INSERT INTO leis VALUES (?, ?, ?, ?)",
         ["ro-lei-123", "Lei 123", datetime.date(2024, 5, 10), "ro"],
