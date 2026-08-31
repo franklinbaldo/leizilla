@@ -60,7 +60,6 @@ def path_to_tipo(path: str) -> Optional[str]:
     for pat, tipo in _NORMATIVO_TOKENS + _ORGANIZACIONAL_TOKENS:
         if pat.match(path):
             return tipo
-    # Composite path walk (e.g. art-5-par-2-inc-3, tit-2-cap-1)
     parts = path.split("-")
     i = 0
     last_tipo: Optional[str] = None
@@ -79,7 +78,7 @@ def path_to_tipo(path: str) -> Optional[str]:
                         else "normativo"
                     )
                     if composite_class is not None and this_class != composite_class:
-                        return None  # mixed-class composite — invalid
+                        return None
                     composite_class = this_class
                     last_tipo = tipo
                     i += take
@@ -96,22 +95,21 @@ def _parse_date(s: Optional[str]) -> Optional[datetime.date]:
     if not s:
         return None
     try:
-        # Strip xs:date timezone designator ('Z' or '+HH:MM'/'-HH:MM') before parsing.
-        # datetime.date.fromisoformat does not handle timezone suffixes.
         clean = re.sub(r"([+-]\d{2}:\d{2}|Z)$", "", s)
         return datetime.date.fromisoformat(clean)
     except ValueError:
         return None
 
 
-def _extract_data_publicacao(urn_lex: Optional[str]) -> Optional[datetime.date]:
+def _extract_data_ato(urn_lex: Optional[str]) -> Optional[datetime.date]:
+    """Extract the norm's representative act date encoded in its URN-LEX."""
     if not urn_lex:
         return None
     m = _RE_URN_LEX.match(urn_lex)
     if not m:
         return None
     data_str = m.group("data") or ""
-    if len(data_str) == 4:  # year-only URN — no precise date anchor
+    if len(data_str) == 4:
         return None
     return _parse_date(data_str)
 
@@ -128,15 +126,10 @@ def _parse_lei_fields(
             data = m.group("data") or ""
             ano = int(data[:4]) if len(data) >= 4 else 0
             return tipo, numero, ano
-    # Heuristic fallback: try two documented lei_id patterns (SCHEMA.md §1.3)
     parts = lei_id.split("-")
     if len(parts) >= 5 and parts[0] == "leizilla":
-        # Fallback checked FIRST: leizilla-{ente}-{tipo}-fallback-{fonte}-{chave}
-        # Must precede canonical check — fallback keys can end with -N-YYYY which
-        # would pass the canonical heuristic and corrupt tipo/numero/ano.
         if len(parts) >= 4 and parts[3] == "fallback":
             return parts[2], None, 0
-        # Canonical: leizilla-{ente}-{tipo}-{numero}-{ano}
         try:
             ano_s, num_s, tipo_s = parts[-1], parts[-2], parts[-3]
             if len(ano_s) == 4 and ano_s.isdigit() and num_s.isdigit():
@@ -165,7 +158,7 @@ PARQUET_SCHEMA: dict[str, str] = {
     "tipo_lei": "VARCHAR",
     "numero_lei": "VARCHAR",
     "ano_lei": "INTEGER",
-    "data_publicacao": "DATE",
+    "data_ato": "DATE",
     "urn_lex_lei": "VARCHAR",
     "vigente_em": "DATE",
     "lei_revogada": "BOOLEAN",
@@ -202,7 +195,7 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
 
     urn_lex = root.get("urn-lex")
     vigente_em = _parse_date(root.get("vigente-em"))
-    data_publicacao = _extract_data_publicacao(urn_lex)
+    data_ato = _extract_data_ato(urn_lex)
     tipo_lei, numero_lei, ano_lei = _parse_lei_fields(lei_id, urn_lex)
 
     rev_root = root.find(f"{{{NS}}}revogacao")
@@ -212,7 +205,7 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
         "tipo_lei": tipo_lei,
         "numero_lei": numero_lei,
         "ano_lei": ano_lei,
-        "data_publicacao": data_publicacao,
+        "data_ato": data_ato,
         "urn_lex_lei": urn_lex,
         "vigente_em": vigente_em,
         "lei_revogada": rev_root is not None,
@@ -253,22 +246,17 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
             }
 
             versoes_elems = disp.findall(f"{{{NS}}}versao")
-
-            # Resolve `em` for each versao (explicit or inherited)
             versao_ems: list[Optional[datetime.date]] = []
             for v in versoes_elems:
                 em_s = v.get("em")
                 versao_ems.append(
-                    _parse_date(em_s) if em_s else (ancestor_em or data_publicacao)
+                    _parse_date(em_s) if em_s else (ancestor_em or data_ato)
                 )
 
             for v_idx, versao in enumerate(versoes_elems):
                 em = versao_ems[v_idx]
                 alterado_por = versao.get("alterado-por")
 
-                # Infer `ate` — next versao start, dispositivo revogacao,
-                # ancestor revogacao (§0.3 cascata implícita), lei-level
-                # revogacao total, or None (still vigente).
                 if v_idx + 1 < len(versoes_elems):
                     ate: Optional[datetime.date] = versao_ems[v_idx + 1]
                 elif disp_rev_em is not None:
@@ -326,12 +314,11 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                     }
                 )
 
-            # Pass first versao's resolved em and cascade revogacao to children
             child_ancestor_em = versao_ems[0] if versao_ems else ancestor_em
             child_rev_em = disp_rev_em or ancestor_rev_em
             _process(disp, path, child_ancestor_em, child_rev_em)
 
-    _process(root, None, data_publicacao)
+    _process(root, None, data_ato)
     return rows
 
 
@@ -378,14 +365,11 @@ def write_parquet(rows: list[dict[str, Any]], output_path: Path) -> None:
 
         conn = duckdb.connect()
         try:
-            # Generate the dictionary string representation expected by DuckDB
             columns_str = (
                 "{"
                 + ", ".join(f"'{k}': '{v}'" for k, v in PARQUET_SCHEMA.items())
                 + "}"
             )
-            # Use parameterized ? to avoid SQL string interpolation for file paths
-            # but schema dictionary has to be inline
             conn.execute(
                 f"CREATE TABLE _rows AS SELECT * FROM read_json(?, columns={columns_str})",
                 [tmp_path],
