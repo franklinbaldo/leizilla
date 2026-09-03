@@ -10,23 +10,23 @@
 </script>
 
 <!--
-  Estado público de cobertura/disponibilidade (PRD §10.4, RFC-0004 passo 6):
-  quando o Parquet não carrega, o visitante vê o que o projeto É e onde ele
-  está na esteira de publicação — não um stack trace.
+  Estado público de indisponibilidade: uma falha ao carregar o Parquet prova
+  somente que este acesso falhou. Não atribuímos a causa nem inferimos que o
+  acervo deixou de existir ou ainda não foi publicado.
 -->
 <article class="unavailable">
   <header>
-    <strong>O acervo ainda não está no ar</strong>
+    <strong>Não foi possível acessar o acervo agora</strong>
   </header>
   <p>
-    O Leizilla preserva, estrutura e audita legislação pública. O primeiro
-    dataset (Rondônia v0) está em fase de ativação — o pipeline está pronto,
-    mas a coleção ainda não foi publicada no Internet Archive, então a busca
-    não tem dados para consultar neste momento.
+    A busca depende do arquivo Parquet público configurado pelo Leizilla. Neste
+    acesso, o navegador não conseguiu carregá-lo. Isso pode ser temporário e não
+    permite concluir que o acervo esteja ausente ou não publicado.
   </p>
   <p>
-    Acompanhe o que já existe e o que falta na
-    <a href={withBase('cobertura/')}>página de cobertura</a> ou no
+    Você pode tentar abrir o
+    <a href={DATASET_PARQUET_URL} rel="external">arquivo do dataset diretamente</a>,
+    conferir a <a href={withBase('cobertura/')}>página de cobertura</a> ou consultar o
     <a href="https://github.com/franklinbaldo/leizilla#roadmap" rel="external">roadmap do projeto</a>.
   </p>
   {#if detail}
