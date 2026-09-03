@@ -36,8 +36,8 @@
       : null,
   );
 
-  // Dataset publicado porém vazio conta como "ainda não publicado" para o
-  // visitante — não exibimos uma vitrine de zeros.
+  // Estado vazio é diferente de falha de transporte: a consulta concluiu,
+  // mas não retornou linhas estruturadas para resumir.
   const empty = $derived(!failed && !loading && (stats == null || stats.leis === 0));
 
   $effect(() => {
@@ -55,7 +55,8 @@
         recentes = r;
       } catch {
         // O island de busca já exibe o painel completo de indisponibilidade
-        // (DatasetUnavailable); aqui degradamos para uma linha discreta.
+        // (DatasetUnavailable); aqui degradamos para uma linha discreta sem
+        // inventar a causa da falha.
         if (!cancelled) failed = true;
       } finally {
         if (!cancelled) loading = false;
@@ -71,10 +72,18 @@
   <section aria-busy="true" aria-label="Carregando panorama do acervo">
     <p><small>Carregando panorama do acervo…</small></p>
   </section>
-{:else if failed || empty}
+{:else if failed}
   <p class="fallback">
     <small>
-      O primeiro acervo (Rondônia v0) ainda não foi publicado — veja a
+      Não foi possível carregar o panorama do acervo neste acesso — tente abrir o
+      <a href={DATASET_PARQUET_URL} rel="external">dataset diretamente</a> ou veja a
+      <a href={withBase('cobertura/')}>página de cobertura</a>.
+    </small>
+  </p>
+{:else if empty}
+  <p class="fallback">
+    <small>
+      A consulta retornou zero registros estruturados neste momento — veja a
       <a href={withBase('cobertura/')}>página de cobertura</a>.
     </small>
   </p>
