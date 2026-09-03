@@ -32,7 +32,7 @@ class DuckDBStorage:
             titulo TEXT NOT NULL,
             numero VARCHAR,
             ano INTEGER,
-            data_publicacao DATE,
+            data_ato DATE,
             tipo_lei VARCHAR,
             ente VARCHAR NOT NULL,
             texto_completo TEXT,
@@ -47,11 +47,10 @@ class DuckDBStorage:
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+        self._migrate_legacy_schema(conn)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_ente ON leis(ente)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_ano ON leis(ano)")
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_leis_data ON leis(data_publicacao)"
-        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_data ON leis(data_ato)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_leis_tipo ON leis(tipo_lei)")
         conn.execute("""
         CREATE TABLE IF NOT EXISTS discovered_resources (
@@ -72,6 +71,21 @@ class DuckDBStorage:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_resources_ente ON discovered_resources(ente)"
         )
+
+    @staticmethod
+    def _migrate_legacy_schema(conn: duckdb.DuckDBPyConnection) -> None:
+        """Rename the legacy act-date column without creating two semantic truths."""
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info('leis')").fetchall()
+        }
+        has_old = "data_publicacao" in columns
+        has_new = "data_ato" in columns
+        if has_old and has_new:
+            raise RuntimeError(
+                "leis contains both data_publicacao and data_ato; refusing ambiguous migration"
+            )
+        if has_old:
+            conn.execute("ALTER TABLE leis RENAME COLUMN data_publicacao TO data_ato")
 
     def insert_resource(self, resource_data: Dict[str, Any]) -> None:
         conn = self.connect()
@@ -205,10 +219,10 @@ class DuckDBStorage:
         where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
         results = conn.execute(
             f"""
-            SELECT id, titulo, ano, data_publicacao, tipo_lei, ente
+            SELECT id, titulo, ano, data_ato, tipo_lei, ente
             FROM leis
             WHERE {where_sql}
-            ORDER BY data_publicacao DESC
+            ORDER BY data_ato DESC
             LIMIT ?
             """,
             params + [limit],
