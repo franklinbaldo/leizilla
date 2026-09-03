@@ -35,7 +35,7 @@ import random
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from leizilla.ocr import fetch_and_clean_ocr
 from leizilla.publisher import list_raw_ids
@@ -87,7 +87,7 @@ def parse_sources(ente: str, fontes: str) -> List[Source]:
     return out
 
 
-def sample_raw_ids(ids: Sequence[str], n: int, seed: int) -> List[str]:
+def sample_raw_ids(ids: Iterable[str], n: int, seed: int) -> List[str]:
     """Deterministically pick up to ``n`` ids from ``ids`` for a fixed ``seed``.
 
     Sorts first so the input set's iteration order can't perturb the draw, then uses a
@@ -193,6 +193,87 @@ def write_manifest(manifest: Dict[str, object], path: Path) -> None:
     with path.open("w", encoding="utf-8") as fh:
         json.dump(manifest, fh, ensure_ascii=False, indent=2)
         fh.write("\n")
+
+
+def bootstrap_pool(
+    records: Sequence[Dict[str, object]],
+    *,
+    segment_fn: Callable[[str], List[Dict[str, object]]] | None = None,
+) -> PoolResult:
+    """Pre-label pool ``records`` with the regex baseline, for audit-mode annotation.
+
+    Path 1 of the gold-scaling plan (docs/opf-finetune.md, Phase 2.5): the regex
+    baseline already scores exact micro-F1 0.95 on gold, which flips the labeling
+    economics — instead of subagents labeling every document from scratch, the
+    regex pre-labels everything and a subagent per document only *verifies and
+    corrects* (confirm the easy markers; fix the known residuals: ``§`` inside
+    citation lists, ementa preamble over-capture). An audit pass is cheaper and
+    more reliable per document than de-novo labeling. Measured on the sibling
+    causaganha segmenter (2026-07-16): regex-bootstrapped labels merged into gold
+    only after mechanical validation plus a stratified spot-check — the same two
+    gates apply here before any bootstrapped record is promoted.
+
+    Each output record keeps the pool record's ``text``/``info`` and gains:
+
+    - ``label``: the regex baseline's spans (OPF schema, offsets exact);
+    - ``info.prelabeled_by``: provenance marker (never absent — auditors and the
+      gold manifest must be able to tell bootstrapped records from de-novo ones);
+    - ``info.audit_status``: ``"pending"`` — flipped to ``"verified"`` by the
+      audit pass, and ``validate``d before promotion;
+    - ``info.category_counts``: per-category span counts for this document — the
+      targeting signal for Path 3 (pick alíneas-dense docs to feed
+      ``ali_marcador``, emendas with vigência/revogação cues, ...).
+
+    The manifest aggregates per-category totals across the pool so a scaling round
+    can see at a glance which starved categories this sample would actually feed
+    (the sibling project's Round C lesson: a general sample can yield *zero* for a
+    rare category — check before dispatching auditors, not after).
+    """
+    if segment_fn is None:
+        from leizilla.segmenter import segment as segment_fn  # type: ignore[assignment]
+    assert segment_fn is not None
+
+    out_records: List[Dict[str, object]] = []
+    totals: Dict[str, int] = {}
+    docs_with_category: Dict[str, int] = {}
+
+    for rec in records:
+        text = str(rec.get("text", ""))
+        spans = segment_fn(text)
+        counts: Dict[str, int] = {}
+        for sp in spans:
+            cat = str(sp["category"])
+            counts[cat] = counts.get(cat, 0) + 1
+            totals[cat] = totals.get(cat, 0) + 1
+        for cat in counts:
+            docs_with_category[cat] = docs_with_category.get(cat, 0) + 1
+        info = dict(rec.get("info") or {})  # type: ignore[call-overload]
+        info["prelabeled_by"] = "regex_segmenter_v1"
+        info["audit_status"] = "pending"
+        info["category_counts"] = counts
+        out_records.append({"text": text, "label": list(spans), "info": info})
+
+    manifest: Dict[str, object] = {
+        "category_version": CATEGORY_VERSION,
+        "prelabeled_by": "regex_segmenter_v1",
+        "total_records": len(out_records),
+        "total_spans": sum(totals.values()),
+        "spans_per_category": dict(sorted(totals.items())),
+        "docs_with_category": dict(sorted(docs_with_category.items())),
+        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+    }
+    return PoolResult(records=out_records, manifest=manifest)
+
+
+def load_pool(path: Path) -> List[Dict[str, object]]:
+    """Read a pool/bootstrapped JSONL file back into records."""
+    records: List[Dict[str, object]] = []
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            stripped = line.strip()
+            if stripped:
+                records.append(json.loads(stripped))
+    return records
 
 
 def load_label_space(path: Path) -> Tuple[str, List[str]]:

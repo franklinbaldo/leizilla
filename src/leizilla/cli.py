@@ -1430,6 +1430,112 @@ def cmd_opf_sample(
     echo(f"manifest -> {manifest_path}")
 
 
+@app.command("opf-bootstrap")
+def cmd_opf_bootstrap(
+    pool: Path = typer.Option(
+        Path("data/opf/pool/pool.jsonl"), help="Pool amostrado (saída de opf-sample)"
+    ),
+    out_dir: Path = typer.Option(
+        Path("data/opf/pool"),
+        help="Diretório de saída (bootstrapped.jsonl + bootstrap_manifest.json)",
+    ),
+) -> None:
+    """Pré-rotular o pool com o segmentador regex (anotação em modo auditoria).
+
+    Caminho 1 do plano de escala do gold (docs/opf-finetune.md, fase 2.5): o
+    baseline regex já atinge F1 exato 0.95 no gold, então em vez de subagentes
+    rotularem do zero, o regex pré-rotula tudo e cada subagente apenas VERIFICA e
+    corrige (residuais conhecidos: § em listas de citação, ementa com preâmbulo).
+    O manifest agrega spans por categoria — confira ANTES de despachar auditores
+    se a amostra alimenta as categorias escassas (ali_marcador, vigencia,
+    revogacao); uma amostra geral pode render zero para categoria rara.
+    """
+    from leizilla import opf
+
+    if not pool.exists():
+        echo(f"Pool não encontrado: {pool} (rode opf-sample primeiro)")
+        raise typer.Exit(1)
+
+    records = opf.load_pool(pool)
+    if not records:
+        echo(f"Pool vazio: {pool}")
+        raise typer.Exit(1)
+
+    result = opf.bootstrap_pool(records)
+
+    boot_path = out_dir / "bootstrapped.jsonl"
+    manifest_path = out_dir / "bootstrap_manifest.json"
+    n = opf.write_pool(result.records, boot_path)
+    opf.write_manifest(result.manifest, manifest_path)
+
+    echo(f"\n{n} registros pré-rotulados -> {boot_path}")
+    echo(f"{result.manifest['total_spans']} spans no total:")
+    spans_per_cat = cast(Dict[str, int], result.manifest["spans_per_category"])
+    docs_per_cat = cast(Dict[str, int], result.manifest["docs_with_category"])
+    for cat, count in spans_per_cat.items():
+        echo(f"  {cat}: {count} spans em {docs_per_cat.get(cat, 0)} docs")
+    missing = [
+        c
+        for c in ("ementa", "vigencia", "revogacao", "ali_marcador")
+        if c not in spans_per_cat
+    ]
+    if missing:
+        echo(
+            "\nAVISO: categorias sem NENHUM span nesta amostra: "
+            + ", ".join(missing)
+            + " — considere um pré-filtro dirigido antes de auditar (fase 2.5, caminho 3)."
+        )
+    echo(f"manifest -> {manifest_path}")
+
+
+@app.command("opf-synth")
+def cmd_opf_synth(
+    n: int = typer.Option(100, help="Quantidade de normas sintéticas"),
+    seed: int = typer.Option(13, help="Seed do gerador (reprodutibilidade)"),
+    ali_per_inciso: int = typer.Option(
+        2, help="Densidade de ali_marcador (alíneas por inciso)"
+    ),
+    ocr_noise_fraction: float = typer.Option(
+        0.3, help="Fração de docs com superfícies do regime OCR (ex.: '§ 1 o')"
+    ),
+    out_dir: Path = typer.Option(
+        Path("data/opf/synthetic"),
+        help="Diretório de saída (synthetic.jsonl + synthetic_manifest.json)",
+    ),
+) -> None:
+    """Gerar normas sintéticas com offsets exatos (fase 2.5, caminho 4).
+
+    SOMENTE para o mix de treino — nunca val/test (eval fica real e verificado).
+    Alimenta sob demanda as categorias escassas (ali_marcador, vigencia,
+    revogacao), injeta hard negatives dos modos de falha auditados do regex
+    (art. minúsculo em citação, § em cadeia de referência, nota de histórico
+    '(Revogado pela Lei…)') e ensaia superfícies do regime OCR que o baseline
+    regex perde por construção. Ver docs/opf-finetune.md.
+    """
+    from leizilla import synthetic
+
+    records, manifest = synthetic.build_dataset(
+        n,
+        seed=seed,
+        ali_per_inciso=ali_per_inciso,
+        ocr_noise_fraction=ocr_noise_fraction,
+    )
+
+    from leizilla import opf
+
+    synth_path = out_dir / "synthetic.jsonl"
+    manifest_path = out_dir / "synthetic_manifest.json"
+    written = opf.write_pool(records, synth_path)
+    opf.write_manifest(manifest, manifest_path)
+
+    echo(f"{written} normas sintéticas -> {synth_path}")
+    spans_per_cat = cast(Dict[str, int], manifest["spans_per_category"])
+    for cat, count in spans_per_cat.items():
+        echo(f"  {cat}: {count} spans")
+    echo(f"manifest -> {manifest_path}")
+    echo("\nUso: mix de treino apenas — NUNCA val/test.")
+
+
 @app.command("opf-regex-eval")
 def cmd_opf_regex_eval(
     gold_dir: Path = typer.Option(

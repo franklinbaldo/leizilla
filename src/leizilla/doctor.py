@@ -140,7 +140,7 @@ def default_http_check(url: str, timeout: float = HTTP_TIMEOUT_SECONDS) -> bool:
     import requests
 
     resp = requests.head(url, timeout=timeout, allow_redirects=True)
-    return resp.status_code < 500
+    return bool(resp.status_code < 500)
 
 
 def run_doctor(
