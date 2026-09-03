@@ -1,0 +1,120 @@
+name: Visual capture — web
+
+on:
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/visual-capture.yml"
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/visual-capture.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    env:
+      CAPTURE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build the real Astro surface
+        working-directory: web
+        run: npm run build
+        env:
+          PUBLIC_PARQUET_URL: ${{ vars.PUBLIC_PARQUET_URL }}
+          PUBLIC_DUCKDB_CDN: ${{ vars.PUBLIC_DUCKDB_CDN }}
+          PUBLIC_DUCKDB_EXT_REPO: ${{ vars.PUBLIC_DUCKDB_EXT_REPO }}
+
+      - name: Install Chromium capture runtime
+        working-directory: web
+        run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Start built site
+        working-directory: web
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4321 > /tmp/leizilla-preview.log 2>&1 &
+          echo $! > /tmp/leizilla-preview.pid
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4321/leizilla/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/leizilla-preview.log
+          exit 1
+
+      - name: Capture desktop and narrow views
+        working-directory: web
+        run: |
+          mkdir -p visual-evidence
+          node --input-type=module <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+
+          const sha = process.env.CAPTURE_SHA;
+          const url = 'http://127.0.0.1:4321/leizilla/';
+          const cases = [
+            ['home-1280x900.png', 1280, 900],
+            ['home-390x844.png', 390, 844],
+          ];
+          const browser = await chromium.launch({ headless: true });
+          const results = [];
+
+          for (const [file, width, height] of cases) {
+            const page = await browser.newPage({ viewport: { width, height } });
+            const pageErrors = [];
+            const consoleErrors = [];
+            page.on('pageerror', (error) => pageErrors.push(error.message));
+            page.on('console', (message) => {
+              if (message.type() === 'error') consoleErrors.push(message.text());
+            });
+            const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 });
+            await page.screenshot({ path: `visual-evidence/${file}`, fullPage: true });
+            results.push({
+              file,
+              viewport: { width, height },
+              status: response?.status() ?? null,
+              title: await page.title(),
+              page_errors: pageErrors,
+              console_errors: consoleErrors,
+            });
+            await page.close();
+          }
+
+          await browser.close();
+          fs.writeFileSync(
+            'visual-evidence/capture-state.json',
+            JSON.stringify({ sha, url, captured_at: new Date().toISOString(), results }, null, 2),
+          );
+
+          if (results.some((result) => result.status !== 200 || result.page_errors.length > 0)) {
+            console.error(JSON.stringify(results, null, 2));
+            process.exit(1);
+          }
+          EOF
+
+      - name: Upload visual evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: leizilla-web-visual-${{ env.CAPTURE_SHA }}
+          path: web/visual-evidence
+          if-no-files-found: error
+          retention-days: 30
