@@ -44,7 +44,7 @@ jobs:
       - name: Install Chromium capture runtime
         working-directory: web
         run: |
-          npm install --no-save --package-lock=false playwright@1.55.0
+          npm install --no-save --package-lock=false playwright@1.55.0 @axe-core/playwright@4.10.2
           npx playwright install --with-deps chromium
 
       - name: Start built site
@@ -61,12 +61,13 @@ jobs:
           cat /tmp/leizilla-preview.log
           exit 1
 
-      - name: Capture desktop, narrow and controlled unavailable states
+      - name: Capture and audit desktop, narrow and controlled unavailable states
         working-directory: web
         run: |
           mkdir -p visual-evidence
           node --input-type=module <<'EOF'
           import { chromium } from 'playwright';
+          import AxeBuilder from '@axe-core/playwright';
           import fs from 'node:fs';
 
           const sha = process.env.CAPTURE_SHA;
@@ -79,6 +80,62 @@ jobs:
           ];
           const browser = await chromium.launch({ headless: true });
           const results = [];
+          const interactiveSelector = [
+            'a[href]',
+            'button:not([disabled])',
+            'input:not([disabled]):not([type="hidden"])',
+            'select:not([disabled])',
+            'textarea:not([disabled])',
+            '[tabindex]:not([tabindex="-1"])',
+          ].join(',');
+
+          async function auditKeyboard(page) {
+            const expected = await page.locator(interactiveSelector).evaluateAll((elements) => {
+              const visible = elements.filter((element) => {
+                const style = getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+              });
+              return visible.map((element, index) => {
+                const id = `audit-${index}`;
+                element.setAttribute('data-cobogo-audit-id', id);
+                return id;
+              });
+            });
+
+            await page.locator('body').focus();
+            const reached = new Set();
+            const focusFailures = [];
+            let repeatedFirst = false;
+
+            for (let step = 0; step < expected.length + 8; step += 1) {
+              await page.keyboard.press('Tab');
+              const state = await page.evaluate(() => {
+                const element = document.activeElement;
+                if (!(element instanceof HTMLElement)) return null;
+                const style = getComputedStyle(element);
+                const hasOutline = style.outlineStyle !== 'none' && parseFloat(style.outlineWidth || '0') > 0;
+                const hasShadow = style.boxShadow !== 'none';
+                return {
+                  id: element.getAttribute('data-cobogo-audit-id'),
+                  focusVisible: element.matches(':focus-visible'),
+                  hasIndicator: hasOutline || hasShadow,
+                };
+              });
+              if (!state?.id) continue;
+              if (state.id === expected[0] && reached.size > 0) repeatedFirst = true;
+              reached.add(state.id);
+              if (!state.focusVisible || !state.hasIndicator) focusFailures.push(state.id);
+              if (reached.size === expected.length || repeatedFirst) break;
+            }
+
+            return {
+              expected: expected.length,
+              reached: reached.size,
+              missing: expected.filter((id) => !reached.has(id)),
+              focus_failures: [...new Set(focusFailures)],
+            };
+          }
 
           for (const [file, width, height, blockDataset] of cases) {
             const page = await browser.newPage({ viewport: { width, height } });
@@ -96,6 +153,11 @@ jobs:
               await page.getByText('Não foi possível acessar o acervo agora').waitFor({ timeout: 30_000 });
             }
             const bodyText = await page.locator('body').innerText();
+            const axe = await new AxeBuilder({ page }).analyze();
+            const seriousAxeViolations = axe.violations.filter(
+              (violation) => violation.impact === 'serious' || violation.impact === 'critical',
+            );
+            const keyboard = await auditKeyboard(page);
             await page.screenshot({ path: `visual-evidence/${file}`, fullPage: true });
             results.push({
               file,
@@ -105,6 +167,13 @@ jobs:
               title: await page.title(),
               page_errors: pageErrors,
               console_errors: consoleErrors,
+              axe_serious_or_critical: seriousAxeViolations.map((violation) => ({
+                id: violation.id,
+                impact: violation.impact,
+                help: violation.help,
+                targets: violation.nodes.map((node) => node.target),
+              })),
+              keyboard,
               truthful_unavailable_state: blockDataset
                 ? bodyText.includes('Não foi possível acessar o acervo agora') &&
                   !bodyText.includes('ainda não foi publicado') &&
@@ -125,7 +194,10 @@ jobs:
               (result) =>
                 result.status !== 200 ||
                 result.page_errors.length > 0 ||
-                result.truthful_unavailable_state === false,
+                result.truthful_unavailable_state === false ||
+                result.axe_serious_or_critical.length > 0 ||
+                result.keyboard.missing.length > 0 ||
+                result.keyboard.focus_failures.length > 0,
             )
           ) {
             console.error(JSON.stringify(results, null, 2));
@@ -134,6 +206,7 @@ jobs:
           EOF
 
       - name: Upload visual evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: leizilla-web-visual-${{ env.CAPTURE_SHA }}
