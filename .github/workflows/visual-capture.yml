@@ -103,7 +103,9 @@ jobs:
               });
             });
 
-            await page.locator('body').focus();
+            await page.evaluate(() => {
+              if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+            });
             const reached = new Set();
             const focusFailures = [];
             let repeatedFirst = false;
