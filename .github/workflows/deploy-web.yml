@@ -57,3 +57,92 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Chromium for published capture
+        run: |
+          mkdir -p /tmp/leizilla-published
+          cd /tmp/leizilla-published
+          npm init -y >/dev/null
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Capture the page readers actually receive
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          PUBLISHED_SHA: ${{ github.sha }}
+        run: |
+          mkdir -p published-evidence
+          cd /tmp/leizilla-published
+          node --input-type=module <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+
+          const url = process.env.PAGE_URL;
+          const sha = process.env.PUBLISHED_SHA;
+          const browser = await chromium.launch({ headless: true });
+          const results = [];
+
+          for (const [file, width, height] of [
+            ['published-home-1280x900.png', 1280, 900],
+            ['published-home-390x844.png', 390, 844],
+          ]) {
+            const page = await browser.newPage({ viewport: { width, height } });
+            let response = null;
+            for (let attempt = 0; attempt < 12; attempt += 1) {
+              try {
+                response = await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 });
+                if (response?.status() === 200) break;
+              } catch (error) {
+                if (attempt === 11) throw error;
+              }
+              await page.waitForTimeout(5_000);
+            }
+
+            await page.screenshot({ path: `/home/runner/work/${process.env.GITHUB_REPOSITORY?.split('/')[1]}/${process.env.GITHUB_REPOSITORY?.split('/')[1]}/published-evidence/${file}`, fullPage: true });
+            const metrics = await page.evaluate(() => {
+              const filters = [...document.querySelectorAll('.filters select, .filters input[type="number"]')];
+              return {
+                document_client_width: document.documentElement.clientWidth,
+                document_scroll_width: document.documentElement.scrollWidth,
+                filter_rects: filters.map((element) => {
+                  const rect = element.getBoundingClientRect();
+                  return {
+                    tag: element.tagName.toLowerCase(),
+                    value: element.value,
+                    text: element instanceof HTMLSelectElement ? element.options[element.selectedIndex]?.text ?? '' : element.getAttribute('placeholder') ?? '',
+                    left: rect.left,
+                    right: rect.right,
+                    width: rect.width,
+                  };
+                }),
+              };
+            });
+            results.push({ file, viewport: { width, height }, status: response?.status() ?? null, title: await page.title(), metrics });
+            await page.close();
+          }
+
+          await browser.close();
+          fs.writeFileSync(
+            `/home/runner/work/${process.env.GITHUB_REPOSITORY?.split('/')[1]}/${process.env.GITHUB_REPOSITORY?.split('/')[1]}/published-evidence/published-state.json`,
+            JSON.stringify({ sha, url, captured_at: new Date().toISOString(), results }, null, 2),
+          );
+
+          if (
+            results.some(
+              ({ status, metrics }) =>
+                status !== 200 || metrics.document_scroll_width > metrics.document_client_width,
+            )
+          ) process.exit(1);
+          EOF
+
+      - name: Upload published visual evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: leizilla-published-${{ github.sha }}
+          path: published-evidence
+          if-no-files-found: error
+          retention-days: 30
