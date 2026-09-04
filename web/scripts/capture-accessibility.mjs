@@ -76,7 +76,8 @@ let fatalError = null;
 
 try {
   for (const [file, width, height, blockDataset] of cases) {
-    const page = await browser.newPage({ viewport: { width, height } });
+    const context = await browser.newContext({ viewport: { width, height } });
+    const page = await context.newPage();
     const pageErrors = [];
     const consoleErrors = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -118,7 +119,7 @@ try {
           !bodyText.includes('ainda não está no ar')
         : null,
     });
-    await page.close();
+    await context.close();
   }
 } catch (error) {
   fatalError = error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : { message: String(error) };
