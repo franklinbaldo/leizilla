@@ -44,7 +44,7 @@ jobs:
       - name: Install Chromium capture runtime
         working-directory: web
         run: |
-          npm install --no-save --package-lock=false playwright@1.55.0
+          npm install --no-save --package-lock=false playwright@1.55.0 @axe-core/playwright@4.10.2
           npx playwright install --with-deps chromium
 
       - name: Start built site
@@ -61,79 +61,12 @@ jobs:
           cat /tmp/leizilla-preview.log
           exit 1
 
-      - name: Capture desktop, narrow and controlled unavailable states
+      - name: Capture and audit desktop, narrow and controlled unavailable states
         working-directory: web
-        run: |
-          mkdir -p visual-evidence
-          node --input-type=module <<'EOF'
-          import { chromium } from 'playwright';
-          import fs from 'node:fs';
-
-          const sha = process.env.CAPTURE_SHA;
-          const url = 'http://127.0.0.1:4321/leizilla/';
-          const cases = [
-            ['home-1280x900.png', 1280, 900, false],
-            ['home-390x844.png', 390, 844, false],
-            ['home-unavailable-1280x900.png', 1280, 900, true],
-            ['home-unavailable-390x844.png', 390, 844, true],
-          ];
-          const browser = await chromium.launch({ headless: true });
-          const results = [];
-
-          for (const [file, width, height, blockDataset] of cases) {
-            const page = await browser.newPage({ viewport: { width, height } });
-            const pageErrors = [];
-            const consoleErrors = [];
-            page.on('pageerror', (error) => pageErrors.push(error.message));
-            page.on('console', (message) => {
-              if (message.type() === 'error') consoleErrors.push(message.text());
-            });
-            if (blockDataset) {
-              await page.route('https://archive.org/**', (route) => route.abort('failed'));
-            }
-            const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 });
-            if (blockDataset) {
-              await page.getByText('Não foi possível acessar o acervo agora').waitFor({ timeout: 30_000 });
-            }
-            const bodyText = await page.locator('body').innerText();
-            await page.screenshot({ path: `visual-evidence/${file}`, fullPage: true });
-            results.push({
-              file,
-              viewport: { width, height },
-              controlled_dataset_failure: blockDataset,
-              status: response?.status() ?? null,
-              title: await page.title(),
-              page_errors: pageErrors,
-              console_errors: consoleErrors,
-              truthful_unavailable_state: blockDataset
-                ? bodyText.includes('Não foi possível acessar o acervo agora') &&
-                  !bodyText.includes('ainda não foi publicado') &&
-                  !bodyText.includes('ainda não está no ar')
-                : null,
-            });
-            await page.close();
-          }
-
-          await browser.close();
-          fs.writeFileSync(
-            'visual-evidence/capture-state.json',
-            JSON.stringify({ sha, url, captured_at: new Date().toISOString(), results }, null, 2),
-          );
-
-          if (
-            results.some(
-              (result) =>
-                result.status !== 200 ||
-                result.page_errors.length > 0 ||
-                result.truthful_unavailable_state === false,
-            )
-          ) {
-            console.error(JSON.stringify(results, null, 2));
-            process.exit(1);
-          }
-          EOF
+        run: node scripts/capture-accessibility.mjs
 
       - name: Upload visual evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: leizilla-web-visual-${{ env.CAPTURE_SHA }}
