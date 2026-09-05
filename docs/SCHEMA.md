@@ -145,7 +145,7 @@ contexto, não pela leitura do documento.
 | (qualquer) | (qualquer) | sem número resolvido → **preservado**, aguardando reconciliação | `leizilla_{ente}_{fonte}_unidentified` |
 
 Dentro do item: `{uuid5}.pdf` / `{uuid5}_djvu.txt` (OCR derivado pelo IA) /
-`{uuid5}_meta.json`, e um `index.csv` mapeando `(tipo, número, rendição, formato)
+`{uuid5}_meta.json`, e um `index.csv` mapeando `(tipo, número, rendição, formato)`
 → {uuid5, sha256, captured_at, source}` (newest-wins). A coluna `source` é a
 chave de colheita / URL de origem (ADR-0010), mapeando cada arquivo à sua fonte
 — é o que permite à identidade descartar o `coddoc`. Versões e rendições coexistem
@@ -228,7 +228,7 @@ Conteúdo: `versoes.parquet` + `dataset_meta.json` (gerados por `upload_dataset(
   "tipo": "lei",
   "numero": "1234",
   "ano": 2003,
-  "data_publicacao": "2003-06-15",
+  "data_ato": "2003-06-15",
   "vigente_em": "2026-05-20",
 
   "fontes_consultadas": [
@@ -318,8 +318,8 @@ Agrupadas por origem (lei / dispositivo / versão). Toda metadata de lei e dispo
 | `tipo_lei` | VARCHAR | NO | `lei`, `decreto`, `lc`, `constituicao`... |
 | `numero_lei` | VARCHAR | YES | nullable em fallbacks |
 | `ano_lei` | INTEGER | NO | |
-| `data_publicacao` | DATE | YES | extraída da URN; nullable em fallbacks |
-| `urn_lex_lei` | VARCHAR | YES | nullable se `data_publicacao` desconhecida |
+| `data_ato` | DATE | YES | data representativa do ato extraída da URN; nullable em fallbacks |
+| `urn_lex_lei` | VARCHAR | YES | nullable se `data_ato` desconhecida |
 | `vigente_em` | DATE | NO | data de referência da compilação |
 | `lei_revogada` | BOOLEAN | NO | true se `<revogacao>` na raiz |
 | `lei_revogada_em` | DATE | YES | data efeito |

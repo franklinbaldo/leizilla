@@ -9,11 +9,6 @@
 import type { LeiRow } from '../../lib/db';
 import { formatDate, leiUrl, parseFontes, type Fonte } from '../../lib/format';
 
-// ---------------------------------------------------------------------------
-// Datas — colunas DATE podem chegar como Date, string ou (via Arrow) número
-// epoch-millis / bigint. Normalizamos antes de formatar ou comparar.
-// ---------------------------------------------------------------------------
-
 export type DateLike = string | Date | number | bigint | null | undefined;
 
 function asDateInput(value: DateLike): string | Date | null {
@@ -25,12 +20,10 @@ function asDateInput(value: DateLike): string | Date | null {
   return value;
 }
 
-/** formatDate tolerante a epoch-millis vindos do Arrow. */
 export function fmtDate(value: DateLike): string {
   return formatDate(asDateInput(value));
 }
 
-/** Chave numérica de ordenação cronológica (0 para nulos/inválidos). */
 export function dateMs(value: DateLike): number {
   const v = asDateInput(value);
   if (v == null) return 0;
@@ -39,7 +32,6 @@ export function dateMs(value: DateLike): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
-/** DATE → 'YYYY-MM-DD' para exports (JSON/CSV); null preservado. */
 export function isoDate(value: DateLike): string | null {
   const v = asDateInput(value);
   if (v == null) return null;
@@ -49,17 +41,11 @@ export function isoDate(value: DateLike): string | null {
   return `${v}`.slice(0, 10);
 }
 
-// ---------------------------------------------------------------------------
-// Texto vigente — uma linha por dispositivo (ate IS NULL; fallback: mais
-// recente) e árvore via dispositivo_parent_path + dispositivo_ordem.
-// ---------------------------------------------------------------------------
-
 export interface DispositivoNode {
   row: LeiRow;
   children: DispositivoNode[];
 }
 
-/** Tipos organizacionais (agrupadores) — renderizados como headings. */
 export const ORGANIZACIONAIS = new Set([
   'livro',
   'parte',
@@ -69,12 +55,6 @@ export const ORGANIZACIONAIS = new Set([
   'subsecao',
 ]);
 
-/**
- * Uma linha exibível por dispositivo: prefere a versão vigente (`ate IS
- * NULL`); um dispositivo revogado (todas as versões encerradas) mantém a
- * última redação, para ser exibido riscado com a nota de revogação — leitores
- * jurídicos precisam ver o que existiu, não um buraco na numeração.
- */
 export function currentRows(rows: LeiRow[]): LeiRow[] {
   const byPath = new Map<string, LeiRow>();
   for (const row of rows) {
@@ -99,11 +79,6 @@ export interface TextoVigente {
   roots: DispositivoNode[];
 }
 
-/**
- * Árvore do texto vigente. Parent ausente no conjunto (fail-open, dado
- * incremental — SCHEMA.md §0.6) promove o nó a top-level em vez de sumir.
- * A ementa sai da árvore e é renderizada à parte, como resumo da norma.
- */
 export function buildTree(rows: LeiRow[]): TextoVigente {
   const vigentes = currentRows(rows);
   const ementa = vigentes.find((r) => r.dispositivo_path === 'ementa') ?? null;
@@ -137,20 +112,11 @@ export function buildTree(rows: LeiRow[]): TextoVigente {
   return { ementa, roots };
 }
 
-// ---------------------------------------------------------------------------
-// Versões — histórico por dispositivo
-// ---------------------------------------------------------------------------
-
 export interface DispositivoHistorico {
   path: string;
-  versions: LeiRow[]; // ordem cronológica (em asc)
+  versions: LeiRow[];
 }
 
-/**
- * Dispositivos com histórico relevante: mais de uma versão, alguma versão
- * encerrada (`ate` preenchido) ou alteração declarada (`alterado_por`).
- * Ordem documental (dispositivo_ordem, path).
- */
 export function groupHistorico(rows: LeiRow[]): DispositivoHistorico[] {
   const byPath = new Map<string, LeiRow[]>();
   for (const row of rows) {
@@ -175,7 +141,6 @@ export function groupHistorico(rows: LeiRow[]): DispositivoHistorico[] {
   return out;
 }
 
-/** Labels pt-BR para o enum `inicio_tipo` (SCHEMA.md §3.1). */
 export const INICIO_TIPO_LABELS: Record<string, string> = {
   'data-publicacao': 'vigência desde a publicação',
   'texto-lei-alteradora': 'redação dada por lei alteradora',
@@ -190,17 +155,12 @@ export function inicioTipoLabel(tipo: string | null | undefined): string {
   return INICIO_TIPO_LABELS[tipo] ?? tipo;
 }
 
-// ---------------------------------------------------------------------------
-// Evidências — fontes agregadas em todas as versões
-// ---------------------------------------------------------------------------
-
 export interface FonteAgregada {
   ia_id: string;
   diverge: boolean;
   textos_divergentes: string[];
 }
 
-/** Fontes distintas (por ia_id) em todas as versões; marca divergências. */
 export function aggregateFontes(rows: LeiRow[]): FonteAgregada[] {
   const byId = new Map<string, FonteAgregada>();
   for (const row of rows) {
@@ -221,25 +181,14 @@ export function aggregateFontes(rows: LeiRow[]): FonteAgregada[] {
   return [...byId.values()].sort((a, b) => a.ia_id.localeCompare(b.ia_id));
 }
 
-/**
- * Busca no IA pelo ia_id entre aspas — resolver honesto: ids lógicos raw vivem
- * DENTRO de itens-balde por faixa (ADR-0010/0011), então /details/ direto pode
- * dar 404.
- */
 export function iaSearchUrl(term: string): string {
   return `https://archive.org/search?query=${encodeURIComponent(`"${term}"`)}`;
 }
 
-// ---------------------------------------------------------------------------
-// Deep-link e clipboard
-// ---------------------------------------------------------------------------
-
-/** URL absoluta e estável de um dispositivo (para "copiar link"). */
 export function absoluteLeiUrl(leiId: string, dispositivoPath?: string): string {
   return new URL(leiUrl(leiId, dispositivoPath), location.origin).href;
 }
 
-/** Clipboard com fallback textarea para contextos sem navigator.clipboard. */
 export async function copyText(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {
@@ -265,18 +214,13 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Exports (JSON/CSV) — serializam as linhas já buscadas, client-side
-// ---------------------------------------------------------------------------
-
-/** Ordem estável das colunas nos exports — espelha LeiRow / SCHEMA.md §3.1. */
 export const EXPORT_COLUMNS: Array<keyof LeiRow> = [
   'lei_id',
   'ente',
   'tipo_lei',
   'numero_lei',
   'ano_lei',
-  'data_publicacao',
+  'data_ato',
   'urn_lex_lei',
   'vigente_em',
   'lei_revogada',
@@ -306,7 +250,7 @@ export const EXPORT_COLUMNS: Array<keyof LeiRow> = [
 ];
 
 const DATE_COLUMNS = new Set<keyof LeiRow>([
-  'data_publicacao',
+  'data_ato',
   'vigente_em',
   'lei_revogada_em',
   'dispositivo_revogado_em',
@@ -322,7 +266,6 @@ function exportValue(row: LeiRow, col: keyof LeiRow): unknown {
   return v;
 }
 
-/** Uma linha por versão, valores normalizados (datas ISO, sem bigint). */
 export function rowsToJson(rows: LeiRow[]): string {
   const plain = rows.map((row) => {
     const out: Record<string, unknown> = {};
@@ -332,7 +275,6 @@ export function rowsToJson(rows: LeiRow[]): string {
   return JSON.stringify(plain, null, 2);
 }
 
-/** RFC-4180: aspas duplicadas; campo entre aspas se contém , " ou quebra. */
 function csvField(value: unknown): string {
   if (value == null) return '';
   const s = typeof value === 'boolean' ? (value ? 'true' : 'false') : String(value);
@@ -348,7 +290,6 @@ export function rowsToCsv(rows: LeiRow[]): string {
   return lines.join('\r\n') + '\r\n';
 }
 
-/** Download client-side via Blob + object URL. */
 export function downloadBlob(filename: string, content: string, mime: string): void {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);

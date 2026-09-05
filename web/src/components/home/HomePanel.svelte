@@ -132,7 +132,7 @@
           <article class="card">
             <h3><a href={leiUrl(lei.lei_id)}>{leiTitle(lei)}</a></h3>
             <p class="meta">
-              <small>{formatEnte(lei.ente)} · {formatDate(lei.data_publicacao)}</small>
+              <small>{formatEnte(lei.ente)} · {formatDate(lei.data_ato)}</small>
             </p>
             {#if lei.texto}
               <p class="excerpt">{lei.texto}</p>

@@ -163,8 +163,8 @@
       <h2>{leiTitle(meta)}</h2>
       <p>
         <span class="badge-ente">{formatEnte(meta.ente)}</span>
-        {#if meta.data_publicacao}
-          · Data do ato {fmtDate(meta.data_publicacao)}
+        {#if meta.data_ato}
+          · Data do ato {fmtDate(meta.data_ato)}
         {/if}
         · Compilação vigente em {fmtDate(meta.vigente_em)}
       </p>
