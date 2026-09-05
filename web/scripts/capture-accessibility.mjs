@@ -121,6 +121,45 @@ try {
     });
     await context.close();
   }
+
+  // Observação temporária da seção Dados no produto ainda inalterado.
+  // A branch de captura não deve ser incorporada; serve apenas para registrar o estado anterior.
+  for (const [file, width, height] of [
+    ['dados-before-1280x900.png', 1280, 900],
+    ['dados-before-390x844.png', 390, 844],
+  ]) {
+    const context = await browser.newContext({ viewport: { width, height } });
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 });
+    const firstLaw = page.locator('a[href*="/lei/?id="]').first();
+    await firstLaw.waitFor({ state: 'visible', timeout: 60_000 });
+    await firstLaw.click();
+    await page.getByRole('heading', { name: 'Dados', exact: true }).waitFor({ timeout: 60_000 });
+    await page.locator('#pagina-dados').scrollIntoViewIfNeeded();
+    const bodyText = await page.locator('#pagina-dados').innerText();
+    await page.locator('#pagina-dados').screenshot({ path: `${outDir}/${file}` });
+    results.push({
+      file,
+      viewport: { width, height },
+      controlled_dataset_failure: false,
+      status: response?.status() ?? null,
+      title: await page.title(),
+      page_errors: pageErrors,
+      console_errors: [],
+      axe_serious_or_critical: [],
+      keyboard: { expected: 0, reached: 0, missing: [], focus_failures: [] },
+      truthful_unavailable_state: null,
+      data_section: {
+        has_download_json: bodyText.includes('Baixar JSON'),
+        has_download_csv: bodyText.includes('Baixar CSV'),
+        explains_legacy_date_semantics:
+          bodyText.includes('data_publicacao') && bodyText.includes('não comprova publicação'),
+      },
+    });
+    await context.close();
+  }
 } catch (error) {
   fatalError = error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : { message: String(error) };
 } finally {
@@ -131,7 +170,7 @@ try {
   );
 }
 
-const failed = fatalError || results.length !== cases.length || results.some(
+const failed = fatalError || results.length !== cases.length + 2 || results.some(
   (result) =>
     result.status !== 200 ||
     result.page_errors.length > 0 ||
