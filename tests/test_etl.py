@@ -108,12 +108,12 @@ class TestXmlToRowsSimple:
     def test_ano_lei_from_urn(self) -> None:
         assert all(r["ano_lei"] == 1999 for r in self.rows)
 
-    def test_data_publicacao_from_urn(self) -> None:
+    def test_data_ato_from_urn(self) -> None:
         expected = datetime.date(1999, 6, 15)
-        assert all(r["data_publicacao"] == expected for r in self.rows)
+        assert all(r["data_ato"] == expected for r in self.rows)
 
-    def test_em_inherits_data_publicacao(self) -> None:
-        # No <versao em="..."> declared → all inherit data_publicacao
+    def test_em_inherits_data_ato(self) -> None:
+        # No <versao em="..."> declared → all inherit data_ato
         expected = datetime.date(1999, 6, 15)
         assert all(r["em"] == expected for r in self.rows)
 
@@ -437,7 +437,7 @@ class TestWriteParquet:
             "tipo_lei": "lei",
             "numero_lei": "72-a",
             "ano_lei": 2020,
-            "data_publicacao": datetime.date(2020, 1, 1),
+            "data_ato": datetime.date(2020, 1, 1),
             "urn_lex_lei": None,
             "vigente_em": datetime.date(2020, 1, 1),
             "lei_revogada": False,
