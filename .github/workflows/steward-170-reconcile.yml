@@ -1,0 +1,123 @@
+name: steward 170 reconcile
+on:
+  push:
+    branches:
+      - steward/vigencia-data-ato-provenance
+permissions:
+  contents: write
+jobs:
+  reconcile:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: steward/vigencia-data-ato-provenance
+      - name: Reconcile canonical terminology
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace(path, old, new, count=None):
+              p = Path(path)
+              text = p.read_text()
+              actual = text.count(old)
+              if count is not None and actual != count:
+                  raise SystemExit(f"{path}: expected {count} occurrences, found {actual}: {old!r}")
+              if actual == 0:
+                  raise SystemExit(f"{path}: missing expected text: {old!r}")
+              p.write_text(text.replace(old, new))
+
+          replace(
+              "docs/SCHEMA.md",
+              "Caso default: dispositivo vigora junto com a lei. Não declara nada — herda. Cadeia: `<versao>.em` → ancestral `<dispositivo>` mais próximo que declara → `data-publicacao` extraída da URN da `<lei>`.",
+              "Caso default: dispositivo vigora junto com a lei. Não declara nada — herda. Cadeia: `<versao>.em` → ancestral `<dispositivo>` mais próximo que declara → `data_ato` extraída da URN da `<lei>`. Essa data é a data representativa do ato; a URN, sozinha, não prova publicação oficial.",
+              1,
+          )
+          replace(
+              "docs/SCHEMA.md",
+              "| `data-publicacao` | Vigência = data da lei (regra default LINDB). |",
+              "| `data-ato` | Fallback temporal = data representativa do ato codificada na URN; não prova publicação. |\n| `data-publicacao` | Publicação comprovada explicitamente por `<inicio>`/fonte. |",
+              1,
+          )
+          replace(
+              "docs/SCHEMA.md",
+              "Caso óbvio (ato original ou alteração explícita), `<inicio>` é omitido — `tipo` deriva por default: `data-publicacao` se primeira versão sem `alterado-por`, `texto-lei-alteradora` se há `alterado-por`.",
+              "Caso óbvio (ato original ou alteração explícita), `<inicio>` é omitido — `tipo` deriva por default: `data-ato` se primeira versão sem `alterado-por`, `texto-lei-alteradora` se há `alterado-por`. `data-publicacao` só é usado quando a publicação é declarada explicitamente em `<inicio>`.",
+              1,
+          )
+          replace(
+              "docs/SCHEMA.md",
+              "5. **Herança de vigência**: `<versao>` sem `em` resolve para ancestral declarado ou `data-publicacao` da URN.",
+              "5. **Herança de vigência**: `<versao>` sem `em` resolve para ancestral declarado ou `data_ato` da URN.",
+              1,
+          )
+          replace(
+              "docs/SCHEMA.md",
+              "6. **`<inicio>` obrigatório** quando `<versao em=\"X\">` com `X ≠ data-publicacao(<lei>)` e sem `alterado-por`.",
+              "6. **`<inicio>` obrigatório** quando `<versao em=\"X\">` com `X ≠ data_ato(<lei>)` e sem `alterado-por`.",
+              1,
+          )
+          replace(
+              "IMPLEMENTATION.md",
+              "`em` herda do ancestral ou da `data-publicacao` da URN",
+              "`em` herda do ancestral ou da `data_ato` da URN; essa âncora não prova publicação",
+              1,
+          )
+          replace(
+              "docs/schemas/leizilla-v0.1.xsd",
+              "Vigência herda do pai (ancestral dispositivo, depois data-publicacao\n    da URN). vigente-ate não é armazenado — é inferido.",
+              "Vigência herda do pai (ancestral dispositivo, depois data_ato\n    da URN, sem inferir publicação). vigente-ate não é armazenado — é inferido.",
+              1,
+          )
+          replace(
+              "tests/fixtures/leizilla_xml/with-alteracoes.xml",
+              "Versão 1 herda `em` da lei (data-publicacao), sem declarar.",
+              "Versão 1 herda `em` da lei (data_ato), sem declarar publicação.",
+              1,
+          )
+
+          p = Path("scripts/check_schema_consistency.py")
+          text = p.read_text()
+          if text.count("def _extract_data_publicacao(") != 1:
+              raise SystemExit("checker: unexpected extractor count")
+          text = text.replace("def _extract_data_publicacao(", "def _extract_data_ato(")
+          text = text.replace(
+              '"""Decompose URN LEX → publication date.\n',
+              '"""Extract the representative act date encoded in the URN LEX.\n\n    This anchor is not evidence of official publication.\n',
+              1,
+          )
+          text = text.replace("data_publicacao: datetime.date | None", "data_ato: datetime.date | None")
+          text = text.replace("ctx.data_publicacao", "ctx.data_ato")
+          text = text.replace("data-publicacao", "data_ato")
+          text = re.sub(r"\bpub\b", "ato", text)
+          text = text.replace(
+              "data_publicacao=_extract_data_publicacao(urn_lex)",
+              "data_ato=_extract_data_ato(urn_lex)",
+          )
+          marker = "\n\ndef _urn_is_reduced_year_only"
+          if marker not in text:
+              raise SystemExit("checker: alias insertion marker missing")
+          text = text.replace(
+              marker,
+              "\n\n# Backward-compatible private alias for callers/tests predating #157.\n_extract_data_publicacao = _extract_data_ato\n" + marker,
+              1,
+          )
+          p.write_text(text)
+
+          Path(".github/workflows/steward-170-reconcile.yml").unlink()
+          PY
+      - name: Format and verify focused contract
+        run: |
+          uv sync --frozen --extra dev
+          uv run ruff format scripts/check_schema_consistency.py tests/test_schema_consistency.py src/leizilla/etl.py tests/test_etl.py tests/test_inicio_provenance_contract.py
+          uv run ruff check scripts/check_schema_consistency.py src/leizilla/etl.py tests/test_etl.py tests/test_inicio_provenance_contract.py
+          uv run pytest -q tests/test_inicio_provenance_contract.py tests/test_etl.py tests/test_schema_consistency.py
+      - name: Commit reconciliation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix(schema): align act-date provenance contract"
+          git push origin HEAD:steward/vigencia-data-ato-provenance
