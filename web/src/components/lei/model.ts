@@ -142,6 +142,7 @@ export function groupHistorico(rows: LeiRow[]): DispositivoHistorico[] {
 }
 
 export const INICIO_TIPO_LABELS: Record<string, string> = {
+  'data-ato': 'vigência desde a data do ato',
   'data-publicacao': 'vigência desde a publicação',
   'texto-lei-alteradora': 'redação dada por lei alteradora',
   'vacatio-legis': 'vacatio legis',
