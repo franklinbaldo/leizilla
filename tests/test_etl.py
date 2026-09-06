@@ -127,7 +127,7 @@ class TestXmlToRowsSimple:
         assert art1["versao_id"] == "leizilla-ro-lei-09999-1999#art-1#1999-06-15"
 
     def test_inicio_tipo_default(self) -> None:
-        assert all(r["inicio_tipo"] == "data-publicacao" for r in self.rows)
+        assert all(r["inicio_tipo"] == "data-ato" for r in self.rows)
 
     def test_lei_not_revogada(self) -> None:
         assert all(r["lei_revogada"] is False for r in self.rows)
