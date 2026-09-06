@@ -3,7 +3,8 @@
   Fixture: lei com timeline de alterações + cross-source com divergência.
 
   Cobre:
-  - Versão 1 herda `em` da lei (data-publicacao), sem declarar.
+  - Versão 1 herda `em` da lei (data do ato representativa da URN), sem declarar
+    publicação.
   - Versão 2 e 3 declaram `em` + `alterado-por` (prova implícita
     texto-lei-alteradora; <inicio> omitido).
   - <fonte diverge="true"> com <texto> filho inline.

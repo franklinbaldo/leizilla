@@ -274,7 +274,7 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                 elif alterado_por:
                     inicio_tipo = "texto-lei-alteradora"
                 else:
-                    inicio_tipo = "data-publicacao"
+                    inicio_tipo = "data-ato"
 
                 texto_elem = versao.find(f"{{{NS}}}texto")
                 texto = texto_elem.text if texto_elem is not None else None
