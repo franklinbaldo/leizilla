@@ -3,6 +3,7 @@
 # dependencies = ["okf-parser>=0.45.9"]
 # ///
 """Validate and inspect the canonical Leizilla project DAG from authored OKF."""
+
 from __future__ import annotations
 
 import argparse
@@ -199,10 +200,7 @@ def main() -> int:
         for front_id in payload["live_leaves"]:
             front = by[front_id]
             parents = ", ".join(front.get("parents", [])) or "ROOT"
-            print(
-                f"- {front['status']}: {front_id} "
-                f"[{front['kind']}] <- {parents}"
-            )
+            print(f"- {front['status']}: {front_id} [{front['kind']}] <- {parents}")
     return 0
 
 
