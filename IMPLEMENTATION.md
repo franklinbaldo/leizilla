@@ -55,7 +55,7 @@
 | **M13** — Produto público v1 | 🟢 done | — | Nome antigo: "frontend polish". Página própria por lei (`/lei/?id=…` — Texto/Versões/Evidências/Dados), busca agrupada por norma, home com manifesto + painel de cobertura, página `/cobertura/` (funil S1→S5), filtros derivados do dataset. Critérios de aceite (b)–(g) confirmados em main (`web/src/pages/{index,lei,cobertura}.astro`); (a) confirmado em produção em 2026-09-24 (ver log). |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 | **M14.1** — OPF fine-tune: fundação de prep de dados | 🟡 in-progress | — | ADR-0012 + ontologia `leizilla_normas_v1` + sampler estratificado (`opf-sample`) + helper `opf_annotate.py` vendorado + doc `docs/opf-finetune.md`. Fase 1 de 4 (prep → anotar → treinar Colab → integrar). |
-| **M14.2** — OPF gold v0 (anotação por subagentes) | 🟡 in-progress | — | Gold seed em `data/opf/gold/` (6 leis federais reais, 251 spans) via subagentes LLM (shard-por-doc) + resolução determinística de offset + ensemble de avaliadores (strict/category/blind/adversarial) no eval slice. Fase 2 de 4. |
+| **M14.2** — OPF gold v0→v1 (anotação por subagentes + Fase 2.5 caminho 1) | 🟡 in-progress | — | v0: `data/opf/gold/` (6 leis federais reais, 251 spans) via subagentes LLM (shard-por-doc) + resolução determinística de offset + ensemble de avaliadores no eval slice. **v1 (2026-09-24)**: +13 docs reais de OCR ruidoso de RO/casacivil (train split; total 476 spans) via Fase 2.5 caminho 1 (`opf-sample`+`opf-bootstrap` pré-rotula com regex, um subagente por doc audita) — ver log 2026-09-24. Fase 2 de 4. |
 | **M14.3** — OPF treino/eval (notebook Colab GPU) | 🟡 in-progress | — | `notebooks/opf_train_colab.ipynb` pronto (aponta pro `main`, gold v0 já commitado; 3 bugs reais de CLI achados em revisão e corrigidos — `--seed`→`--shuffle-seed`, `--checkpoint` ausente no train, `--label-space-json` inválido no eval). **Reativado por decisão do mantenedor em 2026-07-14** (não pelo gatilho de evidência da atualização de 2026-06-06 — o v0 segue single-fonte/texto limpo). Falta rodar no Colab (GPU), fora do alcance de sessões sem GPU/Drive interativo. Ver ADR-0012 "Atualização (2026-07-14)". |
 | **M14.4** — Segmentador regex baseline + eval/errors/structure vs gold | 🟢 done | — | `segmenter.py` (Pattern B) + CLIs `opf-regex-eval` (`--errors`) e `opf-segment-check`. `evaluate_against_gold` (exact/overlap P/R/F1), `find_errors` (lista FP/FN/boundary com contexto — guiou as regras e achou drift de período no gold + provável omissão), `validate_structure` (validação da norma inteira sem gold: lacunas na numeração de artigos, fora de ordem, ementa/vigência ausentes). Regras: splitter ciente de abreviações/números, verbo operativo na revogação (notas `(Revogado pela…)` excluídas, precision 0.33→1.00 em compilados), strip de marcador líder, guard à direita, marcadores sem período final (gold normalizado). v0: exact micro-F1 **0.95** / overlap **0.99**. 28 testes. |
 
@@ -112,6 +112,77 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-09-24 (sessão 2) — M14.2: gold v1 via Fase 2.5 caminho 1 sobre OCR real de RO; PRs #115/#116 corrigidas para "merged"
+
+**Rotina agendada, FASE 1**: única PR aberta acionável era #170 (draft de outra
+sessão, já triada — sem ação). #139/#142 são Dependabot (skip). A entrada de
+log anterior deste mesmo dia registrava #115/#116 como abertas aguardando CI;
+checagem direta no GitHub mostrou ambas **mergeadas pelo mantenedor**
+diretamente (`merged_by: franklinbaldo`, 15:53:14 e 15:57:46 UTC) — fora do
+fluxo desta rotina, então nada para essa sessão fazer ali além de corrigir o
+texto que tinha ficado em drift (princípio 2 do prompt de rotina: "docs e
+código nunca ficam em drift").
+
+**FASE 2 — M14.2, Fase 2.5 caminho 1 (`docs/opf-finetune.md`), primeira
+execução real**: com `opf-bootstrap` disponível (mergeado nesta mesma janela),
+esta sessão rodou o caminho barato de escala do gold pela primeira vez sobre
+dados publicados de verdade:
+
+1. `opf-sample --ente ro --fontes assembleia,casacivil --n 60` — `assembleia`
+   retornou **zero** itens (`list_raw_ids` vazio; nenhum raw publicado ainda
+   nessa fonte). `casacivil` tinha 1196 itens disponíveis; amostra de 60
+   rendeu 13 documentos com OCR utilizável (limiar de 200 chars).
+2. `opf-bootstrap` pré-rotulou os 13 com o segmentador regex: 240 spans,
+   aviso correto de `ementa` zerada na amostra (decretos/leis de casacivil
+   raramente têm uma linha de ementa isolada como as leis federais do v0).
+3. **Anotação por subagentes (skill `llm-work-via-subagents`, não script com
+   API key)** — 13 subagentes em paralelo, um por documento, cada um
+   auditando (confirmar/corrigir/completar) o pré-rótulo regex contra o OCR
+   real, seguindo o método "regex-bootstrap + subagent audit" do PR #116.
+   Cobertura final: `ementa` foi capturada em **todos os 13** (regex tinha 0)
+   — os subagentes acharam a linha de ementa mesmo sem o padrão ALL-CAPS
+   típico do federal.
+4. **Correção de consistência entre documentos (papel do orquestrador, não
+   dos subagentes)**: `opf_annotate.py validate` pegou 14 erros reais de
+   overlap (BIOES permite um span por região) — em 2 documentos (`vigencia`/
+   `revogacao` incluindo o marcador `Art. N -` que já tinha seu próprio
+   `art_marcador`) e em 2 documentos com leituras de algarismo romano
+   ambíguas (`"III -"` contém `"II -"` como substring de cauda, que por sua
+   vez contém `"I -"`) que um subagente havia deixado duplicadas em vez de
+   substituídas. Corrigido programaticamente (manter o span mais longo em
+   cada overlap) + um caso de julgamento divergente entre subagentes: 3 de 4
+   documentos com o padrão "texto novo de outra lei citado literalmente"
+   (uma lei que alterra outra) trataram esse texto citado como hard-negative
+   (não é a estrutura própria deste documento) — o 4º manteve os marcadores
+   citados; corrigido manualmente para consistência com os outros 3, com nota
+   registrada no arquivo de trabalho. `opf_annotate.py validate` limpo (0
+   erros, 0 warnings) após as correções; `from-spans` resolveu as 13×`finds`
+   sem nenhum erro de match ambíguo.
+5. **Promovido para `data/opf/gold/train.jsonl`** (nunca para `val`/`test`:
+   Fase 2.5 é explícita que a auditoria de um único subagente não atinge a
+   barra do ensemble de 4 papéis que o eval slice exige). `manifest.json`
+   atualizado: `train` 4→17 docs, `total_spans` 251→476, `ente_fonte` ganha
+   `ro/casacivil`, `known_limitations` reescrito (eval slice segue v0-only;
+   `ro/assembleia` sem itens raw; ver achado abaixo).
+6. **Achado por sinal, não por exemplo isolado (ao contrário do
+   `lei-00001-1983` mencionado em 2026-07-14)**: `leizilla opf-regex-eval`
+   contra o gold v1 mostra o baseline regex caindo de **0.95 → 0.86 F1
+   exato** (overlap 0.99→0.94), concentrado nas categorias por cue de frase
+   (`ementa` exato 0.24, `revogacao` 0.33, `vigencia` 0.38 — overlap
+   permanece 0.94–1.00, ou seja, a região certa é achada, só não a fronteira
+   exata). Essa é justamente a métrica que a atualização de 2026-06-06 da
+   ADR-0012 definiu como gatilho formal para o fine-tune (não um caso
+   isolado). Registrado aqui para quem decidir sobre M14.3; a reativação de
+   2026-07-14 já tinha rodado o smoke test antes desse gatilho ser atingido
+   — agora há evidência real de degradação para justificar tanto o smoke
+   quanto um treino com pretensão de produção mais adiante.
+
+**Não feito nesta sessão**: caminho 2/3 da Fase 2.5 (silver via XML parseado;
+pré-filtro dirigido para `ali_marcador`/`vigencia`/`revogacao` escassos);
+novo smoke-test do Colab sobre o gold v1 (M14.3 seguindo fora do alcance
+headless); amostragem de `ro/assembleia` (zero itens raw publicados — nada a
+amostrar até a fonte ter cobertura no IA).
 
 ### 2026-09-24 — Rotina de manutenção: M13 confirmado em produção; hang de teste corrigido; PRs #115/#116 atualizadas
 
@@ -1553,7 +1624,7 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-_(atualizado em 2026-09-24)_
+_(atualizado em 2026-09-24, sessão de rotina 2)_
 
 **M0–M13 e M14.4 concluídos** ✅ (pipeline completo: discovery manifest-driven,
 harvest/scrape, IA upload, OCR fetch, parse LLM, ETL→Parquet, release de dataset,
@@ -1574,11 +1645,19 @@ o volume de leis ainda não descobertas/parseadas. Sem um número público de
 cobertura S1–S3 (lacuna já registrada em `/cobertura/`), medir esse marco requer
 primeiro instrumentar esses contadores.
 
-**M14 (OPF fine-tune) segue em progresso**: M14.1/M14.2 done; M14.3 (treino real)
-depende de uma sessão com GPU/Colab interativo, fora do alcance de sessões
-headless como esta. PRs #115 (lições de treino T4/Colab) e #116 (`opf-bootstrap`
-+ plano de escala do gold) seguem abertas há 2+ meses, code-complete e
-re-testadas contra o main atual nesta sessão.
+**M14 (OPF fine-tune) segue em progresso**: PRs #115 (lições de treino T4/Colab)
+e #116 (`opf-bootstrap` + plano de escala do gold) — que a entrada de log
+anterior (mais cedo em 2026-09-24) registrou como "abertas aguardando CI" —
+foram mergeadas pelo mantenedor diretamente (`merged_by: franklinbaldo`,
+15:53/15:57 UTC), fora do fluxo desta rotina; texto corrigido para não ficar
+em drift com o estado real do GitHub (princípio 2). Com `opf-bootstrap`
+disponível, esta sessão executou a Fase 2.5 (caminho 1) sobre dados reais pela
+primeira vez — ver log 2026-09-24 "M14.2: gold v1" abaixo. M14.3 (treino real
+em GPU) segue fora do alcance de sessões headless; o próximo passo natural
+antes de rodar o notebook é decidir se vale re-rodar o smoke-test do Colab
+sobre o gold v1 (mais representativo, mas ainda pequeno) ou aguardar mais
+rodadas do caminho 1 sobre outras fontes RO (assembleia segue sem itens raw
+publicados no IA — nada a amostrar lá ainda).
 
 **Convergência scrape→harvest**: ver
 [`docs/rfc/0003-convergencia-scrape-harvest.md`](docs/rfc/0003-convergencia-scrape-harvest.md)

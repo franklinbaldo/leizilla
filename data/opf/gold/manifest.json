@@ -1,40 +1,44 @@
 {
   "category_version": "leizilla_normas_v1",
-  "seed": 13,
-  "source_commit": "396345e",
-  "source": "planalto federal HTML (stopgap: IA raw items not yet published; see ADR-0011/0012)",
+  "seed": 20260924,
+  "source_commit": "d875ab8",
+  "source": "v0: planalto federal HTML (stopgap: IA raw items not yet published). v1 addition: real IA OCR (_djvu.txt) from published RO casacivil raw items, via opf-sample + opf-bootstrap (regex pre-label) + llm-subagent audit (Phase 2.5 Path 1, docs/opf-finetune.md)",
   "ente_fonte": [
     {
       "ente": "federal",
       "fonte": "planalto"
+    },
+    {
+      "ente": "ro",
+      "fonte": "casacivil"
     }
   ],
   "counts": {
     "test": 1,
     "val": 1,
-    "train": 4
+    "train": 17
   },
   "per_class": {
-    "ali_marcador": 7,
-    "art_marcador": 100,
-    "ementa": 6,
-    "inc_marcador": 49,
-    "par_marcador": 77,
-    "revogacao": 6,
-    "vigencia": 6
+    "ali_marcador": 15,
+    "art_marcador": 192,
+    "ementa": 19,
+    "inc_marcador": 96,
+    "par_marcador": 117,
+    "revogacao": 18,
+    "vigencia": 19
   },
-  "total_spans": 251,
-  "conventions": "markers (art/par) exclude the trailing period — normalized for consistency across docs after the regex-baseline error finder surfaced the drift (segmenter.py)",
-  "annotation_method": "llm_subagents(shard-per-doc) -> deterministic sequential-cursor offset resolution -> opf_annotate.validate",
+  "total_spans": 476,
+  "conventions": "markers (art/par) exclude the trailing period — normalized for consistency across docs after the regex-baseline error finder surfaced the drift (segmenter.py). vigencia/revogacao clause spans exclude their own preceding art_marcador (tagged separately) to avoid BIOES overlap. Text quoting another norm's articles verbatim (a law amending another law) is a hard negative — never tagged as this document's own structure, matching the existing cross-reference convention.",
+  "annotation_method": "v0 (federal/planalto, 6 docs): llm_subagents(shard-per-doc) -> deterministic sequential-cursor offset resolution -> opf_annotate.validate. v1 addition (ro/casacivil, 13 docs, train split only): regex_segmenter_v1 pre-label (opf-bootstrap) -> one llm_subagent per doc audits/corrects (Phase 2.5 Path 1) -> opf_annotate.from-spans (match+nth, never char-counted by the subagent) -> opf_annotate.validate + a cross-doc consistency pass (hard-negative rule + BIOES-overlap fixes) by the orchestrating session.",
   "test_verified_by": "prompt_ensemble:strict_boundary+category_disambiguation+blind_relabel+adversarial",
   "eval_slice": [
     "val/lei-9455-1997",
     "test/lei-9296-1996"
   ],
   "known_limitations": [
-    "tiny v0 seed (6 docs) to lock the ontology + prove the subagent pipeline; scale by feeding more docs through the same flow",
-    "single fonte (federal/planalto) — stratification across fontes pending IA raw publication",
-    "clean official text, not OCR _djvu.txt: lacks OCR noise the production OPF will see (PT-BR distribution caveat, ADR-0012 warning 1)"
+    "eval slice (val/test) is still v0-only: federal/planalto, clean official HTML text, no OCR noise. The 13 new v1 docs (real, noisy RO casacivil OCR) went to train only — a single-subagent audit isn't the 4-role ensemble bar this gold's eval slice requires (docs/opf-finetune.md Phase 2.5).",
+    "v1's fonte diversity is still single-fonte within RO (casacivil only) — ro/assembleia has zero published IA raw items as of this run (confirmed via list_raw_ids), so it could not be sampled",
+    "measured evidence for the ADR-0012 fine-tune trigger: the regex baseline's exact micro-F1 drops from 0.95 (v0, clean text) to 0.86 on the v1-expanded gold (0.94 overlap), driven by cue-phrase categories hit hardest by real OCR noise — ementa exact-F1 0.24, revogacao 0.33, vigencia 0.38 (overlap stays 0.94-1.00, so the regex still finds the right region, just not the exact boundary). Run `leizilla opf-regex-eval` to reproduce."
   ],
-  "generated_at": "2026-06-05T17:27:18.151083+00:00"
+  "generated_at": "2026-09-24T16:37:02Z"
 }
