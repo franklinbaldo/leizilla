@@ -229,6 +229,15 @@ jobs:
             --output-dir /tmp/leizilla-xmls
 
       - name: Consolidate XMLs → Parquet
+        # `consolidate` exits 1 whenever it skips any structurally-invalid XML
+        # (issue #118's XSD gate), even though it still writes a valid Parquet
+        # for every row that did pass -- that exit code is an advisory signal
+        # for a human to go fix the flagged file(s), not a reason to block
+        # publishing the rows that are fine. continue-on-error lets the job
+        # reach "Release dataset -> IA" with that partial Parquet; that step
+        # already no-ops safely if the file was never written at all (e.g.
+        # zero valid XMLs).
+        continue-on-error: true
         run: |
           XML_COUNT=$(find /tmp/leizilla-xmls -name '*.xml' | wc -l)
           echo "XMLs disponíveis: $XML_COUNT"
