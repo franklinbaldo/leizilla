@@ -115,6 +115,61 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-09-24 (sessão 6) — #170: `inicio_tipo` default deixa de afirmar publicação não-comprovada (issue #157)
+
+**Finalização de PR draft stale.** `steward/vigencia-data-ato-provenance` (#170)
+tinha base de 2026-09-06; `main` ganhou ~10 PRs desde então (colisão de
+`versao_id`, `coverage.py`, `discovery.py`, `docs/okf/project-dag.md`, gate
+`_xsd_gate` fail-closed, etc.). `git merge origin/main` (sem rebase — PR
+observada por terceiros) resolveu **sem conflitos**: a mudança semântica da PR
+(`src/leizilla/etl.py::xml_to_rows` — fallback de `inicio_tipo` quando
+`<versao>` não declara `<inicio>` e não tem `alterado-por` — passa a ser
+`"data-ato"` em vez de `"data-publicacao"`) tocava linhas isoladas que não
+colidiam com o trabalho paralelo.
+
+**Motivação (issue #157):** a data extraída da URN-LEX é a data de
+assinatura/promulgação do ato — não é prova de que o ato foi publicado nem
+quando. Rotular esse fallback como `data-publicacao` supervalorizava a
+proveniência. `data-publicacao` continua disponível como `tipo` explícito
+para quando a publicação é de fato declarada/comprovada (evidência textual ou
+`<fonte>` dedicada) — nada foi removido, só o default deixou de mentir.
+
+**Reconciliação de terminologia** (o que a própria PR listava como pendente,
+verificado contra o `main` atual antes de mexer — `data_ato` já era nome
+canônico da coluna Parquet e do `parsed_meta.json` desde #169, então a maior
+parte já estava feita):
+- `docs/SCHEMA.md`: ~8 passagens que descreviam a herança de vigência ou o
+  default de `<inicio>` citando "data-publicacao da URN" corrigidas para
+  "data-ato da URN" (§0.2, §4.3, §4.4, §7); tabela de `inicio_tipo` (§3) ganhou
+  entrada própria para `data-ato` com a ressalva de proveniência, mantendo
+  `data-publicacao` como via explícita.
+- `scripts/check_schema_consistency.py`: `_extract_data_publicacao` renomeada
+  para `_extract_data_ato` (nome interno canônico) com docstring explicando a
+  não-equivalência a prova de publicação; `_Ctx.data_publicacao` →
+  `_Ctx.data_ato`; alias privado `_extract_data_publicacao =
+  _extract_data_ato` mantido só porque `tests/test_schema_consistency.py`
+  (pré-existente em `main`, fora do escopo desta PR) ainda chama a função por
+  esse nome — não foi preciso tocar nesse teste.
+- `docs/schemas/leizilla-v0.1.xsd`, fixtures (`simple.xml`,
+  `with-alteracoes.xml`), `tests/test_inicio_provenance_contract.py` (novo,
+  2 casos: fallback e `<inicio tipo="data-publicacao">` explícito
+  preservado), `web/src/components/lei/model.ts`
+  (`INICIO_TIPO_LABELS['data-ato']`) — já estavam na PR, sobreviveram o merge
+  intactos.
+- `IMPLEMENTATION.md` §2026-05-20 "Redesign first-principles" mantido
+  como está — log cronológico não se edita retroativamente (regra do
+  cabeçalho da seção); esta entrada supera/contextualiza aquela.
+
+**Gates**, na ordem pedida, todos verdes na branch pós-merge: `uv sync --extra
+dev`; `uv run leizilla dev check` (ruff + format + 836 passed/13 skipped);
+`uv run mypy src/ --ignore-missing-imports` (0 issues, 25 arquivos);
+`schema-validate.yml` reproduzido localmente (`xmllint` no XSD + nas 7
+fixtures, `check_schema_consistency.py` contra as 7 fixtures — 0 violações,
+`xsltproc`/LexML bundle bem-formado, `pytest tests/test_schema_consistency.py
+tests/test_lexml_export.py` — 98 passed/1 skipped, incluindo o teste que
+exercita o alias `_extract_data_publicacao`). PR movida de draft para ready
+for review.
+
 ### 2026-09-24 (sessão 5) — portfólio de PRs irmãs mergeado; achado real: falhas semanais do `rondonia_crawler` eram invisíveis por um bug de relatório
 
 **Rotina agendada de portfólio, ampla.** Ao chegar, 11 PRs não-Dependabot
