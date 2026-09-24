@@ -72,6 +72,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
+      - name: Install xmllint
+        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
       - run: mkdir -p /tmp/leizilla-xmls
 
       - name: Parse — ro/assembleia
@@ -104,6 +106,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
+      - name: Install xmllint
+        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
       - run: mkdir -p /tmp/leizilla-xmls
 
       - name: Parse — ro/casacivil lei
@@ -136,6 +140,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
+      - name: Install xmllint
+        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
       - run: mkdir -p /tmp/leizilla-xmls
 
       - name: Parse — ro/casacivil lc
@@ -167,6 +173,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
+      - name: Install xmllint
+        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
       - run: mkdir -p /tmp/leizilla-xmls
 
       - name: Parse batch

@@ -916,7 +916,13 @@ def cmd_doctor() -> None:
 
 
 def _xsd_gate(xml_content: str, warn_prefix: str = "") -> bool:
-    """Valida XML contra leizilla-v0.1.xsd via xmllint. Fail-open: só avisa, não aborta."""
+    """Valida XML contra leizilla-v0.1.xsd via xmllint.
+
+    Fail-open localmente: sem `xmllint` instalado, avisa e segue (não trava
+    desenvolvimento). Fail-closed em CI (`GITHUB_ACTIONS=true`): `xmllint`
+    ausente ali é falha de setup do runner, não motivo para publicar um
+    dataset sem o único gate de integridade estrutural do pipeline.
+    """
     schema = Path(__file__).parents[2] / "docs" / "schemas" / "leizilla-v0.1.xsd"
     if not schema.exists():
         echo(f"{warn_prefix}XSD schema não encontrado — skip validação")
@@ -938,6 +944,11 @@ def _xsd_gate(xml_content: str, warn_prefix: str = "") -> bool:
             return False
         return True
     except FileNotFoundError:
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            raise RuntimeError(
+                "xmllint não disponível em CI — gate XSD não pode fail-open aqui"
+                " (instale libxml2-utils no job)"
+            ) from None
         echo(f"{warn_prefix}xmllint não disponível — skip validação XSD")
         return True
     finally:

@@ -72,24 +72,24 @@ O projeto usa Python 3.12+ e `uv`.
 ```bash
 git clone https://github.com/franklinbaldo/leizilla.git
 cd leizilla
-uv sync --dev
+uv sync --extra dev
 uv run leizilla --help
 ```
 
-Alguns comandos disponíveis no CLI:
+Alguns comandos disponíveis no CLI (manifest-driven; `--ente` default `ro`):
 
 ```bash
-# descobrir documentos
-uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10
+# descobrir documentos (lê manifesto em src/leizilla/manifests/{ente}.json)
+uv run leizilla discover --ente ro
 
-# baixar documentos descobertos
-uv run leizilla download --origem rondonia --limit 5
+# processar a fila de descoberta: raspar + subir para o Internet Archive
+uv run leizilla harvest --ente ro --limit 100
 
-# consultar estatísticas locais
-uv run leizilla stats
+# consultar estatísticas (local + contagens no Internet Archive)
+uv run leizilla stats --ente ro
 
 # buscar no banco local
-uv run leizilla search --text "lei complementar"
+uv run leizilla search --ente ro --text "lei complementar"
 ```
 
 Para desenvolvimento e operação, leia também [CLAUDE.md](CLAUDE.md), [CONTRIBUTING.md](CONTRIBUTING.md) e as decisões em [`docs/`](docs/).
