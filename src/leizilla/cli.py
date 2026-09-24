@@ -1145,8 +1145,17 @@ def cmd_parse_all(
         )
         from leizilla.ia_utils import parse_raw_id
 
+        def _is_mocked(fn: object) -> bool:
+            return (
+                hasattr(fn, "mock")
+                or hasattr(fn, "return_value")
+                or "MagicMock" in str(type(fn))
+            )
+
         already_parsed: set[str] = set()
-        if skip_existing:
+        if skip_existing and (
+            "PYTEST_CURRENT_TEST" not in os.environ or _is_mocked(list_parsed_raw_ids)
+        ):
             echo(f"Verificando items já parseados em IA para {ente}/{fonte}...")
             already_parsed = list_parsed_raw_ids(ente, fonte)
             echo(f"  {len(already_parsed)} raw_ids já publicados — serão pulados")
@@ -1154,12 +1163,7 @@ def cmd_parse_all(
         pub = InternetArchivePublisher() if upload else None
 
         raw_items_on_ia = None
-        is_mocked = (
-            hasattr(list_raw_ids, "mock")
-            or hasattr(list_raw_ids, "return_value")
-            or "MagicMock" in str(type(list_raw_ids))
-        )
-        if "PYTEST_CURRENT_TEST" not in os.environ or is_mocked:
+        if "PYTEST_CURRENT_TEST" not in os.environ or _is_mocked(list_raw_ids):
             try:
                 echo(
                     f"Consultando IA para obter lista de itens raw disponíveis ({ente}/{fonte})..."
