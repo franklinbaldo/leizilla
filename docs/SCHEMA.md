@@ -183,13 +183,24 @@ leizilla-ro-lei-01234-2003/
 
 Sem HTML pré-gerado (Astro SSR renderiza a partir do `law.xml`). Sem `law.lexml` (export sob demanda; ver §6).
 
-### 1.4 Dataset items — versionados
+### 1.4 Dataset items — versionados, releases imutáveis + ponteiro latest (issue #175)
 
-**Pattern**: `leizilla-dataset-{ente}-v{N}` onde `N = int(major(schema_version))`.
+**Pattern do release imutável e citável**: `leizilla-dataset-{ente}-v{N}-{revision}`
+onde `N = int(major(schema_version))` e `revision` é um timestamp UTC
+`YYYYMMDDtHHMMSSz` (ex.: `20260924t181131z`). Nunca reaproveitado — cada publicação
+agendada gera um item novo, então citar esse ia_id sempre resolve para o mesmo
+conteúdo.
 
-Pre-M5: `schema_version = "0.1"` → `v0`. Post-M5: `schema_version = "1"` → `v1`. `v0` é versão **válida e citável**, não draft/empty.
+**Pattern do ponteiro mutável**: `leizilla-dataset-{ente}-v{N}-latest`. Mesmo
+`versoes.parquet`/`dataset_meta.json` do release mais recente + `latest.json`
+apontando para o `ia_id` imutável em vigor. É o item que consumidores (frontend
+inclusive) usam por padrão para descobrir a release corrente sem hardcodar um
+identifier específico. **Não é citável** — seu conteúdo muda a cada publicação.
 
-Conteúdo: `versoes.parquet` + `dataset_meta.json` (gerados por `upload_dataset()`).
+Pre-M5: `schema_version = "0.1"` → `v0`. Post-M5: `schema_version = "1"` → `v1`. `v0` é versão **válida e citável**, não draft/empty (a citabilidade agora está no par `v{N}-{revision}`, não em `v{N}` isolado).
+
+Conteúdo: `versoes.parquet` + `dataset_meta.json` (gerados por `upload_dataset()`);
+o item `-latest` acrescenta `latest.json`.
 `manifest-{ente}.csv` e `README.md` são planejados — ainda não emitidos no MVP.
 
 ---
@@ -684,11 +695,25 @@ Esse é o mesmo princípio que eliminou `revisao-pendente` no XML (§0.5): o sis
 `{fonte}` obrigatório evita colisão entre fontes com mesma `chave`.
 
 ### 5.5 Dataset
+
+Release imutável e citável (issue #175; publicado a partir de `upload_dataset()`):
+```
+^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)-(?P<revision>\d{8}t\d{6}z)$
+```
+
+Ponteiro mutável (não citável; `latest.json` aponta para o release imutável em vigor):
+```
+^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)-latest$
+```
+
+`v0` (pre-M5, schema_version "0.1") é versão de schema válida e citável — a
+citabilidade do release específico está em `{revision}`, não em `v{N}` isolado.
+
+Prefixo de família (usado por `count_ia_items` para contar ambos os padrões acima,
+não mais um identifier publicável por si só desde a issue #175):
 ```
 ^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)$
 ```
-
-`v0` (pre-M5, schema_version "0.1") é válido e citável.
 
 ### 5.6 URN LEX (spec oficial CGPID 2008)
 
