@@ -2,8 +2,8 @@
 <!--
   Fixture: caso comum — lei pequena sem alterações, sem blocos
   organizacionais. Demonstra herança de vigência pura: nenhum
-  dispositivo declara `em`; todos herdam de data-publicacao
-  extraída da URN da <lei>.
+  dispositivo declara `em`; todos herdam de data_ato
+  extraída da URN da <lei>, sem afirmar publicação.
 
   Cobre:
   - Tokens normativos: ementa, art-N, art-N-par-unico.
