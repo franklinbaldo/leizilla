@@ -167,18 +167,17 @@ _RE_IA_BUNDLE = re.compile(
 # PATH: formato LexML idArtigo/idAgregador (`art5`, `art5_par2`,
 # `anexo.1`).
 #
-# NUMERO: digits, optionally with a single lowercase letter suffix (issue
-# #127) for a law split/renumbered after promulgation (`;72-a` for "Lei
-# 72-A" — distinct from `;72`). Mirrored from src/leizilla/etl.py's
-# _RE_URN_LEX — keep both in sync (and docs/schemas/leizilla-v0.1.xsd's
-# UrnLex pattern).
+# Generic URN-LEX descriptor grammar: accepts documented forms such as
+# `72-a`, `lex-16` and `estatuto.idoso`. The producer-side legal-number
+# grammar remains intentionally stricter in parser.py::_RE_NUMERO.
+# Mirrored from src/leizilla/etl.py; keep both in sync with the XSD.
 _RE_URN_LEX = re.compile(
     r"^urn:lex:br"
     r"(?P<locais>(;[a-z][a-z0-9.]*)*)"
     r":(?P<autoridade>[a-z][a-z0-9.]*(;[a-z][a-z0-9.]*)*)"
     r":(?P<tipo>[a-z][a-z0-9.]*)"
     r":(?P<data>\d{4}(-\d{2}-\d{2})?)"
-    r"(;(?P<numero>\d+(-[a-z])?))?"
+    r"(;(?P<numero>[a-z0-9.\-]+))?"
     r"(?P<paths>(![a-z0-9._\-]+)*)$"
 )
 
