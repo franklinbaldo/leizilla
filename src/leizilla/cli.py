@@ -727,7 +727,25 @@ def cmd_release_dataset(
         echo("Dry-run: nenhum upload realizado.")
         return
 
-    from leizilla.publisher import InternetArchivePublisher
+    from leizilla.publisher import (
+        DatasetFloorCheckError,
+        InternetArchivePublisher,
+        fetch_published_dataset_row_count,
+    )
+
+    # Issue #118: do not replace the public latest pointer with a smaller
+    # dataset. If the current floor cannot be proven, fail closed.
+    try:
+        published_row_count = fetch_published_dataset_row_count(ente, version)
+    except DatasetFloorCheckError as e:
+        echo(f"Gate de release falhou: não foi possível verificar o piso atual ({e})")
+        raise typer.Exit(1)
+    if published_row_count is not None and row_count < published_row_count:
+        echo(
+            "Gate de release falhou: dataset candidato tem "
+            f"{row_count} linhas, abaixo do piso publicado de {published_row_count}."
+        )
+        raise typer.Exit(1)
 
     git_sha = None
     try:
