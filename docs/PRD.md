@@ -102,7 +102,7 @@ fonte oficial
 → preservação do artefato (raw IA item, content-hashed)
 → extração textual (IA OCR _djvu.txt ou HTML nativo)
 → estruturação (Claude Haiku → Leizilla XML v0.1)
-→ validação XSD (xmllint via `_xsd_gate`; fails-open se xmllint ausente)
+→ validação XSD (xmllint via `_xsd_gate`; fail-closed em CI, tolerante localmente se xmllint ausente)
 → release versionado (Parquet no IA)
 → busca pública (DuckDB-WASM no browser)
 → auditoria da evidência (parsed_meta.json por parsed item)
@@ -132,7 +132,7 @@ ente                    # "ro", "federal", "ro-porto-velho"
 tipo_lei                # "lei", "decreto", "lc", "constituicao"
 numero_lei              # nullable em fallbacks
 ano_lei
-data_publicacao         # extraída da URN LEX
+data_ato               # data representativa do ato extraída da URN LEX; não prova publicação no DOE
 urn_lex_lei             # urn:lex:br;rondonia:estadual:lei:2003-06-15;1234
 vigente_em              # data de referência da compilação
 stage                   # S1|S2|S3|S4 — estágio máximo alcançado (ver §6)
@@ -217,7 +217,8 @@ fontes_consultadas      # [raw_id, ...]
 Uma publicação consultável do dataset, reprodutível a partir de um manifesto.
 
 ```
-dataset_id              # leizilla-dataset-{ente}-v{N}
+dataset_id              # leizilla-dataset-{ente}-v{N}-{revision} (imutável/citável)
+latest_id               # leizilla-dataset-{ente}-v{N}-latest (ponteiro mutável, não citável)
 ente
 schema_version          # "0.1"
 row_count
@@ -225,6 +226,8 @@ git_sha
 generated_at
 manifest_sha256
 ```
+
+Cada publicação gera um `dataset_id` imutável; o item `-latest` replica os artefatos da release corrente e acrescenta `latest.json` apontando para o identifier imutável. Consumidores interativos podem usar o ponteiro; citações e auditorias devem registrar a release imutável.
 
 ---
 
