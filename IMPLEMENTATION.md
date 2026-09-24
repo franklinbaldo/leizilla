@@ -113,6 +113,72 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-09-24 (sessão 4) — 3 achados do review automatizado (issue #151) viram PRs pequenas e independentes
+
+**Rotina agendada de portfólio.** Ao chegar, quatro PRs de sessões irmãs já
+estavam abertas com CI verde e `mergeable_state: clean` sobre o mesmo `main`
+(`9b78bdf`): #177 (`docs/okf/project-dag.md` — ledger OKR/DAG canônico,
+ainda não mergeado, então não tratado aqui como fonte de verdade), #178/#179
+(RFC-0003 Fase 1: teste de paridade harvest/scrape + `cdx-auto` no
+discovery) e #180 (releases de dataset imutáveis + ponteiro `latest`,
+fechando o "risco silencioso" nº1 da issue #151). Nenhuma foi tocada por
+esta sessão — já estavam prontas para o mantenedor mergeliar; duplicar esse
+trabalho desperdiçaria a sessão. **Atenção para quem for mergear em
+sequência**: #180 e a PR desta sessão (#181) tocam `web/src/lib/db.ts` em
+funções diferentes — conflito textual é possível dependendo da ordem de
+merge, não de lógica.
+
+Para não duplicar esse esforço, esta sessão verificou os 3 itens
+**verificáveis e ainda não cobertos** da lista ordenada da issue #151
+(revisão automatizada `stealth/ox-alpha` de 2026-08-24) contra o código
+atual — todos os 3 se confirmaram reais — e abriu uma PR pequena e
+independente para cada um:
+
+1. **#181 — `web/src/lib/db.ts`: leis totalmente revogadas invisíveis.**
+   `buildWhere()` tinha `ate IS NULL` incondicional; toda lei revogada por
+   completo (todo dispositivo com `ate` preenchido, cascata do ETL) sumia
+   da busca, dos filtros, de `getRecentLeis` e do `/lei/?id=…` (o usuário
+   nunca chegava a ter o link). `DispositivoTree`/`model.ts` já sabiam
+   renderizar o banner de "revogada" — só nunca recebiam a linha. Removido
+   o filtro incondicional; modo-navegação e `getRecentLeis` agora preferem
+   a versão vigente via `ORDER BY (ate IS NULL) DESC, …` com fallback para
+   a última revogada, em vez de excluir a lei. `npm run build` limpo (sem
+   suíte de teste de frontend ainda — gap conhecido, issue #102).
+2. **#182 — `etl.py`: colisão de `versao_id` dentro do mesmo dispositivo.**
+   Duas `<versao>` sem `em` no mesmo dispositivo herdam a mesma âncora →
+   mesmo `versao_id` → `consolidate_xmls` levanta `ValueError` →
+   `parse-release.yml` falha o dia inteiro sem publicar dataset nenhum.
+   XSD-válido (checker de consistência não roda no pipeline de parse — só
+   o XSD gate, fato canônico #13). Corrigido com sufixo `-v2`/`-v3` só em
+   caso de colisão real; formato documentado inalterado no caso normal.
+   Fixture de teste ficou inline em `test_etl.py` (não em
+   `tests/fixtures/leizilla_xml/`, porque esse diretório também é o corpus
+   "limpo" que `test_schema_consistency.py` varre — essa forma viola §7.07
+   de propósito).
+3. **#183 — `parser.py`: truncamento de OCR/HTML sem sinalização.**
+   `parse_law` corta em `_OCR_CHAR_LIMIT`/`_HTML_CHAR_LIMIT` sem registrar
+   nada — leis longas (orçamentos, estatutos) são publicadas como
+   "completas" com confiança alta. Adicionado `texto_truncado` +
+   `tamanho_texto_original` em `parsed_meta`; `docs/SCHEMA.md` atualizado.
+
+Gates locais (mesmo SHA de cada branch, reconciliados por PR): `uv run
+leizilla dev check` (787 passed/13 skipped no #182), `uv run pytest
+tests/test_parser.py` (62 passed no #183), `npm run build` (#181), `mypy
+src/ --ignore-missing-imports` limpo nos três.
+
+**Itens da issue #151 ainda não endereçados** (registrados para a próxima
+sessão, não duplicar): item 3 (`_xsd_gate` fail-open quando `xmllint`
+ausente em CI — hoje só funciona por acidente da imagem `ubuntu-latest`) e
+item 5 (higiene de docs: README/CLAUDE.md com flags de CLI mortas,
+`scripts/backup_database.py`/`scripts/run_rondonia_crawler.py` chamando
+`publisher.upload_pdf()` inexistente, teste e2e duplicado). Comentário
+correspondente deixado na issue #151.
+
+`docs/okf/project-dag.md` **não existe em `main`** nesta sessão (só na PR
+#177, ainda aberta) — a próxima sessão deve tratá-lo como ledger canônico
+só depois do merge; até lá, IMPLEMENTATION.md + `docs/rfc/` + issues
+seguem sendo a fonte de verdade reconstruível.
+
 ### 2026-09-24 (sessão 3) — merge PR #172; RFC-0003 doc-drift corrigido; harvest ganha paridade de relatório com scrape (Fase 1 parcial)
 
 **FASE 1 — triagem**: 4 PRs abertas. #139/#142 (Dependabot) — anotadas e
