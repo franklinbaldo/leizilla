@@ -102,7 +102,7 @@ fonte oficial
 → preservação do artefato (raw IA item, content-hashed)
 → extração textual (IA OCR _djvu.txt ou HTML nativo)
 → estruturação (Claude Haiku → Leizilla XML v0.1)
-→ validação XSD (xmllint via `_xsd_gate`; fails-open se xmllint ausente)
+→ validação XSD (xmllint via `_xsd_gate`; ausência é tolerada apenas em dev local, enquanto CI/publicação instalam xmllint e falham fechado)
 → release versionado (Parquet no IA)
 → busca pública (DuckDB-WASM no browser)
 → auditoria da evidência (parsed_meta.json por parsed item)
@@ -132,7 +132,7 @@ ente                    # "ro", "federal", "ro-porto-velho"
 tipo_lei                # "lei", "decreto", "lc", "constituicao"
 numero_lei              # nullable em fallbacks
 ano_lei
-data_publicacao         # extraída da URN LEX
+data_ato                # data representativa do ato na URN; não prova publicação no Diário Oficial
 urn_lex_lei             # urn:lex:br;rondonia:estadual:lei:2003-06-15;1234
 vigente_em              # data de referência da compilação
 stage                   # S1|S2|S3|S4 — estágio máximo alcançado (ver §6)
@@ -217,7 +217,9 @@ fontes_consultadas      # [raw_id, ...]
 Uma publicação consultável do dataset, reprodutível a partir de um manifesto.
 
 ```
-dataset_id              # leizilla-dataset-{ente}-v{N}
+dataset_id              # leizilla-dataset-{ente}-v{N}-{revision} (imutável)
+latest_id               # leizilla-dataset-{ente}-v{N}-latest (ponteiro mutável)
+revision                # YYYYMMDDtHHMMSSz (UTC)
 ente
 schema_version          # "0.1"
 row_count
@@ -545,15 +547,17 @@ Cada release é reprodutível a partir de um manifesto imutável.
 **Estrutura atual (MVP — Parquet único):**
 
 ```
-leizilla-dataset-{ente}-v{N}/
+leizilla-dataset-{ente}-v{N}-{revision}/
   versoes.parquet      # tabela única, grain lei×dispositivo×versão, SNAPPY
   dataset_meta.json    # leizilla_meta_version, schema_version, ente, version,
                        # table, generated_at, row_count, file_size_bytes,
                        # hash_parquet, git_sha (opcional)
 ```
 
-O arquivo Parquet é sempre nomeado `versoes.parquet` dentro do IA item
-`leizilla-dataset-{ente}-v{N}` — o identificador do item carrega ente e versão.
+O arquivo Parquet é sempre nomeado `versoes.parquet` dentro do IA item imutável
+`leizilla-dataset-{ente}-v{N}-{revision}`. O ponteiro mutável
+`leizilla-dataset-{ente}-v{N}-latest` resolve a release corrente sem reescrever
+releases anteriores.
 O `catalog.parquet` não existe no MVP; navegação e filtros são resolvidos por
 `SELECT DISTINCT` sobre `versoes.parquet` via DuckDB-WASM no browser.
 

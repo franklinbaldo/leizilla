@@ -15,7 +15,8 @@ Há dois níveis de identificadores: **lógico** (como o código referencia) e *
 | Raw | `leizilla-raw-{ente}-{fonte}-{chave}` | `leizilla-raw-ro-casacivil-lei-00500` |
 | Parsed | `leizilla-{ente}-{tipo}-{numero:05d}-{ano}` | `leizilla-ro-lei-00500-1993` |
 | Bundle | `leizilla-bundle-{ente}-{fonte}-{year}-W{week:02d}` | `leizilla-bundle-ro-casacivil-2026-W20` |
-| Dataset | `leizilla-dataset-{ente}-v{version}` | `leizilla-dataset-ro-v1` |
+| Dataset release | `leizilla-dataset-{ente}-v{version}-{revision}` | `leizilla-dataset-ro-v1-20260924t181131z` |
+| Dataset latest | `leizilla-dataset-{ente}-v{version}-latest` | `leizilla-dataset-ro-v1-latest` |
 
 O identificador lógico raw **nunca é o upload target** — é resolvido para a URL do range bucket via `resolve_raw_url`.
 
