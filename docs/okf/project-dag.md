@@ -3,7 +3,7 @@ type: "Project Map"
 title: "Leizilla Project DAG"
 description: "Canonical OKF graph of Leizilla delivery fronts, OKRs, dependencies, blockers and next actions. Work branches and GitHub issues execute the graph; they are not the durable project ledger."
 tags: [leizilla, okf, project-dag, okr, delivery, governance]
-timestamp: 2026-09-24T20:00:00-04:00
+timestamp: 2026-09-24T20:15:00-04:00
 state_model: "project-dag-v1"
 graph_policy:
   source_of_truth: "this authored Markdown/OKF document"
@@ -90,12 +90,12 @@ fronts:
 
   - id: "dataset-release-integrity"
     kind: workstream
-    status: completed
+    status: active
     parents: [ro-coverage-q4-2026]
     objective: "Make every published dataset release independently citable and reproducible while preserving a convenient latest pointer for the portal."
     origin: "Verified risk from #151: scheduled releases default to --version 0 while the frontend points at leizilla-dataset-ro-v0."
-    issues: [175]
-    next_action: "None — immutable release identifiers + mutable latest pointer implemented and merged (PR #180). Release-time validation gates are tracked separately under release-boundary-validation."
+    issues: [175, 196]
+    next_action: "Immutable release identifiers + mutable latest pointer are implemented and merged (PR #180), but no release had ever been published under the new `-latest` scheme when this session started: `web/src/lib/db.ts` (also merged as part of #175/#180) already defaults to `archive.org/download/leizilla-dataset-ro-v0-latest/versoes.parquet`, and that item did not exist — confirmed live via `curl`/`archive.org/metadata`, meaning the public site could not load any law page. Compounding bug found live: `archive.org`'s download endpoint returns 503 (not 404) for a file under a nonexistent item, which the row-count floor guard from #193/#118 read as inconclusive and failed closed on, deadlocking the very first `-latest` release for any (ente, version). Fixed in PR #198 (existence check via `archive.org/metadata` instead of download-endpoint status codes) — merge it, then re-run `parse-release.yml` (`workflow_dispatch`) to actually publish `leizilla-dataset-ro-v0-latest` and verify the live site loads a real law page again before closing #196."
 
   - id: "legal-semantic-integrity"
     kind: objective
@@ -130,10 +130,10 @@ fronts:
       - id: "kr-release-validation-gated"
         status: active
         metric: "Build/release boundaries that publish without the declared schema/quality floor checks."
-        current: "Issue #118 substantially addressed across two independent PRs merged 2026-09-24: `versao_id` uniqueness was already enforced pre-existing; PR #193 added the row-count floor guard on `release-dataset` (refuses to publish fewer rows than the currently published release, latest-pointer-first with legacy-item fallback); PR #192 added empty/missing `ia-id` rejection in `xml_to_rows` and wired the existing `_xsd_gate` into `consolidate` (previously only `parse`/`parse-all` ran it). Deliberately NOT done: a hard urn_lex-grammar validation at the export boundary — it was found to regress the intentional lei_id-fallback degradation `_parse_lei_fields` uses for an unparseable/mis-cased urn-lex (tested behavior from PR #191/#127)."
+        current: "Issue #118 closed (2026-09-24) via two merged PRs: `versao_id` uniqueness was already enforced pre-existing; PR #193 added the row-count floor guard on `release-dataset` (refuses to publish fewer rows than the currently published release, latest-pointer-first with legacy-item fallback); PR #192 added empty/missing `ia-id` rejection in `xml_to_rows` and wired the existing `_xsd_gate` into `consolidate` (previously only `parse`/`parse-all` ran it). Deliberately NOT done: a hard urn_lex-grammar validation at the export boundary (tracked as its own follow-up, issue #195, since it was found to regress the intentional lei_id-fallback degradation `_parse_lei_fields` uses for an unparseable/mis-cased urn-lex from PR #191/#127). PR #193's floor guard itself then blocked the actual first `-latest` release live in production — archive.org returns 503, not 404, for a file under a nonexistent item, which the guard read as inconclusive; fixed in PR #198 (existence check via `archive.org/metadata`) — see dataset-release-integrity/#196 for the live incident this caused."
         target: "All ETL-build and release boundaries fail closed on declared floor violations and emit actionable diagnostics."
-        issues: [118]
-        next_action: "Decide whether the residual risk (a malformed-but-parseable-looking urn-lex persisting verbatim in `urn_lex_lei`) is worth a narrower follow-up issue (e.g. reject only urn-lex that doesn't even start with `urn:lex:br`, letting grammar-level mismatches keep falling back as designed) or close #118 as-is."
+        issues: [118, 195]
+        next_action: "None on #118 itself (closed). #195 (urn_lex canonicalization) is an open, independent follow-up — pick up when convenient, not release-blocking."
 
   - id: "date-provenance"
     kind: workstream
@@ -169,8 +169,8 @@ fronts:
     parents: [legal-semantic-integrity, dataset-release-integrity]
     objective: "Fail closed before publishing datasets that violate schema, identity, temporal or quality-floor contracts."
     origin: "Issue #118 and post-go-live audit findings."
-    issues: [118]
-    next_action: "See legal-semantic-integrity's kr-release-validation-gated for what's merged (PRs #192, #193) and what's deliberately deferred (urn_lex canonicalization)."
+    issues: [118, 195]
+    next_action: "See legal-semantic-integrity's kr-release-validation-gated for what's merged (PRs #192, #193, #198) and what's deliberately deferred (urn_lex canonicalization, tracked as its own follow-up issue #195)."
 
   - id: "public-surface-auditability"
     kind: objective
