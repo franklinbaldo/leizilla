@@ -1,0 +1,10 @@
+/*
+ * A busca textual continua prioritária. Em telas estreitas, os filtros
+ * secundários deixam de disputar uma única linha para preservar o texto que
+ * explica a função de cada controle.
+ */
+@media (max-width: 430px) {
+  main .filters {
+    flex-direction: column;
+  }
+}

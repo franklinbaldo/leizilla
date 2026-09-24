@@ -36,6 +36,38 @@ _WITH_REVOGACAO_CASCATA = _load("with-revogacao-cascata.xml")
 _WITH_BLOCOS = _load("with-blocos-organizacionais.xml")
 _WITH_PARCIAL = _load("with-parse-parcial.xml")
 
+# Not a fixture file under tests/fixtures/leizilla_xml/: that directory is also
+# scanned by test_schema_consistency.py as a corpus of *invariant-clean* XML,
+# and this shape (two <versao> with no `em`, same inherited anchor) violates
+# §7.07 (versões devem estar em ordem estritamente crescente) by construction
+# — it is exactly the malformed-but-XSD-valid LLM output that issue #151 item 2
+# describes slipping past the parse pipeline (the consistency checker doesn't
+# run there, only the XSD gate does), so etl.py must degrade gracefully
+# instead of crashing the daily consolidate job.
+_WITH_VERSAO_ID_COLLISION = """<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1"
+     schema-version="0.1"
+     urn-lex="urn:lex:br;rondonia:estadual:lei:2010-03-01;4242"
+     vigente-em="2026-05-20">
+  <dispositivo path="ementa">
+    <versao>
+      <texto>Dispõe sobre situação hipotética de teste.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04242"/>
+    </versao>
+  </dispositivo>
+  <dispositivo path="art-1">
+    <versao>
+      <texto>Redação sem data explícita, primeira fonte.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04242"/>
+    </versao>
+    <versao>
+      <texto>Redação sem data explícita, segunda fonte (mesma âncora herdada).</texto>
+      <fonte ia-id="leizilla-raw-ro-diario-2010-03-01-p0001"/>
+    </versao>
+  </dispositivo>
+</lei>
+"""
+
 
 # ---------------------------------------------------------------------------
 # path_to_tipo
@@ -108,12 +140,12 @@ class TestXmlToRowsSimple:
     def test_ano_lei_from_urn(self) -> None:
         assert all(r["ano_lei"] == 1999 for r in self.rows)
 
-    def test_data_publicacao_from_urn(self) -> None:
+    def test_data_ato_from_urn(self) -> None:
         expected = datetime.date(1999, 6, 15)
-        assert all(r["data_publicacao"] == expected for r in self.rows)
+        assert all(r["data_ato"] == expected for r in self.rows)
 
-    def test_em_inherits_data_publicacao(self) -> None:
-        # No <versao em="..."> declared → all inherit data_publicacao
+    def test_em_inherits_data_ato(self) -> None:
+        # No <versao em="..."> declared → all inherit data_ato
         expected = datetime.date(1999, 6, 15)
         assert all(r["em"] == expected for r in self.rows)
 
@@ -127,7 +159,7 @@ class TestXmlToRowsSimple:
         assert art1["versao_id"] == "leizilla-ro-lei-09999-1999#art-1#1999-06-15"
 
     def test_inicio_tipo_default(self) -> None:
-        assert all(r["inicio_tipo"] == "data-publicacao" for r in self.rows)
+        assert all(r["inicio_tipo"] == "data-ato" for r in self.rows)
 
     def test_lei_not_revogada(self) -> None:
         assert all(r["lei_revogada"] is False for r in self.rows)
@@ -369,6 +401,38 @@ class TestConsolidateXmls:
 
 
 # ---------------------------------------------------------------------------
+# xml_to_rows — with-versao-id-collision.xml (issue #151 item 2)
+# ---------------------------------------------------------------------------
+
+
+class TestXmlToRowsVersaoIdCollision:
+    def setup_method(self) -> None:
+        self.rows = xml_to_rows(
+            _WITH_VERSAO_ID_COLLISION, "leizilla-ro-lei-04242-2010", "ro"
+        )
+
+    def test_both_versoes_present(self) -> None:
+        art1_rows = [r for r in self.rows if r["dispositivo_path"] == "art-1"]
+        assert len(art1_rows) == 2
+
+    def test_versao_ids_disambiguated(self) -> None:
+        art1_ids = {
+            r["versao_id"] for r in self.rows if r["dispositivo_path"] == "art-1"
+        }
+        assert art1_ids == {
+            "leizilla-ro-lei-04242-2010#art-1#2010-03-01",
+            "leizilla-ro-lei-04242-2010#art-1#2010-03-01-v2",
+        }
+
+    def test_consolidate_does_not_raise(self) -> None:
+        # Would have raised "Duplicate versao_id detected" before the fix.
+        rows = consolidate_xmls(
+            [("leizilla-ro-lei-04242-2010", "ro", _WITH_VERSAO_ID_COLLISION)]
+        )
+        assert len(rows) == len(self.rows)
+
+
+# ---------------------------------------------------------------------------
 # write_parquet (roundtrip)
 # ---------------------------------------------------------------------------
 
@@ -437,7 +501,7 @@ class TestWriteParquet:
             "tipo_lei": "lei",
             "numero_lei": "72-a",
             "ano_lei": 2020,
-            "data_publicacao": datetime.date(2020, 1, 1),
+            "data_ato": datetime.date(2020, 1, 1),
             "urn_lex_lei": None,
             "vigente_em": datetime.date(2020, 1, 1),
             "lei_revogada": False,
@@ -624,3 +688,110 @@ class TestXmlToRowsComRevogacaoCascata:
     def test_row_count(self) -> None:
         # art-10, art-10-par-1, art-10-par-1-inc-1, art-10-par-2, art-11 = 5
         assert len(self.rows) == 5
+
+
+# ---------------------------------------------------------------------------
+# numero_lei with a letter suffix (issue #127) — round-trip, no conflation
+# ---------------------------------------------------------------------------
+
+
+def _lei_xml(urn_lex: str | None) -> str:
+    """Minimal single-dispositivo Leizilla XML, urn-lex optional (§7.5 carve-out)."""
+    urn_attr = f' urn-lex="{urn_lex}"' if urn_lex else ""
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        f'<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"{urn_attr}'
+        ' vigente-em="2026-05-20">'
+        '<dispositivo path="ementa"><versao><texto>Texto.</texto>'
+        '<fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00072"/></versao></dispositivo>'
+        "</lei>"
+    )
+
+
+class TestNumeroLetterSuffix:
+    """Issue #127: a numero with a letter suffix ("Lei 72-A") must survive
+    parser validation -> ia_id generation -> URN-LEX -> ETL numero_lei
+    without ever colliding with the plain "Lei 72"."""
+
+    def test_urn_numero_with_suffix_parses(self) -> None:
+        xml = _lei_xml("urn:lex:br;rondonia:estadual:lei:1999-06-15;72-a")
+        rows = xml_to_rows(xml, "leizilla-ro-lei-00072-a-1999", "ro")
+        assert rows[0]["numero_lei"] == "72-a"
+        assert rows[0]["tipo_lei"] == "lei"
+        assert rows[0]["ano_lei"] == 1999
+
+    def test_suffixed_and_plain_numero_do_not_collide(self) -> None:
+        plain_rows = xml_to_rows(
+            _lei_xml("urn:lex:br;rondonia:estadual:lei:1999-06-15;72"),
+            "leizilla-ro-lei-00072-1999",
+            "ro",
+        )
+        suffixed_rows = xml_to_rows(
+            _lei_xml("urn:lex:br;rondonia:estadual:lei:1999-06-15;72-a"),
+            "leizilla-ro-lei-00072-a-1999",
+            "ro",
+        )
+
+        assert plain_rows[0]["numero_lei"] == "72"
+        assert suffixed_rows[0]["numero_lei"] == "72-a"
+        assert plain_rows[0]["lei_id"] != suffixed_rows[0]["lei_id"]
+        assert plain_rows[0]["urn_lex_lei"] != suffixed_rows[0]["urn_lex_lei"]
+
+    def test_both_coexist_in_a_combined_dataset(self) -> None:
+        # A batch consolidate() run must keep "72" and "72-A" as two
+        # distinct leis in the same versoes table — one must not clobber
+        # the other (same digits, different identity).
+        rows = xml_to_rows(
+            _lei_xml("urn:lex:br;rondonia:estadual:lei:1999-06-15;72"),
+            "leizilla-ro-lei-00072-1999",
+            "ro",
+        ) + xml_to_rows(
+            _lei_xml("urn:lex:br;rondonia:estadual:lei:1999-06-15;72-a"),
+            "leizilla-ro-lei-00072-a-1999",
+            "ro",
+        )
+
+        assert len(rows) == 2  # one ementa dispositivo each — no clobbering
+        assert {r["lei_id"] for r in rows} == {
+            "leizilla-ro-lei-00072-1999",
+            "leizilla-ro-lei-00072-a-1999",
+        }
+        assert {r["numero_lei"] for r in rows} == {"72", "72-a"}
+
+    def test_fallback_lei_id_recovers_suffixed_numero_without_urn(self) -> None:
+        # No urn-lex at all (OCR-ruim fallback, §7.5 carve-out) — numero_lei
+        # must still be recovered from the canonical parsed ia_id when it
+        # carries the letter suffix, using the id-based fallback in
+        # _parse_lei_fields (which mirrors the URN's grammar).
+        rows = xml_to_rows(_lei_xml(None), "leizilla-ro-lei-00072-a-1999", "ro")
+        assert rows[0]["numero_lei"] == "72-a"
+        assert rows[0]["tipo_lei"] == "lei"
+        assert rows[0]["ano_lei"] == 1999
+
+    def test_urn_regex_rejects_uppercase_suffix(self) -> None:
+        # The grammar is strictly lowercase, like every other URN token
+        # (§5.6) — an uppercase letter suffix must not silently normalize.
+        from leizilla.etl import _RE_URN_LEX
+
+        assert (
+            _RE_URN_LEX.match("urn:lex:br;rondonia:estadual:lei:1999-06-15;72-A")
+            is None
+        )
+
+    def test_urn_regex_rejects_previously_permitted_forms(self) -> None:
+        # The old numero group ([a-z0-9.\-]+) accepted dots and multi-letter
+        # suffixes that this codebase never actually produces (issue #127) —
+        # that extra permissiveness was itself a conflation risk.
+        from leizilla.etl import _RE_URN_LEX
+
+        for numero in ("72.5", "72-ab", "72--a"):
+            urn = f"urn:lex:br;rondonia:estadual:lei:1999-06-15;{numero}"
+            assert _RE_URN_LEX.match(urn) is None, urn
+
+    def test_malformed_uppercase_urn_still_recovers_via_lei_id(self) -> None:
+        # A URN with an uppercase suffix fails _RE_URN_LEX outright (not a
+        # partial/mis-cased match) so _parse_lei_fields degrades to the
+        # lei_id-based extraction, which still recovers the right value.
+        xml = _lei_xml("urn:lex:br;rondonia:estadual:lei:1999-06-15;72-A")
+        rows = xml_to_rows(xml, "leizilla-ro-lei-00072-a-1999", "ro")
+        assert rows[0]["numero_lei"] == "72-a"

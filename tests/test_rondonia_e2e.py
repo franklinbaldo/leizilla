@@ -5,6 +5,7 @@ implementation, fully offline. The embedded sample laws are real data
 extracted from pge-ro/cotel_scrap.
 """
 
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,7 @@ SAMPLE_LAWS = [
         "titulo": "DECRETO LEI n. 2",
         "numero": "2",
         "ano": 1981,
-        "data_publicacao": "1981-12-31",
+        "data_ato": "1981-12-31",
         "tipo_lei": "decreto-lei",
         "ente": "rondonia",
         "texto_completo": """DECRETO-LEI N° 2, DE 31 DE DEZEMBRO DE 1981
@@ -61,7 +62,7 @@ GOVERNADOR DO ESTADO""",
         "titulo": "LEI n. 3",
         "numero": "3",
         "ano": 1982,
-        "data_publicacao": "1982-01-01",
+        "data_ato": "1982-01-01",
         "tipo_lei": "lei",
         "ente": "rondonia",
         "texto_completo": "Texto de exemplo da Lei 3 de Rondônia para teste do sistema Leizilla.",
@@ -148,6 +149,14 @@ def test_real_world_legal_search_terms(storage: DuckDBStorage) -> None:
     for term in ["decreto", "orçamento", "receita", "estado", "governador"]:
         results = storage.search_leis(texto=term)
         assert len(results) >= 1, f"Should find results for legal term: {term}"
+
+
+def test_parquet_export(storage: DuckDBStorage) -> None:
+    """The `leizilla export` CLI path (DuckDBStorage.export_parquet) works."""
+    with tempfile.TemporaryDirectory() as export_dir:
+        parquet_file = Path(export_dir) / "rondonia_laws.parquet"
+        storage.export_parquet(parquet_file, ente="rondonia")
+        assert parquet_file.exists()
 
 
 def test_cotel_scrap_markdown_compatibility() -> None:

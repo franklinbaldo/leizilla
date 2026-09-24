@@ -1,0 +1,75 @@
+name: Visual capture — web
+
+on:
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/visual-capture.yml"
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/visual-capture.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    env:
+      CAPTURE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build the real Astro surface
+        working-directory: web
+        run: npm run build
+        env:
+          PUBLIC_PARQUET_URL: ${{ vars.PUBLIC_PARQUET_URL }}
+          PUBLIC_DUCKDB_CDN: ${{ vars.PUBLIC_DUCKDB_CDN }}
+          PUBLIC_DUCKDB_EXT_REPO: ${{ vars.PUBLIC_DUCKDB_EXT_REPO }}
+
+      - name: Install Chromium capture runtime
+        working-directory: web
+        run: |
+          npm install --no-save --package-lock=false playwright@1.55.0 @axe-core/playwright@4.10.2
+          npx playwright install --with-deps chromium
+
+      - name: Start built site
+        working-directory: web
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4321 > /tmp/leizilla-preview.log 2>&1 &
+          echo $! > /tmp/leizilla-preview.pid
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4321/leizilla/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/leizilla-preview.log
+          exit 1
+
+      - name: Capture and audit desktop, narrow and controlled unavailable states
+        working-directory: web
+        run: node scripts/capture-accessibility.mjs
+
+      - name: Upload visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leizilla-web-visual-${{ env.CAPTURE_SHA }}
+          path: web/visual-evidence
+          if-no-files-found: error
+          retention-days: 30

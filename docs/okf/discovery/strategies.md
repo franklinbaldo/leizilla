@@ -32,6 +32,25 @@ Gera URLs numericamente: `L1.pdf`, `L2.pdf`, … até o limite.
 
 Pula URLs já presentes na tabela `discovered_resources` (verificação no DuckDB).
 
+`end` aceita um inteiro fixo **ou** a string `"cdx-auto"` (RFC-0003 Fase 1). Com
+`"cdx-auto"`, o limite é resolvido em `run()`: consulta a CDX API uma única vez
+para o diretório do primeiro `template` e toma o maior número já arquivado para
+o `tipo_documento` desse template (`resolve_cdx_max_by_tipo`, a mesma função que
+`WaybackCdxDiscovery` usa internamente). Fail-safe: resposta vazia, erro de rede
+ou timeout na CDX não abortam o discover — caem no `end_fallback` (default `10`,
+configurável por estratégia no manifesto).
+
+```json
+{
+  "strategy": "sequential",
+  "templates": ["https://.../Files/L{num}.pdf"],
+  "start": 1,
+  "end": "cdx-auto",
+  "end_fallback": 10,
+  "head_check": false
+}
+```
+
 ### `playwright-crawler`
 
 Crawlea portais com JavaScript via Playwright.

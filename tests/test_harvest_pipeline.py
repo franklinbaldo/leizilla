@@ -251,11 +251,73 @@ class TestHarvestPendingResources:
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
             patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
-            patch("leizilla.scraper.wayback.fetch_bytes", return_value=None),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(None, False),
+            ),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=10)
 
         assert stats["failed"] == 1
+
+    def test_transient_fetch_failure_stays_pending_not_failed(
+        self, temp_db: DuckDBStorage
+    ) -> None:
+        # #121: a transient failure (429/5xx/timeout — anything but a confirmed
+        # 404/410) must stay 'pending' so get_pending_resources() re-selects it
+        # on the next run, instead of a terminal 'failed' that is never retried.
+        from leizilla.scraper import harvest_pending_resources
+
+        res = _make_resource()
+        temp_db.insert_resource(res)
+        pub = MagicMock()
+
+        with (
+            patch("leizilla.scraper.robots.is_allowed", return_value=True),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(None, False),  # transient: not a confirmed 404/410
+            ),
+        ):
+            harvest_pending_resources(temp_db, pub, limit=10)
+
+        conn = temp_db.connect()
+        row = conn.execute(
+            "SELECT status FROM discovered_resources WHERE url = ?",
+            [res["url"]],
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "pending"
+
+    def test_permanent_fetch_failure_marked_failed(
+        self, temp_db: DuckDBStorage
+    ) -> None:
+        # A confirmed 404/410 is a real permanent failure — terminal 'failed' is
+        # correct here (nothing to retry).
+        from leizilla.scraper import harvest_pending_resources
+
+        res = _make_resource()
+        temp_db.insert_resource(res)
+        pub = MagicMock()
+
+        with (
+            patch("leizilla.scraper.robots.is_allowed", return_value=True),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(None, True),  # confirmed permanent
+            ),
+        ):
+            harvest_pending_resources(temp_db, pub, limit=10)
+
+        conn = temp_db.connect()
+        row = conn.execute(
+            "SELECT status FROM discovered_resources WHERE url = ?",
+            [res["url"]],
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "failed"
 
     def test_successful_harvest_calls_upload(self, temp_db: DuckDBStorage) -> None:
         from leizilla.scraper import harvest_pending_resources
@@ -271,13 +333,53 @@ class TestHarvestPendingResources:
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
             patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch(
-                "leizilla.scraper.wayback.fetch_bytes", return_value=b"%PDF-1.4 content"
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(b"%PDF-1.4 content", False),
             ),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=10)
 
         assert stats["success"] == 1
         pub.upload_raw.assert_called_once()
+
+    def test_items_report_parity_with_scrape(self, temp_db: DuckDBStorage) -> None:
+        # `items` gives cmd_harvest per-resource results (RFC-0003 Fase 1: report
+        # parity with `scrape`'s "OK: <ia_id> → <ia_url>" / "Falha [reason]: <chave>").
+        from leizilla.scraper import harvest_pending_resources
+
+        temp_db.insert_resource(_make_resource(chave="lei-00001"))
+        temp_db.insert_resource(
+            _make_resource(url="http://blocked.com/lei.pdf", chave="lei-00002")
+        )
+        pub = MagicMock()
+        pub.upload_raw.return_value = {
+            "success": True,
+            "ia_id": "leizilla-raw-ro-assembleia-lei-00001",
+            "ia_url": "https://archive.org/details/test",
+        }
+
+        with (
+            patch(
+                "leizilla.scraper.robots.is_allowed",
+                side_effect=lambda url: "blocked" not in url,
+            ),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(b"%PDF-1.4 content", False),
+            ),
+        ):
+            stats = harvest_pending_resources(temp_db, pub, limit=10)
+
+        assert len(stats["items"]) == 2
+        ok_item = next(i for i in stats["items"] if i["status"] == "ok")
+        assert ok_item["chave"] == "lei-00001"
+        assert ok_item["ia_id"] == "leizilla-raw-ro-assembleia-lei-00001"
+        assert ok_item["ia_url"] == "https://archive.org/details/test"
+        blocked_item = next(
+            i for i in stats["items"] if i["status"] == "robots-blocked"
+        )
+        assert blocked_item["chave"] == "lei-00002"
 
     def test_wayback_timestamp_threaded_into_upload(
         self, temp_db: DuckDBStorage
@@ -338,8 +440,66 @@ class TestHarvestPendingResources:
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
             patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
-            patch("leizilla.scraper.wayback.fetch_bytes", return_value=None),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(None, False),
+            ),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=2)
 
         assert stats["failed"] == 2  # processed 2, both failed fetch
+
+    def test_wayback_html_response_triggers_fallback(
+        self, temp_db: DuckDBStorage
+    ) -> None:
+        # RFC-0003 Fase 1: harvest reimplementa (não chama) o fallback HTML→direct
+        # download do PR #93 — cobertura própria, sem depender do teste de scrape_one.
+        from leizilla.scraper import harvest_pending_resources
+
+        temp_db.insert_resource(_make_resource())
+        pub = MagicMock()
+        pub.upload_raw.return_value = {"success": True, "ia_url": "https://ia/x"}
+
+        with (
+            patch("leizilla.scraper.robots.is_allowed", return_value=True),
+            patch(
+                "leizilla.scraper.wayback.ensure_archived",
+                return_value=(
+                    "https://web.archive.org/web/2026/http://x/lei.pdf",
+                    "2026",
+                ),
+            ),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes",
+                return_value=b"<!DOCTYPE html><html>error</html>",
+            ),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(b"%PDF-1.4 content", False),
+            ),
+        ):
+            stats = harvest_pending_resources(temp_db, pub, limit=10)
+
+        assert stats["success"] == 1
+        lei_data = pub.upload_raw.call_args.args[1]
+        assert lei_data["wayback_timestamp"] is None
+
+    def test_direct_fallback_rejects_non_pdf(self, temp_db: DuckDBStorage) -> None:
+        from leizilla.scraper import harvest_pending_resources
+
+        temp_db.insert_resource(_make_resource())
+        pub = MagicMock()
+
+        with (
+            patch("leizilla.scraper.robots.is_allowed", return_value=True),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(b"<!DOCTYPE html><html>error</html>", False),
+            ),
+        ):
+            stats = harvest_pending_resources(temp_db, pub, limit=10)
+
+        assert stats["failed"] == 1
+        assert stats["items"][0]["reason"] == "not-pdf"
+        pub.upload_raw.assert_not_called()

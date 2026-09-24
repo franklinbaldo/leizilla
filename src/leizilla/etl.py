@@ -42,14 +42,33 @@ _ORGANIZACIONAL_TOKENS: list[tuple[re.Pattern[str], str]] = [
 
 _ORGANIZACIONAL_TIPOS = {t for _, t in _ORGANIZACIONAL_TOKENS}
 
+#   numero: digits, optionally with a single lowercase letter suffix (issue
+#   #127) for a law split/renumbered after promulgation (e.g. ";72-a" for
+#   "Lei 72-A" — a distinct law from ";72"). Previously `[a-z0-9.\-]+`, which
+#   also accepted dots and multi-char suffixes never actually produced by
+#   this codebase (parser.py always emits digits-only or digits+"-letter");
+#   that extra permissiveness was itself a conflation risk, so it is
+#   tightened to the real contract. Mirrored in
+#   scripts/check_schema_consistency.py and docs/schemas/leizilla-v0.1.xsd —
+#   keep all three in sync.
 _RE_URN_LEX = re.compile(
     r"^urn:lex:br"
     r"(?P<locais>(;[a-z][a-z0-9.]*)*)"
     r":(?P<autoridade>[a-z][a-z0-9.]*(;[a-z][a-z0-9.]*)*)"
     r":(?P<tipo>[a-z][a-z0-9.]*)"
     r":(?P<data>\d{4}(-\d{2}-\d{2})?)"
-    r"(;(?P<numero>[a-z0-9.\-]+))?"
+    r"(;(?P<numero>\d+(-[a-z])?))?"
     r"(?P<paths>(![a-z0-9._\-]+)*)$"
+)
+
+
+# Tail of a canonical parsed ia_id (SCHEMA.md §5.3), used as a fallback when
+# urn_lex is absent/undecodable. Anchored at the end (not a naive split) so
+# the optional "-{letter}" suffix (issue #127) doesn't shift indices the way
+# a positional `lei_id.split("-")[-2]` would.
+_RE_LEI_ID_TAIL = re.compile(
+    r"-(?P<tipo>[a-z]+)-(?P<numero_digits>\d+)(?:-(?P<numero_suffix>[a-zA-Z]))?"
+    r"-(?P<ano>\d{4})$"
 )
 
 
@@ -60,7 +79,6 @@ def path_to_tipo(path: str) -> Optional[str]:
     for pat, tipo in _NORMATIVO_TOKENS + _ORGANIZACIONAL_TOKENS:
         if pat.match(path):
             return tipo
-    # Composite path walk (e.g. art-5-par-2-inc-3, tit-2-cap-1)
     parts = path.split("-")
     i = 0
     last_tipo: Optional[str] = None
@@ -79,7 +97,7 @@ def path_to_tipo(path: str) -> Optional[str]:
                         else "normativo"
                     )
                     if composite_class is not None and this_class != composite_class:
-                        return None  # mixed-class composite — invalid
+                        return None
                     composite_class = this_class
                     last_tipo = tipo
                     i += take
@@ -96,22 +114,21 @@ def _parse_date(s: Optional[str]) -> Optional[datetime.date]:
     if not s:
         return None
     try:
-        # Strip xs:date timezone designator ('Z' or '+HH:MM'/'-HH:MM') before parsing.
-        # datetime.date.fromisoformat does not handle timezone suffixes.
         clean = re.sub(r"([+-]\d{2}:\d{2}|Z)$", "", s)
         return datetime.date.fromisoformat(clean)
     except ValueError:
         return None
 
 
-def _extract_data_publicacao(urn_lex: Optional[str]) -> Optional[datetime.date]:
+def _extract_data_ato(urn_lex: Optional[str]) -> Optional[datetime.date]:
+    """Extract the norm's representative act date encoded in its URN-LEX."""
     if not urn_lex:
         return None
     m = _RE_URN_LEX.match(urn_lex)
     if not m:
         return None
     data_str = m.group("data") or ""
-    if len(data_str) == 4:  # year-only URN — no precise date anchor
+    if len(data_str) == 4:
         return None
     return _parse_date(data_str)
 
@@ -128,21 +145,16 @@ def _parse_lei_fields(
             data = m.group("data") or ""
             ano = int(data[:4]) if len(data) >= 4 else 0
             return tipo, numero, ano
-    # Heuristic fallback: try two documented lei_id patterns (SCHEMA.md §1.3)
     parts = lei_id.split("-")
     if len(parts) >= 5 and parts[0] == "leizilla":
-        # Fallback checked FIRST: leizilla-{ente}-{tipo}-fallback-{fonte}-{chave}
-        # Must precede canonical check — fallback keys can end with -N-YYYY which
-        # would pass the canonical heuristic and corrupt tipo/numero/ano.
         if len(parts) >= 4 and parts[3] == "fallback":
             return parts[2], None, 0
-        # Canonical: leizilla-{ente}-{tipo}-{numero}-{ano}
-        try:
-            ano_s, num_s, tipo_s = parts[-1], parts[-2], parts[-3]
-            if len(ano_s) == 4 and ano_s.isdigit() and num_s.isdigit():
-                return tipo_s, num_s.lstrip("0") or "0", int(ano_s)
-        except (IndexError, ValueError):
-            pass
+        m = _RE_LEI_ID_TAIL.search(lei_id)
+        if m:
+            digits = m.group("numero_digits").lstrip("0") or "0"
+            suffix = m.group("numero_suffix")
+            numero = f"{digits}-{suffix.lower()}" if suffix else digits
+            return m.group("tipo"), numero, int(m.group("ano"))
     return "desconhecido", None, 0
 
 
@@ -165,7 +177,7 @@ PARQUET_SCHEMA: dict[str, str] = {
     "tipo_lei": "VARCHAR",
     "numero_lei": "VARCHAR",
     "ano_lei": "INTEGER",
-    "data_publicacao": "DATE",
+    "data_ato": "DATE",
     "urn_lex_lei": "VARCHAR",
     "vigente_em": "DATE",
     "lei_revogada": "BOOLEAN",
@@ -202,7 +214,7 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
 
     urn_lex = root.get("urn-lex")
     vigente_em = _parse_date(root.get("vigente-em"))
-    data_publicacao = _extract_data_publicacao(urn_lex)
+    data_ato = _extract_data_ato(urn_lex)
     tipo_lei, numero_lei, ano_lei = _parse_lei_fields(lei_id, urn_lex)
 
     rev_root = root.find(f"{{{NS}}}revogacao")
@@ -212,7 +224,7 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
         "tipo_lei": tipo_lei,
         "numero_lei": numero_lei,
         "ano_lei": ano_lei,
-        "data_publicacao": data_publicacao,
+        "data_ato": data_ato,
         "urn_lex_lei": urn_lex,
         "vigente_em": vigente_em,
         "lei_revogada": rev_root is not None,
@@ -253,22 +265,44 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
             }
 
             versoes_elems = disp.findall(f"{{{NS}}}versao")
-
-            # Resolve `em` for each versao (explicit or inherited)
             versao_ems: list[Optional[datetime.date]] = []
             for v in versoes_elems:
                 em_s = v.get("em")
                 versao_ems.append(
-                    _parse_date(em_s) if em_s else (ancestor_em or data_publicacao)
+                    _parse_date(em_s) if em_s else (ancestor_em or data_ato)
                 )
 
+            # Issue #120: document order is not legal chronology. A single
+            # dateless versão has nothing to order against and is fine as-is
+            # (existing behavior), but once a dispositivo has more than one
+            # versão every effective date must be knowable — otherwise the
+            # vigência query `em <= X AND (ate IS NULL OR ate > X)` can match
+            # more than one versão at the same X. Fail closed instead of
+            # silently emitting an ambiguous/inverted timeline, and normalize
+            # to chronological order before `ate` is derived from "the next
+            # versão".
+            if len(versoes_elems) > 1:
+                if any(em is None for em in versao_ems):
+                    raise ValueError(
+                        f"Ambiguous version timeline for dispositivo "
+                        f"{path!r} in {lei_id!r}: multiple <versao> elements "
+                        "but at least one has no resolvable effective date "
+                        "(`em`)"
+                    )
+                # Nones were already rejected above; the `or` fallback here
+                # only satisfies mypy's Optional[date] key type.
+                ordered = sorted(
+                    range(len(versoes_elems)),
+                    key=lambda i: versao_ems[i] or datetime.date.min,
+                )
+                versoes_elems = [versoes_elems[i] for i in ordered]
+                versao_ems = [versao_ems[i] for i in ordered]
+
+            em_occurrences: dict[str, int] = {}
             for v_idx, versao in enumerate(versoes_elems):
                 em = versao_ems[v_idx]
                 alterado_por = versao.get("alterado-por")
 
-                # Infer `ate` — next versao start, dispositivo revogacao,
-                # ancestor revogacao (§0.3 cascata implícita), lei-level
-                # revogacao total, or None (still vigente).
                 if v_idx + 1 < len(versoes_elems):
                     ate: Optional[datetime.date] = versao_ems[v_idx + 1]
                 elif disp_rev_em is not None:
@@ -286,7 +320,7 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                 elif alterado_por:
                     inicio_tipo = "texto-lei-alteradora"
                 else:
-                    inicio_tipo = "data-publicacao"
+                    inicio_tipo = "data-ato"
 
                 texto_elem = versao.find(f"{{{NS}}}texto")
                 texto = texto_elem.text if texto_elem is not None else None
@@ -305,7 +339,12 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                         }
                     )
 
-                versao_id = f"{lei_id}#{path}#{em.isoformat() if em else 'unknown'}"
+                em_key = em.isoformat() if em else "unknown"
+                em_occurrences[em_key] = em_occurrences.get(em_key, 0) + 1
+                collision_suffix = (
+                    f"-v{em_occurrences[em_key]}" if em_occurrences[em_key] > 1 else ""
+                )
+                versao_id = f"{lei_id}#{path}#{em_key}{collision_suffix}"
 
                 rows.append(
                     {
@@ -326,12 +365,11 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                     }
                 )
 
-            # Pass first versao's resolved em and cascade revogacao to children
             child_ancestor_em = versao_ems[0] if versao_ems else ancestor_em
             child_rev_em = disp_rev_em or ancestor_rev_em
             _process(disp, path, child_ancestor_em, child_rev_em)
 
-    _process(root, None, data_publicacao)
+    _process(root, None, data_ato)
     return rows
 
 
@@ -378,14 +416,11 @@ def write_parquet(rows: list[dict[str, Any]], output_path: Path) -> None:
 
         conn = duckdb.connect()
         try:
-            # Generate the dictionary string representation expected by DuckDB
             columns_str = (
                 "{"
                 + ", ".join(f"'{k}': '{v}'" for k, v in PARQUET_SCHEMA.items())
                 + "}"
             )
-            # Use parameterized ? to avoid SQL string interpolation for file paths
-            # but schema dictionary has to be inline
             conn.execute(
                 f"CREATE TABLE _rows AS SELECT * FROM read_json(?, columns={columns_str})",
                 [tmp_path],

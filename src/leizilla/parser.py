@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import os
+import re
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -26,6 +27,17 @@ logger = logging.getLogger(__name__)
 
 _HAIKU = "claude-haiku-4-5"
 _GEMINI_FLASH = "gemini/gemini-2.5-flash"
+
+# Grammar for a validated legal "numero" (issue #127): digits, optionally
+# followed by a single letter suffix for a law split/renumbered after
+# promulgation (e.g. "Lei 72-A" — a distinct law from "Lei 72", never a
+# rounding/formatting variant of it). Case-insensitive on input; the suffix
+# is normalized to lowercase before it is used anywhere downstream (ia_id,
+# URN numero segment, numero_lei column — etl.py's `_RE_URN_LEX` and
+# scripts/check_schema_consistency.py mirror this same grammar in lowercase
+# form). A bare `numero_str.isdigit()` gate used to reject these laws
+# outright, silently dropping them at parse time.
+_RE_NUMERO = re.compile(r"^\d+(?:-[A-Za-z])?$")
 
 # Prefixo do modelo → env vars aceitas para o provider (fail-fast antes de
 # queimar um batch; modelos de providers não mapeados são validados pelo
@@ -64,7 +76,10 @@ Required fields:
 - "xml": complete Leizilla XML v0.1 string (see format below)
 - "confidence": float 0.0–1.0 (how well you parsed the text)
 - "tipo": document type slug — "lei", "decreto", "lei-complementar", etc.
-- "numero": law number as string, digits only (e.g. "9999")
+- "numero": law number as string — digits, optionally with a single letter
+  suffix when the law was split/renumbered after promulgation (e.g. "9999"
+  or "72-a"). Use the letter EXACTLY as printed in the source but lowercase
+  it here; do NOT drop the suffix — "72-a" and "72" are different laws.
 - "ano": year as integer
 - "urn_lex": URN LEX string (see URN rules); null only if the text has no date at all
 
@@ -130,7 +145,8 @@ URN rules — the urn-lex on <lei> and the "urn_lex" field must be identical:
   URN for the same norm depending on which notice the source happens to
   carry. Use a year-only date (just YYYY) when the day/month of the act's own
   date are missing. Do NOT substitute today's date into the URN.
-- NUMERO is the digits-only law number (same value as the "numero" field).
+- NUMERO is the same value as the "numero" field: digits, optionally with a
+  lowercase "-x" suffix (e.g. "9999" or "72-a"). Never strip the suffix.
 
 Use vigente-em={today} — this is the "as of" reference for the snapshot and is
 independent of the publication date encoded in the URN.
@@ -425,19 +441,34 @@ def parse_law(
         )
         return None
     numero_str = str(numero).strip()
-    if not numero_str.isdigit():
-        logger.warning("%s: numero não numérico: %r", ia_id, numero)
+    numero_match = _RE_NUMERO.match(numero_str)
+    if not numero_match:
+        logger.warning(
+            "%s: numero fora do formato esperado (dígitos, opcionalmente "
+            "'-' + uma letra): %r",
+            ia_id,
+            numero,
+        )
         return None
     try:
         ano = int(ano)
     except (TypeError, ValueError):
         logger.warning("%s: ano inválido: %r", ia_id, result.get("ano"))
         return None
-    ia_id_parsed = f"leizilla-{ente}-{tipo}-{numero_str.zfill(5)}-{ano}"
+    # Zero-pad the digits (SCHEMA.md §1.3/§5.3); keep the letter suffix
+    # attached, lowercased, so "72-A" and "72" never collide downstream
+    # ("leizilla-ro-lei-00072-a-1999" vs "leizilla-ro-lei-00072-1999").
+    numero_digits, _, numero_suffix = numero_str.partition("-")
+    numero_id = numero_digits.zfill(5) + (
+        f"-{numero_suffix.lower()}" if numero_suffix else ""
+    )
+    ia_id_parsed = f"leizilla-{ente}-{tipo}-{numero_id}-{ano}"
 
     usage = getattr(response, "usage", None)
     input_tokens = getattr(usage, "prompt_tokens", 0) or 0
     output_tokens = getattr(usage, "completion_tokens", 0) or 0
+
+    texto_truncado = len(ocr_text) > char_limit
 
     parsed_meta: Dict[str, Any] = {
         "leizilla_meta_version": "0.1",
@@ -451,6 +482,8 @@ def parse_law(
         "fontes_consultadas": [ia_id],
         "tem_divergencia": False,
         "num_divergencias": 0,
+        "texto_truncado": texto_truncado,
+        "tamanho_texto_original": len(ocr_text),
     }
 
     return ParseResult(

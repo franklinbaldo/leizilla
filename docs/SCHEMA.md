@@ -29,7 +29,7 @@ Tudo o que não cabe nessa frase **não pertence ao XML**:
 
 ### 0.2 Vigência herda; proveniência é declarada quando importa
 
-Caso default: dispositivo vigora junto com a lei. Não declara nada — herda. Cadeia: `<versao>.em` → ancestral `<dispositivo>` mais próximo que declara → `data-publicacao` extraída da URN da `<lei>`.
+Caso default: dispositivo vigora junto com a lei. Não declara nada — herda. Cadeia: `<versao>.em` → ancestral `<dispositivo>` mais próximo que declara → `data-ato` extraída da URN da `<lei>` (data de assinatura/promulgação do ato — **não** é prova de publicação).
 
 Quando um dispositivo tem múltiplas versões (foi alterado), cada `<versao em="X">` declara explicitamente. `vigente-ate` **não é armazenado** — é inferido (próxima versão, ou `<revogacao>` do dispositivo, ou `<revogacao>` da lei, cascateando).
 
@@ -37,14 +37,15 @@ A informação "esta vigência veio de onde" tem qualidade variável:
 
 | `tipo` | Quando aplica |
 |---|---|
-| `data-publicacao` | Vigência = data da lei (regra default LINDB). |
+| `data-ato` | Vigência = data do ato extraída da URN (regra default LINDB); **não** é prova de publicação, é a data de assinatura/promulgação. |
+| `data-publicacao` | Publicação explicitamente declarada/comprovada (evidência textual ou fonte dedicada), distinta da data do ato. |
 | `texto-lei-alteradora` | Declarado na lei que alterou (caso comum em alterações). |
 | `vacatio-legis` | Texto especifica prazo ("entrará em vigor 90 dias após publicação"); calculada. |
 | `consolidacao` | Casa Civil/COTEL adotou sem prova textual no ato original. |
 | `inferencia-llm` | Parser inferiu sem evidência textual direta. |
 | `decisao-judicial` | STF/STJ modulou efeitos. |
 
-Quando `tipo` é não-óbvio, `<versao>` carrega sub-elemento `<inicio tipo="...">` com `<fonte>` filha apontando para o IA item que materializa a prova. Caso óbvio (ato original ou alteração explícita), `<inicio>` é omitido — `tipo` deriva por default: `data-publicacao` se primeira versão sem `alterado-por`, `texto-lei-alteradora` se há `alterado-por`.
+Quando `tipo` é não-óbvio, `<versao>` carrega sub-elemento `<inicio tipo="...">` com `<fonte>` filha apontando para o IA item que materializa a prova. Caso óbvio (ato original ou alteração explícita), `<inicio>` é omitido — `tipo` deriva por default: `data-ato` se primeira versão sem `alterado-por` (a data vem da URN, não é prova de publicação), `texto-lei-alteradora` se há `alterado-por`.
 
 ### 0.3 Revogação é evento estruturado
 
@@ -126,6 +127,9 @@ Implicações que decorrem disso (e estão em outras seções):
 
 **raw_id lógico**: `leizilla-raw-{ente}-{fonte}-{chave}`, onde `{chave}` identifica
 a norma como `{tipo}-{número:05d}` (ex.: `lei-05120`, `lc-00042`, `decreto-01234`).
+`{número}` aqui é sempre inteiro — é a chave de colheita (nome de
+arquivo/URL da fonte), não a identidade jurídica; o sufixo de letra do
+número legal (issue #127, §1.3/§5.6) só existe a partir da camada *parsed*.
 
 **Identidade é evidência, não catraca de ingestão** (ADR-0011, §1 revisada):
 **extrair `(tipo, número)` do contexto da descoberta** (metadados / páginas que
@@ -145,7 +149,7 @@ contexto, não pela leitura do documento.
 | (qualquer) | (qualquer) | sem número resolvido → **preservado**, aguardando reconciliação | `leizilla_{ente}_{fonte}_unidentified` |
 
 Dentro do item: `{uuid5}.pdf` / `{uuid5}_djvu.txt` (OCR derivado pelo IA) /
-`{uuid5}_meta.json`, e um `index.csv` mapeando `(tipo, número, rendição, formato)
+`{uuid5}_meta.json`, e um `index.csv` mapeando `(tipo, número, rendição, formato)`
 → {uuid5, sha256, captured_at, source}` (newest-wins). A coluna `source` é a
 chave de colheita / URL de origem (ADR-0010), mapeando cada arquivo à sua fonte
 — é o que permite à identidade descartar o `coddoc`. Versões e rendições coexistem
@@ -162,13 +166,16 @@ Layout interno: `manifest.csv` + `pdfs/{chave}.pdf` + `meta/{chave}.json`. Foren
 
 ### 1.3 Parsed items — 1 lei = 1 IA item
 
-**Pattern canônico**: `leizilla-{ente}-{tipo}-{numero:05d}-{ano}`
+**Pattern canônico**: `leizilla-{ente}-{tipo}-{numero:05d}-{ano}`, onde
+`{numero:05d}` aceita um sufixo opcional `-{letra}` minúscula (issue #127)
+para lei desdobrada/renumerada após a promulgação.
 
 | Exemplo | Notas |
 |---|---|
 | `leizilla-ro-lei-01234-2003` | caso normal |
 | `leizilla-ro-decreto-00056-2024` | tipo=decreto |
 | `leizilla-federal-lc-00141-2012` | LC = lei complementar |
+| `leizilla-ro-lei-00072-a-1999` | "Lei 72-A" — distinta de `leizilla-ro-lei-00072-1999` |
 
 **Pattern fallback** (lei antiga sem numeração formal): `leizilla-{ente}-{tipo}-fallback-{fonte}-{chave}`
 
@@ -183,13 +190,24 @@ leizilla-ro-lei-01234-2003/
 
 Sem HTML pré-gerado (Astro SSR renderiza a partir do `law.xml`). Sem `law.lexml` (export sob demanda; ver §6).
 
-### 1.4 Dataset items — versionados
+### 1.4 Dataset items — versionados, releases imutáveis + ponteiro latest (issue #175)
 
-**Pattern**: `leizilla-dataset-{ente}-v{N}` onde `N = int(major(schema_version))`.
+**Pattern do release imutável e citável**: `leizilla-dataset-{ente}-v{N}-{revision}`
+onde `N = int(major(schema_version))` e `revision` é um timestamp UTC
+`YYYYMMDDtHHMMSSz` (ex.: `20260924t181131z`). Nunca reaproveitado — cada publicação
+agendada gera um item novo, então citar esse ia_id sempre resolve para o mesmo
+conteúdo.
 
-Pre-M5: `schema_version = "0.1"` → `v0`. Post-M5: `schema_version = "1"` → `v1`. `v0` é versão **válida e citável**, não draft/empty.
+**Pattern do ponteiro mutável**: `leizilla-dataset-{ente}-v{N}-latest`. Mesmo
+`versoes.parquet`/`dataset_meta.json` do release mais recente + `latest.json`
+apontando para o `ia_id` imutável em vigor. É o item que consumidores (frontend
+inclusive) usam por padrão para descobrir a release corrente sem hardcodar um
+identifier específico. **Não é citável** — seu conteúdo muda a cada publicação.
 
-Conteúdo: `versoes.parquet` + `dataset_meta.json` (gerados por `upload_dataset()`).
+Pre-M5: `schema_version = "0.1"` → `v0`. Post-M5: `schema_version = "1"` → `v1`. `v0` é versão **válida e citável**, não draft/empty (a citabilidade agora está no par `v{N}-{revision}`, não em `v{N}` isolado).
+
+Conteúdo: `versoes.parquet` + `dataset_meta.json` (gerados por `upload_dataset()`);
+o item `-latest` acrescenta `latest.json`.
 `manifest-{ente}.csv` e `README.md` são planejados — ainda não emitidos no MVP.
 
 ---
@@ -228,7 +246,7 @@ Conteúdo: `versoes.parquet` + `dataset_meta.json` (gerados por `upload_dataset(
   "tipo": "lei",
   "numero": "1234",
   "ano": 2003,
-  "data_publicacao": "2003-06-15",
+  "data_ato": "2003-06-15",
   "vigente_em": "2026-05-20",
 
   "fontes_consultadas": [
@@ -247,6 +265,8 @@ Conteúdo: `versoes.parquet` + `dataset_meta.json` (gerados por `upload_dataset(
   "confianca_parse_global": 0.92,
   "regras_desempate": ["voto-majoritario", "ocr-confianca"],
   "validacao_xsd": "passed",
+  "texto_truncado": false,
+  "tamanho_texto_original": 6200,
 
   "auditoria_embeddings": {
     "ultimo_check": "2026-05-21T03:00:00Z",
@@ -318,8 +338,8 @@ Agrupadas por origem (lei / dispositivo / versão). Toda metadata de lei e dispo
 | `tipo_lei` | VARCHAR | NO | `lei`, `decreto`, `lc`, `constituicao`... |
 | `numero_lei` | VARCHAR | YES | nullable em fallbacks |
 | `ano_lei` | INTEGER | NO | |
-| `data_publicacao` | DATE | YES | extraída da URN; nullable em fallbacks |
-| `urn_lex_lei` | VARCHAR | YES | nullable se `data_publicacao` desconhecida |
+| `data_ato` | DATE | YES | data representativa do ato extraída da URN; nullable em fallbacks |
+| `urn_lex_lei` | VARCHAR | YES | nullable se `data_ato` desconhecida |
 | `vigente_em` | DATE | NO | data de referência da compilação |
 | `lei_revogada` | BOOLEAN | NO | true se `<revogacao>` na raiz |
 | `lei_revogada_em` | DATE | YES | data efeito |
@@ -348,7 +368,7 @@ Agrupadas por origem (lei / dispositivo / versão). Toda metadata de lei e dispo
 | `em` | DATE | NO | data de início da versão (chave natural) |
 | `ate` | DATE | YES | inferido; NULL = ainda vigente |
 | `alterado_por` | VARCHAR | YES | URN da lei alteradora |
-| `inicio_tipo` | VARCHAR | NO | enum: `data-publicacao` (default) / `texto-lei-alteradora` / `vacatio-legis` / `consolidacao` / `inferencia-llm` / `decisao-judicial` |
+| `inicio_tipo` | VARCHAR | NO | enum: `data-ato` (default; data do ato via URN, não é prova de publicação) / `data-publicacao` (publicação comprovada) / `texto-lei-alteradora` / `vacatio-legis` / `consolidacao` / `inferencia-llm` / `decisao-judicial` |
 | `texto` | VARCHAR | YES | texto canônico estabelecido |
 | `texto_normalizado` | VARCHAR | YES | NFC + cleanup; NOT NULL quando `texto` NOT NULL |
 | `fontes` | VARCHAR (JSON) | NO | array de `{ia_id, diverge?, texto_divergente?}` |
@@ -485,7 +505,7 @@ Cadeia de resolução para `versao.em`:
 
 1. Se `<versao em="X">` declarado → usa X.
 2. Senão → herda do ancestral `<dispositivo>` mais próximo que tem uma `<versao>` com `em` declarado.
-3. Senão → herda da `<lei>.data-publicacao` extraída da URN.
+3. Senão → herda da `<lei>.data-ato` extraída da URN (data de assinatura/promulgação — não é prova de publicação).
 
 **`vigente-ate` não é armazenado**. Fim de uma versão é inferido por (em ordem):
 1. Próxima `<versao em="...">` no mesmo dispositivo.
@@ -554,10 +574,12 @@ Sub-elemento opcional de `<versao>`. Carrega `tipo` enum + `<fonte>` filha(s) ap
 ```
 
 **Defaults implícitos** (`<inicio>` omitido):
-- Primeira versão (sem `alterado-por`) com `em` herdado da `<lei>` → `tipo = data-publicacao`.
+- Primeira versão (sem `alterado-por`) com `em` herdado da `<lei>` → `tipo = data-ato` (a data vem da URN; não é prova de publicação).
 - Versão com `alterado-por` → `tipo = texto-lei-alteradora`.
 
-**Obrigatório** quando: `em` declarado, `em ≠ data-publicacao` da lei, e sem `alterado-por`. Consistency checker (§7) valida.
+**Obrigatório** quando: `em` declarado, `em ≠ data-ato` da lei, e sem `alterado-por`. Consistency checker (§7) valida.
+
+`tipo = data-publicacao` fica reservado para quando a publicação é explicitamente declarada/comprovada (evidência textual ou fonte dedicada) — nunca é o default inferido da URN.
 
 ### 4.5 `<revogacao>` — evento estruturado
 
@@ -669,10 +691,14 @@ Esse é o mesmo princípio que eliminou `revisao-pendente` no XML (§0.5): o sis
 
 ### 5.3 Parsed canônico
 ```
-^leizilla-(?P<ente>[a-z][a-z0-9-]*)-(?P<tipo>[a-z]+)-(?P<numero>\d{5,})-(?P<ano>\d{4})$
+^leizilla-(?P<ente>[a-z][a-z0-9-]*)-(?P<tipo>[a-z]+)-(?P<numero>\d{5,}(-[a-z])?)-(?P<ano>\d{4})$
 ```
 
-`numero` em `id` é **sempre zero-padded** (mínimo 5 dígitos). Numero não-numérico (raro em leis antigas) → fallback pattern.
+`numero` em `id` é **sempre zero-padded** (mínimo 5 dígitos), com um sufixo
+opcional `-{letra}` (minúscula) para lei desdobrada/renumerada após a
+promulgação (issue #127; ex.: `leizilla-ro-lei-00072-a-1999` para "Lei
+72-A" — distinta de `leizilla-ro-lei-00072-1999`). Numero genuinamente
+não-numérico, sem número extraível (raro em leis antigas) → fallback pattern.
 
 ### 5.4 Parsed fallback
 ```
@@ -682,11 +708,25 @@ Esse é o mesmo princípio que eliminou `revisao-pendente` no XML (§0.5): o sis
 `{fonte}` obrigatório evita colisão entre fontes com mesma `chave`.
 
 ### 5.5 Dataset
+
+Release imutável e citável (issue #175; publicado a partir de `upload_dataset()`):
+```
+^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)-(?P<revision>\d{8}t\d{6}z)$
+```
+
+Ponteiro mutável (não citável; `latest.json` aponta para o release imutável em vigor):
+```
+^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)-latest$
+```
+
+`v0` (pre-M5, schema_version "0.1") é versão de schema válida e citável — a
+citabilidade do release específico está em `{revision}`, não em `v{N}` isolado.
+
+Prefixo de família (usado por `count_ia_items` para contar ambos os padrões acima,
+não mais um identifier publicável por si só desde a issue #175):
 ```
 ^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)$
 ```
-
-`v0` (pre-M5, schema_version "0.1") é válido e citável.
 
 ### 5.6 URN LEX (spec oficial CGPID 2008)
 
@@ -716,7 +756,14 @@ Outras normas (resoluções, portarias, instruções normativas) especificam aut
 **`<descritor>`** — combina data e número:
 - Canônica: `{YYYY-MM-DD};{numero}` (ex: `2003-10-01;10741`).
 - Reduzida (URN de Referência): só ano permitido (`2003;10741`).
-- Sem número (raro): usa `lex-{N}` autogerado (`1999-12-21;lex-16`) ou apelido (`2003-10-01;estatuto.idoso`).
+- Sem número (raro): usa `lex-{N}` autogerado (`1999-12-21;lex-16`) ou apelido (`2003-10-01;estatuto.idoso`) — formas previstas pela spec LexML, ainda não emitidas pelo pipeline Leizilla.
+- **`{numero}` gerado pelo Leizilla** (parser.py/etl.py, issue #127): dígitos,
+  opcionalmente com um único sufixo de letra minúscula — `\d+(-[a-z])?` —
+  para lei desdobrada/renumerada após a promulgação (ex.: `72-a` para "Lei
+  72-A", distinta de `72`). **Sem zero-pad** (regra 14 do checker, §7) e
+  **sempre minúscula** (mesma convenção do resto da URN). Este é mais
+  restrito que a gramática geral do LexML acima — `lex-{N}`/apelido não são
+  produzidos pelo nosso parser.
 
 **`<path-dispositivo>`** — separado por `!`. Sintaxe interna usa `_` entre tokens (formato LexML idArtigo): `!art1`, `!art5_par2`, `!art5_par2_inc3`, `!art12-2_inc3_alt1` (renumeração com letra → `-N`, alteração com `_alt{N}`).
 
@@ -726,6 +773,7 @@ Outras normas (resoluções, portarias, instruções normativas) especificam aut
 |---|---|
 | Lei federal 14.133/2021 | `urn:lex:br:federal:lei:2021-04-01;14133` |
 | Lei RO 1234/2003 | `urn:lex:br;rondonia:estadual:lei:2003-06-15;1234` |
+| Lei RO 72-A (desdobrada, issue #127) | `urn:lex:br;rondonia:estadual:lei:1999-06-15;72-a` |
 | Lei municipal Porto Velho 123/2010 | `urn:lex:br;rondonia;porto.velho:municipal:lei:2010-05-15;123` |
 | CF/88 | `urn:lex:br:federal:constituicao:1988-10-05` |
 | EC 45/2004 | `urn:lex:br:federal:emenda.constitucional:2004-12-30;45` |
@@ -819,8 +867,8 @@ XSD não consegue expressar tudo. `scripts/check_schema_consistency.py` (M0.2) v
 2. **`<revogacao>` na raiz da `<lei>` exclui** qualquer `<revogacao>` em dispositivo descendente (revogação total cascateia).
 3. **`<revogacao tipo="caducidade">` não tem atributo `por`**; demais tipos têm.
 4. **`path` casa com token map** (§4.2). Tokens desconhecidos → erro.
-5. **Herança de vigência**: `<versao>` sem `em` resolve para ancestral declarado ou `data-publicacao` da URN. *Carve-out*: quando `urn-lex` é ausente (caso OCR-ruim fallback), vigência genuinamente não tem âncora — checker exempta. Se `urn-lex` presente mas indecodificável (regex §5.6 falha), §7.5 reporta uma vez por lei.
-6. **`<inicio>` obrigatório** quando `<versao em="X">` com `X ≠ data-publicacao(<lei>)` e sem `alterado-por`.
+5. **Herança de vigência**: `<versao>` sem `em` resolve para ancestral declarado ou `data-ato` da URN (não é prova de publicação). *Carve-out*: quando `urn-lex` é ausente (caso OCR-ruim fallback), vigência genuinamente não tem âncora — checker exempta. Se `urn-lex` presente mas indecodificável (regex §5.6 falha), §7.5 reporta uma vez por lei.
+6. **`<inicio>` obrigatório** quando `<versao em="X">` com `X ≠ data-ato(<lei>)` e sem `alterado-por`.
 7. **Ordenação de versões** num dispositivo: `em` estritamente crescente.
 8. **`<fonte ia-id>`** casa com regex de IA identifier (§5.1).
 9. ~~`quality` atributo só em `path="ocr-ruim"`~~ — **removida**. Qualidade de parse não vive no XML (§4.7); audit por embeddings + `confianca_parse_global` no sidecar cobrem. Número 9 fica reservado pra preservar chaves estáveis no checker/testes.

@@ -247,6 +247,8 @@ class TestParseLaw:
         assert meta["parse_method"] == f"{parser._HAIKU}+ocr"
         assert meta["tem_divergencia"] is False
         assert "parse_timestamp" in meta
+        assert meta["texto_truncado"] is False
+        assert meta["tamanho_texto_original"] == len("ocr text")
 
     def test_token_counts_recorded(self):
         with _llm(_LLM_OK):
@@ -483,6 +485,72 @@ class TestParseLaw:
         assert result is not None
         assert result.ia_id_parsed == "leizilla-ro-lei-00042-1990"
 
+    def test_accepts_numero_with_letter_suffix(self):
+        # Issue #127: "Lei 72-A" (split/renumbered law) must not be dropped
+        # by a blanket isdigit() gate, and must not collide with "Lei 72".
+        suffixed = json.dumps(
+            {
+                "xml": _VALID_XML,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "72-A",
+                "ano": 1999,
+            }
+        )
+        with _llm(suffixed):
+            result = parser.parse_law("ocr text", _IA_ID, "ro")
+
+        assert result is not None
+        # Suffix is normalized to lowercase and zero-pad applies only to
+        # the digit portion.
+        assert result.ia_id_parsed == "leizilla-ro-lei-00072-a-1999"
+
+    def test_suffixed_numero_does_not_collide_with_plain(self):
+        plain = json.dumps(
+            {
+                "xml": _VALID_XML,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "72",
+                "ano": 1999,
+            }
+        )
+        suffixed = json.dumps(
+            {
+                "xml": _VALID_XML,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "72-a",
+                "ano": 1999,
+            }
+        )
+        with _llm(plain):
+            plain_result = parser.parse_law("ocr text", _IA_ID, "ro")
+        with _llm(suffixed):
+            suffixed_result = parser.parse_law("ocr text", _IA_ID, "ro")
+
+        assert plain_result is not None
+        assert suffixed_result is not None
+        assert plain_result.ia_id_parsed != suffixed_result.ia_id_parsed
+        assert plain_result.ia_id_parsed == "leizilla-ro-lei-00072-1999"
+        assert suffixed_result.ia_id_parsed == "leizilla-ro-lei-00072-a-1999"
+
+    @pytest.mark.parametrize(
+        "bad_numero", ["72-ab", "72--a", "72-1", "-a", "abc", "72 a", "72_a"]
+    )
+    def test_rejects_malformed_numero(self, bad_numero):
+        bad = json.dumps(
+            {
+                "xml": _VALID_XML,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": bad_numero,
+                "ano": 1999,
+            }
+        )
+        with _llm(bad):
+            assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+
     def test_truncates_ocr_to_limit(self):
         long_ocr = "x" * 20000
         with _llm(_LLM_OK) as m:
@@ -492,6 +560,25 @@ class TestParseLaw:
         user_content = kwargs["messages"][1]["content"]
         assert len(user_content) < 20000 + 100  # headers + truncated body
         assert "x" * (parser._OCR_CHAR_LIMIT + 1) not in user_content
+
+    def test_flags_truncated_ocr_in_meta(self):
+        # Issue #151 item 4: OCR longer than the char limit is silently
+        # truncated before reaching the LLM — parsed_meta must say so.
+        long_ocr = "x" * (parser._OCR_CHAR_LIMIT + 500)
+        with _llm(_LLM_OK):
+            result = parser.parse_law(long_ocr, _IA_ID, "ro")
+
+        assert result is not None
+        assert result.parsed_meta["texto_truncado"] is True
+        assert result.parsed_meta["tamanho_texto_original"] == len(long_ocr)
+
+    def test_does_not_flag_ocr_under_limit(self):
+        short_ocr = "x" * (parser._OCR_CHAR_LIMIT - 1)
+        with _llm(_LLM_OK):
+            result = parser.parse_law(short_ocr, _IA_ID, "ro")
+
+        assert result is not None
+        assert result.parsed_meta["texto_truncado"] is False
 
     def test_html_input_type_uses_html_char_limit(self):
         long_html = "<p>" + "x" * 40000 + "</p>"

@@ -24,6 +24,16 @@ class DiscoveryStrategyProtocol(Protocol):
     def run(self) -> List[Dict[str, Any]]: ...
 
 
+def _ditel_editorial_number(value: str) -> Optional[str]:
+    """Return the leading number when the suffix is verified DITEL editorial text."""
+    match = re.fullmatch(
+        r"(\d+)(?:\s*-\s*|\s+)(?:COMPILAD[AO]|REVOGAD[AO])"
+        r"(?:(?:\s*-\s*|\s+)(?:COMPILAD[AO]|REVOGAD[AO]))*",
+        value,
+    )
+    return match.group(1) if match else None
+
+
 def parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
     """Extrai tipo_documento e chave formatada do nome do arquivo.
 
@@ -54,8 +64,9 @@ def parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
             return "decreto", f"decreto-{int(num_part):05d}"
     elif name.startswith("LC"):
         num_part = name[2:]
-        if num_part.isdigit():
-            return "lc", f"lc-{int(num_part):05d}"
+        number = num_part if num_part.isdigit() else _ditel_editorial_number(num_part)
+        if number is not None:
+            return "lc", f"lc-{int(number):05d}"
     elif name.startswith("EC"):
         num_part = name[2:]
         if num_part.isdigit():
@@ -66,13 +77,72 @@ def parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
             return "decreto-lei", f"decreto-lei-{int(num_part):05d}"
     elif name.startswith("L"):
         num_part = name[1:]
-        if num_part.isdigit():
-            return "lei", f"lei-{int(num_part):05d}"
+        number = num_part if num_part.isdigit() else _ditel_editorial_number(num_part)
+        if number is not None:
+            return "lei", f"lei-{int(number):05d}"
     elif name.startswith("D"):
         num_part = name[1:]
         if num_part.isdigit():
             return "decreto", f"decreto-{int(num_part):05d}"
     return None, None
+
+
+def _fetch_cdx_pdf_records(prefix: str) -> List[Dict[str, str]]:
+    """Consulta a API CDX da Wayback Machine para `prefix`.
+
+    Retorna as capturas `.pdf`/HTTP 200 casadas, cada uma como
+    ``{"orig_url": ..., "timestamp": ...}``. Fail-safe (ADR: fail-open):
+    erro de rede, timeout e resposta vazia/malformada retornam ``[]`` em vez
+    de propagar a exceção — quem chama decide o fallback.
+    """
+    # Consulta sem esquema (urlkey é SURT, scheme-agnóstico): casa capturas http E
+    # https — as históricas da DITEL são http-keyed, o download ao vivo é https
+    # (Codex P1). Sem isto, um prefixo só-https perderia os snapshots antigos.
+    prefix_key = re.sub(r"^https?://", "", prefix)
+    url = f"https://web.archive.org/cdx/search/cdx?url={urllib.parse.quote(prefix_key)}&matchType=prefix&output=json"
+    req = urllib.request.Request(url, headers={"User-Agent": "leizilla-crawler/0.1"})
+    try:
+        with urllib.request.urlopen(req, timeout=90) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception as e:
+        logger.error(f"Erro ao consultar a API CDX para {prefix}: {e}")
+        return []
+
+    if not data or len(data) <= 1:
+        return []
+
+    records = []
+    for row in data[1:]:
+        try:
+            orig_url, timestamp, status = row[2], row[1], row[4]
+        except (IndexError, TypeError):
+            continue
+        if orig_url.lower().endswith(".pdf") and status == "200":
+            records.append({"orig_url": orig_url, "timestamp": timestamp})
+    return records
+
+
+def resolve_cdx_max_by_tipo(prefix: str) -> Dict[str, int]:
+    """Maior número de identificador já arquivado, por `tipo_documento`.
+
+    Consulta a CDX API uma única vez para `prefix` e classifica cada PDF
+    casado via `parse_filename` (mesma identidade usada pelo catálogo,
+    ADR-0011 §1). Fail-safe: qualquer falha ou resposta vazia resulta em
+    `{}` — quem chama decide o fallback (nunca propaga exceção, nunca aborta
+    o batch de descoberta).
+    """
+    cdx_max: Dict[str, int] = {}
+    for record in _fetch_cdx_pdf_records(prefix):
+        filename = record["orig_url"].split("/")[-1]
+        tipo, chave = parse_filename(filename)
+        if not tipo or not chave:
+            continue
+        try:
+            num = int(chave.rsplit("-", 1)[-1])
+        except ValueError:
+            continue
+        cdx_max[tipo] = max(cdx_max.get(tipo, 0), num)
+    return cdx_max
 
 
 class WaybackCdxDiscovery:
@@ -90,61 +160,37 @@ class WaybackCdxDiscovery:
 
     def run(self) -> List[Dict[str, Any]]:
         logger.info(f"Rodando Wayback CDX Discovery para {self.ente}/{self.fonte}...")
-        # Consulta sem esquema (urlkey é SURT, scheme-agnóstico): casa capturas http E
-        # https — as históricas da DITEL são http-keyed, o download ao vivo é https
-        # (Codex P1). Sem isto, um prefixo só-https perderia os snapshots antigos.
-        prefix_key = re.sub(r"^https?://", "", self.prefix)
-        url = f"https://web.archive.org/cdx/search/cdx?url={urllib.parse.quote(prefix_key)}&matchType=prefix&output=json"
-        req = urllib.request.Request(
-            url, headers={"User-Agent": "leizilla-crawler/0.1"}
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=90) as response:
-                data = json.loads(response.read().decode("utf-8"))
-        except Exception as e:
-            logger.error(f"Erro ao consultar a API CDX para {self.prefix}: {e}")
-            return []
-
-        if not data or len(data) <= 1:
-            return []
-
-        records = data[1:]
         resources = []
 
-        for row in records:
-            orig_url = row[2]
-            status = row[4]
-            timestamp = row[1]
+        for record in _fetch_cdx_pdf_records(self.prefix):
+            orig_url = record["orig_url"]
+            timestamp = record["timestamp"]
+            filename = orig_url.split("/")[-1]
+            tipo, chave = parse_filename(filename)
+            if not tipo or not chave:
+                # Identidade é evidência, não catraca (ADR-0011 §1): capturamos
+                # mesmo sem (tipo, número) no nome. Prefixo NÃO-identificante
+                # "documento-" garante que parse_identity devolva None — senão um
+                # stem com forma "{palavra}-{dígitos}" (ex.: "oficio-123") seria
+                # promovido a um range navegável espúrio em vez da área de espera
+                # _unidentified. O harvest key (nome do arquivo) fica preservado.
+                tipo, chave = "", f"documento-{filename.rsplit('.', 1)[0]}"
 
-            if orig_url.lower().endswith(".pdf") and status == "200":
-                filename = orig_url.split("/")[-1]
-                tipo, chave = parse_filename(filename)
-                if not tipo or not chave:
-                    # Identidade é evidência, não catraca (ADR-0011 §1): capturamos
-                    # mesmo sem (tipo, número) no nome. Prefixo NÃO-identificante
-                    # "documento-" garante que parse_identity devolva None — senão um
-                    # stem com forma "{palavra}-{dígitos}" (ex.: "oficio-123") seria
-                    # promovido a um range navegável espúrio em vez da área de espera
-                    # _unidentified. O harvest key (nome do arquivo) fica preservado.
-                    tipo, chave = "", f"documento-{filename.rsplit('.', 1)[0]}"
-
-                # snapshot real (preserva o esquema arquivado, p.ex. http); a chave de
-                # dedup (url) é normalizada para o esquema canônico do manifesto.
-                wayback_url = f"https://web.archive.org/web/{timestamp}/{orig_url}"
-                dedup_url = re.sub(
-                    r"^https?://", f"{self.canonical_scheme}://", orig_url
-                )
-                resources.append(
-                    {
-                        "url": dedup_url,
-                        "ente": self.ente,
-                        "fonte": self.fonte,
-                        "tipo_documento": tipo,
-                        "chave": chave,
-                        "status": "pending",
-                        "wayback_snapshot": wayback_url,
-                    }
-                )
+            # snapshot real (preserva o esquema arquivado, p.ex. http); a chave de
+            # dedup (url) é normalizada para o esquema canônico do manifesto.
+            wayback_url = f"https://web.archive.org/web/{timestamp}/{orig_url}"
+            dedup_url = re.sub(r"^https?://", f"{self.canonical_scheme}://", orig_url)
+            resources.append(
+                {
+                    "url": dedup_url,
+                    "ente": self.ente,
+                    "fonte": self.fonte,
+                    "tipo_documento": tipo,
+                    "chave": chave,
+                    "status": "pending",
+                    "wayback_snapshot": wayback_url,
+                }
+            )
         return resources
 
 
@@ -167,27 +213,78 @@ def _head_exists(url: str, timeout: float = 10.0) -> bool:
         return False
 
 
+#: Fallback quando "end": "cdx-auto" não consegue resolver um limite (CDX vazia,
+#: com erro/timeout, ou sem capturas para o tipo). Mesmo valor que o antigo
+#: default hardcoded em `cmd_scrape`/casacivil (ADR: fail-open, nunca aborta).
+DEFAULT_CDX_AUTO_FALLBACK_END = 10
+
+
 class SequentialDiscovery:
-    """Estratégia de descobrimento baseada em templates de URLs sequenciais."""
+    """Estratégia de descobrimento baseada em templates de URLs sequenciais.
+
+    `end` aceita um inteiro fixo ou a string `"cdx-auto"`: nesse caso o limite
+    é resolvido em `run()` consultando a CDX API para o prefixo do template
+    (diretório do primeiro template) e tomando o maior número já arquivado
+    para o `tipo_documento` desse template (via `resolve_cdx_max_by_tipo`).
+    Fail-safe: se a CDX não resolver nada, usa `end_fallback`
+    (default `DEFAULT_CDX_AUTO_FALLBACK_END`, configurável no manifesto).
+    """
 
     def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
         self.templates = config["templates"]
         self.start = int(config["start"])
-        self.end = int(config["end"])
+
+        end_cfg = config["end"]
+        if isinstance(end_cfg, str):
+            if end_cfg != "cdx-auto":
+                raise ValueError(
+                    f"'end' inválido para sequential: {end_cfg!r}. "
+                    "Use um inteiro ou a string 'cdx-auto'."
+                )
+            self.end: Optional[int] = None
+            self.cdx_auto = True
+        else:
+            self.end = int(end_cfg)
+            self.cdx_auto = False
+        self.end_fallback = int(
+            config.get("end_fallback", DEFAULT_CDX_AUTO_FALLBACK_END)
+        )
+
         self.ente = ente
         self.fonte = fonte
         self.head_check: bool = bool(config.get("head_check", False))
 
+    def _resolve_end(self) -> int:
+        """Retorna o limite superior do range, resolvendo 'cdx-auto' se preciso."""
+        if not self.cdx_auto:
+            assert self.end is not None
+            return self.end
+
+        tmpl = self.templates[0]
+        cdx_prefix = tmpl.rsplit("/", 1)[0] + "/"
+        sample_filename = tmpl.format(num=1).split("/")[-1]
+        tipo, _ = parse_filename(sample_filename)
+
+        resolved = resolve_cdx_max_by_tipo(cdx_prefix).get(tipo, 0) if tipo else 0
+        if resolved <= 0:
+            logger.warning(
+                f"cdx-auto: não foi possível resolver o limite via CDX para "
+                f"{tmpl!r} (tipo={tipo!r}); usando fallback end={self.end_fallback}."
+            )
+            return self.end_fallback
+        return resolved
+
     def run(self, storage: Optional[DuckDBStorage] = None) -> List[Dict[str, Any]]:
+        end = self._resolve_end()
         logger.info(
             f"Rodando Sequential Discovery para {self.ente}/{self.fonte} "
-            f"(de {self.start} a {self.end}, head_check={self.head_check})..."
+            f"(de {self.start} a {end}, head_check={self.head_check})..."
         )
         import time
 
         resources = []
         last_head_time = 0.0
-        for num in range(self.start, self.end + 1):
+        for num in range(self.start, end + 1):
             for tmpl in self.templates:
                 url = tmpl.format(num=num)
 
@@ -234,6 +331,93 @@ class SequentialDiscovery:
         logger.info(
             f"Sequential Discovery concluído: {len(resources)} recursos encontrados "
             f"(head_check={self.head_check})"
+        )
+        return resources
+
+
+class CasacivilIndexDiscovery:
+    """Estratégia de descobrimento que lê a página de índice da Casa Civil."""
+
+    def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
+        self.url = config["url"]
+        self.ente = ente
+        self.fonte = fonte
+
+    def run(self, storage: Optional[DuckDBStorage] = None) -> List[Dict[str, Any]]:
+        # ADR-0004 continua Wayback-first, mas uma enumeração autoritativa precisa ser
+        # atual. Um snapshot histórico serve à proveniência, não à descoberta de
+        # novidades: só reutilizamos capturas dentro da janela de frescor padrão (24 h).
+        from leizilla import wayback
+
+        logger.info(
+            f"Rodando CasacivilIndex Discovery para {self.ente}/{self.fonte} na URL {self.url}..."
+        )
+        resources = []
+
+        wb_url = wayback.check_available(self.url)
+        html_content = None
+
+        if wb_url:
+            html_bytes = wayback.fetch_bytes(wb_url)
+            if html_bytes is not None:
+                html_content = html_bytes.decode("utf-8", errors="ignore")
+
+        if html_content is None:
+            # Note: ADR-0008 says we need to obey robots + ~1 req/s rate limit
+            from leizilla.scraper import robots
+
+            if not robots.is_allowed(self.url):
+                logger.error(f"robots.txt blocked fetch for {self.url}")
+                return []
+
+            # Fetch using standard Python library directly, avoiding
+            # "wayback.fetch_bytes" abstraction for live domains.
+            import time
+
+            time.sleep(1.0)  # rate limit
+            try:
+                req = urllib.request.Request(
+                    self.url, headers={"User-Agent": "leizilla-crawler/0.1"}
+                )
+                with urllib.request.urlopen(req, timeout=30.0) as r:
+                    html_content = r.read().decode("utf-8", errors="ignore")
+            except Exception as e:
+                logger.error(f"Falha ao buscar índice ao vivo {self.url}: {e}")
+
+        if html_content is None:
+            logger.error(f"Falha ao buscar índice {self.url}")
+            return []
+
+        # Find all hrefs to .pdf files
+        pattern = re.compile(
+            r"""href=['"]?([^'" >]+\.pdf)['"]?""",
+            re.IGNORECASE,
+        )
+        matches = pattern.finditer(html_content)
+        for match in matches:
+            href = match.group(1)
+            filename = href.split("/")[-1]
+            tipo, chave = parse_filename(filename)
+
+            if not tipo or not chave:
+                tipo, chave = "", f"documento-{filename.rsplit('.', 1)[0]}"
+
+            absolute_url = urllib.parse.urljoin(self.url, href)
+
+            resources.append(
+                {
+                    "url": absolute_url,
+                    "ente": self.ente,
+                    "fonte": self.fonte,
+                    "tipo_documento": tipo,
+                    "chave": chave,
+                    "status": "pending",
+                    "wayback_snapshot": None,
+                }
+            )
+
+        logger.info(
+            f"CasacivilIndex Discovery concluído: {len(resources)} recursos encontrados"
         )
         return resources
 
@@ -302,6 +486,7 @@ STRATEGIES: Dict[
 ] = {
     "wayback-cdx": WaybackCdxDiscovery,
     "sequential": SequentialDiscovery,
+    "casacivil-index": CasacivilIndexDiscovery,
     "playwright-crawler": PlaywrightCrawlerDiscovery,
 }
 

@@ -333,3 +333,80 @@ class TestCmdScrapeSkipExisting:
                 ],
             )
         assert "0 itens existentes encontrados" in result.output
+
+    @patch("leizilla.scraper.scrape_one")
+    @patch("leizilla.publisher.InternetArchivePublisher")
+    @patch("leizilla.publisher.list_raw_ids", return_value=set())
+    @patch("leizilla.crawler.discover_casacivil_laws")
+    def test_casacivil_failure_surfaces_upload_error_detail(
+        self, mock_discover, mock_list, mock_pub_cls, mock_scrape
+    ):
+        """`upload_raw` reporta falhas com a chave `error`, não `reason` (ver
+        `publisher.upload_raw`). Sem fallback, `Falha [...]` degrada pra `?` — o
+        texto real do erro (ex.: rejeição de rate-limit do IA) fica invisível no
+        log do workflow agendado (ver issues #136/#140)."""
+        mock_discover.return_value = [
+            {
+                "ente": "ro",
+                "fonte": "casacivil",
+                "chave": "lei-00001",
+                "url_original": "http://ditel/L1.pdf",
+                "url_pdf_original": "http://ditel/L1.pdf",
+            },
+        ]
+        mock_pub_cls.return_value = MagicMock()
+        mock_scrape.return_value = {
+            "success": False,
+            "error": "Please reduce your request rate",
+            "ia_id": "leizilla-raw-ro-casacivil-lei-00001",
+        }
+
+        with (
+            patch("leizilla.discovery.WaybackCdxDiscovery.run", return_value=[]),
+            patch(
+                "leizilla.discovery.load_manifest",
+                return_value={
+                    "fontes": {
+                        "casacivil": {
+                            "probe": [
+                                {"templates": ["http://ditel/L{num}.pdf"], "start": 1}
+                            ]
+                        }
+                    }
+                },
+            ),
+        ):
+            with patch("leizilla.cli.asyncio.run") as mock_asyncio:
+
+                def side_effect(coro):
+                    import asyncio
+
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        return loop.run_until_complete(coro)
+                    finally:
+                        loop.close()
+
+                mock_asyncio.side_effect = side_effect
+
+                result = runner.invoke(
+                    app,
+                    [
+                        "scrape",
+                        "--ente",
+                        "ro",
+                        "--fonte",
+                        "casacivil",
+                        "--tipo",
+                        "lei",
+                        "--start",
+                        "1",
+                        "--end",
+                        "1",
+                        "--no-skip-existing",
+                    ],
+                )
+
+        assert "Please reduce your request rate" in result.output
+        assert "Falha [?]" not in result.output

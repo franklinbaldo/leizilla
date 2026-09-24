@@ -6,6 +6,8 @@ direto se Wayback falhar.
 
 import json
 import re
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -20,6 +22,22 @@ _MAX_AGE_SECONDS = 24 * 3600
 
 # A Wayback snapshot URL embeds its capture timestamp: …/web/<YYYYMMDDhhmmss>/<orig>.
 _SNAPSHOT_TS_RE = re.compile(r"/web/(\d{14})(?:[a-z_]*)?/")
+
+
+def _is_retryable_status(status_code: int) -> bool:
+    """True for HTTP statuses worth retrying with backoff: 429 (rate limit) or 5xx.
+
+    Shared by every HTTP call in this module that retries — :func:`save_page_spn2`
+    and :func:`fetch_bytes` — so the retry *policy* (which statuses are transient)
+    lives in one place even though they use different HTTP clients (``requests``
+    vs ``urllib``).
+    """
+    return status_code == 429 or status_code >= 500
+
+
+def _backoff_delay(attempt: int, base_seconds: float = 5.0) -> float:
+    """Exponential backoff delay for retry attempt ``attempt`` (0-indexed)."""
+    return float(2**attempt) * base_seconds
 
 
 def snapshot_timestamp(snapshot_url: str) -> Optional[str]:
@@ -195,8 +213,6 @@ def save_page_spn2(
     Retry exponencial em falhas de rede ou 5xx/429. Fail-open.
     Retorna a URL do snapshot arquivado (ou a página de histórico) em caso de sucesso, ou None.
     """
-    import time
-
     import requests
 
     headers = {"User-Agent": _USER_AGENT}
@@ -229,13 +245,13 @@ def save_page_spn2(
                         return f"https://web.archive.org{candidate}"
                 # Fallback: link para a página de histórico de capturas da URL
                 return f"https://web.archive.org/web/*/{url}"
-            if resp.status_code == 429 or resp.status_code >= 500:
-                time.sleep(2**attempt * 5)
+            if _is_retryable_status(resp.status_code):
+                time.sleep(_backoff_delay(attempt))
                 continue
             return None
         except Exception:
             if attempt < retries - 1:
-                time.sleep(2**attempt * 5)
+                time.sleep(_backoff_delay(attempt))
                 continue
     return None
 
@@ -272,13 +288,52 @@ def to_raw_url(url: str) -> str:
     return url
 
 
-def fetch_bytes(url: str, timeout: int = 60) -> Optional[bytes]:
-    """Baixa conteúdo de um URL (Wayback ou direto) e retorna bytes. None em falha."""
+def fetch_bytes_detailed(
+    url: str, timeout: int = 60, retries: int = 3
+) -> Tuple[Optional[bytes], bool]:
+    """Baixa conteúdo de um URL (Wayback ou direto). ``(bytes, permanent_failure)``.
+
+    Retry exponencial em 429/5xx (mirrors :func:`save_page_spn2` — issue #121: o
+    caminho primário de fetch do harvest não tinha retry/inspeção de status,
+    então um 429 virava ``failed`` terminal na primeira tentativa em vez de algo
+    retryable).
+
+    ``permanent_failure`` distingue um desfecho definitivo — 404/410 confirmado
+    pelo servidor — de qualquer outra falha (429/5xx esgotado, timeout, erro de
+    rede, DNS), que é transitória: o chamador deve manter o recurso
+    retryable/re-enfileirável (``get_pending_resources`` só re-seleciona
+    ``status = 'pending'`` — um estado ``failed`` nunca mais é reprocessado) em
+    vez de gravar um estado terminal para algo que pode só precisar de uma nova
+    tentativa mais tarde.
+    """
     url = to_raw_url(url)
-    req = urllib.request.Request(url)
-    req.add_header("User-Agent", _USER_AGENT)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return bytes(resp.read())
-    except Exception:
-        return None
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return bytes(resp.read()), False
+        except urllib.error.HTTPError as exc:
+            if exc.code in (404, 410):
+                return None, True  # confirmado: recurso não existe mais
+            if _is_retryable_status(exc.code) and attempt < retries - 1:
+                time.sleep(_backoff_delay(attempt))
+                continue
+            return None, False  # outro 4xx (401/403/…): não confirmado, transitório
+        except Exception:
+            if attempt < retries - 1:
+                time.sleep(_backoff_delay(attempt))
+                continue
+            return None, False  # timeout/rede esgotado: transitório
+    return None, False
+
+
+def fetch_bytes(url: str, timeout: int = 60, retries: int = 3) -> Optional[bytes]:
+    """Baixa conteúdo de um URL (Wayback ou direto) e retorna bytes. None em falha.
+
+    Retry exponencial em 429/5xx — ver :func:`fetch_bytes_detailed`, que também
+    expõe se a falha foi permanente (404/410) ou transitória, para quem precisa
+    decidir se o recurso deve continuar retryable.
+    """
+    content, _permanent = fetch_bytes_detailed(url, timeout=timeout, retries=retries)
+    return content

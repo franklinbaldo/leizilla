@@ -5,6 +5,7 @@
   import { DATASET_IA_ITEM, DATASET_META_URL, DATASET_PARQUET_URL } from '../../lib/db';
   import { iaDetailsUrl } from '../../lib/format';
   import { downloadBlob, rowsToCsv, rowsToJson } from './model';
+  import ReleaseCitation from '../ReleaseCitation.svelte';
 
   let { rows, leiId }: { rows: LeiRow[]; leiId: string } = $props();
 
@@ -53,6 +54,7 @@
     </li>
   {/if}
 </ul>
+<ReleaseCitation />
 
 <h4>Identificadores</h4>
 {#if urnLex}
@@ -60,7 +62,7 @@
     URN-LEX da norma: <code>{urnLex}</code>
   </p>
 {:else}
-  <p>Esta norma ainda não tem URN-LEX atribuída no dataset (data de publicação desconhecida).</p>
+  <p>Esta norma ainda não tem URN-LEX atribuída no dataset (data do ato desconhecida).</p>
 {/if}
 <p>
   <small>

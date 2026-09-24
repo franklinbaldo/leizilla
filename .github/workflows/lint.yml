@@ -21,11 +21,16 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --extra dev
 
+      - name: Validate project DAG
+        run: |
+          uv run scripts/validate_project_dag_hygiene.py
+          uv run scripts/project_dag_from_okf.py
+
       - name: Ruff — lint
         run: uv run ruff check .
 
       - name: Ruff — format check
-        run: uv run ruff format --check .
+        run: uv run ruff format --check --diff .
 
       - name: Mypy — type check
         run: uv run mypy src/ --ignore-missing-imports

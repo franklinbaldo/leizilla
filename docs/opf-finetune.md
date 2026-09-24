@@ -109,6 +109,84 @@ Commit `data/opf/gold/{train,val,test}.jsonl` + `data/opf/gold/manifest.json` to
 (the `.gitignore` whitelist already allows `data/opf/gold/**`). The split must be
 PT-BR, in-domain, and leak-free (no same/near-duplicate doc across splits).
 
+### Phase 2.5 — scale the gold (four paths, cheapest first)
+
+Scaling past v0 does **not** mean re-running the de-novo labeling flow on more
+documents. Four paths, ordered by cost per gold document — validated on the sibling
+causaganha segmenter (2026-07-16), which scaled 20 → 106 real gold docs in one day
+with the same tooling:
+
+**Path 1 — regex-bootstrap + subagent *audit* (default).** The regex baseline already
+scores exact micro-F1 0.95 on gold, which flips the labeling economics: pre-label every
+sampled document with it, then have one subagent per document only **verify and
+correct** — confirm the easy markers, fix the known residuals (`§` inside citation
+lists, ementa preamble over-capture). An audit pass is much cheaper and more reliable
+per document than labeling from scratch:
+
+```bash
+uv run leizilla opf-sample    --ente ro --fontes assembleia,casacivil --n 50 --seed 13
+uv run leizilla opf-bootstrap --pool data/opf/pool/pool.jsonl
+# -> data/opf/pool/bootstrapped.jsonl   (regex pre-labels, info.audit_status=pending)
+# -> data/opf/pool/bootstrap_manifest.json (spans per category — read this FIRST)
+```
+
+Each bootstrapped record carries `info.prelabeled_by="regex_segmenter_v1"` — keep that
+provenance through to the gold manifest so bootstrapped gold is always distinguishable
+from de-novo gold. After the audit, run the usual `validate` + preview gates before
+promotion; the eval slice still gets the 4-role ensemble regardless of how the labels
+were produced.
+
+**Path 2 — project parsed XML back onto OCR text (silver at scale).** The parse
+pipeline already produced XSD-validated Leizilla XML for whole normas (M4/M12) — each
+dispositivo carries its rótulo (`Art. 5º`, `§ 2º`, …). Aligning those rótulos back to
+the source OCR text yields marker spans mechanically, at whatever scale the parsed
+corpus has. Treat the result as **silver** (training-mix material), never eval gold:
+the parser's own errors would leak into the labels. Same two gates as any
+weak-supervision source: mechanical validation, then a stratified spot-check audit
+before it enters a training mix.
+
+**Path 3 — targeted pre-filters for the starved categories.** When
+`bootstrap_manifest.json` shows a category with little/no support in a general sample
+(the sibling project's measured lesson: an 18-doc general round produced *zero* new
+spans for its rarest category, while an 8-doc pre-filtered round hit 7/8), don't sample
+more general documents — pre-filter the pool for where the category actually lives
+before dispatching auditors:
+
+- `ali_marcador` → documents dense in `^[a-z]\)` lines (CLT/CDC-style coded statutes);
+- `vigencia` / `revogacao` → emendas and leis matching `entra em vigor|revogam-se`;
+- keep the **staged vs. active** convention (above) while a category crosses ~25 spans.
+
+**Path 4 — synthetic normas (offsets exact by construction).** Legislative structure
+is highly templated, which makes a deterministic renderer unusually effective here —
+the approach is ported from causaganha's synthetic segmenter (RFC 0011 there), where
+it was validated against a real fine-tune:
+
+```bash
+uv run leizilla opf-synth --n 200 --seed 13 --ali-per-inciso 3
+# -> data/opf/synthetic/synthetic.jsonl + synthetic_manifest.json
+```
+
+What synthetic uniquely buys, beyond volume:
+
+- **Starved categories on demand** — every real law has ~1 `ementa`/`vigencia`/
+  `revogacao`; the renderer emits them per document and `ali_marcador` at any density.
+- **Hard negatives as first-class citizens** — marker-shaped surfaces that must NOT be
+  labeled, drawn from the regex baseline's own audited failure modes (lowercase `art.`
+  cross-references, `§` inside citation chains, compiled-text `(Revogado pela Lei …)`
+  history notes). A model only learns a distinction its training data contains.
+- **Off-regex OCR surfaces** — degradations the regex misses *by construction*
+  (dropped period in `Art 5º`, `§` misread as `S`), i.e. exactly the residual where
+  OPF must earn its keep over the 0.95-F1 baseline.
+
+Ground rules: synthetic goes into the **training mix only**, never val/test; every
+record carries `info.source="synthetic"` + generator seed; marker surfaces on the
+clean profile must stay regex-parseable (enforced by test — synthetic that drifts
+off-regime would teach conventions the corpus doesn't have).
+
+Stratification rule unchanged in every path: equal allocation per fonte (skill
+Warning 1) — the OCR-noisy assembleia/casacivil documents are the valuable ones, not
+more clean Planalto text.
+
 ### Phase 3 — train + eval (Colab GPU)
 
 Training needs a GPU and the OPF CLI; CI does not run it. The ready-to-run notebook is
@@ -120,13 +198,54 @@ never `uv run`; persist base once; save checkpoint immediately; push `--n-ctx` u
 safe to run on the v0 gold as a smoke test + baseline. See the skill's `colab-and-drive.md`
 for the Drive-layout rationale.
 
+> **Measured T4/Colab lessons (2026-07-16)** — from real `opf train` runs on the same
+> free-tier target (T4 GPU, ~13 GB host RAM), sibling project causaganha's segmenter:
+>
+> 1. **One `opf train` process must never run more than 1 epoch.** The runner clones the
+>    *entire* model to host RAM every time validation loss improves and holds the clone
+>    until the process exits (`opf/_train/runner.py`, `best_state`). On a ~13 GB Colab
+>    host this SIGKILLs (-9) mid-epoch-2/3 — reproduced twice with 3-second RAM traces
+>    (2.9 GB steady → 8.3 GB after epoch 1 → 10.6 GB, killed). Multi-epoch training must
+>    be a **chain of single-epoch processes**, each resumed via `--checkpoint` from the
+>    previous epoch's `--output-dir` (fresh process = RAM back to ~1.1 GB; validated
+>    over 16 consecutive epoch-processes). The notebook's train cell does this.
+> 2. **`--batch-size 1` on a T4.** The opf default (4) CUDA-OOMs: batch=1 already uses
+>    12.4/15.4 GB VRAM with ~10k-token windows; batch=2 died inside the first forward
+>    pass. Prefer more epochs over gradient accumulation — with a tiny gold, optimizer
+>    steps per epoch are the scarce resource (grad-accum 4 cut steps to 19/epoch and
+>    measurably slowed convergence).
+> 3. **`--learning-rate 5e-5`, not the 1e-5 default.** A custom label space rebuilds the
+>    output head with nearly every row randomly initialized (`fallback=…` in the train
+>    log); measured head-to-head, lr 5e-5 reached val_loss 0.419 in 2 epochs where
+>    lr 1e-5 needed 4 epochs to reach only 0.531.
+> 4. **Early epochs report token accuracy ≈ 92% with span F1 = exactly 0 for every
+>    category** — the all-background ("O") regime under class imbalance, not a broken
+>    model. Evaluate every ~2 epochs to see when span predictions lift off, and never
+>    compare an early-epoch 0 against the regex baseline's 0.95 as if it were final.
+> 5. `finetune_summary.json`'s per-epoch metrics live under the `epoch_metrics` key
+>    (`best_metric`/`best_epoch` are top-level). opf has **no** W&B/tensorboard
+>    integration (verified: zero references in the repo) — wire dashboards yourself by
+>    parsing that file per epoch-process.
+
 ```bash
 git clone https://github.com/openai/privacy-filter && cd privacy-filter && pip install -e .
+# Multi-epoch = chain of single-epoch processes (lesson 1 above); epoch 1 starts
+# from the base checkpoint, epoch N+1 resumes from epoch N's output.
 opf train train.jsonl \
   --validation-dataset val.jsonl \
   --label-space-json /path/to/data/opf/label_space.json \
-  --output-dir ./ckpt_leizilla_v1
-opf eval test.jsonl --label-space-json /path/to/data/opf/label_space.json
+  --epochs 1 --batch-size 1 --learning-rate 5e-5 \
+  --output-dir ./ckpt_leizilla_v1_e1
+opf train train.jsonl \
+  --validation-dataset val.jsonl \
+  --epochs 1 --batch-size 1 --learning-rate 5e-5 \
+  --checkpoint ./ckpt_leizilla_v1_e1 \
+  --output-dir ./ckpt_leizilla_v1_e2
+# ... repeat (no --label-space-json once --checkpoint is set — same reasoning
+# as `opf eval` below: the checkpoint already encodes the label space, and
+# re-passing it every epoch risks rebuilding the head on every resume); then
+# evaluate:
+opf eval test.jsonl --checkpoint ./ckpt_leizilla_v1_e2 --per-class
 ```
 
 Confirm flags with `opf train --help`. Watch **span-level F1 split into exact vs.
