@@ -242,6 +242,56 @@ _IA_DOWNLOAD_URL = "https://archive.org/download"
 _IA_METADATA_URL = "https://archive.org/metadata"
 
 
+class DatasetFloorCheckError(RuntimeError):
+    """Raised when the current public dataset size cannot be proven safely."""
+
+
+def _dataset_meta_row_count(url: str, *, timeout: int = 20) -> Optional[int]:
+    """Return row_count, None on confirmed 404, fail closed otherwise."""
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise DatasetFloorCheckError(
+            f"HTTP {exc.code} ao consultar piso do dataset"
+        ) from exc
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
+        raise DatasetFloorCheckError(
+            f"falha ao consultar piso do dataset: {exc}"
+        ) from exc
+
+    raw = payload.get("row_count")
+    if isinstance(raw, bool):
+        raise DatasetFloorCheckError("dataset_meta.json tem row_count inválido")
+    try:
+        count = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise DatasetFloorCheckError(
+            "dataset_meta.json não contém row_count inteiro"
+        ) from exc
+    if count < 0 or str(raw).strip() != str(count):
+        raise DatasetFloorCheckError("dataset_meta.json tem row_count inválido")
+    return count
+
+
+def fetch_published_dataset_row_count(
+    ente: str, version: int, *, timeout: int = 20
+) -> Optional[int]:
+    """Return current published row floor from latest, with legacy fallback."""
+    latest_id = f"leizilla-dataset-{ente}-v{version}-{_DATASET_LATEST_SUFFIX}"
+    latest_url = f"{_IA_DOWNLOAD_URL}/{latest_id}/dataset_meta.json"
+    latest_count = _dataset_meta_row_count(latest_url, timeout=timeout)
+    if latest_count is not None:
+        return latest_count
+
+    legacy_id = f"leizilla-dataset-{ente}-v{version}"
+    legacy_url = f"{_IA_DOWNLOAD_URL}/{legacy_id}/dataset_meta.json"
+    return _dataset_meta_row_count(legacy_url, timeout=timeout)
+
+
 def count_ia_items(identifier_prefix: str) -> Optional[int]:
     """Count IA items whose identifier starts with prefix via scrape API.
 
