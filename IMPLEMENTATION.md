@@ -52,7 +52,7 @@
 | **M11** — CI lint+test + mypy fixes | 🟢 done | #63 | `lint.yml` reescrito: `setup-uv@v5`, pytest adicionado; 8 erros mypy corrigidos em 6 arquivos (`storage`, `parser`, `crawler`, `discovery`, `publisher`, `cli`); ruff fix em `test_fetch_all_parsed.py`. Merged. |
 | **M12.1** — DiscoveryStrategy base class + testes harvest pipeline | 🟢 done | #64 | `DiscoveryStrategy` base class elimina `type: ignore[attr-defined]`; 17 novos testes cobrem `storage.discovered_resources`, `SequentialDiscovery`, `run_discovery`, `harvest_pending_resources`. Merged. |
 | **M12.2** — Otimização de Scrape e Parse-All via Consultas em Lote (Vetorização) | 🟢 done | #67 | Evita iterações sequenciais longas fazendo buscas em lote via API do Internet Archive e CDX da Wayback Machine. Merged. |
-| **M13** — Produto público v1 | 🟡 in-progress | — | Nome antigo: "frontend polish". Página própria por lei (`/lei/?id=…` — Texto/Versões/Evidências/Dados), busca agrupada por norma, home com manifesto + painel de cobertura, página `/cobertura/` (funil S1→S5), filtros derivados do dataset. Critérios de aceite no log 2026-07-12: (b)–(g) code-complete no branch; (a) dataset em produção bloqueado pela ativação RFC-0004 (secrets, não código). |
+| **M13** — Produto público v1 | 🟢 done | — | Nome antigo: "frontend polish". Página própria por lei (`/lei/?id=…` — Texto/Versões/Evidências/Dados), busca agrupada por norma, home com manifesto + painel de cobertura, página `/cobertura/` (funil S1→S5), filtros derivados do dataset. Critérios de aceite (b)–(g) confirmados em main (`web/src/pages/{index,lei,cobertura}.astro`); (a) confirmado em produção em 2026-09-24 (ver log). |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
 | **M14.1** — OPF fine-tune: fundação de prep de dados | 🟡 in-progress | — | ADR-0012 + ontologia `leizilla_normas_v1` + sampler estratificado (`opf-sample`) + helper `opf_annotate.py` vendorado + doc `docs/opf-finetune.md`. Fase 1 de 4 (prep → anotar → treinar Colab → integrar). |
 | **M14.2** — OPF gold v0 (anotação por subagentes) | 🟡 in-progress | — | Gold seed em `data/opf/gold/` (6 leis federais reais, 251 spans) via subagentes LLM (shard-por-doc) + resolução determinística de offset + ensemble de avaliadores (strict/category/blind/adversarial) no eval slice. Fase 2 de 4. |
@@ -112,6 +112,57 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-09-24 — Rotina de manutenção: M13 confirmado em produção; hang de teste corrigido; PRs #115/#116 atualizadas
+
+**Sessão de rotina agendada.** Triagem das PRs abertas (mais antiga → mais nova):
+
+**#115 e #116 (OPF, abertas desde 2026-07-16, LGTM do mantenedor, `mergeable_state:
+behind`)** — 2+ meses sem CI porque nenhum push novo disparou um run desde então.
+Nenhuma toca em código que mudou de forma incompatível: merge local de `main` em
+ambas foi limpo (zero conflitos; `cli.py` de #116 fez auto-merge). Empurradas para
+os branches das PRs para disparar CI fresco; PRs permanecem abertas aguardando
+esse resultado (nunca auto-merge de PR de outra sessão sem CI verde confirmado no
+GitHub, mesmo com LGTM prévio).
+
+**Achado ao rodar a suíte completa nesse processo**: `uv run pytest -q` travava
+por 10+ minutos num único teste, tanto nos branches mesclados quanto no `main`
+puro (confirmado isolando a causa — não é regressão de #115/#116).
+`cmd_parse_all` consulta `list_parsed_raw_ids()` (IA real) sempre que
+`--skip-existing` está ativo (default), mas — ao contrário do `list_raw_ids()`
+umas linhas abaixo — nunca ganhou o guard que detecta sessão de pytest e evita a
+chamada de rede real quando o teste não mockou a função. A maioria dos testes de
+`TestCmdParseAll` não mocka `list_parsed_raw_ids`, então cada um deles batia de
+verdade no `archive.org` — violando a garantia do projeto de suíte 100% offline
+(CLAUDE.md) e, neste sandbox de rede restrita, travando por vários minutos.
+Corrigido em PR #171: guard simétrico ao de `list_raw_ids`, extraído para um
+helper `_is_mocked()` compartilhado. Suíte completa: 91s → ~50s, 760 passed/13
+skipped, determinística.
+
+**M13 estava marcado errado**: a tabela dizia "(a) bloqueado pela ativação
+RFC-0004". Verificação direta (sem credenciais, tudo público) mostra que não
+está: `archive.org/advancedsearch.php?q=identifier:leizilla-dataset-ro*` retorna
+`leizilla-dataset-ro-v0`; `franklinbaldo.github.io/leizilla/cobertura/` (produção,
+HTTP 200) já linka esse item; `web/src/lib/db.ts` tem esse item como fallback
+hardcoded do `PUBLIC_PARQUET_URL`; e `dataset_meta.json` do item mostra
+`generated_at: 2026-09-24T11:11:31Z` com `git_sha` igual ao HEAD atual de `main` —
+ou seja, o pipeline `parse-release.yml` publicou uma release **no mesmo dia**
+desta sessão, com `row_count: 199` (contra 19 leis em 2026-07-14). RFC-0004 está
+executada e os releases recorrentes (M9.4/M9.5) estão rodando de verdade em
+produção, não só planejados. M13 fechado como done; "Próximos passos imediatos"
+reescrito para apontar ao próximo marco real do roadmap (README.md, Q4/2026:
+cobertura RO mais completa — a parte de "releases recorrentes" desse marco já
+está em produção).
+
+**#170 (draft, `steward/vigencia-data-ato-provenance`)** — o próprio corpo da PR
+lista o que falta (reconciliar `SCHEMA.md`/`IMPLEMENTATION.md` e
+`check_schema_consistency.py`, rodar todos os gates) e registra um bloqueio de
+DNS numa sessão anterior. Não é desta rotina retomar um redesign de schema em
+andamento de outra sessão sem esse contexto — deixado como está para a sessão que
+o abriu (ou o mantenedor) continuar.
+
+**#139 e #142 (Dependabot)** — autor externo, anotadas e puladas por regra da
+rotina.
 
 ### 2026-07-15 — `claude-routine.yml` quebrado silenciosamente desde 2026-06-08
 
@@ -1502,21 +1553,32 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-_(atualizado em 2026-07-07)_
+_(atualizado em 2026-09-24)_
 
-**M0–M12.2 e M14.4 concluídos** ✅ (pipeline completo: discovery manifest-driven,
+**M0–M13 e M14.4 concluídos** ✅ (pipeline completo: discovery manifest-driven,
 harvest/scrape, IA upload, OCR fetch, parse LLM, ETL→Parquet, release de dataset,
-frontend M5.1/M5.2, segmentador regex baseline).
+frontend M5.1/M5.2/M13 completo, segmentador regex baseline). RFC-0004 (go-live)
+está executada: `leizilla-dataset-ro-v0` está publicado, crescendo (199 linhas em
+2026-09-24, contra 19 leis em 2026-07-14) e o portal público já consome esse
+Parquet em produção — ver log 2026-09-24 abaixo.
 
-**M5.3 bloqueado**: aguarda um dataset real publicado no IA — nenhum foi publicado
-até hoje. Revisitar após o primeiro batch real em produção.
+**M5.3 ainda bloqueado**: o dataset real existe mas RO segue pequeno (199 linhas)
+para um benchmark WASM significativo. Revisitar quando a cobertura RO crescer
+(marco Q4/2026 do README) ou o search in-browser medir > 1s.
 
-**Gargalo real = executar o runbook de produção, não secrets**: `IA_ACCESS_KEY`,
-`IA_SECRET_KEY` e `GEMINI_API_KEY` já estão configurados nos GitHub Actions
-secrets e a autenticação no IA foi confirmada em 2026-07-12 (ver log abaixo). Os
-workflows agendados rodaram por mais de um ano sem produzir dados por essa causa;
-agora falta apenas o preflight oficial e o smoke batch (passos 2–6 do runbook) em
-[`docs/rfc/0004-go-live-rondonia.md`](docs/rfc/0004-go-live-rondonia.md).
+**Próximo marco de roadmap (README.md, Q4/2026)**: "Cobertura RO mais completa +
+releases recorrentes". A parte de releases recorrentes já está rodando sozinha
+(`parse-release.yml` diário incremental, `discover-harvest.yml` semanal) — o
+trabalho que resta é ampliar os ranges/fontes cobertos pelos manifests e reduzir
+o volume de leis ainda não descobertas/parseadas. Sem um número público de
+cobertura S1–S3 (lacuna já registrada em `/cobertura/`), medir esse marco requer
+primeiro instrumentar esses contadores.
+
+**M14 (OPF fine-tune) segue em progresso**: M14.1/M14.2 done; M14.3 (treino real)
+depende de uma sessão com GPU/Colab interativo, fora do alcance de sessões
+headless como esta. PRs #115 (lições de treino T4/Colab) e #116 (`opf-bootstrap`
++ plano de escala do gold) seguem abertas há 2+ meses, code-complete e
+re-testadas contra o main atual nesta sessão.
 
 **Convergência scrape→harvest**: ver
 [`docs/rfc/0003-convergencia-scrape-harvest.md`](docs/rfc/0003-convergencia-scrape-harvest.md)
