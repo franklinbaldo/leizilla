@@ -485,6 +485,72 @@ class TestParseLaw:
         assert result is not None
         assert result.ia_id_parsed == "leizilla-ro-lei-00042-1990"
 
+    def test_accepts_numero_with_letter_suffix(self):
+        # Issue #127: "Lei 72-A" (split/renumbered law) must not be dropped
+        # by a blanket isdigit() gate, and must not collide with "Lei 72".
+        suffixed = json.dumps(
+            {
+                "xml": _VALID_XML,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "72-A",
+                "ano": 1999,
+            }
+        )
+        with _llm(suffixed):
+            result = parser.parse_law("ocr text", _IA_ID, "ro")
+
+        assert result is not None
+        # Suffix is normalized to lowercase and zero-pad applies only to
+        # the digit portion.
+        assert result.ia_id_parsed == "leizilla-ro-lei-00072-a-1999"
+
+    def test_suffixed_numero_does_not_collide_with_plain(self):
+        plain = json.dumps(
+            {
+                "xml": _VALID_XML,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "72",
+                "ano": 1999,
+            }
+        )
+        suffixed = json.dumps(
+            {
+                "xml": _VALID_XML,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "72-a",
+                "ano": 1999,
+            }
+        )
+        with _llm(plain):
+            plain_result = parser.parse_law("ocr text", _IA_ID, "ro")
+        with _llm(suffixed):
+            suffixed_result = parser.parse_law("ocr text", _IA_ID, "ro")
+
+        assert plain_result is not None
+        assert suffixed_result is not None
+        assert plain_result.ia_id_parsed != suffixed_result.ia_id_parsed
+        assert plain_result.ia_id_parsed == "leizilla-ro-lei-00072-1999"
+        assert suffixed_result.ia_id_parsed == "leizilla-ro-lei-00072-a-1999"
+
+    @pytest.mark.parametrize(
+        "bad_numero", ["72-ab", "72--a", "72-1", "-a", "abc", "72 a", "72_a"]
+    )
+    def test_rejects_malformed_numero(self, bad_numero):
+        bad = json.dumps(
+            {
+                "xml": _VALID_XML,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": bad_numero,
+                "ano": 1999,
+            }
+        )
+        with _llm(bad):
+            assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+
     def test_truncates_ocr_to_limit(self):
         long_ocr = "x" * 20000
         with _llm(_LLM_OK) as m:

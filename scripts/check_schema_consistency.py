@@ -132,7 +132,11 @@ _RE_IA_RAW = re.compile(
     r"^leizilla-raw-(?P<ente>[a-z][a-z0-9-]*)-(?P<fonte>[a-z]+)-(?P<chave>[a-z0-9-]+)$"
 )
 _RE_IA_PARSED = re.compile(
-    r"^leizilla-(?P<ente>[a-z][a-z0-9-]*)-(?P<tipo>[a-z]+)-(?P<numero>\d{5,})-(?P<ano>\d{4})$"
+    # numero: zero-padded digits, optionally with a "-{letter}" suffix
+    # (issue #127) for a law split/renumbered after promulgation. Mirrors
+    # the grammar in etl.py's _RE_URN_LEX and parser.py's _RE_NUMERO.
+    r"^leizilla-(?P<ente>[a-z][a-z0-9-]*)-(?P<tipo>[a-z]+)-"
+    r"(?P<numero>\d{5,}(?:-[a-z])?)-(?P<ano>\d{4})$"
 )
 _RE_IA_PARSED_FALLBACK = re.compile(
     r"^leizilla-(?P<ente>[a-z][a-z0-9-]*)-(?P<tipo>[a-z]+)-fallback-"
@@ -162,13 +166,19 @@ _RE_IA_BUNDLE = re.compile(
 # `YYYY;NUMERO` (forma reduzida — URN de Referência).
 # PATH: formato LexML idArtigo/idAgregador (`art5`, `art5_par2`,
 # `anexo.1`).
+#
+# NUMERO: digits, optionally with a single lowercase letter suffix (issue
+# #127) for a law split/renumbered after promulgation (`;72-a` for "Lei
+# 72-A" — distinct from `;72`). Mirrored from src/leizilla/etl.py's
+# _RE_URN_LEX — keep both in sync (and docs/schemas/leizilla-v0.1.xsd's
+# UrnLex pattern).
 _RE_URN_LEX = re.compile(
     r"^urn:lex:br"
     r"(?P<locais>(;[a-z][a-z0-9.]*)*)"
     r":(?P<autoridade>[a-z][a-z0-9.]*(;[a-z][a-z0-9.]*)*)"
     r":(?P<tipo>[a-z][a-z0-9.]*)"
     r":(?P<data>\d{4}(-\d{2}-\d{2})?)"
-    r"(;(?P<numero>[a-z0-9.\-]+))?"
+    r"(;(?P<numero>\d+(-[a-z])?))?"
     r"(?P<paths>(![a-z0-9._\-]+)*)$"
 )
 
