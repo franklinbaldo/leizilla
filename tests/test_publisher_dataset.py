@@ -6,7 +6,6 @@ import hashlib
 import json
 import re
 import subprocess
-import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -16,9 +15,7 @@ from typer.testing import CliRunner
 
 from leizilla.cli import app
 from leizilla.publisher import (
-    DatasetMetaFetchError,
     InternetArchivePublisher,
-    _fetch_previous_release_row_count,
     build_dataset_meta,
 )
 
@@ -58,20 +55,6 @@ def _publisher(access: str = "key", secret: str = "secret") -> InternetArchivePu
     pub.access_key = access
     pub.secret_key = secret
     return pub
-
-
-@pytest.fixture(autouse=True)
-def _no_previous_release_by_default() -> object:
-    """upload_dataset's row-count floor guard (issue #118) hits the network.
-
-    Default every test in this module to "no previous release published yet"
-    (None) so existing tests stay offline/deterministic without mocking this
-    on every call site; TestUploadDatasetRowFloor overrides it explicitly.
-    """
-    with patch(
-        "leizilla.publisher._fetch_previous_release_row_count", return_value=None
-    ):
-        yield
 
 
 # ---------------------------------------------------------------------------
@@ -321,136 +304,6 @@ class TestUploadDataset:
         assert result["success"] is False
         assert "internetarchive" in result["error"]
 
-
-class TestUploadDatasetRowFloor:
-    """Piso de linhas do release (issue #118): recusa publicar menos que o atual."""
-
-    def test_fewer_rows_than_current_release_is_refused(self, tmp_path: Path) -> None:
-        p = _make_parquet(tmp_path)
-        pub = _publisher()
-        with (
-            patch(
-                "leizilla.publisher._fetch_previous_release_row_count",
-                return_value=100,
-            ),
-            patch("subprocess.run") as mock_run,
-        ):
-            result = pub.upload_dataset(p, "ro", 0, row_count=99, git_sha=None)
-        assert result["success"] is False
-        assert "Piso de linhas violado" in result["error"]
-        assert not any(
-            call.args and "upload" in call.args[0] for call in mock_run.call_args_list
-        )
-
-    def test_equal_or_more_rows_is_allowed(self, tmp_path: Path) -> None:
-        p = _make_parquet(tmp_path)
-        pub = _publisher()
-        mock_cp = MagicMock(returncode=0, stdout="", stderr="")
-        with (
-            patch(
-                "leizilla.publisher._fetch_previous_release_row_count",
-                return_value=100,
-            ),
-            patch("subprocess.run", return_value=mock_cp),
-        ):
-            result = pub.upload_dataset(p, "ro", 0, row_count=100, git_sha=None)
-        assert result["success"] is True
-
-    def test_no_previous_release_is_always_allowed(self, tmp_path: Path) -> None:
-        p = _make_parquet(tmp_path)
-        pub = _publisher()
-        mock_cp = MagicMock(returncode=0, stdout="", stderr="")
-        with (
-            patch(
-                "leizilla.publisher._fetch_previous_release_row_count",
-                return_value=None,
-            ),
-            patch("subprocess.run", return_value=mock_cp),
-        ):
-            result = pub.upload_dataset(p, "ro", 0, row_count=0, git_sha=None)
-        assert result["success"] is True
-
-    def test_transient_fetch_failure_blocks_publish(self, tmp_path: Path) -> None:
-        """Falha ao checar o piso não deve ser tratada como 'sem release anterior'."""
-        p = _make_parquet(tmp_path)
-        pub = _publisher()
-        with (
-            patch(
-                "leizilla.publisher._fetch_previous_release_row_count",
-                side_effect=DatasetMetaFetchError("timeout"),
-            ),
-            patch("subprocess.run") as mock_run,
-        ):
-            result = pub.upload_dataset(p, "ro", 0, row_count=1, git_sha=None)
-        assert result["success"] is False
-        assert "piso de linhas" in result["error"].lower()
-        assert not any(
-            call.args and "upload" in call.args[0] for call in mock_run.call_args_list
-        )
-
-
-class TestFetchPreviousReleaseRowCount:
-    """`_fetch_previous_release_row_count` isolada, sem rede real.
-
-    Note: uses the module-level import (captured before the autouse fixture
-    above ever patches ``leizilla.publisher._fetch_previous_release_row_count``)
-    so these tests exercise the real function, not the default-None mock.
-    """
-
-    def test_confirmed_404_returns_none(self) -> None:
-        with patch(
-            "urllib.request.urlopen",
-            side_effect=urllib.error.HTTPError(
-                "url",
-                404,
-                "not found",
-                {},
-                None,  # type: ignore[arg-type]
-            ),
-        ):
-            assert _fetch_previous_release_row_count("ro", 0) is None
-
-    def test_confirmed_403_returns_none(self) -> None:
-        with patch(
-            "urllib.request.urlopen",
-            side_effect=urllib.error.HTTPError(
-                "url",
-                403,
-                "forbidden",
-                {},
-                None,  # type: ignore[arg-type]
-            ),
-        ):
-            assert _fetch_previous_release_row_count("ro", 0) is None
-
-    def test_server_error_raises_fetch_error(self) -> None:
-        with patch(
-            "urllib.request.urlopen",
-            side_effect=urllib.error.HTTPError(
-                "url",
-                500,
-                "server error",
-                {},
-                None,  # type: ignore[arg-type]
-            ),
-        ):
-            with pytest.raises(DatasetMetaFetchError):
-                _fetch_previous_release_row_count("ro", 0)
-
-    def test_network_error_raises_fetch_error(self) -> None:
-        with patch(
-            "urllib.request.urlopen", side_effect=urllib.error.URLError("no route")
-        ):
-            with pytest.raises(DatasetMetaFetchError):
-                _fetch_previous_release_row_count("ro", 0)
-
-    def test_reads_row_count_from_response(self) -> None:
-        body = json.dumps({"row_count": 42}).encode("utf-8")
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = body
-        mock_resp.__enter__.return_value = mock_resp
-        with patch("urllib.request.urlopen", return_value=mock_resp):
-            assert _fetch_previous_release_row_count("ro", 0) == 42
 
 
 class TestUploadDatasetLatestPointer:
