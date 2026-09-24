@@ -246,15 +246,47 @@ class DatasetFloorCheckError(RuntimeError):
     """Raised when the current public dataset size cannot be proven safely."""
 
 
-def _dataset_meta_row_count(url: str, *, timeout: int = 20) -> Optional[int]:
-    """Return row_count, None on confirmed 404, fail closed otherwise."""
+def _ia_item_exists(item_id: str, *, timeout: int = 20) -> bool:
+    """Whether an IA item exists, via ``archive.org/metadata`` (always HTTP 200).
+
+    A nonexistent item returns ``{}`` there. The download endpoint
+    (``archive.org/download/{item}/...``) is not used for this check: IA
+    returns 503, not 404, for a nonexistent item's files (confirmed in
+    production, 2026-09-24 — the ``-latest`` pointer's first-ever release
+    was blocked by exactly this before this fix), which is otherwise
+    indistinguishable from a genuine transient failure.
+    """
+    url = f"{_IA_METADATA_URL}/{item_id}"
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             payload = json.loads(resp.read())
     except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return None
+        raise DatasetFloorCheckError(
+            f"HTTP {exc.code} ao consultar existência do item {item_id!r}"
+        ) from exc
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
+        raise DatasetFloorCheckError(
+            f"falha ao consultar existência do item {item_id!r}: {exc}"
+        ) from exc
+    return bool(payload)
+
+
+def _dataset_meta_row_count(item_id: str, *, timeout: int = 20) -> Optional[int]:
+    """Return an existing item's row_count, or None if the item doesn't exist.
+
+    Fails closed (``DatasetFloorCheckError``) whenever existence or content
+    can't be confirmed either way.
+    """
+    if not _ia_item_exists(item_id, timeout=timeout):
+        return None
+
+    url = f"{_IA_DOWNLOAD_URL}/{item_id}/dataset_meta.json"
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
         raise DatasetFloorCheckError(
             f"HTTP {exc.code} ao consultar piso do dataset"
         ) from exc
@@ -282,14 +314,12 @@ def fetch_published_dataset_row_count(
 ) -> Optional[int]:
     """Return current published row floor from latest, with legacy fallback."""
     latest_id = f"leizilla-dataset-{ente}-v{version}-{_DATASET_LATEST_SUFFIX}"
-    latest_url = f"{_IA_DOWNLOAD_URL}/{latest_id}/dataset_meta.json"
-    latest_count = _dataset_meta_row_count(latest_url, timeout=timeout)
+    latest_count = _dataset_meta_row_count(latest_id, timeout=timeout)
     if latest_count is not None:
         return latest_count
 
     legacy_id = f"leizilla-dataset-{ente}-v{version}"
-    legacy_url = f"{_IA_DOWNLOAD_URL}/{legacy_id}/dataset_meta.json"
-    return _dataset_meta_row_count(legacy_url, timeout=timeout)
+    return _dataset_meta_row_count(legacy_id, timeout=timeout)
 
 
 def count_ia_items(identifier_prefix: str) -> Optional[int]:
