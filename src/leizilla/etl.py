@@ -253,6 +253,32 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                     _parse_date(em_s) if em_s else (ancestor_em or data_ato)
                 )
 
+            # Issue #120: document order is not legal chronology. A single
+            # dateless versão has nothing to order against and is fine as-is
+            # (existing behavior), but once a dispositivo has more than one
+            # versão every effective date must be knowable — otherwise the
+            # vigência query `em <= X AND (ate IS NULL OR ate > X)` can match
+            # more than one versão at the same X. Fail closed instead of
+            # silently emitting an ambiguous/inverted timeline, and normalize
+            # to chronological order before `ate` is derived from "the next
+            # versão".
+            if len(versoes_elems) > 1:
+                if any(em is None for em in versao_ems):
+                    raise ValueError(
+                        f"Ambiguous version timeline for dispositivo "
+                        f"{path!r} in {lei_id!r}: multiple <versao> elements "
+                        "but at least one has no resolvable effective date "
+                        "(`em`)"
+                    )
+                # Nones were already rejected above; the `or` fallback here
+                # only satisfies mypy's Optional[date] key type.
+                ordered = sorted(
+                    range(len(versoes_elems)),
+                    key=lambda i: versao_ems[i] or datetime.date.min,
+                )
+                versoes_elems = [versoes_elems[i] for i in ordered]
+                versao_ems = [versao_ems[i] for i in ordered]
+
             em_occurrences: dict[str, int] = {}
             for v_idx, versao in enumerate(versoes_elems):
                 em = versao_ems[v_idx]
