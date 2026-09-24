@@ -1,6 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import CoberturaPanel from '../components/cobertura/CoberturaPanel.svelte';
+import FunilPanel from '../components/cobertura/FunilPanel.svelte';
 import { STAGES } from '../lib/format';
 // Constantes puras derivadas em build-time (nenhuma conexão é aberta aqui) —
 // mantêm esta seção estática em sincronia com o que o navegador consulta.
@@ -47,20 +48,23 @@ import { iaDetailsUrl } from '../lib/format';
   </section>
 
   <section aria-labelledby="publicado">
-    <h2 id="publicado">O que está publicado</h2>
+    <h2 id="publicado">O que está publicado (S4 — estruturado)</h2>
     <CoberturaPanel client:only="svelte" />
   </section>
 
+  <section aria-labelledby="funil-medido">
+    <h2 id="funil-medido">O funil completo (S1–S4, por fonte e tipo)</h2>
+    <p>
+      Contadores reproduzíveis de todo o funil — inclusive o que ainda não
+      chegou a S4 — medidos direto do Internet Archive pelo pipeline
+      (<code>leizilla coverage</code>, issue #174), não pelo navegador.
+    </p>
+    <FunilPanel client:only="svelte" />
+  </section>
+
   <section aria-labelledby="lacunas">
-    <h2 id="lacunas">O que ainda não está medido — e o que ainda não está coberto</h2>
+    <h2 id="lacunas">O que ainda não está coberto</h2>
     <ul>
-      <li>
-        <strong>Contadores dos estágios S1–S3</strong> (documentos arquivados,
-        identificados e com OCR) ainda não são exportados publicamente pelo
-        pipeline — o painel completo de fronteira ("N arquivadas · N com texto ·
-        N estruturadas") está <em>a implementar</em> (PRD §10.4). Até lá, esta
-        página só exibe o que pode medir de fato: o dataset estruturado.
-      </li>
       <li>
         <strong>Cobertura atual: Rondônia.</strong> Fontes monitoradas: Casa
         Civil e Assembleia Legislativa de RO. Nenhum outro ente está sendo

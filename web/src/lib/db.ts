@@ -22,6 +22,16 @@ export const DATASET_META_URL: string | null = DATASET_IA_ITEM
   ? `https://archive.org/download/${DATASET_IA_ITEM}/dataset_meta.json`
   : null;
 
+/**
+ * coverage.json (issue #174) publicado no mesmo item IA do dataset —
+ * contadores S1 (arquivado) → S4 (estruturado) por fonte/tipo, calculados no
+ * pipeline (`leizilla coverage --upload`), não no navegador: S1-S3 vêm do
+ * Internet Archive, não do Parquet.
+ */
+export const COVERAGE_JSON_URL: string | null = DATASET_IA_ITEM
+  ? `https://archive.org/download/${DATASET_IA_ITEM}/coverage.json`
+  : null;
+
 const WASM_VERSION = '1.32.0';
 
 const CDN =

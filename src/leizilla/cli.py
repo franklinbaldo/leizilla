@@ -897,6 +897,92 @@ def cmd_stats(
         echo("Consulta IA desabilitada (use sem --no-ia para ver contagens).")
 
 
+@app.command("coverage")
+def cmd_coverage(
+    ente: str = typer.Option("ro", help="Ente federativo (ro, federal, sp, ...)"),
+    fontes: Optional[str] = typer.Option(
+        None,
+        help="Fontes separadas por vírgula (default: todas as fontes do manifesto)",
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Emitir o relatório como JSON (machine-readable)"
+    ),
+    output: Optional[Path] = typer.Option(
+        None, help="Grava o relatório JSON neste arquivo (implica --json)"
+    ),
+    upload: bool = typer.Option(
+        False,
+        "--upload",
+        help="Publica coverage.json no item IA do dataset (leizilla-dataset-{ente}-v{version})",
+    ),
+    version: int = typer.Option(
+        0, "--version", help="Versão do dataset alvo do upload (ver --upload)"
+    ),
+) -> None:
+    """Medir cobertura S1 (arquivado) -> S4 (estruturado) — issue #174.
+
+    Contadores reproduzíveis por fonte e tipo normativo, direto do Internet
+    Archive (sem heurística manual). Um contador ausente (null no JSON) significa
+    "não foi possível medir" — nunca um 0 real silencioso.
+    """
+    import json as _json
+
+    from leizilla.coverage import compute_coverage
+    from leizilla.discovery import load_manifest
+
+    if fontes:
+        fonte_list = [f.strip() for f in fontes.split(",") if f.strip()]
+    else:
+        manifest = load_manifest(ente)
+        fonte_list = list(manifest.get("fontes", {}).keys())
+
+    if not fonte_list:
+        echo("Nenhuma fonte encontrada (--fontes vazio e manifesto sem fontes)")
+        raise typer.Exit(1)
+
+    echo(f"Medindo cobertura S1-S4: ente={ente} fontes={','.join(fonte_list)}...")
+    report = compute_coverage(ente, fonte_list)
+    payload = report.to_dict()
+
+    if output is not None:
+        output.write_text(
+            _json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        echo(f"Relatório gravado em {output}")
+
+    if upload:
+        from leizilla.publisher import InternetArchivePublisher
+
+        pub = InternetArchivePublisher()
+        result = pub.upload_coverage(payload, ente, version)
+        if result.get("success"):
+            echo(f"coverage.json publicado: {result['ia_url']}")
+        else:
+            echo(f"Upload de coverage.json falhou: {result.get('error')}")
+            raise typer.Exit(1)
+
+    if json_output or output is not None:
+        echo(_json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    for fc in report.fontes:
+        echo(
+            f"  {fc.fonte}: {fc.s1_total} arquivadas · {fc.s2_total} identificadas · "
+            f"{fc.s3_total} com texto · {fc.s4_total} estruturadas"
+        )
+        if not fc.ok_s1_s3:
+            echo(
+                "    (S1-S3: erro de rede em parte da medição — números abaixo são parciais)"
+            )
+        if not fc.ok_s4:
+            echo("    (S4: erro de rede — não confiar no número acima)")
+        for t in fc.por_tipo.values():
+            echo(
+                f"    {t.tipo}: S1={t.s1_arquivadas} S2={t.s2_identificadas} "
+                f"S3={t.s3_com_texto} S4={t.s4_estruturadas}"
+            )
+
+
 @app.command("doctor")
 def cmd_doctor() -> None:
     """Verificar pré-requisitos de produção (RFC-0004): credenciais, dados, rede.
