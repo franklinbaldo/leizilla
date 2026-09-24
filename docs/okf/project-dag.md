@@ -3,7 +3,7 @@ type: "Project Map"
 title: "Leizilla Project DAG"
 description: "Canonical OKF graph of Leizilla delivery fronts, OKRs, dependencies, blockers and next actions. Work branches and GitHub issues execute the graph; they are not the durable project ledger."
 tags: [leizilla, okf, project-dag, okr, delivery, governance]
-timestamp: 2026-09-24T20:00:00-04:00
+timestamp: 2026-09-24T20:20:00-04:00
 state_model: "project-dag-v1"
 graph_policy:
   source_of_truth: "this authored Markdown/OKF document"
@@ -37,21 +37,21 @@ fronts:
     parents: [leizilla-root]
     objective: "Turn the Q4/2026 roadmap promise of more complete Rondônia coverage into a measurable, recurring delivery outcome."
     origin: "README roadmap: Q4/2026 = cobertura RO mais completa + releases recorrentes."
-    next_action: "Run the S1-S4 tooling against production data to capture the first real baseline, then triage the remaining scheduled-workflow timeout/throttling failures (#136/#140/#141/#149)."
+    next_action: "Use the measured S1-S4 baseline to grow S4, restore the first -latest release after #196/#198, and make scheduled ingestion bounded/resumable."
     key_results:
       - id: "kr-ro-s1-s4-observable"
-        status: met
-        metric: "Number of canonical coverage stages (S1 discovered, S2 raw preserved, S3 text/OCR available, S4 structured/published) exposed machine-readably and on /cobertura/."
-        current: "4/4 stages implemented: `src/leizilla/coverage.py` (S1-S4 aggregation, 22 tests), `leizilla coverage` CLI, and `/cobertura/` route. Issue #174 closed with evidence (2026-09-24)."
-        target: "4/4 stages exposed with timestamp/provenance and source/type breakdown where available."
-        issues: [174]
-        next_action: "None — feeds kr-ro-backlog-conversion once run against production data for the first baseline."
+        status: active
+        metric: "Canonical stages S1 archived, S2 identified, S3 text available and S4 structured exposed machine-readably and on /cobertura/."
+        current: "Implementation is merged and the production census is known (casacivil 1196/1196/540/20), but the first post-merge coverage.json on the -latest item cannot be observed until the current release incident #196/#198 is cleared."
+        target: "4/4 stages publicly observable with timestamp/provenance and source/type breakdown where available."
+        issues: [174, 196]
+        next_action: "After #198 restores publication, verify coverage.json on the -latest item and /cobertura/ against the same production counters before marking met."
       - id: "kr-ro-backlog-conversion"
         status: active
-        metric: "Share of the reproducibly measured S1/S2/S3 backlog that has reached S4."
-        current: "Tooling exists (kr-ro-s1-s4-observable, met) but no production baseline has been captured yet."
-        target: "Reduce the first measured pre-S4 backlog by at least 50% by 2026-12-31 without relaxing provenance/quality gates."
-        next_action: "Run `leizilla coverage` against production IA/DuckDB state to record the first real census; freeze the denominator semantics from that run."
+        metric: "Share of the frozen S1 baseline that has reached S4 and reduction of the initial pre-S4 backlog."
+        current: "Production baseline: S1=1196, S2=1196, S3=540, S4=20; S1->S4 = 1.67%, initial pre-S4 backlog = 1176."
+        target: "Reduce the initial pre-S4 backlog by at least 50% by 2026-12-31; with S1 frozen at 1196 this requires S4 >= 608 (backlog <= 588)."
+        next_action: "Track and reduce the S2->S3 gap (656) and S3->S4 gap (520) by source/type without relaxing provenance/quality gates."
       - id: "kr-ro-recurring-cycle-health"
         status: active
         metric: "Consecutive scheduled discover/harvest/parse/release cycles without an unresolved systemic failure."
@@ -62,12 +62,12 @@ fronts:
 
   - id: "coverage-observability"
     kind: workstream
-    status: completed
+    status: active
     parents: [ro-coverage-q4-2026]
     objective: "Make the coverage frontier itself a first-class, reproducible public artifact."
-    origin: "PRD §10.4 requires exposing archived/text/structured coverage; current public surface mainly exposes S4."
-    issues: [174]
-    next_action: "None — S1-S4 aggregation, machine-readable output and /cobertura/ presentation are implemented and merged. Producing the first production baseline is tracked as kr-ro-backlog-conversion, not further work here."
+    origin: "PRD §10.4 and issue #174."
+    issues: [174, 196]
+    next_action: "Implementation and baseline exist; close only after #196/#198 permits a real -latest publication and coverage.json plus /cobertura/ are observed with matching counters."
 
   - id: "ingestion-resilience"
     kind: workstream
@@ -84,18 +84,19 @@ fronts:
     parents: [ro-coverage-q4-2026, ingestion-resilience]
     objective: "Converge the legacy scrape path and manifest-driven discover→harvest path without regressing coverage or observability."
     origin: "RFC-0003; production fixes #93/#94 removed the original blocker."
-    issues: []
+    issues: [95, 136, 140, 141, 149]
     evidence_prs: [173, 179]
     next_action: "RFC-0003 Fase 1 is done (#176 implemented cdx-auto in discovery, merged via PR #179). #136/#140 (rondonia_crawler.yml timing out on high-volume Playwright range-scans) now give a concrete forcing function to plan the workflow redirection; still defer actually deprecating rondonia_crawler.yml until discover-harvest.yml has two clean weekly cycles as originally planned."
 
   - id: "dataset-release-integrity"
     kind: workstream
-    status: completed
+    status: active
     parents: [ro-coverage-q4-2026]
     objective: "Make every published dataset release independently citable and reproducible while preserving a convenient latest pointer for the portal."
-    origin: "Verified risk from #151: scheduled releases default to --version 0 while the frontend points at leizilla-dataset-ro-v0."
-    issues: [175]
-    next_action: "None — immutable release identifiers + mutable latest pointer implemented and merged (PR #180). Release-time validation gates are tracked separately under release-boundary-validation."
+    origin: "Issue #175 implemented the scheme; issue #196 exposed a first-release deadlock in the new row-floor guard before any -latest item existed."
+    issues: [175, 196]
+    evidence_prs: [180, 193, 198]
+    next_action: "Finish green #198, re-run parse-release, verify leizilla-dataset-ro-v0-latest exists and the public site loads law data, then return this workstream to completed."
 
   - id: "legal-semantic-integrity"
     kind: objective
@@ -103,12 +104,12 @@ fronts:
     parents: [leizilla-root]
     objective: "Ensure the structured dataset never states stronger legal provenance, temporal status or identity semantics than the underlying evidence supports."
     origin: "Post-go-live schema/ETL review found date, temporal and identifier conflation risks."
-    next_action: "Date-provenance, temporal-version and identifier-contract KRs are met. Only release-validation-gated remains active: decide whether the deferred urn_lex-canonicalization slice of #118 needs a narrower follow-up issue."
+    next_action: "Resolve the live release incident #196/#198, restore the generic URN descriptor contract regressed by #191, and reconcile the remaining public/documentation date semantics."
     key_results:
       - id: "kr-date-provenance-honest"
         status: active
         metric: "Canonical schema/ETL/UI locations that conflate date-of-act with publication evidence."
-        current: "Schema/ETL/checker conflation resolved: PR #170 merged, issue #157 closed with evidence (2026-09-24) — `inicio_tipo`'s no-explicit-`<inicio>` fallback is `data-ato`, not `data-publicacao`; docs/SCHEMA.md, the consistency checker and etl.py agree. #167 (frontend JSON/CSV downloads still expose the legacy `data_publicacao` name without explanation) remains open — also tracked under public-surface-auditability's kr-public-semantic-legibility."
+        current: "Schema/ETL use data_ato and #129/#157 are closed; source downloads now export data_ato, but the PRD/naming docs still contain stale date/release wording and #167 has not been reconciled against the deployed route."
         target: "0 known conflations; explicit publication provenance remains distinct from date-of-act fallback."
         issues: [167]
         evidence_prs: [170]
@@ -121,29 +122,29 @@ fronts:
         issues: [120]
         next_action: "None."
       - id: "kr-identifier-contract-consistent"
-        status: met
-        metric: "Parser/ETL/URN disagreements over accepted legal number formats."
-        current: "Resolved via PR #191 (merged): parser.py, etl.py's URN-LEX regex, the schema consistency checker and the XSD all now accept and agree on `\\d+(-[a-z])?` (digits, optional single lowercase-letter suffix, e.g. \"72-a\"). Issue #127 closed."
-        target: "One canonical accepted format across parser, ETL, URN and tests."
+        status: active
+        metric: "Producer-number and generic URN-LEX descriptor contracts are explicit, compatible and independently tested."
+        current: "#127/#191 correctly fixed produced numbers such as 72-A, but also narrowed the generic URN descriptor grammar even though SCHEMA §5.6 documents forms such as lex-16 and estatuto.idoso. A corrective branch now restores only the generic boundary."
+        target: "Parser producer grammar remains strict while ETL/XSD/checker accept the documented generic LexML descriptor forms."
         issues: [127]
-        next_action: "None."
+        next_action: "Gate and land the generic-descriptor correction without relaxing parser.py::_RE_NUMERO; add a bounded follow-up issue when issue mutation is available."
       - id: "kr-release-validation-gated"
         status: active
         metric: "Build/release boundaries that publish without the declared schema/quality floor checks."
-        current: "Issue #118 substantially addressed across two independent PRs merged 2026-09-24: `versao_id` uniqueness was already enforced pre-existing; PR #193 added the row-count floor guard on `release-dataset` (refuses to publish fewer rows than the currently published release, latest-pointer-first with legacy-item fallback); PR #192 added empty/missing `ia-id` rejection in `xml_to_rows` and wired the existing `_xsd_gate` into `consolidate` (previously only `parse`/`parse-all` ran it). Deliberately NOT done: a hard urn_lex-grammar validation at the export boundary — it was found to regress the intentional lei_id-fallback degradation `_parse_lei_fields` uses for an unparseable/mis-cased urn-lex (tested behavior from PR #191/#127)."
+        current: "PRs #192/#193 merged XSD-before-consolidate, non-empty provenance and the row-count floor, but #193 immediately exposed a first-release deadlock: missing -latest items return 503 on the download endpoint, causing #196. PR #198 is the active fix. A narrow URN export-boundary validation slice also remains unresolved."
         target: "All ETL-build and release boundaries fail closed on declared floor violations and emit actionable diagnostics."
         issues: [118]
-        next_action: "Decide whether the residual risk (a malformed-but-parseable-looking urn-lex persisting verbatim in `urn_lex_lei`) is worth a narrower follow-up issue (e.g. reject only urn-lex that doesn't even start with `urn:lex:br`, letting grammar-level mismatches keep falling back as designed) or close #118 as-is."
+        next_action: "Finish #198 and verify the first -latest publication, then define a narrow URN export-boundary gate against the corrected generic descriptor contract; do not treat closed #118 as proof this KR is met."
 
   - id: "date-provenance"
     kind: workstream
-    status: completed
+    status: active
     parents: [legal-semantic-integrity]
-    objective: "Separate date-of-act, publication evidence and vigência provenance throughout schema, ETL, fixtures and UI."
+    objective: "Separate date-of-act, publication evidence and vigência provenance throughout schema, ETL, fixtures, docs and UI."
     origin: "Issues #129/#157 and follow-up public-surface issue #167."
-    issues: [157]
+    issues: [129, 157, 167]
     evidence_prs: [170]
-    next_action: "None for the schema/ETL scope (issues #129 and #157 both closed with evidence). The public-surface follow-up (#167) is tracked under public-surface-auditability, not here, since it has its own external observability precondition."
+    next_action: "Land the PRD/naming reconciliation, then audit the deployed Dados route after #196/#198 restores the public dataset and resolve #167 from observed behavior."
 
   - id: "temporal-version-integrity"
     kind: workstream
@@ -156,12 +157,12 @@ fronts:
 
   - id: "identifier-integrity"
     kind: workstream
-    status: completed
+    status: active
     parents: [legal-semantic-integrity]
-    objective: "Use one canonical legal-number identity contract from parse through URN and release."
-    origin: "Issue #127."
+    objective: "Use a strict Leizilla-produced legal-number contract without narrowing valid generic URN-LEX descriptors."
+    origin: "Issue #127/#191 plus the generic forms documented in SCHEMA §5.6."
     issues: [127]
-    next_action: "None — fixed, merged (PR #191), issue closed."
+    next_action: "Land the generic-descriptor regression fix and gate 72-a, lex-16 and estatuto.idoso end to end."
 
   - id: "release-boundary-validation"
     kind: gate
@@ -169,8 +170,9 @@ fronts:
     parents: [legal-semantic-integrity, dataset-release-integrity]
     objective: "Fail closed before publishing datasets that violate schema, identity, temporal or quality-floor contracts."
     origin: "Issue #118 and post-go-live audit findings."
-    issues: [118]
-    next_action: "See legal-semantic-integrity's kr-release-validation-gated for what's merged (PRs #192, #193) and what's deliberately deferred (urn_lex canonicalization)."
+    issues: [118, 196]
+    evidence_prs: [192, 193, 198]
+    next_action: "Resolve #196 via #198 and prove a successful first -latest publication; then close the remaining narrow URN validation requirement against the corrected descriptor contract."
 
   - id: "public-surface-auditability"
     kind: objective
@@ -232,7 +234,7 @@ fronts:
     objective: "Expand the proven static/preserved pipeline to federal Planalto legislation in Q1/2027 without exporting unresolved RO semantic/release debt."
     origin: "README roadmap Q1/2027."
     next_action: "#175 and #157 are resolved. #118 is substantially addressed (row-floor guard, ia-id/XSD gates merged) with only a narrow, deliberately-deferred urn_lex-canonicalization slice open — re-evaluate this blocker once that's explicitly closed or superseded by a follow-up issue. Maintain Planalto pipeline readiness in the meantime."
-    blockers: [118]
+    blockers: [118, 196, 167]
 ---
 
 # Leizilla Project DAG
