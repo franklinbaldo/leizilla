@@ -36,8 +36,8 @@
       : null,
   );
 
-  // Dataset publicado porém vazio conta como "ainda não publicado" para o
-  // visitante — não exibimos uma vitrine de zeros.
+  // Estado vazio é diferente de falha de transporte: a consulta concluiu,
+  // mas não retornou linhas estruturadas para resumir.
   const empty = $derived(!failed && !loading && (stats == null || stats.leis === 0));
 
   $effect(() => {
@@ -55,7 +55,8 @@
         recentes = r;
       } catch {
         // O island de busca já exibe o painel completo de indisponibilidade
-        // (DatasetUnavailable); aqui degradamos para uma linha discreta.
+        // (DatasetUnavailable); aqui degradamos para uma linha discreta sem
+        // inventar a causa da falha.
         if (!cancelled) failed = true;
       } finally {
         if (!cancelled) loading = false;
@@ -71,10 +72,18 @@
   <section aria-busy="true" aria-label="Carregando panorama do acervo">
     <p><small>Carregando panorama do acervo…</small></p>
   </section>
-{:else if failed || empty}
+{:else if failed}
   <p class="fallback">
     <small>
-      O primeiro acervo (Rondônia v0) ainda não foi publicado — veja a
+      Não foi possível carregar o panorama do acervo neste acesso — tente abrir o
+      <a href={DATASET_PARQUET_URL} rel="external">dataset diretamente</a> ou veja a
+      <a href={withBase('cobertura/')}>página de cobertura</a>.
+    </small>
+  </p>
+{:else if empty}
+  <p class="fallback">
+    <small>
+      A consulta retornou zero registros estruturados neste momento — veja a
       <a href={withBase('cobertura/')}>página de cobertura</a>.
     </small>
   </p>
@@ -123,7 +132,7 @@
           <article class="card">
             <h3><a href={leiUrl(lei.lei_id)}>{leiTitle(lei)}</a></h3>
             <p class="meta">
-              <small>{formatEnte(lei.ente)} · {formatDate(lei.data_publicacao)}</small>
+              <small>{formatEnte(lei.ente)} · {formatDate(lei.data_ato)}</small>
             </p>
             {#if lei.texto}
               <p class="excerpt">{lei.texto}</p>
@@ -160,6 +169,25 @@
           </li>
         {/if}
       </ul>
+
+      <details>
+        <summary>Testar o dataset com DuckDB</summary>
+        <p>
+          A mesma URL pública pode ser consultada sem baixar o repositório. Esta consulta conta
+          as linhas publicadas:
+        </p>
+        <pre><code>{`SELECT count(*) AS linhas
+FROM read_parquet('${DATASET_PARQUET_URL}');`}</code></pre>
+        {#if DATASET_META_URL}
+          <p>
+            <small>
+              Confira o resultado em <code>linhas</code> contra <code>row_count</code> no
+              <a href={DATASET_META_URL} rel="external">dataset_meta.json</a>. O mesmo arquivo
+              registra hash e git SHA da publicação.
+            </small>
+          </p>
+        {/if}
+      </details>
     </article>
   </section>
 {/if}
@@ -227,5 +255,11 @@
   }
   .dados ul {
     margin-bottom: 0;
+  }
+  .dados details {
+    margin-top: 1rem;
+  }
+  .dados pre {
+    overflow-x: auto;
   }
 </style>

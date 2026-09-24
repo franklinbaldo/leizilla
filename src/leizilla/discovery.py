@@ -24,6 +24,16 @@ class DiscoveryStrategyProtocol(Protocol):
     def run(self) -> List[Dict[str, Any]]: ...
 
 
+def _ditel_editorial_number(value: str) -> Optional[str]:
+    """Return the leading number when the suffix is verified DITEL editorial text."""
+    match = re.fullmatch(
+        r"(\d+)(?:\s*-\s*|\s+)(?:COMPILAD[AO]|REVOGAD[AO])"
+        r"(?:(?:\s*-\s*|\s+)(?:COMPILAD[AO]|REVOGAD[AO]))*",
+        value,
+    )
+    return match.group(1) if match else None
+
+
 def parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
     """Extrai tipo_documento e chave formatada do nome do arquivo.
 
@@ -54,8 +64,9 @@ def parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
             return "decreto", f"decreto-{int(num_part):05d}"
     elif name.startswith("LC"):
         num_part = name[2:]
-        if num_part.isdigit():
-            return "lc", f"lc-{int(num_part):05d}"
+        number = num_part if num_part.isdigit() else _ditel_editorial_number(num_part)
+        if number is not None:
+            return "lc", f"lc-{int(number):05d}"
     elif name.startswith("EC"):
         num_part = name[2:]
         if num_part.isdigit():
@@ -66,8 +77,9 @@ def parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
             return "decreto-lei", f"decreto-lei-{int(num_part):05d}"
     elif name.startswith("L"):
         num_part = name[1:]
-        if num_part.isdigit():
-            return "lei", f"lei-{int(num_part):05d}"
+        number = num_part if num_part.isdigit() else _ditel_editorial_number(num_part)
+        if number is not None:
+            return "lei", f"lei-{int(number):05d}"
     elif name.startswith("D"):
         num_part = name[1:]
         if num_part.isdigit():
@@ -238,6 +250,93 @@ class SequentialDiscovery:
         return resources
 
 
+class CasacivilIndexDiscovery:
+    """Estratégia de descobrimento que lê a página de índice da Casa Civil."""
+
+    def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
+        self.url = config["url"]
+        self.ente = ente
+        self.fonte = fonte
+
+    def run(self, storage: Optional[DuckDBStorage] = None) -> List[Dict[str, Any]]:
+        # ADR-0004 continua Wayback-first, mas uma enumeração autoritativa precisa ser
+        # atual. Um snapshot histórico serve à proveniência, não à descoberta de
+        # novidades: só reutilizamos capturas dentro da janela de frescor padrão (24 h).
+        from leizilla import wayback
+
+        logger.info(
+            f"Rodando CasacivilIndex Discovery para {self.ente}/{self.fonte} na URL {self.url}..."
+        )
+        resources = []
+
+        wb_url = wayback.check_available(self.url)
+        html_content = None
+
+        if wb_url:
+            html_bytes = wayback.fetch_bytes(wb_url)
+            if html_bytes is not None:
+                html_content = html_bytes.decode("utf-8", errors="ignore")
+
+        if html_content is None:
+            # Note: ADR-0008 says we need to obey robots + ~1 req/s rate limit
+            from leizilla.scraper import robots
+
+            if not robots.is_allowed(self.url):
+                logger.error(f"robots.txt blocked fetch for {self.url}")
+                return []
+
+            # Fetch using standard Python library directly, avoiding
+            # "wayback.fetch_bytes" abstraction for live domains.
+            import time
+
+            time.sleep(1.0)  # rate limit
+            try:
+                req = urllib.request.Request(
+                    self.url, headers={"User-Agent": "leizilla-crawler/0.1"}
+                )
+                with urllib.request.urlopen(req, timeout=30.0) as r:
+                    html_content = r.read().decode("utf-8", errors="ignore")
+            except Exception as e:
+                logger.error(f"Falha ao buscar índice ao vivo {self.url}: {e}")
+
+        if html_content is None:
+            logger.error(f"Falha ao buscar índice {self.url}")
+            return []
+
+        # Find all hrefs to .pdf files
+        pattern = re.compile(
+            r"""href=['"]?([^'" >]+\.pdf)['"]?""",
+            re.IGNORECASE,
+        )
+        matches = pattern.finditer(html_content)
+        for match in matches:
+            href = match.group(1)
+            filename = href.split("/")[-1]
+            tipo, chave = parse_filename(filename)
+
+            if not tipo or not chave:
+                tipo, chave = "", f"documento-{filename.rsplit('.', 1)[0]}"
+
+            absolute_url = urllib.parse.urljoin(self.url, href)
+
+            resources.append(
+                {
+                    "url": absolute_url,
+                    "ente": self.ente,
+                    "fonte": self.fonte,
+                    "tipo_documento": tipo,
+                    "chave": chave,
+                    "status": "pending",
+                    "wayback_snapshot": None,
+                }
+            )
+
+        logger.info(
+            f"CasacivilIndex Discovery concluído: {len(resources)} recursos encontrados"
+        )
+        return resources
+
+
 class PlaywrightCrawlerDiscovery:
     """Estratégia de descobrimento que usa o LeisCrawler (Playwright) para o portal ALRO."""
 
@@ -302,6 +401,7 @@ STRATEGIES: Dict[
 ] = {
     "wayback-cdx": WaybackCdxDiscovery,
     "sequential": SequentialDiscovery,
+    "casacivil-index": CasacivilIndexDiscovery,
     "playwright-crawler": PlaywrightCrawlerDiscovery,
 }
 

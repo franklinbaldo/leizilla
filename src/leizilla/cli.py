@@ -410,6 +410,11 @@ def cmd_scrape(
         "--skip-existing/--no-skip-existing",
         help="Pula itens cujo raw IA item já existe (consulta IA antes do loop)",
     ),
+    limit: Optional[int] = typer.Option(
+        None,
+        "--limit",
+        help="Limite de novos itens a processar (itens pulados não contam)",
+    ),
 ) -> None:
     """Scrape leis: discover → robots → wayback → upload_raw/upload_raw_html para IA."""
 
@@ -462,6 +467,7 @@ def cmd_scrape(
             )
             ok = 0
             skipped_ok = 0
+            processed = 0
             total_laws_count = 0
             index_cache: Dict[str, str] = {}
 
@@ -475,6 +481,8 @@ def cmd_scrape(
                 )
                 total_laws_count += len(laws)
                 for law in laws:
+                    if limit is not None and processed >= limit:
+                        break
                     fonte_url = law.get("url_original")
                     if not fonte_url:
                         continue
@@ -484,6 +492,7 @@ def cmd_scrape(
                         if ia_id in already_scraped:
                             skipped_ok += 1
                             continue
+                    processed += 1
                     result = scrape_one_html(
                         fonte_url, law, publisher, rate_limiter, index_cache
                     )
@@ -603,8 +612,11 @@ def cmd_scrape(
 
             ok = 0
             skipped_ok = 0
+            processed = 0
             index_cache: Dict[str, str] = {}
             for law in laws:
+                if limit is not None and processed >= limit:
+                    break
                 pdf_url = law.get("url_pdf_original")
                 fonte_url = law.get("url_original")
                 if not pdf_url or not fonte_url:
@@ -616,6 +628,7 @@ def cmd_scrape(
                     if ia_id in already_scraped:
                         skipped_ok += 1
                         continue
+                processed += 1
                 result = scrape_one(
                     fonte_url,
                     pdf_url,

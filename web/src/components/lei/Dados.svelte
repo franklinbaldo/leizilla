@@ -60,7 +60,7 @@
     URN-LEX da norma: <code>{urnLex}</code>
   </p>
 {:else}
-  <p>Esta norma ainda não tem URN-LEX atribuída no dataset (data de publicação desconhecida).</p>
+  <p>Esta norma ainda não tem URN-LEX atribuída no dataset (data do ato desconhecida).</p>
 {/if}
 <p>
   <small>

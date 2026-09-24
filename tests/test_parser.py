@@ -327,6 +327,77 @@ class TestParseLaw:
         with _llm(bad):
             assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
+    def test_returns_none_when_versao_has_no_fonte(self):
+        xml_no_fonte = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"'
+            ' urn-lex="urn:lex:br;rondonia:estadual:lei:1999-06-15;9999"'
+            ' vigente-em="2026-05-20">'
+            '<dispositivo path="ementa">'
+            "<versao><texto>Sem fonte.</texto></versao>"
+            "</dispositivo>"
+            "</lei>"
+        )
+        bad = json.dumps(
+            {
+                "xml": xml_no_fonte,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "9999",
+                "ano": 1999,
+            }
+        )
+        with _llm(bad):
+            assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+
+    def test_returns_none_when_versao_has_multiple_fontes(self):
+        xml_multi_fonte = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"'
+            ' urn-lex="urn:lex:br;rondonia:estadual:lei:1999-06-15;9999"'
+            ' vigente-em="2026-05-20">'
+            '<dispositivo path="ementa">'
+            "<versao><texto>Duas fontes.</texto>"
+            f'<fonte ia-id="{_IA_ID}"/><fonte ia-id="{_IA_ID}-outra"/></versao>'
+            "</dispositivo>"
+            "</lei>"
+        )
+        bad = json.dumps(
+            {
+                "xml": xml_multi_fonte,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "9999",
+                "ano": 1999,
+            }
+        )
+        with _llm(bad):
+            assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+
+    def test_returns_none_when_fonte_ia_id_mismatches(self):
+        xml_wrong_fonte = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"'
+            ' urn-lex="urn:lex:br;rondonia:estadual:lei:1999-06-15;9999"'
+            ' vigente-em="2026-05-20">'
+            '<dispositivo path="ementa">'
+            "<versao><texto>Fonte errada.</texto>"
+            '<fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00001"/></versao>'
+            "</dispositivo>"
+            "</lei>"
+        )
+        bad = json.dumps(
+            {
+                "xml": xml_wrong_fonte,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "9999",
+                "ano": 1999,
+            }
+        )
+        with _llm(bad):
+            assert parser.parse_law("ocr text", _IA_ID, "ro") is None
+
     def test_raises_when_no_key_configured(self):
         empty = {"ANTHROPIC_API_KEY": None}
         with _llm(_LLM_OK, keys=empty):
@@ -438,10 +509,32 @@ class TestParseLaw:
         assert len(user_content) <= parser._HTML_CHAR_LIMIT + 200
 
     def test_html_input_type_sets_parse_method(self):
-        with _llm(_LLM_OK):
+        html_ia_id = "https://example.gov.br/lei/1"
+        xml_html_source = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"'
+            ' urn-lex="urn:lex:br;rondonia:estadual:lei:1999-06-15;9999"'
+            ' vigente-em="2026-05-20">'
+            '<dispositivo path="ementa">'
+            "<versao><texto>Institui o Dia Estadual.</texto>"
+            f'<fonte ia-id="{html_ia_id}"/></versao>'
+            "</dispositivo>"
+            "</lei>"
+        )
+        ok_html = json.dumps(
+            {
+                "xml": xml_html_source,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "9999",
+                "ano": 1999,
+                "urn_lex": "urn:lex:br;rondonia:estadual:lei:1999-06-15;9999",
+            }
+        )
+        with _llm(ok_html):
             result = parser.parse_law(
                 "html content",
-                "https://example.gov.br/lei/1",
+                html_ia_id,
                 "ro",
                 input_type="html",
             )
