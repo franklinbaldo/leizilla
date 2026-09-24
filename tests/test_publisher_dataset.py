@@ -432,9 +432,15 @@ class TestReleaseDatasetCli:
             "error": "credenciais inválidas",
             "ia_id": "leizilla-dataset-ro-v0",
         }
-        with patch(
-            "leizilla.publisher.InternetArchivePublisher.upload_dataset",
-            return_value=fail_result,
+        with (
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_dataset",
+                return_value=fail_result,
+            ),
+            patch(
+                "leizilla.publisher.fetch_published_dataset_row_count",
+                return_value=None,
+            ),
         ):
             result = _runner.invoke(app, ["release-dataset", str(p), "--version", "0"])
         assert result.exit_code == 1
@@ -443,9 +449,15 @@ class TestReleaseDatasetCli:
     def test_invalid_ente_exits_nonzero(self, tmp_path: Path) -> None:
         """ValueError de ente inválido deve ser capturado e sair com exit 1."""
         p = _make_parquet(tmp_path)
-        with patch(
-            "leizilla.publisher.InternetArchivePublisher.upload_dataset",
-            side_effect=ValueError("ente must match ^[a-z]"),
+        with (
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_dataset",
+                side_effect=ValueError("ente must match ^[a-z]"),
+            ),
+            patch(
+                "leizilla.publisher.fetch_published_dataset_row_count",
+                return_value=None,
+            ),
         ):
             result = _runner.invoke(app, ["release-dataset", str(p), "--ente", "RO"])
         assert result.exit_code == 1
@@ -466,9 +478,15 @@ class TestReleaseDatasetCli:
                 "points_to": "leizilla-dataset-ro-v0-20260101t000000z",
             },
         }
-        with patch(
-            "leizilla.publisher.InternetArchivePublisher.upload_dataset",
-            return_value=ok_result,
+        with (
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_dataset",
+                return_value=ok_result,
+            ),
+            patch(
+                "leizilla.publisher.fetch_published_dataset_row_count",
+                return_value=None,
+            ),
         ):
             result = _runner.invoke(app, ["release-dataset", str(p), "--version", "0"])
         assert result.exit_code == 0
@@ -489,9 +507,15 @@ class TestReleaseDatasetCli:
                 "ia_id": "leizilla-dataset-ro-v0-latest",
             },
         }
-        with patch(
-            "leizilla.publisher.InternetArchivePublisher.upload_dataset",
-            return_value=ok_result,
+        with (
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_dataset",
+                return_value=ok_result,
+            ),
+            patch(
+                "leizilla.publisher.fetch_published_dataset_row_count",
+                return_value=None,
+            ),
         ):
             result = _runner.invoke(app, ["release-dataset", str(p), "--version", "0"])
         assert result.exit_code == 0
