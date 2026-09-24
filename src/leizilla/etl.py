@@ -253,6 +253,22 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                     _parse_date(em_s) if em_s else (ancestor_em or data_ato)
                 )
 
+            # Issue #120: document order is not legal chronology. For multiple
+            # versions every effective date must be knowable; then normalize the
+            # version elements and dates together before inferring `ate`.
+            if len(versoes_elems) > 1:
+                if any(em is None for em in versao_ems):
+                    raise ValueError(
+                        f"Ambiguous version timeline for {path}: "
+                        "multiple versions require an effective date"
+                    )
+                ordered = sorted(
+                    zip(versoes_elems, versao_ems),
+                    key=lambda pair: pair[1] or datetime.date.min,
+                )
+                versoes_elems = [pair[0] for pair in ordered]
+                versao_ems = [pair[1] for pair in ordered]
+
             em_occurrences: dict[str, int] = {}
             for v_idx, versao in enumerate(versoes_elems):
                 em = versao_ems[v_idx]
