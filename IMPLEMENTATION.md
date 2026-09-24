@@ -113,6 +113,55 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-09-24 (sessão 4) — RFC-0003 Fase 1: cobertura de teste do fallback HTML→direct no harvest; achado sobre `cdx_max`/`SequentialDiscovery`
+
+**Rotina agendada, FASE 1**: só as 3 PRs já conhecidas seguem abertas — #139/#142
+(Dependabot, skip) e #170 (draft alheio, `steward/vigencia-data-ato-provenance`,
+ainda com TODOs do próprio autor); nada novo para triar.
+
+**FASE 2 — RFC-0003 Fase 1, item restante**: a entrada anterior (sessão 3) deixou
+dois itens pendentes da Fase 1: (a) portar a descoberta de `cdx_max` para
+`SequentialDiscovery` via `"end": "cdx-auto"`; (b) garantir teste cobrindo o
+caminho harvest do fallback HTML→direct-download (fix do PR #93).
+
+Antes de codar (a), verifiquei quem consumiria essa capacidade: **nenhum
+manifesto usa `"strategy": "sequential"` hoje**. `casacivil` (a única fonte que
+motivou o `cdx_max` original em `cmd_scrape`) já migrou, na descoberta
+manifest-driven (M10.A), para `casacivil-index` + `wayback-cdx` — ambas
+estratégias já são dinâmicas (leem o índice ao vivo / consultam CDX sem
+`end` fixo), então não têm o problema de range hardcoded que `cdx_max`
+resolvia no `scrape` legado. Portar `cdx_max` para uma classe sem consumidor
+real seria código especulativo (viola o princípio de não construir para
+uso hipotético). O gap real de range hardcoded que sobra no discovery
+manifest-driven é outro: `assembleia` (`playwright-crawler`) tem
+`start:1, end:5000` fixo no manifesto — se a ALRO publicar a lei #5001+,
+o discovery para de enxergar novidade silenciosamente. Esse é um problema
+de forma diferente (não há prefixo de nome de arquivo casável via CDX; é
+uma sequência de URLs numeradas por HTML) e merece desenho próprio, não um
+port mecânico do `cdx_max` de PDFs. Registrado aqui em vez de codado às
+pressas — ver "Próximos passos imediatos" para o item reformulado.
+
+Escolhi então (b), que é escopo estreito e sem ambiguidade de design:
+`harvest_pending_resources` **reimplementa** (não chama) a lógica de
+`scrape_one` — inclusive o fallback quando o Wayback devolve HTML de erro
+em vez do PDF (`pdf_bytes[:4] != b"%PDF"` → fallback direto) — e só o
+caminho `scrape_one` tinha teste cobrindo esse fallback
+(`test_wayback_html_response_triggers_fallback` /
+`test_direct_fallback_rejects_non_pdf` em `tests/test_scraper.py`). Um bug
+futuro nessa lógica duplicada no harvest passaria batido pela suíte. Dois
+testes novos em `tests/test_harvest_pipeline.py`
+(`test_wayback_html_response_triggers_fallback`,
+`test_direct_fallback_rejects_non_pdf`) espelham os do scrape contra
+`harvest_pending_resources` — ambos passaram já na primeira tentativa
+(o código de produção já estava correto; era só a cobertura que faltava).
+`uv run leizilla dev check`: 784 passed, 13 skipped. `mypy src/
+--ignore-missing-imports`: só os 3 erros pré-existentes de stub ausente
+(`types-requests`).
+
+RFC-0003 e "Próximos passos imediatos" atualizados: item (b) da Fase 1 dado
+como concluído; item (a) reformulado para não presumir que `SequentialDiscovery`
+é o lugar certo — o gap real está em `PlaywrightCrawlerDiscovery`/`assembleia`.
+
 ### 2026-09-24 (sessão 3) — merge PR #172; RFC-0003 doc-drift corrigido; harvest ganha paridade de relatório com scrape (Fase 1 parcial)
 
 **FASE 1 — triagem**: 4 PRs abertas. #139/#142 (Dependabot) — anotadas e
@@ -1703,16 +1752,21 @@ publicados no IA — nada a amostrar lá ainda).
 
 **Convergência scrape→harvest**: ver
 [`docs/rfc/0003-convergencia-scrape-harvest.md`](docs/rfc/0003-convergencia-scrape-harvest.md)
-— #93/#94 (os fixes de produção que bloqueavam a Fase 1) estão mergeados desde
-07/2026; texto anterior aqui ficou em drift (princípio 2) dizendo "aguardando
-merge". Fase 1 começou em 2026-09-24 (sessão 3): `harvest_pending_resources`
-agora reporta por item (`stats["items"]`), igualando o formato `OK: <ia_id> →
-<ia_url>` / `Falha [reason]: <chave>` que `scrape` já tinha. Falta, ainda na
-Fase 1: portar a descoberta de `cdx_max` via Wayback CDX (hoje só em
-`cmd_scrape`/casacivil) para as estratégias de discovery do manifesto
-(`"end": "cdx-auto"`). Fases 2 (workflows) e 3 (deprecação do `scrape`) seguem
-não iniciadas — são mudanças maiores (remoção/fusão de workflow) que merecem
-sessão própria, não bundle com um fix de doc-drift.
+— **Fase 1 concluída** em 2026-09-24 (sessões 3 e 4): `harvest_pending_resources`
+reporta por item (`stats["items"]`, sessão 3) e o fallback HTML→direct-download
+do PR #93 agora tem cobertura de teste própria no caminho harvest (sessão 4,
+já estava correto em produção — era só a suíte que não pegava regressão ali).
+O item original "portar `cdx_max` para `SequentialDiscovery`" foi descartado
+por não ter consumidor real: nenhum manifesto usa essa estratégia — `casacivil`
+já migrou para `casacivil-index`+`wayback-cdx` (dinâmicas, sem `end` fixo) na
+descoberta manifest-driven. O gap real de range hardcoded que sobra é
+`assembleia` (`playwright-crawler`, `start:1, end:5000` fixo) — precisa de um
+mecanismo próprio (não CDX de nome de arquivo PDF; ALRO é HTML numerado por
+URL) para não parar de descobrir silenciosamente quando a ALRO passar de 5000
+leis; não bloqueia nada hoje (RO está longe desse número) mas fica registrado
+como dívida técnica para quando a Fase 2 for aberta. Fases 2 (workflows) e 3
+(deprecação do `scrape`) seguem não iniciadas — são mudanças maiores
+(remoção/fusão de workflow) que merecem sessão própria.
 
 **Dívida técnica identificada**: Protocol formal para estratégias de discovery (`WaybackCdxDiscovery`,
 `SequentialDiscovery`, `PlaywrightCrawlerDiscovery`) — RESOLVIDO: Substituiu-se a class base por `DiscoveryStrategyProtocol(Protocol)`.
