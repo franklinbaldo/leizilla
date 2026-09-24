@@ -502,9 +502,8 @@ def cmd_scrape(
                         echo(f"  OK: {ia_id} → {ia_url}")
                         ok += 1
                     else:
-                        echo(
-                            f"  Falha [{result.get('reason', '?')}]: {law.get('chave', 'N/A')}"
-                        )
+                        detail = result.get("reason") or result.get("error") or "?"
+                        echo(f"  Falha [{detail}]: {law.get('chave', 'N/A')}")
             suffix = f", {skipped_ok} pulados (já existem)" if skip_existing else ""
             echo(f"Scraping concluído: {ok}/{total_laws_count} com sucesso{suffix}")
             return
@@ -644,9 +643,8 @@ def cmd_scrape(
                     echo(f"  OK: {ia_id} → {ia_url}")
                     ok += 1
                 else:
-                    echo(
-                        f"  Falha [{result.get('reason', '?')}]: {law.get('id', 'N/A')}"
-                    )
+                    detail = result.get("reason") or result.get("error") or "?"
+                    echo(f"  Falha [{detail}]: {law.get('id', 'N/A')}")
 
             suffix = f", {skipped_ok} pulados (já existem)" if skip_existing else ""
             echo(f"Scraping concluído: {ok}/{len(laws)} com sucesso{suffix}")

@@ -59,7 +59,7 @@
 | **M14.2** — OPF gold v0→v1 (anotação por subagentes + Fase 2.5 caminho 1) | 🟡 in-progress | — | v0: `data/opf/gold/` (6 leis federais reais, 251 spans) via subagentes LLM (shard-por-doc) + resolução determinística de offset + ensemble de avaliadores no eval slice. **v1 (2026-09-24)**: +13 docs reais de OCR ruidoso de RO/casacivil (train split; total 476 spans) via Fase 2.5 caminho 1 (`opf-sample`+`opf-bootstrap` pré-rotula com regex, um subagente por doc audita) — ver log 2026-09-24. Fase 2 de 4. |
 | **M14.3** — OPF treino/eval (notebook Colab GPU) | 🟡 in-progress | — | `notebooks/opf_train_colab.ipynb` pronto (aponta pro `main`, gold v0 já commitado; 3 bugs reais de CLI achados em revisão e corrigidos — `--seed`→`--shuffle-seed`, `--checkpoint` ausente no train, `--label-space-json` inválido no eval). **Reativado por decisão do mantenedor em 2026-07-14** (não pelo gatilho de evidência da atualização de 2026-06-06 — o v0 segue single-fonte/texto limpo). Falta rodar no Colab (GPU), fora do alcance de sessões sem GPU/Drive interativo. Ver ADR-0012 "Atualização (2026-07-14)". |
 | **M14.4** — Segmentador regex baseline + eval/errors/structure vs gold | 🟢 done | — | `segmenter.py` (Pattern B) + CLIs `opf-regex-eval` (`--errors`) e `opf-segment-check`. `evaluate_against_gold` (exact/overlap P/R/F1), `find_errors` (lista FP/FN/boundary com contexto — guiou as regras e achou drift de período no gold + provável omissão), `validate_structure` (validação da norma inteira sem gold: lacunas na numeração de artigos, fora de ordem, ementa/vigência ausentes). Regras: splitter ciente de abreviações/números, verbo operativo na revogação (notas `(Revogado pela…)` excluídas, precision 0.33→1.00 em compilados), strip de marcador líder, guard à direita, marcadores sem período final (gold normalizado). v0: exact micro-F1 **0.95** / overlap **0.99**. 28 testes. |
-| **M15.1** — Instrumentação de cobertura S1-S4 (issue #174) | 🟡 in-progress | #185 | `coverage.py` agrega S1 (arquivado)→S4 (estruturado) por fonte/tipo direto do IA (index.csv + `archive.org/metadata` p/ `_djvu.txt`); `Optional[int]`/`ok_s1_s3`/`ok_s4` distinguem "não medido" de zero real. CLI `leizilla coverage [--json] [--upload]`; publica `coverage.json` no item IA do dataset (novo step diário em `parse-release.yml`, `continue-on-error`). `/cobertura/` ganha `FunilPanel.svelte` (fetch direto, não DuckDB-WASM — S1-S3 não vivem no Parquet). 22 testes offline. Baseline real medido (ver log) — falta merge + primeira publicação em produção. |
+| **M15.1** — Instrumentação de cobertura S1-S4 (issue #174) | 🟢 done (código) | #185 | `coverage.py` agrega S1 (arquivado)→S4 (estruturado) por fonte/tipo direto do IA (index.csv + `archive.org/metadata` p/ `_djvu.txt`); `Optional[int]`/`ok_s1_s3`/`ok_s4` distinguem "não medido" de zero real. CLI `leizilla coverage [--json] [--upload]`; publica `coverage.json` no ponteiro `-latest` do dataset (novo step diário em `parse-release.yml`, `continue-on-error`). `/cobertura/` ganha `FunilPanel.svelte` (fetch direto, não DuckDB-WASM — S1-S3 não vivem no Parquet). 22+2 testes offline. Merged (`03b5106`); baseline real medido (ver log) — falta a primeira publicação real em produção (próxima execução agendada de `parse-release.yml`). |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -114,6 +114,116 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 ## Decisões técnicas (log cronológico)
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
+
+### 2026-09-24 (sessão 5) — portfólio de PRs irmãs mergeado; achado real: falhas semanais do `rondonia_crawler` eram invisíveis por um bug de relatório
+
+**Rotina agendada de portfólio, ampla.** Ao chegar, 11 PRs não-Dependabot
+estavam abertas (a maioria criada minutos antes por sessões irmãs paralelas),
+todas com CI verde e sem review pendente. Reconstruído o estado a partir do
+repositório (sem `docs/okf/project-dag.md` em `main` — só na PR #177, ainda
+aberta — então IMPLEMENTATION.md + issues seguiram como fonte de verdade,
+conforme o `CLAUDE.md` vigente no início da sessão):
+
+**Merges** (squash, um a um, atualizando cada branch contra o `main` mais
+recente antes de mergear — `mergeable_state` exigia branch atualizada):
+- #184 (docs, log da sessão 4) → `ed7be61`
+- #183 (`parser.py`: flag de truncamento, item 4 da issue #151) → `e8988b7`
+- #182 (`etl.py`: colisão de `versao_id`, item 2 da issue #151) → `5f5f0c3`
+- #181 (`web/src/lib/db.ts`: leis revogadas na busca, item 1 da issue #151)
+
+Essas quatro eram pequenas, single-purpose, sem sobreposição de arquivo entre
+si — risco mínimo. PRs maiores (#177 DAG/OKR, #180 dataset imutável, #185
+cobertura S1-S4, #186 xsd-gate+hygiene+testes web) e o conflito real entre
+#178/#179 (ver abaixo) ficaram para reconciliação em sessão(ões) seguintes —
+mergear todas ao mesmo tempo sem escalonar review para o mantenedor não é
+prudente numa única passada.
+
+**#178 vs #179 — conflito lógico real, não textual.** Ambas alegam concluir a
+RFC-0003 Fase 1 com conclusões opostas: #178 decide que portar `cdx_max` para
+`SequentialDiscovery` é desnecessário ("nenhum consumidor real" — baseado em
+`manifests/ro.json` não ter nenhuma entrada `strategy: sequential` hoje);
+#179 implementa esse porte e adiciona 8 entradas `sequential`/`cdx-auto` ao
+manifesto do casacivil. Verificado diretamente: `manifests/ro.json` tem, sim,
+um bloco `probe` (usado só por `cmd_scrape`, não por `discover`/`harvest`) com
+exatamente os mesmos 8 templates que #179 cita — ou seja, a capacidade existe
+no pipeline legado e falta no pipeline manifest-driven novo, que é
+precisamente o gap que RFC-0003 pede para fechar. #178 está descrevendo
+corretamente que não há consumidor **hoje** no lado `discovery`, mas errado ao
+concluir que portar é desnecessário — a premissa da RFC é permitir que
+`harvest` alcance paridade com `cmd_scrape`, não o contrário. Recomendação
+para quem for reconciliar: mergear #179 (implementação substantiva) e não
+#178 como está; a cobertura de teste nova de #178
+(`test_wayback_html_response_triggers_fallback`,
+`test_direct_fallback_rejects_non_pdf`) continua válida e pode ser
+cherry-picked numa PR de teste separada, e o achado secundário de #178 (o
+`playwright-crawler` de `assembleia` tem `end: 5000` hardcoded, sem
+`cdx-auto`) é dívida real e distinta, ainda não endereçada em nenhuma PR.
+
+**Achado do dia — causa raiz de #136/#140 (falhas semanais recorrentes
+do `rondonia_crawler.yml`)**: os três jobs de scrape do workflow legado
+(`scrape-casacivil-lei`, `scrape-casacivil-lc`) terminam `cancelled` (timeout)
+em praticamente **toda** execução semanal desde julho — confirmado nos runs
+reais via API do GitHub Actions, não suposição. Lendo o log completo do job
+`casacivil-lei` de 2026-09-20 (run 35482879297): de ~308 itens processados em
+3h, só **3 tiveram sucesso** — 99% de falha. As falhas vinham rotuladas
+`Falha [fetch-failed]` (rede, ~129 casos) ou **`Falha [?]`** (176 casos, mais
+da metade). O `[?]` não é "causa desconhecida real" — é um bug de relatório:
+`cli.py` monta a linha com `result.get('reason', '?')`, mas
+`publisher.upload_raw()` (chamado por dentro de `scraper.scrape_one`) reporta
+suas próprias falhas (credencial ausente, índice do item ilegível, `ia`
+CLI ausente, ou o `stderr` real do `subprocess.CalledProcessError` do
+comando `ia upload`) sob a chave **`error`**, não `reason`. O texto real do
+erro — que poderia ser exatamente o "Please reduce your request rate...
+appears to be spam" que a sessão de 2026-07-14 já tinha confirmado em
+produção (todos os números de um mesmo tipo dividem o mesmo IA item de range,
+então centenas de uploads sequenciais ao mesmo identifier em poucas horas é
+o padrão exato que dispara esse throttle) — nunca chegava ao log do
+workflow. Meses de execuções semanais malsucedidas ficaram undiagnosticável
+por causa desse bug de relatório, não por falta de tentativa de
+investigação anterior.
+
+**Fix mínimo** (`src/leizilla/cli.py`, dois pontos: laço de `casacivil`/
+`assembleia` em `cmd_scrape` e o de `federal/planalto`): `detail =
+result.get("reason") or result.get("error") or "?"` no lugar do
+`.get("reason", "?")` direto. Teste novo
+`test_casacivil_failure_surfaces_upload_error_detail` em
+`tests/test_scrape_skip_existing.py` cobre o caso (`upload_raw`-style falha
+só com `error`, sem `reason`) e falharia sem o fix. `uv run leizilla dev
+check`: 784 passed, 13 skipped. `mypy src/ --ignore-missing-imports`: só os 3
+erros pré-existentes de stub ausente, nenhum no arquivo tocado. **Não
+resolvido nesta sessão**: a causa raiz do próprio `upload_raw` continuar
+falhando (provavelmente o throttle de rate-limit do IA já documentado, mas
+sem o texto real do erro ainda não dá para confirmar) — a próxima execução
+semanal do `rondonia_crawler.yml` (ou um `workflow_dispatch` manual) vai
+finalmente imprimir o texto real, e uma sessão futura deve ler esse log e
+decidir se o `_run_ia_upload`'s `_RETRYABLE_IA_ERROR_RE` precisa de mais um
+padrão, se o throughput de items/hora precisa de mais espaçamento, ou se
+RFC-0003 Fase 2 (aposentar `rondonia_crawler.yml` em favor de
+`discover-harvest.yml`, que não mostra o mesmo padrão de cancelamento) deve
+avançar antes do previsto — as issues #136/#140 continuam abertas,
+ligadas a esse achado, não fechadas (a causa raiz ainda não está corrigida,
+só deixou de estar invisível).
+
+**Não feito nesta sessão** (fora de escopo, registrado para a próxima):
+reconciliar #177 (DAG/OKR — grande, própria, merece leitura e sessão de
+review dedicada antes do merge, não uma passada rápida dentro de uma sessão
+de portfólio), #180/#185/#186 (todas prontas e sem sobreposição lógica entre
+si, mas grandes o suficiente para preferir revisão antes de mergear em
+lote), issue #127 (contrato de `numero` com sufixo de letra — decisão de
+design end-to-end, maior que "dívida pequena"), issue #167 (semântica de data
+legada nos downloads — depende de #170, WIP de outra sessão, não tocado).
+
+**Correção ao reconciliar com `main` (sessão concorrente)**: outra sessão
+avançou em paralelo e mergeou #180, #185, #186 e, na sequência, #178 — a
+recomendação acima ("mergear #179 e não #178") foi substituída por uma
+reconciliação que manteve os dois: o texto técnico de #179 (implementação
+real de `cdx-auto`) prevaleceu em `docs/rfc/0003-convergencia-scrape-harvest.md`
+e nesta mesma seção do log, com a cobertura de teste de #178
+(`test_wayback_html_response_triggers_fallback`, caminho harvest) creditada
+lado a lado em vez de descartada — ver a entrada de sessão 4 logo abaixo e
+sua nota de correção. #177 segue como reconciliação separada, tratada à
+parte por exigir leitura própria (governança/CI). #185/#186 são as próximas
+entradas deste log.
 
 ### 2026-09-24 (sessão 4) — RFC-0003 Fase 1: cobertura de teste do fallback HTML→direct no harvest (achado sobre `cdx_max` superado em paralelo por #179)
 
@@ -1991,52 +2101,58 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-_(atualizado em 2026-09-24, sessão de rotina 4)_
+_(atualizado em 2026-09-24, sessão de rotina 5)_
 
-**M0–M14.4 e M15.1 (código) concluídos** ✅ (pipeline completo: discovery
-manifest-driven, harvest/scrape, IA upload, OCR fetch, parse LLM, ETL→Parquet,
-release de dataset, frontend M5.1/M5.2/M13 completo, segmentador regex
-baseline, instrumentação de cobertura S1-S4). RFC-0004 (go-live) está
-executada: `leizilla-dataset-ro-v0` está publicado, crescendo (199 linhas em
-2026-09-24, contra 19 leis em 2026-07-14) e o portal público já consome esse
-Parquet em produção — ver log 2026-09-24 abaixo.
+**M0–M13, M14.4 e M15.1 concluídos** ✅. RFC-0004 (go-live) está executada:
+`leizilla-dataset-ro-v0`/`-latest` publicado e crescendo, portal público em
+produção. `docs/okf/project-dag.md` (PR #177) ainda não existe em `main` —
+quando mergeado, passa a ser o ledger de estado executável (ver CLAUDE.md
+dessa PR); até lá este arquivo + `docs/rfc/` + issues seguem reconstruíveis a
+partir do repositório.
 
-**M15.1 aguarda merge** (PR #185) e a primeira publicação real de
-`coverage.json` — vai sair sozinha no próximo `parse-release.yml` diário assim
-que a PR estiver em `main` (não precisa de ação manual: secrets IA já existem
-em produção desde RFC-0004).
+**Prioridade nº1 — causa raiz das falhas semanais do `rondonia_crawler.yml`**:
+sessão 5 descobriu que os jobs `scrape-casacivil-lei`/`-lc` vêm cancelando por
+timeout em praticamente toda execução semanal desde julho, com ~99% de falha
+por item — e que a razão real ficava escondida atrás de um bug de relatório
+(`Falha [?]` em vez do texto real do erro). Fix do relatório em PR própria
+(#187); a **próxima execução semanal** (ou um `workflow_dispatch` manual) do
+`rondonia_crawler.yml`, depois que essa PR mergear, vai finalmente imprimir o
+`stderr` real do `ia upload` que falha. Próxima sessão deve ler esse log e
+decidir a correção real (candidato mais provável: o throttle de rate-limit do
+IA documentado em 2026-07-14 — "reduce your request rate... appears to be
+spam" — batendo porque centenas de uploads sequenciais por hora miram o mesmo
+IA item de range). Issues #136/#140 continuam abertas ligadas a este achado.
 
-**M5.3 ainda bloqueado**: o dataset real existe mas RO segue pequeno (199 linhas)
-para um benchmark WASM significativo. Revisitar quando a cobertura RO crescer
-(marco Q4/2026 do README) ou o search in-browser medir > 1s.
+**Portfólio de PRs irmãs da sessão 5 — todas reconciliadas e mergeadas**:
+#184 (log/docs), #181/#182/#183 (itens 1/2/4 da issue #151) e #179
+(RFC-0003 Fase 1, issue #176 — fechada); #180 (releases imutáveis + ponteiro
+`latest`, issue #175 — fechada); #185 (cobertura S1–S4, issue #174 —
+fechada), com um bug real corrigido no processo (`upload_coverage` mirava um
+identifier que #180 tornou inalcançável — ver log); #186 (itens 3/5 da
+issue #151 — xsd-gate fail-closed + higiene de docs/scripts mortos — e
+issue #102, testes de frontend). Issue #151 agora tem os 5 itens da sua
+lista ordenada endereçados. Nenhuma PR de portfólio da sessão 5 segue aberta
+exceto #178 (superseded) e #177 (DAG/OKR, aguardando review dedicada do
+mantenedor) — ver abaixo. #178 ficou aberta com um
+comentário explicando por que #179 foi preferida (conclusão contraditória
+sobre RFC-0003 Fase 1); sua cobertura de teste adicional
+(`test_wayback_html_response_triggers_fallback`, `test_direct_fallback_rejects_non_pdf`)
+segue válida para uma PR própria. #177 (DAG/OKR) segue aberta, grande o
+suficiente para preferir revisão dedicada do mantenedor antes do merge —
+quando mergear, vira a fonte de verdade de estado executável (ver seu próprio
+CLAUDE.md).
 
-**Próximo marco de roadmap (README.md, Q4/2026)**: "Cobertura RO mais completa +
-releases recorrentes". A parte de releases recorrentes já está rodando sozinha
-(`parse-release.yml` diário incremental, `discover-harvest.yml` semanal). A
-lacuna de medição que travava esse marco (issue #174, "sem denominador não dá
-pra medir crescimento") está endereçada por M15.1 — falta merge + um baseline
-publicado em produção para o denominador virar público de verdade. Com isso
-resolvido, o trabalho que resta do marco é reduzir o gap S1→S4 que o próprio
-`coverage.json` vai expor a cada release (hoje: casacivil S1=1196→S4=20;
-assembleia 0 em tudo, sem raw publicado ainda — ver log desta sessão). O
-mantenedor também abriu #175 (release citável/reprodutível — separar
-"latest" de uma versão imutável) e #176 (RFC-0003 Fase 1 restante — descoberta
-`cdx-auto` portada pro pipeline manifest-driven) na mesma leva de #174; nenhuma
-das duas foi tocada nesta sessão (uma sub-tarefa por PR).
+**M5.3 ainda bloqueado**: dataset real existe mas RO segue pequeno para um
+benchmark WASM significativo. Revisitar quando a cobertura RO crescer (marco
+Q4/2026 do README) ou o search in-browser medir > 1s.
 
-**M14 (OPF fine-tune) segue em progresso**: PRs #115 (lições de treino T4/Colab)
-e #116 (`opf-bootstrap` + plano de escala do gold) — que a entrada de log
-anterior (mais cedo em 2026-09-24) registrou como "abertas aguardando CI" —
-foram mergeadas pelo mantenedor diretamente (`merged_by: franklinbaldo`,
-15:53/15:57 UTC), fora do fluxo desta rotina; texto corrigido para não ficar
-em drift com o estado real do GitHub (princípio 2). Com `opf-bootstrap`
-disponível, esta sessão executou a Fase 2.5 (caminho 1) sobre dados reais pela
-primeira vez — ver log 2026-09-24 "M14.2: gold v1" abaixo. M14.3 (treino real
-em GPU) segue fora do alcance de sessões headless; o próximo passo natural
-antes de rodar o notebook é decidir se vale re-rodar o smoke-test do Colab
-sobre o gold v1 (mais representativo, mas ainda pequeno) ou aguardar mais
-rodadas do caminho 1 sobre outras fontes RO (assembleia segue sem itens raw
-publicados no IA — nada a amostrar lá ainda).
+**Marco de roadmap (README.md, Q4/2026)**: "Cobertura RO mais completa +
+releases recorrentes". Releases recorrentes já rodam sozinhas; a
+instrumentação S1–S4 (M15.1, mergeada) dá o primeiro número público para
+medir esse marco assim que `coverage.json` for publicado pela primeira vez em
+produção (próxima execução agendada de `parse-release.yml` — secrets já
+existem, RFC-0004). Baseline conhecido no momento do merge: casacivil
+S1=1196→S4=20; assembleia 0 em tudo (nenhum raw publicado ainda nessa fonte).
 
 **Convergência scrape→harvest — Fase 1 concluída** (2026-09-24, sessões 3+4): ver
 [`docs/rfc/0003-convergencia-scrape-harvest.md`](docs/rfc/0003-convergencia-scrape-harvest.md).
@@ -2058,7 +2174,16 @@ fino sobre o mesmo caminho; depois **Fase 3** — aviso de deprecação em
 `scrape` e, só após duas execuções semanais sem regressão de cobertura
 (`stats --ia`), remoção. Nenhuma das duas foi iniciada — mudam
 workflow/comportamento em produção e merecem sessão própria com o
-`stats --ia` de antes/depois em mãos.
+`stats --ia` de antes/depois em mãos. A Fase 2 pode ganhar urgência antes do
+previsto se a causa raiz das falhas semanais do `rondonia_crawler.yml`
+(sessão 5, achado no topo deste log) for confirmada e corrigida, ou se
+`discover-harvest.yml` — que não mostra o mesmo padrão de cancelamento —
+provar-se suficiente sozinho.
 
-**Dívida técnica identificada**: Protocol formal para estratégias de discovery (`WaybackCdxDiscovery`,
-`SequentialDiscovery`, `PlaywrightCrawlerDiscovery`) — RESOLVIDO: Substituiu-se a class base por `DiscoveryStrategyProtocol(Protocol)`.
+**M14 (OPF fine-tune) segue em progresso** (M14.1–M14.2 done, M14.4 done;
+M14.3 aguarda execução em GPU/Colab fora do alcance headless).
+
+**Dívida técnica identificada, ainda aberta**: issue #127 (contrato de
+`numero` com sufixo de letra — parser rejeita, ETL/URN aceitam; decisão de
+design end-to-end, maior que "dívida pequena"); issue #167 (semântica de data
+legada nos downloads públicos, depende de #170 — WIP de outra sessão).
