@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "@astrojs/svelte": "^8.1.1",
@@ -18,5 +19,9 @@
   },
   "overrides": {
     "@sveltejs/vite-plugin-svelte": "^4.0.0"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1",
+    "vitest": "^3.2.7"
   }
 }

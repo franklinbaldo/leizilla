@@ -144,7 +144,7 @@ R: Sempre em ADR + mencionar no PR description
 
 ## 🆘 Precisa de Ajuda?
 
-1. Leia `docs/DEVELOPMENT.md` para detalhes técnicos
+1. Leia `CLAUDE.md` (setup, comandos, referência de CLI) e `docs/SCHEMA.md` (modelo de dados) para detalhes técnicos
 2. Consulte ADRs existentes em `docs/adr/`
 3. Abra issue com label `question`
 
