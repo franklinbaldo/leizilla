@@ -127,6 +127,9 @@ Implicações que decorrem disso (e estão em outras seções):
 
 **raw_id lógico**: `leizilla-raw-{ente}-{fonte}-{chave}`, onde `{chave}` identifica
 a norma como `{tipo}-{número:05d}` (ex.: `lei-05120`, `lc-00042`, `decreto-01234`).
+`{número}` aqui é sempre inteiro — é a chave de colheita (nome de
+arquivo/URL da fonte), não a identidade jurídica; o sufixo de letra do
+número legal (issue #127, §1.3/§5.6) só existe a partir da camada *parsed*.
 
 **Identidade é evidência, não catraca de ingestão** (ADR-0011, §1 revisada):
 **extrair `(tipo, número)` do contexto da descoberta** (metadados / páginas que
@@ -163,13 +166,16 @@ Layout interno: `manifest.csv` + `pdfs/{chave}.pdf` + `meta/{chave}.json`. Foren
 
 ### 1.3 Parsed items — 1 lei = 1 IA item
 
-**Pattern canônico**: `leizilla-{ente}-{tipo}-{numero:05d}-{ano}`
+**Pattern canônico**: `leizilla-{ente}-{tipo}-{numero:05d}-{ano}`, onde
+`{numero:05d}` aceita um sufixo opcional `-{letra}` minúscula (issue #127)
+para lei desdobrada/renumerada após a promulgação.
 
 | Exemplo | Notas |
 |---|---|
 | `leizilla-ro-lei-01234-2003` | caso normal |
 | `leizilla-ro-decreto-00056-2024` | tipo=decreto |
 | `leizilla-federal-lc-00141-2012` | LC = lei complementar |
+| `leizilla-ro-lei-00072-a-1999` | "Lei 72-A" — distinta de `leizilla-ro-lei-00072-1999` |
 
 **Pattern fallback** (lei antiga sem numeração formal): `leizilla-{ente}-{tipo}-fallback-{fonte}-{chave}`
 
@@ -685,10 +691,14 @@ Esse é o mesmo princípio que eliminou `revisao-pendente` no XML (§0.5): o sis
 
 ### 5.3 Parsed canônico
 ```
-^leizilla-(?P<ente>[a-z][a-z0-9-]*)-(?P<tipo>[a-z]+)-(?P<numero>\d{5,})-(?P<ano>\d{4})$
+^leizilla-(?P<ente>[a-z][a-z0-9-]*)-(?P<tipo>[a-z]+)-(?P<numero>\d{5,}(-[a-z])?)-(?P<ano>\d{4})$
 ```
 
-`numero` em `id` é **sempre zero-padded** (mínimo 5 dígitos). Numero não-numérico (raro em leis antigas) → fallback pattern.
+`numero` em `id` é **sempre zero-padded** (mínimo 5 dígitos), com um sufixo
+opcional `-{letra}` (minúscula) para lei desdobrada/renumerada após a
+promulgação (issue #127; ex.: `leizilla-ro-lei-00072-a-1999` para "Lei
+72-A" — distinta de `leizilla-ro-lei-00072-1999`). Numero genuinamente
+não-numérico, sem número extraível (raro em leis antigas) → fallback pattern.
 
 ### 5.4 Parsed fallback
 ```
@@ -746,7 +756,14 @@ Outras normas (resoluções, portarias, instruções normativas) especificam aut
 **`<descritor>`** — combina data e número:
 - Canônica: `{YYYY-MM-DD};{numero}` (ex: `2003-10-01;10741`).
 - Reduzida (URN de Referência): só ano permitido (`2003;10741`).
-- Sem número (raro): usa `lex-{N}` autogerado (`1999-12-21;lex-16`) ou apelido (`2003-10-01;estatuto.idoso`).
+- Sem número (raro): usa `lex-{N}` autogerado (`1999-12-21;lex-16`) ou apelido (`2003-10-01;estatuto.idoso`) — formas previstas pela spec LexML, ainda não emitidas pelo pipeline Leizilla.
+- **`{numero}` gerado pelo Leizilla** (parser.py/etl.py, issue #127): dígitos,
+  opcionalmente com um único sufixo de letra minúscula — `\d+(-[a-z])?` —
+  para lei desdobrada/renumerada após a promulgação (ex.: `72-a` para "Lei
+  72-A", distinta de `72`). **Sem zero-pad** (regra 14 do checker, §7) e
+  **sempre minúscula** (mesma convenção do resto da URN). Este é mais
+  restrito que a gramática geral do LexML acima — `lex-{N}`/apelido não são
+  produzidos pelo nosso parser.
 
 **`<path-dispositivo>`** — separado por `!`. Sintaxe interna usa `_` entre tokens (formato LexML idArtigo): `!art1`, `!art5_par2`, `!art5_par2_inc3`, `!art12-2_inc3_alt1` (renumeração com letra → `-N`, alteração com `_alt{N}`).
 
@@ -756,6 +773,7 @@ Outras normas (resoluções, portarias, instruções normativas) especificam aut
 |---|---|
 | Lei federal 14.133/2021 | `urn:lex:br:federal:lei:2021-04-01;14133` |
 | Lei RO 1234/2003 | `urn:lex:br;rondonia:estadual:lei:2003-06-15;1234` |
+| Lei RO 72-A (desdobrada, issue #127) | `urn:lex:br;rondonia:estadual:lei:1999-06-15;72-a` |
 | Lei municipal Porto Velho 123/2010 | `urn:lex:br;rondonia;porto.velho:municipal:lei:2010-05-15;123` |
 | CF/88 | `urn:lex:br:federal:constituicao:1988-10-05` |
 | EC 45/2004 | `urn:lex:br:federal:emenda.constitucional:2004-12-30;45` |

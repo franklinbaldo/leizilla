@@ -688,3 +688,110 @@ class TestXmlToRowsComRevogacaoCascata:
     def test_row_count(self) -> None:
         # art-10, art-10-par-1, art-10-par-1-inc-1, art-10-par-2, art-11 = 5
         assert len(self.rows) == 5
+
+
+# ---------------------------------------------------------------------------
+# numero_lei with a letter suffix (issue #127) — round-trip, no conflation
+# ---------------------------------------------------------------------------
+
+
+def _lei_xml(urn_lex: str | None) -> str:
+    """Minimal single-dispositivo Leizilla XML, urn-lex optional (§7.5 carve-out)."""
+    urn_attr = f' urn-lex="{urn_lex}"' if urn_lex else ""
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        f'<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"{urn_attr}'
+        ' vigente-em="2026-05-20">'
+        '<dispositivo path="ementa"><versao><texto>Texto.</texto>'
+        '<fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00072"/></versao></dispositivo>'
+        "</lei>"
+    )
+
+
+class TestNumeroLetterSuffix:
+    """Issue #127: a numero with a letter suffix ("Lei 72-A") must survive
+    parser validation -> ia_id generation -> URN-LEX -> ETL numero_lei
+    without ever colliding with the plain "Lei 72"."""
+
+    def test_urn_numero_with_suffix_parses(self) -> None:
+        xml = _lei_xml("urn:lex:br;rondonia:estadual:lei:1999-06-15;72-a")
+        rows = xml_to_rows(xml, "leizilla-ro-lei-00072-a-1999", "ro")
+        assert rows[0]["numero_lei"] == "72-a"
+        assert rows[0]["tipo_lei"] == "lei"
+        assert rows[0]["ano_lei"] == 1999
+
+    def test_suffixed_and_plain_numero_do_not_collide(self) -> None:
+        plain_rows = xml_to_rows(
+            _lei_xml("urn:lex:br;rondonia:estadual:lei:1999-06-15;72"),
+            "leizilla-ro-lei-00072-1999",
+            "ro",
+        )
+        suffixed_rows = xml_to_rows(
+            _lei_xml("urn:lex:br;rondonia:estadual:lei:1999-06-15;72-a"),
+            "leizilla-ro-lei-00072-a-1999",
+            "ro",
+        )
+
+        assert plain_rows[0]["numero_lei"] == "72"
+        assert suffixed_rows[0]["numero_lei"] == "72-a"
+        assert plain_rows[0]["lei_id"] != suffixed_rows[0]["lei_id"]
+        assert plain_rows[0]["urn_lex_lei"] != suffixed_rows[0]["urn_lex_lei"]
+
+    def test_both_coexist_in_a_combined_dataset(self) -> None:
+        # A batch consolidate() run must keep "72" and "72-A" as two
+        # distinct leis in the same versoes table — one must not clobber
+        # the other (same digits, different identity).
+        rows = xml_to_rows(
+            _lei_xml("urn:lex:br;rondonia:estadual:lei:1999-06-15;72"),
+            "leizilla-ro-lei-00072-1999",
+            "ro",
+        ) + xml_to_rows(
+            _lei_xml("urn:lex:br;rondonia:estadual:lei:1999-06-15;72-a"),
+            "leizilla-ro-lei-00072-a-1999",
+            "ro",
+        )
+
+        assert len(rows) == 2  # one ementa dispositivo each — no clobbering
+        assert {r["lei_id"] for r in rows} == {
+            "leizilla-ro-lei-00072-1999",
+            "leizilla-ro-lei-00072-a-1999",
+        }
+        assert {r["numero_lei"] for r in rows} == {"72", "72-a"}
+
+    def test_fallback_lei_id_recovers_suffixed_numero_without_urn(self) -> None:
+        # No urn-lex at all (OCR-ruim fallback, §7.5 carve-out) — numero_lei
+        # must still be recovered from the canonical parsed ia_id when it
+        # carries the letter suffix, using the id-based fallback in
+        # _parse_lei_fields (which mirrors the URN's grammar).
+        rows = xml_to_rows(_lei_xml(None), "leizilla-ro-lei-00072-a-1999", "ro")
+        assert rows[0]["numero_lei"] == "72-a"
+        assert rows[0]["tipo_lei"] == "lei"
+        assert rows[0]["ano_lei"] == 1999
+
+    def test_urn_regex_rejects_uppercase_suffix(self) -> None:
+        # The grammar is strictly lowercase, like every other URN token
+        # (§5.6) — an uppercase letter suffix must not silently normalize.
+        from leizilla.etl import _RE_URN_LEX
+
+        assert (
+            _RE_URN_LEX.match("urn:lex:br;rondonia:estadual:lei:1999-06-15;72-A")
+            is None
+        )
+
+    def test_urn_regex_rejects_previously_permitted_forms(self) -> None:
+        # The old numero group ([a-z0-9.\-]+) accepted dots and multi-letter
+        # suffixes that this codebase never actually produces (issue #127) —
+        # that extra permissiveness was itself a conflation risk.
+        from leizilla.etl import _RE_URN_LEX
+
+        for numero in ("72.5", "72-ab", "72--a"):
+            urn = f"urn:lex:br;rondonia:estadual:lei:1999-06-15;{numero}"
+            assert _RE_URN_LEX.match(urn) is None, urn
+
+    def test_malformed_uppercase_urn_still_recovers_via_lei_id(self) -> None:
+        # A URN with an uppercase suffix fails _RE_URN_LEX outright (not a
+        # partial/mis-cased match) so _parse_lei_fields degrades to the
+        # lei_id-based extraction, which still recovers the right value.
+        xml = _lei_xml("urn:lex:br;rondonia:estadual:lei:1999-06-15;72-A")
+        rows = xml_to_rows(xml, "leizilla-ro-lei-00072-a-1999", "ro")
+        assert rows[0]["numero_lei"] == "72-a"
