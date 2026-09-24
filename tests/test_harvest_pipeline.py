@@ -381,3 +381,54 @@ class TestHarvestPendingResources:
             stats = harvest_pending_resources(temp_db, pub, limit=2)
 
         assert stats["failed"] == 2  # processed 2, both failed fetch
+
+    def test_wayback_html_response_triggers_fallback(
+        self, temp_db: DuckDBStorage
+    ) -> None:
+        # RFC-0003 Fase 1: harvest reimplementa (não chama) o fallback HTML→direct
+        # download do PR #93 — cobertura própria, sem depender do teste de scrape_one.
+        from leizilla.scraper import harvest_pending_resources
+
+        temp_db.insert_resource(_make_resource())
+        pub = MagicMock()
+        pub.upload_raw.return_value = {"success": True, "ia_url": "https://ia/x"}
+
+        with (
+            patch("leizilla.scraper.robots.is_allowed", return_value=True),
+            patch(
+                "leizilla.scraper.wayback.ensure_archived",
+                return_value=(
+                    "https://web.archive.org/web/2026/http://x/lei.pdf",
+                    "2026",
+                ),
+            ),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes",
+                side_effect=[b"<!DOCTYPE html><html>error</html>", b"%PDF-1.4 content"],
+            ),
+        ):
+            stats = harvest_pending_resources(temp_db, pub, limit=10)
+
+        assert stats["success"] == 1
+        lei_data = pub.upload_raw.call_args.args[1]
+        assert lei_data["wayback_timestamp"] is None
+
+    def test_direct_fallback_rejects_non_pdf(self, temp_db: DuckDBStorage) -> None:
+        from leizilla.scraper import harvest_pending_resources
+
+        temp_db.insert_resource(_make_resource())
+        pub = MagicMock()
+
+        with (
+            patch("leizilla.scraper.robots.is_allowed", return_value=True),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes",
+                return_value=b"<!DOCTYPE html><html>error</html>",
+            ),
+        ):
+            stats = harvest_pending_resources(temp_db, pub, limit=10)
+
+        assert stats["failed"] == 1
+        assert stats["items"][0]["reason"] == "not-pdf"
+        pub.upload_raw.assert_not_called()

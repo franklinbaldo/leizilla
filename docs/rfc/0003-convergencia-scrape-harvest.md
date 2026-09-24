@@ -1,9 +1,11 @@
 # RFC-0003: Convergência de pipeline — uma única geração (discover→harvest)
 
-**Status**: aprovado — #93 e #94 mergeados (2026-07); **Fase 1 em andamento**
-(paridade de relatório `harvest` vs `scrape` entregue em 2026-09-24, sessão 3
-de rotina; falta portar `cdx_max` do scrape para as estratégias de discovery).
-Fases 2 (redirecionamento dos workflows) e 3 (deprecação) ainda não iniciadas.
+**Status**: aprovado — #93 e #94 mergeados (2026-07); **Fase 1 concluída**
+em 2026-09-24 (sessão 3: paridade de relatório `harvest` vs `scrape`, #173;
+sessão 4, em paralelo: `cdx_max` portado para `SequentialDiscovery` via
+`"end": "cdx-auto"`, #176/#179; e teste cobrindo o fallback HTML→direct no
+caminho harvest, #178 — ver "Fase 1" abaixo). Fases 2 (redirecionamento dos
+workflows) e 3 (deprecação) ainda não iniciadas.
 **Data**: 2026-07-07
 **Relacionados**: ADR-0010, ADR-0011, PR #94 ("o sistema atual ainda carrega duas
 gerações de pipeline"), M10.A (discovery manifest-driven)
@@ -43,7 +45,7 @@ As duas rodam toda semana sobre as mesmas fontes. Consequências:
 - Portar para as estratégias de discovery o que só o scrape tem hoje:
   - descoberta de `cdx_max` via Wayback CDX (do #94) vira parte da
     `WaybackCdxDiscovery`/`SequentialDiscovery` (limite dinâmico do range no manifesto,
-    ex.: `"end": "cdx-auto"`) — **feito** (#176): `SequentialDiscovery` aceita
+    ex.: `"end": "cdx-auto"`) — **feito** (#176/#179): `SequentialDiscovery` aceita
     `"end": "cdx-auto"`, resolvido via a nova `resolve_cdx_max_by_tipo()` (consulta CDX
     única, classificada por `parse_filename`); fail-safe para resposta vazia/erro/timeout
     (usa `end_fallback`, default 10). `manifests/ro.json` ganhou uma entrada `sequential`
@@ -51,8 +53,14 @@ As duas rodam toda semana sobre as mesmas fontes. Consequências:
     `discover → harvest` agora cobre o mesmo caso — a probing sequencial até o maior
     número arquivado — que antes só existia em `cmd_scrape`/casacivil. O `probe` do
     manifesto e o `cmd_scrape` continuam intactos (viram wrapper fino só na Fase 2).
-  - fallback HTML→direct-download do #93 já vive no scraper compartilhado — garantir
-    teste cobrindo o caminho harvest.
+    O range hardcoded que ainda resta é `assembleia` (`playwright-crawler`,
+    `start:1, end:5000`) — mecanismo diferente (HTML numerado por URL, não nome de
+    arquivo PDF casável via CDX) — registrado como dívida técnica, não bloqueante hoje.
+  - fallback HTML→direct-download do #93 já vive no scraper compartilhado — **feito**
+    (#178): `harvest_pending_resources` reimplementa essa lógica separadamente de
+    `scrape_one` e não tinha teste próprio cobrindo o caminho harvest; 2 testes novos
+    em `tests/test_harvest_pipeline.py` fecham o gap (comportamento já estava correto
+    em produção).
 - `harvest` ganha paridade de relatório com o scrape (`OK: <ia_id> → URL`, contadores) —
   **feito** (#173).
 
