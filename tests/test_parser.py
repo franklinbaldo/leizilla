@@ -247,6 +247,8 @@ class TestParseLaw:
         assert meta["parse_method"] == f"{parser._HAIKU}+ocr"
         assert meta["tem_divergencia"] is False
         assert "parse_timestamp" in meta
+        assert meta["texto_truncado"] is False
+        assert meta["tamanho_texto_original"] == len("ocr text")
 
     def test_token_counts_recorded(self):
         with _llm(_LLM_OK):
@@ -492,6 +494,25 @@ class TestParseLaw:
         user_content = kwargs["messages"][1]["content"]
         assert len(user_content) < 20000 + 100  # headers + truncated body
         assert "x" * (parser._OCR_CHAR_LIMIT + 1) not in user_content
+
+    def test_flags_truncated_ocr_in_meta(self):
+        # Issue #151 item 4: OCR longer than the char limit is silently
+        # truncated before reaching the LLM — parsed_meta must say so.
+        long_ocr = "x" * (parser._OCR_CHAR_LIMIT + 500)
+        with _llm(_LLM_OK):
+            result = parser.parse_law(long_ocr, _IA_ID, "ro")
+
+        assert result is not None
+        assert result.parsed_meta["texto_truncado"] is True
+        assert result.parsed_meta["tamanho_texto_original"] == len(long_ocr)
+
+    def test_does_not_flag_ocr_under_limit(self):
+        short_ocr = "x" * (parser._OCR_CHAR_LIMIT - 1)
+        with _llm(_LLM_OK):
+            result = parser.parse_law(short_ocr, _IA_ID, "ro")
+
+        assert result is not None
+        assert result.parsed_meta["texto_truncado"] is False
 
     def test_html_input_type_uses_html_char_limit(self):
         long_html = "<p>" + "x" * 40000 + "</p>"

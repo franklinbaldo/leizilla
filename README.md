@@ -7,11 +7,28 @@ Leizilla é um projeto de indexação de legislação brasileira, começando por
 ## 🌐 Usar o Leizilla
 
 - **Portal público:** https://franklinbaldo.github.io/leizilla/
-- **Dataset Rondônia v0 no Internet Archive:** https://archive.org/details/leizilla-dataset-ro-v0
-- **Parquet usado pelo próprio portal:** https://archive.org/download/leizilla-dataset-ro-v0/versoes.parquet
-- **Metadados da release:** https://archive.org/download/leizilla-dataset-ro-v0/dataset_meta.json
+- **Ponteiro latest (mutável) no Internet Archive:** https://archive.org/details/leizilla-dataset-ro-v0-latest
+- **Parquet usado pelo próprio portal:** https://archive.org/download/leizilla-dataset-ro-v0-latest/versoes.parquet
+- **Metadados da release corrente:** https://archive.org/download/leizilla-dataset-ro-v0-latest/dataset_meta.json
 
 O portal consulta o Parquet diretamente no navegador com DuckDB-WASM. A página de dados também mostra uma consulta mínima reproduzível para testar o mesmo artefato fora do site.
+
+### Releases imutáveis vs. ponteiro latest
+
+Cada publicação agendada do dataset gera dois artefatos distintos no Internet Archive
+(`leizilla release-dataset`, ver `docs/okf/pipeline/release-dataset.md`):
+
+- **Release imutável e citável** — `leizilla-dataset-{ente}-v{N}-{revisão}` (ex.:
+  `leizilla-dataset-ro-v0-20260924t181131z`). Nunca é sobrescrita nem reaproveitada;
+  citar esse identifier sempre resolve para o mesmo conteúdo, com `git_sha`, hash do
+  Parquet e contagem de linhas registrados em `dataset_meta.json`.
+- **Ponteiro `latest`, pequeno e mutável** — `leizilla-dataset-{ente}-v{N}-latest`. É o
+  que o portal usa por padrão (mais rápido de referenciar) e carrega um `latest.json`
+  apontando para o identifier imutável em vigor. É deliberadamente atualizado a cada
+  release — nunca cite esse item para reprodutibilidade.
+
+Releases antigas continuam diretamente recuperáveis pelo próprio identifier — nada é
+apagado quando uma release nova é publicada.
 
 ## ✅ Estado atual
 
@@ -59,11 +76,14 @@ Com DuckDB instalado, uma verificação mínima é:
 ```sql
 SELECT count(*)
 FROM read_parquet(
-  'https://archive.org/download/leizilla-dataset-ro-v0/versoes.parquet'
+  'https://archive.org/download/leizilla-dataset-ro-v0-latest/versoes.parquet'
 );
 ```
 
-Para conferir a release, compare o resultado e os demais dados do artefato com `dataset_meta.json`, que registra metadados como contagem, hash e revisão de origem quando disponíveis.
+Para conferir a release, compare o resultado e os demais dados do artefato com `dataset_meta.json`, que registra metadados como contagem, hash e revisão de origem quando disponíveis. Para citar um snapshot fixo em vez do ponteiro móvel, resolva
+`.../leizilla-dataset-ro-v0-latest/latest.json` e use o `identifier` ali registrado
+(`leizilla-dataset-ro-v0-{revisão}`) — é o que a seção "Releases imutáveis vs. ponteiro
+latest" acima descreve.
 
 ## 🛠️ Desenvolvimento local
 
@@ -72,24 +92,24 @@ O projeto usa Python 3.12+ e `uv`.
 ```bash
 git clone https://github.com/franklinbaldo/leizilla.git
 cd leizilla
-uv sync --dev
+uv sync --extra dev
 uv run leizilla --help
 ```
 
-Alguns comandos disponíveis no CLI:
+Alguns comandos disponíveis no CLI (manifest-driven; `--ente` default `ro`):
 
 ```bash
-# descobrir documentos
-uv run leizilla discover --origem rondonia --start-coddoc 1 --end-coddoc 10
+# descobrir documentos (lê manifesto em src/leizilla/manifests/{ente}.json)
+uv run leizilla discover --ente ro
 
-# baixar documentos descobertos
-uv run leizilla download --origem rondonia --limit 5
+# processar a fila de descoberta: raspar + subir para o Internet Archive
+uv run leizilla harvest --ente ro --limit 100
 
-# consultar estatísticas locais
-uv run leizilla stats
+# consultar estatísticas (local + contagens no Internet Archive)
+uv run leizilla stats --ente ro
 
 # buscar no banco local
-uv run leizilla search --text "lei complementar"
+uv run leizilla search --ente ro --text "lei complementar"
 ```
 
 Para desenvolvimento e operação, leia também [CLAUDE.md](CLAUDE.md), [CONTRIBUTING.md](CONTRIBUTING.md) e as decisões em [`docs/`](docs/).
