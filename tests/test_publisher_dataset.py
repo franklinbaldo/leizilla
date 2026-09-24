@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -127,6 +129,16 @@ class TestBuildDatasetMeta:
         meta = build_dataset_meta(p, "ro", 0, row_count=1)
         assert meta["file_size_bytes"] == p.stat().st_size
 
+    def test_revision_defaults_when_omitted(self, tmp_path: Path) -> None:
+        p = _make_parquet(tmp_path)
+        meta = build_dataset_meta(p, "ro", 0, row_count=1)
+        assert re.match(r"^\d{8}t\d{6}z$", meta["revision"])
+
+    def test_revision_explicit(self, tmp_path: Path) -> None:
+        p = _make_parquet(tmp_path)
+        meta = build_dataset_meta(p, "ro", 0, row_count=1, revision="20260101t000000z")
+        assert meta["revision"] == "20260101t000000z"
+
 
 # ---------------------------------------------------------------------------
 # InternetArchivePublisher.upload_dataset
@@ -149,19 +161,26 @@ class TestUploadDataset:
             patch("leizilla.publisher._get_git_sha", return_value=None),
             patch("subprocess.run", return_value=mock_cp) as mock_run,
         ):
-            pub.upload_dataset(p, "ro", 0, row_count=1, git_sha=None)
+            pub.upload_dataset(
+                p, "ro", 0, row_count=1, git_sha=None, revision="20260101t000000z"
+            )
         call_args = mock_run.call_args_list[0][0][0]
-        assert "leizilla-dataset-ro-v0" in call_args
+        assert "leizilla-dataset-ro-v0-20260101t000000z" in call_args
 
     def test_success_returns_ia_url(self, tmp_path: Path) -> None:
         p = _make_parquet(tmp_path)
         pub = _publisher()
         mock_cp = MagicMock(returncode=0, stdout="", stderr="")
         with patch("subprocess.run", return_value=mock_cp):
-            result = pub.upload_dataset(p, "ro", 0, row_count=1, git_sha=None)
+            result = pub.upload_dataset(
+                p, "ro", 0, row_count=1, git_sha=None, revision="20260101t000000z"
+            )
         assert result["success"] is True
-        assert result["ia_url"] == "https://archive.org/details/leizilla-dataset-ro-v0"
-        assert result["ia_id"] == "leizilla-dataset-ro-v0"
+        assert (
+            result["ia_url"]
+            == "https://archive.org/details/leizilla-dataset-ro-v0-20260101t000000z"
+        )
+        assert result["ia_id"] == "leizilla-dataset-ro-v0-20260101t000000z"
 
     def test_success_returns_row_count(self, tmp_path: Path) -> None:
         p = _make_parquet(tmp_path)
@@ -176,8 +195,47 @@ class TestUploadDataset:
         pub = _publisher()
         mock_cp = MagicMock(returncode=0, stdout="", stderr="")
         with patch("subprocess.run", return_value=mock_cp):
-            result = pub.upload_dataset(p, "federal", 2, row_count=0, git_sha=None)
-        assert result["ia_id"] == "leizilla-dataset-federal-v2"
+            result = pub.upload_dataset(
+                p,
+                "federal",
+                2,
+                row_count=0,
+                git_sha=None,
+                revision="20260101t000000z",
+            )
+        assert result["ia_id"] == "leizilla-dataset-federal-v2-20260101t000000z"
+
+    def test_revision_defaults_to_utc_timestamp_format(self, tmp_path: Path) -> None:
+        """Sem --revision explícito, o identifier embute um timestamp UTC (issue #175)."""
+        p = _make_parquet(tmp_path)
+        pub = _publisher()
+        mock_cp = MagicMock(returncode=0, stdout="", stderr="")
+        with patch("subprocess.run", return_value=mock_cp):
+            result = pub.upload_dataset(p, "ro", 0, row_count=1, git_sha=None)
+        assert re.match(r"^leizilla-dataset-ro-v0-\d{8}t\d{6}z$", result["ia_id"]), (
+            result["ia_id"]
+        )
+        assert result["revision"] == result["ia_id"].rsplit("-", 1)[-1]
+
+    def test_repeated_calls_never_reuse_identifier(self, tmp_path: Path) -> None:
+        """Cada publicação é um item imutável novo — nunca sobrescreve a anterior."""
+        p = _make_parquet(tmp_path)
+        pub = _publisher()
+        mock_cp = MagicMock(returncode=0, stdout="", stderr="")
+        with patch("subprocess.run", return_value=mock_cp):
+            first = pub.upload_dataset(
+                p, "ro", 0, row_count=1, git_sha=None, revision="20260101t000000z"
+            )
+            second = pub.upload_dataset(
+                p, "ro", 0, row_count=1, git_sha=None, revision="20260102t000000z"
+            )
+        assert first["ia_id"] != second["ia_id"]
+
+    def test_invalid_revision_raises(self, tmp_path: Path) -> None:
+        p = _make_parquet(tmp_path)
+        pub = _publisher()
+        with pytest.raises(ValueError, match="revision must match"):
+            pub.upload_dataset(p, "ro", 0, row_count=1, revision="2026-01-01")
 
     def test_negative_version_raises(self, tmp_path: Path) -> None:
         # P2 fix: upload_dataset API rejects negative versions before constructing ia_id
@@ -247,6 +305,86 @@ class TestUploadDataset:
         assert "internetarchive" in result["error"]
 
 
+class TestUploadDatasetLatestPointer:
+    """Ponteiro mutável leizilla-dataset-{ente}-v{version}-latest (issue #175)."""
+
+    def test_latest_pointer_published_by_default(self, tmp_path: Path) -> None:
+        p = _make_parquet(tmp_path)
+        pub = _publisher()
+        mock_cp = MagicMock(returncode=0, stdout="", stderr="")
+        with (
+            patch("leizilla.publisher._get_git_sha", return_value=None),
+            patch("subprocess.run", return_value=mock_cp) as mock_run,
+        ):
+            result = pub.upload_dataset(
+                p, "ro", 0, row_count=1, git_sha=None, revision="20260101t000000z"
+            )
+        assert mock_run.call_count == 2
+        latest_call_args = mock_run.call_args_list[1][0][0]
+        assert "leizilla-dataset-ro-v0-latest" in latest_call_args
+        assert result["latest_pointer"]["success"] is True
+        assert result["latest_pointer"]["ia_id"] == "leizilla-dataset-ro-v0-latest"
+        assert result["latest_pointer"]["points_to"] == result["ia_id"]
+
+    def test_latest_pointer_can_be_disabled(self, tmp_path: Path) -> None:
+        p = _make_parquet(tmp_path)
+        pub = _publisher()
+        mock_cp = MagicMock(returncode=0, stdout="", stderr="")
+        with (
+            patch("leizilla.publisher._get_git_sha", return_value=None),
+            patch("subprocess.run", return_value=mock_cp) as mock_run,
+        ):
+            result = pub.upload_dataset(
+                p, "ro", 0, row_count=1, git_sha=None, publish_latest=False
+            )
+        assert mock_run.call_count == 1
+        assert "latest_pointer" not in result
+
+    def test_latest_json_points_to_immutable_release(self, tmp_path: Path) -> None:
+        """latest.json enviado ao IA referencia o identifier imutável do release."""
+        p = _make_parquet(tmp_path)
+        pub = _publisher()
+        mock_cp = MagicMock(returncode=0, stdout="", stderr="")
+        captured: dict[str, object] = {}
+
+        def capture(cmd: list[str], **kwargs: object) -> MagicMock:
+            for f in cmd:
+                if isinstance(f, str) and f.endswith("latest.json"):
+                    captured["payload"] = json.loads(Path(f).read_text())
+            return mock_cp
+
+        with patch("subprocess.run", side_effect=capture):
+            result = pub.upload_dataset(
+                p, "ro", 0, row_count=1, git_sha="deadbeef", revision="20260101t000000z"
+            )
+
+        payload = captured["payload"]
+        assert (
+            payload["identifier"]
+            == result["ia_id"]
+            == "leizilla-dataset-ro-v0-20260101t000000z"
+        )
+        assert payload["revision"] == "20260101t000000z"
+        assert payload["git_sha"] == "deadbeef"
+        assert payload["row_count"] == 1
+        assert payload["parquet_url"].endswith(f"/{result['ia_id']}/versoes.parquet")
+
+    def test_latest_pointer_failure_does_not_fail_release(self, tmp_path: Path) -> None:
+        """Falha no ponteiro é fail-open: a release imutável já publicou com sucesso."""
+        p = _make_parquet(tmp_path)
+        pub = _publisher()
+        mock_cp = MagicMock(returncode=0, stdout="", stderr="")
+        err = subprocess.CalledProcessError(1, "ia", stderr="rate limited")
+        with (
+            patch("leizilla.publisher._get_git_sha", return_value=None),
+            patch("subprocess.run", side_effect=[mock_cp, err]),
+        ):
+            result = pub.upload_dataset(p, "ro", 0, row_count=1, git_sha=None)
+        assert result["success"] is True
+        assert result["latest_pointer"]["success"] is False
+        assert "rate limited" in result["latest_pointer"]["error"]
+
+
 class TestReleaseDatasetCli:
     def test_negative_version_rejected(self, tmp_path: Path) -> None:
         """--version negativo deve ser rejeitado com exit 1."""
@@ -281,6 +419,53 @@ class TestReleaseDatasetCli:
             result = _runner.invoke(app, ["release-dataset", str(p), "--ente", "RO"])
         assert result.exit_code == 1
         assert "Upload falhou" in result.output
+
+    def test_echoes_latest_pointer_url_on_success(self, tmp_path: Path) -> None:
+        p = _make_parquet(tmp_path)
+        ok_result = {
+            "success": True,
+            "ia_id": "leizilla-dataset-ro-v0-20260101t000000z",
+            "ia_url": "https://archive.org/details/leizilla-dataset-ro-v0-20260101t000000z",
+            "row_count": 1,
+            "revision": "20260101t000000z",
+            "latest_pointer": {
+                "success": True,
+                "ia_id": "leizilla-dataset-ro-v0-latest",
+                "ia_url": "https://archive.org/details/leizilla-dataset-ro-v0-latest",
+                "points_to": "leizilla-dataset-ro-v0-20260101t000000z",
+            },
+        }
+        with patch(
+            "leizilla.publisher.InternetArchivePublisher.upload_dataset",
+            return_value=ok_result,
+        ):
+            result = _runner.invoke(app, ["release-dataset", str(p), "--version", "0"])
+        assert result.exit_code == 0
+        assert "Ponteiro latest atualizado" in result.output
+        assert "leizilla-dataset-ro-v0-latest" in result.output
+
+    def test_echoes_warning_when_latest_pointer_fails(self, tmp_path: Path) -> None:
+        p = _make_parquet(tmp_path)
+        ok_result = {
+            "success": True,
+            "ia_id": "leizilla-dataset-ro-v0-20260101t000000z",
+            "ia_url": "https://archive.org/details/leizilla-dataset-ro-v0-20260101t000000z",
+            "row_count": 1,
+            "revision": "20260101t000000z",
+            "latest_pointer": {
+                "success": False,
+                "error": "rate limited",
+                "ia_id": "leizilla-dataset-ro-v0-latest",
+            },
+        }
+        with patch(
+            "leizilla.publisher.InternetArchivePublisher.upload_dataset",
+            return_value=ok_result,
+        ):
+            result = _runner.invoke(app, ["release-dataset", str(p), "--version", "0"])
+        assert result.exit_code == 0
+        assert "Aviso" in result.output
+        assert "rate limited" in result.output
 
 
 class TestReleaseDatasetBenchmark:

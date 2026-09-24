@@ -1,8 +1,15 @@
 import * as duckdb from '@duckdb/duckdb-wasm';
 
+// Issue #175: o item hardcoded aqui é o ponteiro MUTÁVEL leizilla-dataset-{ente}-v{N}-latest
+// (publisher._publish_latest_pointer), não uma release específica — publisher.upload_dataset
+// agora publica cada release agendada como um item imutável e citável à parte
+// (leizilla-dataset-{ente}-v{N}-{revision}), nunca reaproveitado. O portal continua apontando
+// para o ponteiro por padrão (mais rápido, sempre resolve para o conteúdo corrente); a release
+// imutável em vigor fica disponível via DATASET_LATEST_JSON_URL/fetchLatestPointer() abaixo,
+// para quem quiser citar um snapshot específico.
 const PARQUET_URL =
   (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_PARQUET_URL) ||
-  'https://archive.org/download/leizilla-dataset-ro-v0/versoes.parquet';
+  'https://archive.org/download/leizilla-dataset-ro-v0-latest/versoes.parquet';
 
 /** URL pública do Parquet servido ao navegador — exposta para a página de dados. */
 export const DATASET_PARQUET_URL = PARQUET_URL;
@@ -21,6 +28,48 @@ export const DATASET_IA_ITEM: string | null = (() => {
 export const DATASET_META_URL: string | null = DATASET_IA_ITEM
   ? `https://archive.org/download/${DATASET_IA_ITEM}/dataset_meta.json`
   : null;
+
+/**
+ * latest.json do ponteiro mutável — só existe quando DATASET_IA_ITEM é de fato um
+ * ponteiro `-latest` (publisher._publish_latest_pointer). Null noutro caso (ex.:
+ * PUBLIC_PARQUET_URL apontando direto para uma release imutável ou outro host).
+ */
+export const DATASET_LATEST_JSON_URL: string | null =
+  DATASET_IA_ITEM && DATASET_IA_ITEM.endsWith('-latest')
+    ? `https://archive.org/download/${DATASET_IA_ITEM}/latest.json`
+    : null;
+
+/** Ponteiro para a release imutável e citável corrente (issue #175). */
+export interface LatestPointer {
+  identifier: string;
+  ia_url: string;
+  parquet_url: string;
+  revision?: string;
+  generated_at?: string;
+  git_sha?: string;
+  row_count?: number;
+  hash_parquet?: string;
+}
+
+/**
+ * Resolve o identifier da release imutável apontada pelo ponteiro `-latest` — usado
+ * só para exibir uma citação estável (ex.: "release leizilla-dataset-ro-v0-20260924t...");
+ * nunca decide qual Parquet o DuckDB-WASM carrega (isso é DATASET_PARQUET_URL, resolvido em
+ * build/deploy time). Fail-open: rede indisponível, CORS ou item ainda sem latest.json
+ * (dataset nunca publicado) devolvem null em vez de lançar.
+ */
+export async function fetchLatestPointer(): Promise<LatestPointer | null> {
+  if (!DATASET_LATEST_JSON_URL) return null;
+  try {
+    const res = await fetch(DATASET_LATEST_JSON_URL);
+    if (!res.ok) return null;
+    const data = (await res.json()) as Partial<LatestPointer>;
+    if (!data.identifier || !data.parquet_url) return null;
+    return data as LatestPointer;
+  } catch {
+    return null;
+  }
+}
 
 const WASM_VERSION = '1.32.0';
 
@@ -170,7 +219,13 @@ const toJson: RowMapper<LeiRow> = (r) => (r as { toJSON(): LeiRow }).toJSON();
 
 function buildWhere(query: string, opts: SearchOptions = {}) {
   const { ente, tipoLei, year } = opts;
-  const clauses = ['ate IS NULL'];
+  // No unconditional `ate IS NULL` here: a totally revoked law has every row
+  // with `ate` set (the ETL cascades lei_revogada_em to every dispositivo),
+  // so that clause used to make revoked laws vanish from search, filters and
+  // getRecentLeis entirely (issue #151 item 1). Callers that list one summary
+  // row per lei_id instead prefer the vigente row via ORDER BY, falling back
+  // to the latest revoked one — see searchLeisFiltered/getRecentLeis below.
+  const clauses: string[] = [];
   const params: Array<string | number> = [];
   if (query.trim()) {
     clauses.push('texto_normalizado ILIKE ?');
@@ -194,7 +249,7 @@ function buildWhere(query: string, opts: SearchOptions = {}) {
     clauses.push('YEAR(em) = ?');
     params.push(year);
   }
-  return { where: clauses.join(' AND '), params };
+  return { where: clauses.length ? clauses.join(' AND ') : 'TRUE', params };
 }
 
 async function runSql<T>(
@@ -234,7 +289,7 @@ export async function searchLeisFiltered(query: string, opts: SearchOptions = {}
     sql = `SELECT * EXCLUDE (_rn) FROM (
         SELECT *, ROW_NUMBER() OVER (
           PARTITION BY lei_id
-          ORDER BY (dispositivo_path = 'ementa') DESC, dispositivo_ordem, dispositivo_path
+          ORDER BY (ate IS NULL) DESC, (dispositivo_path = 'ementa') DESC, dispositivo_ordem, dispositivo_path
         ) AS _rn
         FROM versoes WHERE ${where}
       ) WHERE _rn = 1
@@ -403,9 +458,9 @@ export async function getRecentLeis(limit = 8): Promise<LeiRow[]> {
   const sql = `SELECT * EXCLUDE (_rn) FROM (
       SELECT *, ROW_NUMBER() OVER (
         PARTITION BY lei_id
-        ORDER BY (dispositivo_path = 'ementa') DESC, dispositivo_ordem, dispositivo_path
+        ORDER BY (ate IS NULL) DESC, (dispositivo_path = 'ementa') DESC, dispositivo_ordem, dispositivo_path
       ) AS _rn
-      FROM versoes WHERE ate IS NULL
+      FROM versoes
     ) WHERE _rn = 1
     ORDER BY data_ato DESC NULLS LAST, ano_lei DESC, lei_id DESC
     LIMIT ${safe}`;
