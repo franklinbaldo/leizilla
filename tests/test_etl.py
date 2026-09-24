@@ -36,6 +36,38 @@ _WITH_REVOGACAO_CASCATA = _load("with-revogacao-cascata.xml")
 _WITH_BLOCOS = _load("with-blocos-organizacionais.xml")
 _WITH_PARCIAL = _load("with-parse-parcial.xml")
 
+# Not a fixture file under tests/fixtures/leizilla_xml/: that directory is also
+# scanned by test_schema_consistency.py as a corpus of *invariant-clean* XML,
+# and this shape (two <versao> with no `em`, same inherited anchor) violates
+# §7.07 (versões devem estar em ordem estritamente crescente) by construction
+# — it is exactly the malformed-but-XSD-valid LLM output that issue #151 item 2
+# describes slipping past the parse pipeline (the consistency checker doesn't
+# run there, only the XSD gate does), so etl.py must degrade gracefully
+# instead of crashing the daily consolidate job.
+_WITH_VERSAO_ID_COLLISION = """<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1"
+     schema-version="0.1"
+     urn-lex="urn:lex:br;rondonia:estadual:lei:2010-03-01;4242"
+     vigente-em="2026-05-20">
+  <dispositivo path="ementa">
+    <versao>
+      <texto>Dispõe sobre situação hipotética de teste.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04242"/>
+    </versao>
+  </dispositivo>
+  <dispositivo path="art-1">
+    <versao>
+      <texto>Redação sem data explícita, primeira fonte.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-04242"/>
+    </versao>
+    <versao>
+      <texto>Redação sem data explícita, segunda fonte (mesma âncora herdada).</texto>
+      <fonte ia-id="leizilla-raw-ro-diario-2010-03-01-p0001"/>
+    </versao>
+  </dispositivo>
+</lei>
+"""
+
 
 # ---------------------------------------------------------------------------
 # path_to_tipo
@@ -366,6 +398,38 @@ class TestConsolidateXmls:
 
     def test_empty_input(self) -> None:
         assert consolidate_xmls([]) == []
+
+
+# ---------------------------------------------------------------------------
+# xml_to_rows — with-versao-id-collision.xml (issue #151 item 2)
+# ---------------------------------------------------------------------------
+
+
+class TestXmlToRowsVersaoIdCollision:
+    def setup_method(self) -> None:
+        self.rows = xml_to_rows(
+            _WITH_VERSAO_ID_COLLISION, "leizilla-ro-lei-04242-2010", "ro"
+        )
+
+    def test_both_versoes_present(self) -> None:
+        art1_rows = [r for r in self.rows if r["dispositivo_path"] == "art-1"]
+        assert len(art1_rows) == 2
+
+    def test_versao_ids_disambiguated(self) -> None:
+        art1_ids = {
+            r["versao_id"] for r in self.rows if r["dispositivo_path"] == "art-1"
+        }
+        assert art1_ids == {
+            "leizilla-ro-lei-04242-2010#art-1#2010-03-01",
+            "leizilla-ro-lei-04242-2010#art-1#2010-03-01-v2",
+        }
+
+    def test_consolidate_does_not_raise(self) -> None:
+        # Would have raised "Duplicate versao_id detected" before the fix.
+        rows = consolidate_xmls(
+            [("leizilla-ro-lei-04242-2010", "ro", _WITH_VERSAO_ID_COLLISION)]
+        )
+        assert len(rows) == len(self.rows)
 
 
 # ---------------------------------------------------------------------------

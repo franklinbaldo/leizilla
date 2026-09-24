@@ -196,6 +196,129 @@ por tipo). Issues #175 (latest pointer) e #176 (cdx-auto discovery) — as duas
 outras PRs abertas pelo mantenedor na mesma leva de #174 — não foram tocadas
 nesta sessão (uma sub-tarefa por PR, conforme a rotina).
 
+### 2026-09-24 (sessão 4) — RFC-0003 Fase 1 concluída: `cdx-auto` nas estratégias de discovery (issue #176)
+
+Rotina disparada pela abertura da issue #176 (o pedaço da Fase 1 da RFC-0003
+que a sessão 3 tinha deixado explicitamente para uma sessão própria, por
+mexer em mais superfície). PR #173 (paridade de relatório harvest↔scrape,
+sessão 3) já tinha sido mergeada em `main` (`9b78bdf`) antes desta sessão
+começar.
+
+**Mudança**: `src/leizilla/discovery.py` ganhou `resolve_cdx_max_by_tipo(prefix)`
+— consulta a CDX API uma única vez para um prefixo e classifica cada PDF
+casado via `parse_filename`, retornando o maior número arquivado por
+`tipo_documento`; fail-safe (`{}`) em erro de rede, timeout ou resposta
+vazia/malformada. `WaybackCdxDiscovery.run()` foi refatorado para reusar o
+fetch (`_fetch_cdx_pdf_records`) sem mudar comportamento externo (mesmos
+testes, sem alteração).
+
+`SequentialDiscovery` agora aceita `"end": "cdx-auto"` no manifesto (além do
+inteiro fixo já suportado): resolve o limite via `resolve_cdx_max_by_tipo()`
+usando o diretório do primeiro template como prefixo CDX e o
+`tipo_documento` derivado do próprio template; se a CDX não resolver nada
+(vazia/erro/timeout), cai em `end_fallback` (default 10, configurável no
+manifesto) — nunca propaga exceção nem aborta o discover. `"end"` que não é
+inteiro nem `"cdx-auto"` levanta `ValueError` na construção da estratégia.
+
+`manifests/ro.json` ganhou 8 entradas `sequential` (uma por tipo de
+casacivil: lei, lc, decreto via `D`/`DEC`, decreto-lei, ec, resolução,
+portaria), todas `"end": "cdx-auto"`, espelhando exatamente os mesmos
+templates/`head_check` que o `probe` legado do `cmd_scrape` já usava — então
+`discover → harvest` agora cobre o mesmo caso (probing sequencial até o
+maior número arquivado) que antes só existia em `cmd_scrape`/casacivil. O
+`probe` do manifesto e o próprio `cmd_scrape` **não foram tocados** — seguem
+com sua própria lógica duplicada de `cdx_max`; substituí-la por um wrapper
+fino sobre `discover`/`harvest` é Fase 2 (redirecionamento de workflow),
+explicitamente fora do escopo desta issue/PR.
+
+**Testes**: `tests/test_discovery.py` ganhou `TestResolveCdxMaxByTipo` (resposta
+normal, filtro de status/mimetype, resposta vazia, timeout, erro de rede, JSON
+malformado) e `TestSequentialDiscoveryCdxAuto` (resolução normal, fallback em
+CDX vazia/erro, `end_fallback` customizado, `end` inválido levanta
+`ValueError`, `start` além do fim resolvido não quebra, `end` fixo nunca
+consulta a CDX). `test_run_discovery`/`test_run_discovery_scoped_to_fonte`
+atualizados para o novo formato do manifesto de casacivil (8 estratégias
+`sequential` a mais) e para mockar `CasacivilIndexDiscovery` explicitamente
+(evita I/O real em teste unitário).
+
+**Docs**: RFC-0003 marca a Fase 1 como concluída (#173 + #176); IMPLEMENTATION.md
+("Próximos passos imediatos") e `docs/okf/discovery/strategies.md` atualizados
+para descrever `"end": "cdx-auto"`.
+
+**Validação**: `uv run leizilla dev check` — 796 passed, 13 skipped.
+`uv run mypy src/ --ignore-missing-imports` — só os 3 erros pré-existentes de
+stub ausente (`types-requests`), nenhum em arquivo tocado.
+
+**Não iniciado nesta PR** (por escopo explícito da issue #176): Fase 2
+(`rondonia_crawler.yml` → `discover`+`harvest`; `cmd_scrape` vira wrapper
+fino) e Fase 3 (deprecação do `scrape`).
+
+### 2026-09-24 (sessão 4) — 3 achados do review automatizado (issue #151) viram PRs pequenas e independentes
+
+**Rotina agendada de portfólio.** Ao chegar, quatro PRs de sessões irmãs já
+estavam abertas com CI verde e `mergeable_state: clean` sobre o mesmo `main`
+(`9b78bdf`): #177 (`docs/okf/project-dag.md` — ledger OKR/DAG canônico,
+ainda não mergeado, então não tratado aqui como fonte de verdade), #178/#179
+(RFC-0003 Fase 1: teste de paridade harvest/scrape + `cdx-auto` no
+discovery) e #180 (releases de dataset imutáveis + ponteiro `latest`,
+fechando o "risco silencioso" nº1 da issue #151). Nenhuma foi tocada por
+esta sessão — já estavam prontas para o mantenedor mergeliar; duplicar esse
+trabalho desperdiçaria a sessão. **Atenção para quem for mergear em
+sequência**: #180 e a PR desta sessão (#181) tocam `web/src/lib/db.ts` em
+funções diferentes — conflito textual é possível dependendo da ordem de
+merge, não de lógica.
+
+Para não duplicar esse esforço, esta sessão verificou os 3 itens
+**verificáveis e ainda não cobertos** da lista ordenada da issue #151
+(revisão automatizada `stealth/ox-alpha` de 2026-08-24) contra o código
+atual — todos os 3 se confirmaram reais — e abriu uma PR pequena e
+independente para cada um:
+
+1. **#181 — `web/src/lib/db.ts`: leis totalmente revogadas invisíveis.**
+   `buildWhere()` tinha `ate IS NULL` incondicional; toda lei revogada por
+   completo (todo dispositivo com `ate` preenchido, cascata do ETL) sumia
+   da busca, dos filtros, de `getRecentLeis` e do `/lei/?id=…` (o usuário
+   nunca chegava a ter o link). `DispositivoTree`/`model.ts` já sabiam
+   renderizar o banner de "revogada" — só nunca recebiam a linha. Removido
+   o filtro incondicional; modo-navegação e `getRecentLeis` agora preferem
+   a versão vigente via `ORDER BY (ate IS NULL) DESC, …` com fallback para
+   a última revogada, em vez de excluir a lei. `npm run build` limpo (sem
+   suíte de teste de frontend ainda — gap conhecido, issue #102).
+2. **#182 — `etl.py`: colisão de `versao_id` dentro do mesmo dispositivo.**
+   Duas `<versao>` sem `em` no mesmo dispositivo herdam a mesma âncora →
+   mesmo `versao_id` → `consolidate_xmls` levanta `ValueError` →
+   `parse-release.yml` falha o dia inteiro sem publicar dataset nenhum.
+   XSD-válido (checker de consistência não roda no pipeline de parse — só
+   o XSD gate, fato canônico #13). Corrigido com sufixo `-v2`/`-v3` só em
+   caso de colisão real; formato documentado inalterado no caso normal.
+   Fixture de teste ficou inline em `test_etl.py` (não em
+   `tests/fixtures/leizilla_xml/`, porque esse diretório também é o corpus
+   "limpo" que `test_schema_consistency.py` varre — essa forma viola §7.07
+   de propósito).
+3. **#183 — `parser.py`: truncamento de OCR/HTML sem sinalização.**
+   `parse_law` corta em `_OCR_CHAR_LIMIT`/`_HTML_CHAR_LIMIT` sem registrar
+   nada — leis longas (orçamentos, estatutos) são publicadas como
+   "completas" com confiança alta. Adicionado `texto_truncado` +
+   `tamanho_texto_original` em `parsed_meta`; `docs/SCHEMA.md` atualizado.
+
+Gates locais (mesmo SHA de cada branch, reconciliados por PR): `uv run
+leizilla dev check` (787 passed/13 skipped no #182), `uv run pytest
+tests/test_parser.py` (62 passed no #183), `npm run build` (#181), `mypy
+src/ --ignore-missing-imports` limpo nos três.
+
+**Itens da issue #151 ainda não endereçados** (registrados para a próxima
+sessão, não duplicar): item 3 (`_xsd_gate` fail-open quando `xmllint`
+ausente em CI — hoje só funciona por acidente da imagem `ubuntu-latest`) e
+item 5 (higiene de docs: README/CLAUDE.md com flags de CLI mortas,
+`scripts/backup_database.py`/`scripts/run_rondonia_crawler.py` chamando
+`publisher.upload_pdf()` inexistente, teste e2e duplicado). Comentário
+correspondente deixado na issue #151.
+
+`docs/okf/project-dag.md` **não existe em `main`** nesta sessão (só na PR
+#177, ainda aberta) — a próxima sessão deve tratá-lo como ledger canônico
+só depois do merge; até lá, IMPLEMENTATION.md + `docs/rfc/` + issues
+seguem sendo a fonte de verdade reconstruível.
+
 ### 2026-09-24 (sessão 3) — merge PR #172; RFC-0003 doc-drift corrigido; harvest ganha paridade de relatório com scrape (Fase 1 parcial)
 
 **FASE 1 — triagem**: 4 PRs abertas. #139/#142 (Dependabot) — anotadas e
@@ -1796,18 +1919,20 @@ sobre o gold v1 (mais representativo, mas ainda pequeno) ou aguardar mais
 rodadas do caminho 1 sobre outras fontes RO (assembleia segue sem itens raw
 publicados no IA — nada a amostrar lá ainda).
 
-**Convergência scrape→harvest**: ver
-[`docs/rfc/0003-convergencia-scrape-harvest.md`](docs/rfc/0003-convergencia-scrape-harvest.md)
-— #93/#94 (os fixes de produção que bloqueavam a Fase 1) estão mergeados desde
-07/2026; texto anterior aqui ficou em drift (princípio 2) dizendo "aguardando
-merge". Fase 1 começou em 2026-09-24 (sessão 3): `harvest_pending_resources`
-agora reporta por item (`stats["items"]`), igualando o formato `OK: <ia_id> →
-<ia_url>` / `Falha [reason]: <chave>` que `scrape` já tinha. Falta, ainda na
-Fase 1: portar a descoberta de `cdx_max` via Wayback CDX (hoje só em
-`cmd_scrape`/casacivil) para as estratégias de discovery do manifesto
-(`"end": "cdx-auto"`). Fases 2 (workflows) e 3 (deprecação do `scrape`) seguem
-não iniciadas — são mudanças maiores (remoção/fusão de workflow) que merecem
-sessão própria, não bundle com um fix de doc-drift.
+**Convergência scrape→harvest — Fase 1 concluída** (2026-09-24, sessões 3+4): ver
+[`docs/rfc/0003-convergencia-scrape-harvest.md`](docs/rfc/0003-convergencia-scrape-harvest.md).
+`harvest_pending_resources` reporta por item, igualando o formato `OK: <ia_id> →
+<ia_url>` / `Falha [reason]: <chave>` que `scrape` já tinha (#173);
+`SequentialDiscovery` aceita `"end": "cdx-auto"` (resolvido via a nova
+`resolve_cdx_max_by_tipo()`, fail-safe) e `manifests/ro.json` tem uma entrada
+`sequential` por tipo de casacivil, então `discover → harvest` cobre o mesmo
+caso de probing que antes só existia em `cmd_scrape`/casacivil (#176).
+Próximo: **Fase 2** — `rondonia_crawler.yml` passa a chamar `discover`+`harvest`
+(um único workflow semanal) e `cmd_scrape` vira wrapper fino sobre o mesmo
+caminho; depois **Fase 3** — aviso de deprecação em `scrape` e, só após duas
+execuções semanais sem regressão de cobertura (`stats --ia`), remoção. Nenhuma
+das duas foi iniciada — mudam workflow/comportamento em produção e merecem
+sessão própria com o `stats --ia` de antes/depois em mãos.
 
 **Dívida técnica identificada**: Protocol formal para estratégias de discovery (`WaybackCdxDiscovery`,
 `SequentialDiscovery`, `PlaywrightCrawlerDiscovery`) — RESOLVIDO: Substituiu-se a class base por `DiscoveryStrategyProtocol(Protocol)`.

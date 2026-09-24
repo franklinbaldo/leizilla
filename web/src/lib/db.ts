@@ -180,7 +180,13 @@ const toJson: RowMapper<LeiRow> = (r) => (r as { toJSON(): LeiRow }).toJSON();
 
 function buildWhere(query: string, opts: SearchOptions = {}) {
   const { ente, tipoLei, year } = opts;
-  const clauses = ['ate IS NULL'];
+  // No unconditional `ate IS NULL` here: a totally revoked law has every row
+  // with `ate` set (the ETL cascades lei_revogada_em to every dispositivo),
+  // so that clause used to make revoked laws vanish from search, filters and
+  // getRecentLeis entirely (issue #151 item 1). Callers that list one summary
+  // row per lei_id instead prefer the vigente row via ORDER BY, falling back
+  // to the latest revoked one — see searchLeisFiltered/getRecentLeis below.
+  const clauses: string[] = [];
   const params: Array<string | number> = [];
   if (query.trim()) {
     clauses.push('texto_normalizado ILIKE ?');
@@ -204,7 +210,7 @@ function buildWhere(query: string, opts: SearchOptions = {}) {
     clauses.push('YEAR(em) = ?');
     params.push(year);
   }
-  return { where: clauses.join(' AND '), params };
+  return { where: clauses.length ? clauses.join(' AND ') : 'TRUE', params };
 }
 
 async function runSql<T>(
@@ -244,7 +250,7 @@ export async function searchLeisFiltered(query: string, opts: SearchOptions = {}
     sql = `SELECT * EXCLUDE (_rn) FROM (
         SELECT *, ROW_NUMBER() OVER (
           PARTITION BY lei_id
-          ORDER BY (dispositivo_path = 'ementa') DESC, dispositivo_ordem, dispositivo_path
+          ORDER BY (ate IS NULL) DESC, (dispositivo_path = 'ementa') DESC, dispositivo_ordem, dispositivo_path
         ) AS _rn
         FROM versoes WHERE ${where}
       ) WHERE _rn = 1
@@ -413,9 +419,9 @@ export async function getRecentLeis(limit = 8): Promise<LeiRow[]> {
   const sql = `SELECT * EXCLUDE (_rn) FROM (
       SELECT *, ROW_NUMBER() OVER (
         PARTITION BY lei_id
-        ORDER BY (dispositivo_path = 'ementa') DESC, dispositivo_ordem, dispositivo_path
+        ORDER BY (ate IS NULL) DESC, (dispositivo_path = 'ementa') DESC, dispositivo_ordem, dispositivo_path
       ) AS _rn
-      FROM versoes WHERE ate IS NULL
+      FROM versoes
     ) WHERE _rn = 1
     ORDER BY data_ato DESC NULLS LAST, ano_lei DESC, lei_id DESC
     LIMIT ${safe}`;
