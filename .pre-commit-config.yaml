@@ -25,6 +25,20 @@ repos:
       - id: mypy
         args: [--no-strict-optional, --ignore-missing-imports] # Ajuste conforme a necessidade do projeto
         additional_dependencies: [types-requests] # sem stubs o hook falha (import-untyped) em wayback/doctor/crawler
+  - repo: local
+    hooks:
+      - id: project-dag-hygiene
+        name: project DAG hygiene
+        entry: uv run scripts/validate_project_dag_hygiene.py
+        language: system
+        files: ^(docs/okf/project-dag\.md|scripts/validate_project_dag_hygiene\.py)$
+        pass_filenames: false
+      - id: project-dag-semantic
+        name: project DAG semantic validator (okf-parser)
+        entry: uv run scripts/project_dag_from_okf.py
+        language: system
+        files: ^(docs/okf/project-dag\.md|scripts/project_dag_from_okf\.py)$
+        pass_filenames: false
 ci:
   autofix_commit_msg: "style: auto-fixes from pre-commit hooks"
   autoupdate_commit_msg: "chore: pre-commit autoupdate"

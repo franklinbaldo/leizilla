@@ -15,15 +15,33 @@ other states over time.
 
 ## Source of truth
 
-**`IMPLEMENTATION.md` holds the canonical milestone status** — what is done,
-in-progress, or blocked. Read it before planning work. Do not reintroduce a
-separate TODO/status doc; status lives in `IMPLEMENTATION.md` and design lives
-in `docs/adr/` and `docs/SCHEMA.md`.
+**`docs/okf/project-dag.md` is the canonical executable project state**:
+live objectives, OKRs, dependencies, blockers, issues/evidence and next actions.
+Read and validate it before planning work.
 
-Current state: milestones **M0–M12.2 are done** (discovery, scraping, IA upload,
-OCR fetch, LLM parsing, ETL→Parquet, dataset release, frontend foundation).
-**M5.3** (DuckDB-WASM benchmark + FTS) is blocked pending a large published
-dataset. **M13** (Produto público v1 — frontend as product surface) is in flight.
+The other sources keep narrower responsibilities:
+
+- `docs/PRD.md` — product mission and requirements;
+- `docs/adr/` + `docs/SCHEMA.md` — architectural/data contracts;
+- `docs/okf/**` — operational reference;
+- `IMPLEMENTATION.md` — materialized milestones, decisions and chronological log;
+- `README.md` — public roadmap horizons;
+- GitHub issues — bounded executable slices;
+- PRs/branches — implementation workspaces, never the durable state ledger.
+
+Do not create a competing TODO/status document and do not encode transient state in
+automation prompts. New material workstreams belong in the DAG before substantive
+execution. Autonomous sessions should normally advance a portfolio of compatible live
+leaves rather than one serial task.
+
+Validate the graph with:
+
+```bash
+uv run scripts/validate_project_dag_hygiene.py
+uv run scripts/project_dag_from_okf.py
+```
+
+See RFC-0007 for the governance split.
 
 ## Development setup
 
