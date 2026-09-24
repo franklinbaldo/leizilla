@@ -79,7 +79,7 @@ fronts:
     origin: "Production crawl/harvest failures and issue #121."
     issues: [121, 136, 140, 141, 149]
     evidence_prs: [187]
-    next_action: "Use the first post-#187 casacivil run to classify the real upload failures, then implement terminal-vs-retryable/requeue semantics in #121 and close only incident trackers disproved by new evidence."
+    next_action: "Use the first post-#187 casacivil run to classify the real upload failures. For #121, model robots/fetch outcomes explicitly: confirmed disallow is terminal; confirmed absence/allow permits access; robots-policy unavailability must stay retryable without becoming implicit permission for a direct fetch. Close only incident trackers disproved by new evidence."
 
   - id: "pipeline-convergence"
     kind: workstream
@@ -126,12 +126,12 @@ fronts:
         evidence_prs: [189]
         next_action: "Close #120 administratively when issue mutation is available; retain the regression cases as the temporal-integrity gate."
       - id: "kr-identifier-contract-consistent"
-        status: open
+        status: active
         metric: "Parser/ETL/URN disagreements over accepted legal number formats."
-        current: "Issue #127 is open for suffix/conflation risk."
+        current: "Issue #127 is open. Official RO SAPL evidence confirms a real single-letter-suffixed legal identifier (Decreto-Lei nº 9-A, cited on https://sapl.al.ro.leg.br/norma/10966), so suffix handling is not hypothetical; the end-to-end contract still needs merged evidence."
         target: "One canonical accepted format across parser, ETL, URN and tests."
         issues: [127]
-        next_action: "Resolve #127 with an explicit contract and round-trip tests."
+        next_action: "Normalize the evidence-backed single-letter suffix grammar across parser, parsed identifier, URN, ETL and schema checker with collision/round-trip tests; keep the raw harvest-key identity layer separate."
       - id: "kr-release-validation-gated"
         status: open
         metric: "Build/release boundaries that publish without the declared schema/quality floor checks."
@@ -162,12 +162,12 @@ fronts:
 
   - id: "identifier-integrity"
     kind: workstream
-    status: open
+    status: active
     parents: [legal-semantic-integrity]
     objective: "Use one canonical legal-number identity contract from parse through URN and release."
     origin: "Issue #127."
     issues: [127]
-    next_action: "Decide the suffix grammar from real source evidence, implement it once, and add round-trip tests."
+    next_action: "Real RO source evidence now confirms the single-letter suffix case; finish the end-to-end grammar/collision implementation and require exact-head schema + test gates before closing #127."
 
   - id: "release-boundary-validation"
     kind: gate
