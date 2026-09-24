@@ -9,6 +9,10 @@ timestamp: 2026-06-25T00:00:00Z
 
 Bundle de conhecimento do Leizilla. Cada arquivo descreve um conceito operacional.
 
+## Estado do projeto
+
+- [Project DAG](project-dag.md) — objetivos, OKRs, dependências, blockers e próximas ações; fonte de verdade das frentes vivas
+
 ## Pipeline
 
 - [Visão geral do pipeline](pipeline/overview.md) — 6 etapas, entradas e saídas
