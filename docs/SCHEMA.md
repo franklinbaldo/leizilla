@@ -29,7 +29,7 @@ Tudo o que não cabe nessa frase **não pertence ao XML**:
 
 ### 0.2 Vigência herda; proveniência é declarada quando importa
 
-Caso default: dispositivo vigora junto com a lei. Não declara nada — herda. Cadeia: `<versao>.em` → ancestral `<dispositivo>` mais próximo que declara → `data-publicacao` extraída da URN da `<lei>`.
+Caso default: dispositivo vigora junto com a lei. Não declara nada — herda. Cadeia: `<versao>.em` → ancestral `<dispositivo>` mais próximo que declara → `data-ato` extraída da URN da `<lei>` (data de assinatura/promulgação do ato — **não** é prova de publicação).
 
 Quando um dispositivo tem múltiplas versões (foi alterado), cada `<versao em="X">` declara explicitamente. `vigente-ate` **não é armazenado** — é inferido (próxima versão, ou `<revogacao>` do dispositivo, ou `<revogacao>` da lei, cascateando).
 
@@ -37,14 +37,15 @@ A informação "esta vigência veio de onde" tem qualidade variável:
 
 | `tipo` | Quando aplica |
 |---|---|
-| `data-publicacao` | Vigência = data da lei (regra default LINDB). |
+| `data-ato` | Vigência = data do ato extraída da URN (regra default LINDB); **não** é prova de publicação, é a data de assinatura/promulgação. |
+| `data-publicacao` | Publicação explicitamente declarada/comprovada (evidência textual ou fonte dedicada), distinta da data do ato. |
 | `texto-lei-alteradora` | Declarado na lei que alterou (caso comum em alterações). |
 | `vacatio-legis` | Texto especifica prazo ("entrará em vigor 90 dias após publicação"); calculada. |
 | `consolidacao` | Casa Civil/COTEL adotou sem prova textual no ato original. |
 | `inferencia-llm` | Parser inferiu sem evidência textual direta. |
 | `decisao-judicial` | STF/STJ modulou efeitos. |
 
-Quando `tipo` é não-óbvio, `<versao>` carrega sub-elemento `<inicio tipo="...">` com `<fonte>` filha apontando para o IA item que materializa a prova. Caso óbvio (ato original ou alteração explícita), `<inicio>` é omitido — `tipo` deriva por default: `data-publicacao` se primeira versão sem `alterado-por`, `texto-lei-alteradora` se há `alterado-por`.
+Quando `tipo` é não-óbvio, `<versao>` carrega sub-elemento `<inicio tipo="...">` com `<fonte>` filha apontando para o IA item que materializa a prova. Caso óbvio (ato original ou alteração explícita), `<inicio>` é omitido — `tipo` deriva por default: `data-ato` se primeira versão sem `alterado-por` (a data vem da URN, não é prova de publicação), `texto-lei-alteradora` se há `alterado-por`.
 
 ### 0.3 Revogação é evento estruturado
 
@@ -361,7 +362,7 @@ Agrupadas por origem (lei / dispositivo / versão). Toda metadata de lei e dispo
 | `em` | DATE | NO | data de início da versão (chave natural) |
 | `ate` | DATE | YES | inferido; NULL = ainda vigente |
 | `alterado_por` | VARCHAR | YES | URN da lei alteradora |
-| `inicio_tipo` | VARCHAR | NO | enum: `data-publicacao` (default) / `texto-lei-alteradora` / `vacatio-legis` / `consolidacao` / `inferencia-llm` / `decisao-judicial` |
+| `inicio_tipo` | VARCHAR | NO | enum: `data-ato` (default; data do ato via URN, não é prova de publicação) / `data-publicacao` (publicação comprovada) / `texto-lei-alteradora` / `vacatio-legis` / `consolidacao` / `inferencia-llm` / `decisao-judicial` |
 | `texto` | VARCHAR | YES | texto canônico estabelecido |
 | `texto_normalizado` | VARCHAR | YES | NFC + cleanup; NOT NULL quando `texto` NOT NULL |
 | `fontes` | VARCHAR (JSON) | NO | array de `{ia_id, diverge?, texto_divergente?}` |
@@ -498,7 +499,7 @@ Cadeia de resolução para `versao.em`:
 
 1. Se `<versao em="X">` declarado → usa X.
 2. Senão → herda do ancestral `<dispositivo>` mais próximo que tem uma `<versao>` com `em` declarado.
-3. Senão → herda da `<lei>.data-publicacao` extraída da URN.
+3. Senão → herda da `<lei>.data-ato` extraída da URN (data de assinatura/promulgação — não é prova de publicação).
 
 **`vigente-ate` não é armazenado**. Fim de uma versão é inferido por (em ordem):
 1. Próxima `<versao em="...">` no mesmo dispositivo.
@@ -567,10 +568,12 @@ Sub-elemento opcional de `<versao>`. Carrega `tipo` enum + `<fonte>` filha(s) ap
 ```
 
 **Defaults implícitos** (`<inicio>` omitido):
-- Primeira versão (sem `alterado-por`) com `em` herdado da `<lei>` → `tipo = data-publicacao`.
+- Primeira versão (sem `alterado-por`) com `em` herdado da `<lei>` → `tipo = data-ato` (a data vem da URN; não é prova de publicação).
 - Versão com `alterado-por` → `tipo = texto-lei-alteradora`.
 
-**Obrigatório** quando: `em` declarado, `em ≠ data-publicacao` da lei, e sem `alterado-por`. Consistency checker (§7) valida.
+**Obrigatório** quando: `em` declarado, `em ≠ data-ato` da lei, e sem `alterado-por`. Consistency checker (§7) valida.
+
+`tipo = data-publicacao` fica reservado para quando a publicação é explicitamente declarada/comprovada (evidência textual ou fonte dedicada) — nunca é o default inferido da URN.
 
 ### 4.5 `<revogacao>` — evento estruturado
 
@@ -846,8 +849,8 @@ XSD não consegue expressar tudo. `scripts/check_schema_consistency.py` (M0.2) v
 2. **`<revogacao>` na raiz da `<lei>` exclui** qualquer `<revogacao>` em dispositivo descendente (revogação total cascateia).
 3. **`<revogacao tipo="caducidade">` não tem atributo `por`**; demais tipos têm.
 4. **`path` casa com token map** (§4.2). Tokens desconhecidos → erro.
-5. **Herança de vigência**: `<versao>` sem `em` resolve para ancestral declarado ou `data-publicacao` da URN. *Carve-out*: quando `urn-lex` é ausente (caso OCR-ruim fallback), vigência genuinamente não tem âncora — checker exempta. Se `urn-lex` presente mas indecodificável (regex §5.6 falha), §7.5 reporta uma vez por lei.
-6. **`<inicio>` obrigatório** quando `<versao em="X">` com `X ≠ data-publicacao(<lei>)` e sem `alterado-por`.
+5. **Herança de vigência**: `<versao>` sem `em` resolve para ancestral declarado ou `data-ato` da URN (não é prova de publicação). *Carve-out*: quando `urn-lex` é ausente (caso OCR-ruim fallback), vigência genuinamente não tem âncora — checker exempta. Se `urn-lex` presente mas indecodificável (regex §5.6 falha), §7.5 reporta uma vez por lei.
+6. **`<inicio>` obrigatório** quando `<versao em="X">` com `X ≠ data-ato(<lei>)` e sem `alterado-por`.
 7. **Ordenação de versões** num dispositivo: `em` estritamente crescente.
 8. **`<fonte ia-id>`** casa com regex de IA identifier (§5.1).
 9. ~~`quality` atributo só em `path="ocr-ruim"`~~ — **removida**. Qualidade de parse não vive no XML (§4.7); audit por embeddings + `confianca_parse_global` no sidecar cobrem. Número 9 fica reservado pra preservar chaves estáveis no checker/testes.

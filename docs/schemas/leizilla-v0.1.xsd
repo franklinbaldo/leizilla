@@ -8,8 +8,8 @@
     linha do tempo de redações. Redação = texto + testemunhos (fontes).
   - Tipo do dispositivo deriva do path via token map (SCHEMA.md §4.2).
     XSD não conhece o token map; pattern de path é genérico.
-  - Vigência herda do pai (ancestral dispositivo, depois data-publicacao
-    da URN). vigente-ate não é armazenado — é inferido.
+  - Vigência herda do pai (ancestral dispositivo, depois data do ato
+    representativa da URN). vigente-ate não é armazenado — é inferido.
   - A tag fonte é única em 4 contextos (versao, inicio, revogacao na
     lei, revogacao no dispositivo). Atributo diverge só faz sentido
     em versao; consistency checker valida.
@@ -90,6 +90,7 @@
 
   <xs:simpleType name="InicioTipo">
     <xs:restriction base="xs:string">
+      <xs:enumeration value="data-ato"/>
       <xs:enumeration value="data-publicacao"/>
       <xs:enumeration value="texto-lei-alteradora"/>
       <xs:enumeration value="vacatio-legis"/>
@@ -132,8 +133,10 @@
     <xs:annotation>
       <xs:documentation>
         Proveniencia da vigencia. Sub-elemento opcional de versao.
-        Obrigatorio quando em difere de data-publicacao da lei e
-        nao ha alterado-por (consistency checker valida).
+        Obrigatorio quando em difere da data do ato representativa da
+        URN e nao ha alterado-por (consistency checker valida).
+        data-publicacao permanece disponível apenas quando a publicação
+        é explicitamente declarada/comprovada.
       </xs:documentation>
     </xs:annotation>
     <xs:sequence>
