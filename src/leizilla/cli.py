@@ -130,6 +130,11 @@ def cmd_harvest(
         pub = InternetArchivePublisher()
 
         stats = harvest_pending_resources(db, pub, limit=limit, ente=ente, tipo=tipo)
+        for item in stats.get("items", []):
+            if item["status"] == "ok":
+                echo(f"  OK: {item['ia_id']} → {item['ia_url']}")
+            else:
+                echo(f"  Falha [{item['reason']}]: {item['chave']}")
         echo("Colheita concluída:")
         echo(f"  Sucesso: {stats['success']}")
         echo(f"  Falhas: {stats['failed']}")

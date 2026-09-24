@@ -1,7 +1,9 @@
 # RFC-0003: Convergência de pipeline — uma única geração (discover→harvest)
 
-**Status**: proposto — **não implementado neste PR** (aguarda merge de #93 e #94, que
-tocam os mesmos arquivos)
+**Status**: aprovado — #93 e #94 mergeados (2026-07); **Fase 1 em andamento**
+(paridade de relatório `harvest` vs `scrape` entregue em 2026-09-24, sessão 3
+de rotina; falta portar `cdx_max` do scrape para as estratégias de discovery).
+Fases 2 (redirecionamento dos workflows) e 3 (deprecação) ainda não iniciadas.
 **Data**: 2026-07-07
 **Relacionados**: ADR-0010, ADR-0011, PR #94 ("o sistema atual ainda carrega duas
 gerações de pipeline"), M10.A (discovery manifest-driven)
