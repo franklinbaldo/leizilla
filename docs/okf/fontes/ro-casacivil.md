@@ -15,16 +15,21 @@ http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/{prefixo}{N}.pdf
 
 ## Tipos disponíveis
 
-| Prefixo | Tipo | Range descoberto | `head_check` |
+`end` de cada `sequential` do manifesto é `"cdx-auto"` (RFC-0003 Fase 1): o
+limite real é resolvido em tempo de discover via CDX (maior número já
+arquivado para o tipo), não um teto fixo — os valores abaixo são o observado
+em 2026-09, só para referência.
+
+| Prefixo | Tipo | Range observado (`cdx-auto`) | `head_check` |
 |---|---|---|---|
-| `L{N}.pdf` | lei | 1–6000 | false |
-| `LC{N}.pdf` | lc | 1–1300 | false |
-| `D{N}.pdf` | decreto | 1–15000 | true |
-| `DEC{N}.pdf` | decreto | 1–15000 | true |
-| `DL{N}.pdf` | decreto-lei | 1–1000 | true |
-| `EC{N}.pdf` | ec | 1–200 | true |
-| `Res{N}.pdf` | resolucao | 1–1000 | true |
-| `Port{N}.pdf` | portaria | 1–3000 | true |
+| `L{N}.pdf` | lei | 1–~6000 | false |
+| `LC{N}.pdf` | lc | 1–~1300 | false |
+| `D{N}.pdf` | decreto | 1–~15000 | true |
+| `DEC{N}.pdf` | decreto | 1–~15000 | true |
+| `DL{N}.pdf` | decreto-lei | 1–~1000 | true |
+| `EC{N}.pdf` | ec | 1–~200 | true |
+| `Res{N}.pdf` | resolucao | 1–~1000 | true |
+| `Port{N}.pdf` | portaria | 1–~3000 | true |
 
 ## Quirks
 

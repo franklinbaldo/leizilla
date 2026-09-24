@@ -38,15 +38,23 @@ As duas rodam toda semana sobre as mesmas fontes. Consequências:
 
 **`discover→harvest` é o caminho canônico. `scrape` é absorvido e deprecado em 3 fases.**
 
-### Fase 1 — capacidade (pós-merge de #93/#94)
+### Fase 1 — capacidade (pós-merge de #93/#94) — **concluída**
 
 - Portar para as estratégias de discovery o que só o scrape tem hoje:
   - descoberta de `cdx_max` via Wayback CDX (do #94) vira parte da
     `WaybackCdxDiscovery`/`SequentialDiscovery` (limite dinâmico do range no manifesto,
-    ex.: `"end": "cdx-auto"`);
+    ex.: `"end": "cdx-auto"`) — **feito** (#176): `SequentialDiscovery` aceita
+    `"end": "cdx-auto"`, resolvido via a nova `resolve_cdx_max_by_tipo()` (consulta CDX
+    única, classificada por `parse_filename`); fail-safe para resposta vazia/erro/timeout
+    (usa `end_fallback`, default 10). `manifests/ro.json` ganhou uma entrada `sequential`
+    por tipo de casacivil (mesmos 8 tipos que o `probe` legado do `cmd_scrape`), então
+    `discover → harvest` agora cobre o mesmo caso — a probing sequencial até o maior
+    número arquivado — que antes só existia em `cmd_scrape`/casacivil. O `probe` do
+    manifesto e o `cmd_scrape` continuam intactos (viram wrapper fino só na Fase 2).
   - fallback HTML→direct-download do #93 já vive no scraper compartilhado — garantir
     teste cobrindo o caminho harvest.
-- `harvest` ganha paridade de relatório com o scrape (`OK: <ia_id> → URL`, contadores).
+- `harvest` ganha paridade de relatório com o scrape (`OK: <ia_id> → URL`, contadores) —
+  **feito** (#173).
 
 ### Fase 2 — redirecionamento
 

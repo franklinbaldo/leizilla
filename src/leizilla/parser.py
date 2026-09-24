@@ -439,6 +439,8 @@ def parse_law(
     input_tokens = getattr(usage, "prompt_tokens", 0) or 0
     output_tokens = getattr(usage, "completion_tokens", 0) or 0
 
+    texto_truncado = len(ocr_text) > char_limit
+
     parsed_meta: Dict[str, Any] = {
         "leizilla_meta_version": "0.1",
         "ia_id_raw": ia_id,
@@ -451,6 +453,8 @@ def parse_law(
         "fontes_consultadas": [ia_id],
         "tem_divergencia": False,
         "num_divergencias": 0,
+        "texto_truncado": texto_truncado,
+        "tamanho_texto_original": len(ocr_text),
     }
 
     return ParseResult(
