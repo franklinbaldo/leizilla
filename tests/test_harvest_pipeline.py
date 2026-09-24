@@ -251,11 +251,73 @@ class TestHarvestPendingResources:
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
             patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
-            patch("leizilla.scraper.wayback.fetch_bytes", return_value=None),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(None, False),
+            ),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=10)
 
         assert stats["failed"] == 1
+
+    def test_transient_fetch_failure_stays_pending_not_failed(
+        self, temp_db: DuckDBStorage
+    ) -> None:
+        # #121: a transient failure (429/5xx/timeout — anything but a confirmed
+        # 404/410) must stay 'pending' so get_pending_resources() re-selects it
+        # on the next run, instead of a terminal 'failed' that is never retried.
+        from leizilla.scraper import harvest_pending_resources
+
+        res = _make_resource()
+        temp_db.insert_resource(res)
+        pub = MagicMock()
+
+        with (
+            patch("leizilla.scraper.robots.is_allowed", return_value=True),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(None, False),  # transient: not a confirmed 404/410
+            ),
+        ):
+            harvest_pending_resources(temp_db, pub, limit=10)
+
+        conn = temp_db.connect()
+        row = conn.execute(
+            "SELECT status FROM discovered_resources WHERE url = ?",
+            [res["url"]],
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "pending"
+
+    def test_permanent_fetch_failure_marked_failed(
+        self, temp_db: DuckDBStorage
+    ) -> None:
+        # A confirmed 404/410 is a real permanent failure — terminal 'failed' is
+        # correct here (nothing to retry).
+        from leizilla.scraper import harvest_pending_resources
+
+        res = _make_resource()
+        temp_db.insert_resource(res)
+        pub = MagicMock()
+
+        with (
+            patch("leizilla.scraper.robots.is_allowed", return_value=True),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(None, True),  # confirmed permanent
+            ),
+        ):
+            harvest_pending_resources(temp_db, pub, limit=10)
+
+        conn = temp_db.connect()
+        row = conn.execute(
+            "SELECT status FROM discovered_resources WHERE url = ?",
+            [res["url"]],
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "failed"
 
     def test_successful_harvest_calls_upload(self, temp_db: DuckDBStorage) -> None:
         from leizilla.scraper import harvest_pending_resources
@@ -271,7 +333,8 @@ class TestHarvestPendingResources:
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
             patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch(
-                "leizilla.scraper.wayback.fetch_bytes", return_value=b"%PDF-1.4 content"
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(b"%PDF-1.4 content", False),
             ),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=10)
@@ -302,7 +365,8 @@ class TestHarvestPendingResources:
             ),
             patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch(
-                "leizilla.scraper.wayback.fetch_bytes", return_value=b"%PDF-1.4 content"
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(b"%PDF-1.4 content", False),
             ),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=10)
@@ -376,7 +440,10 @@ class TestHarvestPendingResources:
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
             patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
-            patch("leizilla.scraper.wayback.fetch_bytes", return_value=None),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(None, False),
+            ),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=2)
 
@@ -404,7 +471,11 @@ class TestHarvestPendingResources:
             ),
             patch(
                 "leizilla.scraper.wayback.fetch_bytes",
-                side_effect=[b"<!DOCTYPE html><html>error</html>", b"%PDF-1.4 content"],
+                return_value=b"<!DOCTYPE html><html>error</html>",
+            ),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(b"%PDF-1.4 content", False),
             ),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=10)
@@ -423,8 +494,8 @@ class TestHarvestPendingResources:
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
             patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch(
-                "leizilla.scraper.wayback.fetch_bytes",
-                return_value=b"<!DOCTYPE html><html>error</html>",
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(b"<!DOCTYPE html><html>error</html>", False),
             ),
         ):
             stats = harvest_pending_resources(temp_db, pub, limit=10)

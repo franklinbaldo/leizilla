@@ -1,7 +1,8 @@
 """Testes unitários para leizilla.robots — sem rede (mocked)."""
 
+import urllib.error
 import urllib.robotparser
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 from leizilla import robots
@@ -69,3 +70,79 @@ class TestIsAllowed:
         parser = _make_parser(disallow=["/leis/"], agent="leizilla")
         with patch.object(robots, "_load_robots", return_value=parser):
             assert robots.is_allowed("https://example.gov.br/leis/1") is False
+
+
+class TestFetchRobots:
+    """Covers issue #121: a 403 must not permanently poison the cache."""
+
+    def setup_method(self) -> None:
+        robots._confirmed_cache.clear()
+
+    def teardown_method(self) -> None:
+        robots._confirmed_cache.clear()
+
+    def test_403_fails_open_without_caching(self):
+        forbidden = urllib.error.HTTPError(
+            "https://waf.gov.br/robots.txt", 403, "Forbidden", None, None
+        )
+        with patch("urllib.request.urlopen", side_effect=forbidden):
+            assert robots.is_allowed("https://waf.gov.br/leis/1") is True
+
+        # A transient fetch failure (403 WAF block) must NOT be cached as a
+        # confirmed outcome — before this fix, RobotFileParser silently set
+        # disallow_all=True on a 403 and lru_cache pinned that forever.
+        assert "https://waf.gov.br/robots.txt" not in robots._confirmed_cache
+
+    def test_403_then_later_successful_fetch_is_not_poisoned(self):
+        # First call: transient WAF 403 — fails open, not cached.
+        forbidden = urllib.error.HTTPError(
+            "https://waf.gov.br/robots.txt", 403, "Forbidden", None, None
+        )
+        with patch("urllib.request.urlopen", side_effect=forbidden):
+            assert robots.is_allowed("https://waf.gov.br/leis/1") is True
+
+        # Second call: robots.txt is actually fetchable now and disallows /leis/.
+        body = b"User-agent: *\nDisallow: /leis/\n"
+        resp = MagicMock()
+        resp.status = 200
+        resp.read.return_value = body
+        resp.__enter__ = lambda s: s
+        resp.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=resp):
+            assert robots.is_allowed("https://waf.gov.br/leis/1") is False
+
+        # And this real, confirmed outcome IS now cached — the durable cache
+        # only holds confirmed fetches, never the earlier transient failure.
+        assert "https://waf.gov.br/robots.txt" in robots._confirmed_cache
+
+    def test_429_on_robots_fetch_fails_open_without_caching(self):
+        rate_limited = urllib.error.HTTPError(
+            "https://x.gov.br/robots.txt", 429, "Too Many Requests", None, None
+        )
+        with patch("urllib.request.urlopen", side_effect=rate_limited):
+            assert robots.is_allowed("https://x.gov.br/leis/1") is True
+        assert "https://x.gov.br/robots.txt" not in robots._confirmed_cache
+
+    def test_confirmed_404_is_cached_as_allow_all(self):
+        not_found = urllib.error.HTTPError(
+            "https://x.gov.br/robots.txt", 404, "Not Found", None, None
+        )
+        with patch("urllib.request.urlopen", side_effect=not_found):
+            assert robots.is_allowed("https://x.gov.br/leis/1") is True
+        assert robots._confirmed_cache["https://x.gov.br/robots.txt"] is None
+
+    def test_confirmed_disallow_is_cached_and_stays_blocked(self):
+        body = b"User-agent: *\nDisallow: /\n"
+        resp = MagicMock()
+        resp.status = 200
+        resp.read.return_value = body
+        resp.__enter__ = lambda s: s
+        resp.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=resp):
+            assert robots.is_allowed("https://x.gov.br/leis/1") is False
+        assert "https://x.gov.br/robots.txt" in robots._confirmed_cache
+
+        # Cached — a subsequent network error doesn't matter, the confirmed
+        # disallow still applies (this direction of "permanent" is correct).
+        with patch("urllib.request.urlopen", side_effect=OSError("boom")):
+            assert robots.is_allowed("https://x.gov.br/leis/1") is False
