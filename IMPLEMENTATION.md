@@ -59,6 +59,7 @@
 | **M14.2** — OPF gold v0→v1 (anotação por subagentes + Fase 2.5 caminho 1) | 🟡 in-progress | — | v0: `data/opf/gold/` (6 leis federais reais, 251 spans) via subagentes LLM (shard-por-doc) + resolução determinística de offset + ensemble de avaliadores no eval slice. **v1 (2026-09-24)**: +13 docs reais de OCR ruidoso de RO/casacivil (train split; total 476 spans) via Fase 2.5 caminho 1 (`opf-sample`+`opf-bootstrap` pré-rotula com regex, um subagente por doc audita) — ver log 2026-09-24. Fase 2 de 4. |
 | **M14.3** — OPF treino/eval (notebook Colab GPU) | 🟡 in-progress | — | `notebooks/opf_train_colab.ipynb` pronto (aponta pro `main`, gold v0 já commitado; 3 bugs reais de CLI achados em revisão e corrigidos — `--seed`→`--shuffle-seed`, `--checkpoint` ausente no train, `--label-space-json` inválido no eval). **Reativado por decisão do mantenedor em 2026-07-14** (não pelo gatilho de evidência da atualização de 2026-06-06 — o v0 segue single-fonte/texto limpo). Falta rodar no Colab (GPU), fora do alcance de sessões sem GPU/Drive interativo. Ver ADR-0012 "Atualização (2026-07-14)". |
 | **M14.4** — Segmentador regex baseline + eval/errors/structure vs gold | 🟢 done | — | `segmenter.py` (Pattern B) + CLIs `opf-regex-eval` (`--errors`) e `opf-segment-check`. `evaluate_against_gold` (exact/overlap P/R/F1), `find_errors` (lista FP/FN/boundary com contexto — guiou as regras e achou drift de período no gold + provável omissão), `validate_structure` (validação da norma inteira sem gold: lacunas na numeração de artigos, fora de ordem, ementa/vigência ausentes). Regras: splitter ciente de abreviações/números, verbo operativo na revogação (notas `(Revogado pela…)` excluídas, precision 0.33→1.00 em compilados), strip de marcador líder, guard à direita, marcadores sem período final (gold normalizado). v0: exact micro-F1 **0.95** / overlap **0.99**. 28 testes. |
+| **M15.1** — Instrumentação de cobertura S1-S4 (issue #174) | 🟡 in-progress | #185 | `coverage.py` agrega S1 (arquivado)→S4 (estruturado) por fonte/tipo direto do IA (index.csv + `archive.org/metadata` p/ `_djvu.txt`); `Optional[int]`/`ok_s1_s3`/`ok_s4` distinguem "não medido" de zero real. CLI `leizilla coverage [--json] [--upload]`; publica `coverage.json` no item IA do dataset (novo step diário em `parse-release.yml`, `continue-on-error`). `/cobertura/` ganha `FunilPanel.svelte` (fetch direto, não DuckDB-WASM — S1-S3 não vivem no Parquet). 22 testes offline. Baseline real medido (ver log) — falta merge + primeira publicação em produção. |
 
 Legenda: ⚪ todo · 🟡 in-progress · 🟢 done · 🔴 blocked
 
@@ -136,6 +137,88 @@ Segunda frente da mesma sessão de stewardship, escolhida por ser um workstream 
 **Validação**: `uv run leizilla dev check` — 777 passed, 13 skipped (778 vs. os 782 da sessão 3 refletem a consolidação de 5 testes duplicados, não perda de cobertura); `uv run mypy src/ --ignore-missing-imports` — só os 3 erros pré-existentes de stub `types-requests`, nenhum nos arquivos tocados; cada comando reescrito do README verificado com `--help` contra a CLI real antes de editar.
 
 **Não feito nesta sessão**: `docs/okf/project-dag.md` (PR #177) não foi revisado/mergeado — decisão de merge de PR de outra sessão fica fora do escopo desta rotina sem revisão própria; M14 segue bloqueado para sessão headless (GPU/Colab); nenhuma das PRs #178–#185 foi tocada (workspaces de outras sessões, sem conflito com os arquivos desta).
+
+### 2026-09-24 (sessão 4) — M15.1: instrumentação de cobertura S1-S4 (issue #174) + baseline real
+
+**Rotina disparada por `issues.opened` (#174, aberta pelo mantenedor junto com
+#175 e #176 — três recortes do próximo marco de roadmap, Q4/2026 "Cobertura RO
+mais completa"; ver `Próximos passos imediatos` da sessão anterior, que já
+apontava essa lacuna como o próximo passo natural).**
+
+**FASE 1 — triagem**: #173 (harvest report parity, RFC-0003 Fase 1) já estava
+mergeada em `main` quando esta sessão buscou a branch (CI ficou verde após a
+sessão anterior abrir a PR). #170 (draft alheio) e #139/#142 (Dependabot)
+seguem sem ação, mesma leitura das sessões anteriores.
+
+**FASE 2 — #174 (S1-S4)**: implementado `src/leizilla/coverage.py` —
+`compute_fonte_coverage(ente, fonte)` agrega, direto do IA (sem heurística
+local nem DuckDB): **S1 arquivado** (toda linha de `index.csv` de um item de
+range, identificada ou não — a área `_unidentified` conta aqui, ADR-0011 §1);
+**S2 identificado** (linhas com `(tipo, número)` resolvido); **S3 com texto**
+(HTML nativo conta na hora; PDF precisa do derivado `_djvu.txt` — checado via
+`archive.org/metadata/{item}`, uma requisição por item de range, não por
+arquivo); **S4 estruturado** (`list_parsed_raw_ids_strict`, variante
+all-or-nothing de `list_parsed_raw_ids` pensada só pra isso — a versão
+original é fail-open-pra-vazio de propósito, o que serve `parse-all
+--skip-existing` mas viraria um S4 subcontado sem aviso aqui).
+
+**Decisão de design revisada em meio à sessão**: a primeira versão fazia S1-S3
+e S4 all-or-nothing *juntos* por fonte (um erro em qualquer um derrubava os
+dois). O primeiro baseline real expôs o problema: `casacivil` media S1-S3 com
+sucesso mas abortava antes de tentar S4 por causa de uma falha transitória em
+outro grupo. Corrigido para dois flags independentes (`ok_s1_s3`/`ok_s4`) — são
+consultas de dados diferentes (index.csv/metadata vs. parsed_meta.json), uma
+falhar não deveria descartar a outra que já tinha sucedido.
+
+**Achado ao rodar o baseline de verdade (não só testes mockados)**: a consulta
+S4 (`list_parsed_raw_ids_strict`) fazia uma requisição HTTP por item parsed
+sem retry — rodando contra a coleção real de RO (~20 itens parsed hoje),
+~10% delas dava timeout transitório (medido isolando a chamada: 2 de 20).
+All-or-nothing sem retry tornaria S4 praticamente sempre `null` em produção,
+o oposto do "baseline reproduzível" que a issue pede. Adicionado retry curto
+(3 tentativas, backoff de 1s, timeout 20s) tanto na listagem paginada quanto
+no fetch por item — ainda all-or-nothing depois de esgotar as tentativas, só
+não all-or-nothing na primeira flutuação de rede.
+
+**Baseline real (2026-09-24T18:47Z, medido sem credenciais — API pública do
+IA, leitura apenas)**:
+
+```
+ente=ro
+casacivil: S1=1196 · S2=1196 · S3=540 · S4=20   (decreto: 307/307/215/0 · lei: 889/889/325/20)
+assembleia: S1=0 · S2=0 · S3=0 · S4=0            (nenhum raw publicado ainda nessa fonte)
+```
+
+Consistente com o que a sessão de 2026-09-24 (sessão 2) já tinha registrado
+lendo `list_raw_ids` diretamente ("casacivil tinha 1196 itens disponíveis" /
+"assembleia retornou zero itens") — confirma que a agregação nova bate com o
+que as outras partes do pipeline já sabiam, só que agora como número público
+e por estágio.
+
+**Publicação**: `leizilla coverage --upload` sobe `coverage.json` para o mesmo
+item IA do dataset (`leizilla-dataset-{ente}-v{version}`); novo step no job
+`etl` de `parse-release.yml` (diário, `continue-on-error: true` — instrumentação
+não pode derrubar a release do dataset). Como esta sessão não tem
+`IA_ACCESS_KEY`/`IA_SECRET_KEY`, a primeira publicação real fica para a
+próxima execução agendada do workflow (secrets só existem em produção,
+RFC-0004). `/cobertura/` ganha uma seção nova (`FunilPanel.svelte`) que busca
+`coverage.json` diretamente (não é dado do Parquet, não passa pelo
+DuckDB-WASM) — mostra `?` em vez de um número quando uma medição falhou, nunca
+um 0 silencioso.
+
+**Docs**: PRD §10.4 atualizado de "a implementar" para a implementação real;
+`docs/SCHEMA.md` não muda (cobertura não é dado do modelo `versoes`, é
+instrumentação de pipeline). `IMPLEMENTATION.md` (este arquivo) ganha M15.1.
+
+**Não feito nesta sessão** (fora de escopo, PR própria — issue #174 pede
+"fonte quando possível", não bloqueio total): quebra de S4 por fonte usa
+`list_parsed_raw_ids_strict` (um `parsed_meta.json` fetch por item parsed do
+*ente inteiro*, filtrado depois por fonte) — funciona, mas não escala
+linearmente; se o acervo crescer para milhares de itens parsed, vale revisitar
+(ex.: gravar `fonte` no próprio identifier do item parsed, ou aceitar S4 só
+por tipo). Issues #175 (latest pointer) e #176 (cdx-auto discovery) — as duas
+outras PRs abertas pelo mantenedor na mesma leva de #174 — não foram tocadas
+nesta sessão (uma sub-tarefa por PR, conforme a rotina).
 
 ### 2026-09-24 (sessão 4) — RFC-0003 Fase 1 concluída: `cdx-auto` nas estratégias de discovery (issue #176)
 
@@ -1867,14 +1950,20 @@ Naming formal e regras de fallback: ver `docs/SCHEMA.md` (M0.2).
 
 ## Próximos passos imediatos
 
-_(atualizado em 2026-09-24, sessão de rotina 2)_
+_(atualizado em 2026-09-24, sessão de rotina 4)_
 
-**M0–M13 e M14.4 concluídos** ✅ (pipeline completo: discovery manifest-driven,
-harvest/scrape, IA upload, OCR fetch, parse LLM, ETL→Parquet, release de dataset,
-frontend M5.1/M5.2/M13 completo, segmentador regex baseline). RFC-0004 (go-live)
-está executada: `leizilla-dataset-ro-v0` está publicado, crescendo (199 linhas em
+**M0–M14.4 e M15.1 (código) concluídos** ✅ (pipeline completo: discovery
+manifest-driven, harvest/scrape, IA upload, OCR fetch, parse LLM, ETL→Parquet,
+release de dataset, frontend M5.1/M5.2/M13 completo, segmentador regex
+baseline, instrumentação de cobertura S1-S4). RFC-0004 (go-live) está
+executada: `leizilla-dataset-ro-v0` está publicado, crescendo (199 linhas em
 2026-09-24, contra 19 leis em 2026-07-14) e o portal público já consome esse
 Parquet em produção — ver log 2026-09-24 abaixo.
+
+**M15.1 aguarda merge** (PR #185) e a primeira publicação real de
+`coverage.json` — vai sair sozinha no próximo `parse-release.yml` diário assim
+que a PR estiver em `main` (não precisa de ação manual: secrets IA já existem
+em produção desde RFC-0004).
 
 **M5.3 ainda bloqueado**: o dataset real existe mas RO segue pequeno (199 linhas)
 para um benchmark WASM significativo. Revisitar quando a cobertura RO crescer
@@ -1882,11 +1971,17 @@ para um benchmark WASM significativo. Revisitar quando a cobertura RO crescer
 
 **Próximo marco de roadmap (README.md, Q4/2026)**: "Cobertura RO mais completa +
 releases recorrentes". A parte de releases recorrentes já está rodando sozinha
-(`parse-release.yml` diário incremental, `discover-harvest.yml` semanal) — o
-trabalho que resta é ampliar os ranges/fontes cobertos pelos manifests e reduzir
-o volume de leis ainda não descobertas/parseadas. Sem um número público de
-cobertura S1–S3 (lacuna já registrada em `/cobertura/`), medir esse marco requer
-primeiro instrumentar esses contadores.
+(`parse-release.yml` diário incremental, `discover-harvest.yml` semanal). A
+lacuna de medição que travava esse marco (issue #174, "sem denominador não dá
+pra medir crescimento") está endereçada por M15.1 — falta merge + um baseline
+publicado em produção para o denominador virar público de verdade. Com isso
+resolvido, o trabalho que resta do marco é reduzir o gap S1→S4 que o próprio
+`coverage.json` vai expor a cada release (hoje: casacivil S1=1196→S4=20;
+assembleia 0 em tudo, sem raw publicado ainda — ver log desta sessão). O
+mantenedor também abriu #175 (release citável/reprodutível — separar
+"latest" de uma versão imutável) e #176 (RFC-0003 Fase 1 restante — descoberta
+`cdx-auto` portada pro pipeline manifest-driven) na mesma leva de #174; nenhuma
+das duas foi tocada nesta sessão (uma sub-tarefa por PR).
 
 **M14 (OPF fine-tune) segue em progresso**: PRs #115 (lições de treino T4/Colab)
 e #116 (`opf-bootstrap` + plano de escala do gold) — que a entrada de log

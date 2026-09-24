@@ -30,6 +30,16 @@ export const DATASET_META_URL: string | null = DATASET_IA_ITEM
   : null;
 
 /**
+ * coverage.json (issue #174) publicado no mesmo item IA do dataset —
+ * contadores S1 (arquivado) → S4 (estruturado) por fonte/tipo, calculados no
+ * pipeline (`leizilla coverage --upload`), não no navegador: S1-S3 vêm do
+ * Internet Archive, não do Parquet.
+ */
+export const COVERAGE_JSON_URL: string | null = DATASET_IA_ITEM
+  ? `https://archive.org/download/${DATASET_IA_ITEM}/coverage.json`
+  : null;
+
+/**
  * latest.json do ponteiro mutável — só existe quando DATASET_IA_ITEM é de fato um
  * ponteiro `-latest` (publisher._publish_latest_pointer). Null noutro caso (ex.:
  * PUBLIC_PARQUET_URL apontando direto para uma release imutável ou outro host).

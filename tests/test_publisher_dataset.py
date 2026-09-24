@@ -385,6 +385,37 @@ class TestUploadDatasetLatestPointer:
         assert "rate limited" in result["latest_pointer"]["error"]
 
 
+class TestUploadCoverage:
+    """coverage.json (issue #174) publicado no ponteiro mutável `-latest`.
+
+    upload_dataset (issue #175) parou de publicar em `leizilla-dataset-{ente}-v{version}`
+    — esse identifier agora é sempre imutável e sufixado com `-{revision}`. O frontend
+    (`web/src/lib/db.ts`'s `DATASET_IA_ITEM`/`COVERAGE_JSON_URL`) resolve coverage.json
+    a partir do item que `PUBLIC_PARQUET_URL` de fato aponta — por padrão o ponteiro
+    `-latest`. `upload_coverage` precisa mirar o mesmo item, não o identifier antigo
+    sem sufixo (que nada mais publica).
+    """
+
+    def test_uploads_to_latest_pointer_identifier(self, tmp_path: Path) -> None:
+        pub = _publisher()
+        mock_cp = MagicMock(returncode=0, stdout="", stderr="")
+        with patch("subprocess.run", return_value=mock_cp) as mock_run:
+            result = pub.upload_coverage({"ente": "ro"}, "ro", 0)
+        call_args = mock_run.call_args_list[0][0][0]
+        assert "leizilla-dataset-ro-v0-latest" in call_args
+        assert result["ia_id"] == "leizilla-dataset-ro-v0-latest"
+        assert (
+            result["ia_url"]
+            == "https://archive.org/details/leizilla-dataset-ro-v0-latest"
+        )
+
+    def test_no_creds_returns_error(self) -> None:
+        pub = _publisher(access="", secret="")
+        result = pub.upload_coverage({"ente": "ro"}, "ro", 0)
+        assert result["success"] is False
+        assert "credentials" in result["error"].lower()
+
+
 class TestReleaseDatasetCli:
     def test_negative_version_rejected(self, tmp_path: Path) -> None:
         """--version negativo deve ser rejeitado com exit 1."""
