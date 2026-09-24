@@ -344,7 +344,7 @@ class TestCmdScrapeSkipExisting:
         """`upload_raw` reporta falhas com a chave `error`, não `reason` (ver
         `publisher.upload_raw`). Sem fallback, `Falha [...]` degrada pra `?` — o
         texto real do erro (ex.: rejeição de rate-limit do IA) fica invisível no
-        log do workflow agendado (ver issues #136/#140/#114)."""
+        log do workflow agendado (ver issues #136/#140)."""
         mock_discover.return_value = [
             {
                 "ente": "ro",

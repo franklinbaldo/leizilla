@@ -157,7 +157,7 @@ cherry-picked numa PR de teste separada, e o achado secundário de #178 (o
 `playwright-crawler` de `assembleia` tem `end: 5000` hardcoded, sem
 `cdx-auto`) é dívida real e distinta, ainda não endereçada em nenhuma PR.
 
-**Achado do dia — causa raiz de #136/#140/#114 (falhas semanais recorrentes
+**Achado do dia — causa raiz de #136/#140 (falhas semanais recorrentes
 do `rondonia_crawler.yml`)**: os três jobs de scrape do workflow legado
 (`scrape-casacivil-lei`, `scrape-casacivil-lc`) terminam `cancelled` (timeout)
 em praticamente **toda** execução semanal desde julho — confirmado nos runs
@@ -198,7 +198,7 @@ decidir se o `_run_ia_upload`'s `_RETRYABLE_IA_ERROR_RE` precisa de mais um
 padrão, se o throughput de items/hora precisa de mais espaçamento, ou se
 RFC-0003 Fase 2 (aposentar `rondonia_crawler.yml` em favor de
 `discover-harvest.yml`, que não mostra o mesmo padrão de cancelamento) deve
-avançar antes do previsto — as issues #136/#140/#114 continuam abertas,
+avançar antes do previsto — as issues #136/#140 continuam abertas,
 ligadas a esse achado, não fechadas (a causa raiz ainda não está corrigida,
 só deixou de estar invisível).
 
@@ -1850,7 +1850,7 @@ finalmente imprimir o `stderr` real do `ia upload` que falha. Próxima sessão
 deve ler esse log e decidir a correção real (candidato mais provável: o
 throttle de rate-limit do IA documentado em 2026-07-14 — "reduce your request
 rate... appears to be spam" — batendo porque centenas de uploads sequenciais
-por hora miram o mesmo IA item de range). Issues #136/#140/#114 continuam
+por hora miram o mesmo IA item de range). Issues #136/#140 continuam
 abertas ligadas a este achado.
 
 **Reconciliação de PRs de portfólio pendente**: #177 (DAG/OKR — grande, própria,
