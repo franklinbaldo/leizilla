@@ -229,6 +229,11 @@ def harvest_pending_resources(
 
         pdf_bytes = None
         fetched_from = "source-fallback"
+        # Só uma falha CONFIRMADA (404/410 no fetch direto) é permanente; qualquer
+        # outra (429/5xx esgotado, timeout, erro de rede) é transitória e não deve
+        # virar 'failed' terminal — get_pending_resources() só re-seleciona
+        # status='pending', então 'failed' nunca mais é reprocessado (#121).
+        permanent_failure = False
 
         if wb_url:
             pdf_bytes = wayback.fetch_bytes(wb_url)
@@ -240,19 +245,27 @@ def harvest_pending_resources(
                 pdf_bytes = None
 
         if pdf_bytes is None:
-            # Fallback direto com rate-limit
+            # Fallback direto com rate-limit; retry/backoff em 429/5xx já
+            # acontece dentro de fetch_bytes_detailed.
             rate_limiter(url)
-            pdf_bytes = wayback.fetch_bytes(url)
+            pdf_bytes, permanent_failure = wayback.fetch_bytes_detailed(url)
             fetched_from = "source-fallback"
             wb_url = None
             wb_ts = None
 
         if pdf_bytes is None:
             print(f"[WARN] fetch returned None for {chave} ({url})", file=sys.stderr)
-            storage.update_resource_status(url, "failed")
+            status = "failed" if permanent_failure else "pending"
+            storage.update_resource_status(url, status)
             stats["failed"] += 1
             stats["items"].append(
-                {"status": "failed", "chave": chave, "reason": "fetch-failed"}
+                {
+                    "status": "failed",
+                    "chave": chave,
+                    "reason": "fetch-failed"
+                    if permanent_failure
+                    else "fetch-failed-transient",
+                }
             )
             continue
 
