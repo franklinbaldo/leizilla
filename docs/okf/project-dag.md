@@ -37,22 +37,22 @@ fronts:
     parents: [leizilla-root]
     objective: "Turn the Q4/2026 roadmap promise of more complete Rondônia coverage into a measurable, recurring delivery outcome."
     origin: "README roadmap: Q4/2026 = cobertura RO mais completa + releases recorrentes."
-    next_action: "Establish the S1-S4 baseline, reduce the measured pre-S4 backlog, and restore consecutive healthy scheduled cycles."
+    next_action: "Verify the first public coverage artifact, reduce the frozen S1→S4 baseline backlog, and restore consecutive healthy scheduled cycles."
     key_results:
       - id: "kr-ro-s1-s4-observable"
         status: active
-        metric: "Number of canonical coverage stages (S1 discovered, S2 raw preserved, S3 text/OCR available, S4 structured/published) exposed machine-readably and on /cobertura/."
-        current: "S4 is publicly visible; S1-S3 are not yet canonical public counters."
+        metric: "Number of canonical coverage stages (S1 archived, S2 identified, S3 text/OCR available, S4 structured/published) exposed machine-readably and on /cobertura/."
+        current: "Implementation merged in PR #185 and issue #174 is closed. First measured RO baseline: casacivil S1=1196, S2=1196, S3=540, S4=20; assembleia S1=S2=S3=S4=0. Public publication of coverage.json on the -latest item has not yet been verified."
         target: "4/4 stages exposed with timestamp/provenance and source/type breakdown where available."
         issues: [174]
-        next_action: "Implement issue #174 and record the first real baseline."
+        evidence_prs: [185]
+        next_action: "Verify the first scheduled coverage.json publication on the -latest dataset item and confirm /cobertura/ renders the same counters before marking the KR met."
       - id: "kr-ro-backlog-conversion"
-        status: blocked
-        metric: "Share of the reproducibly measured S1/S2/S3 backlog that has reached S4."
-        current: "Unknown until the first S1-S4 census exists."
-        target: "Reduce the first measured pre-S4 backlog by at least 50% by 2026-12-31 without relaxing provenance/quality gates."
-        blockers: [174]
-        next_action: "After #174 produces a baseline, freeze the denominator semantics and start tracking conversion per source/type."
+        status: active
+        metric: "Share of the frozen first S1 baseline cohort that has reached S4, plus remaining pre-S4 backlog by source/type."
+        current: "First casacivil baseline is S1=1196 and S4=20: 1.67% structured, with 1176 archived baseline documents still pre-S4. Assembleia baseline is 0 and is tracked separately rather than diluting the cohort."
+        target: "Reduce the first measured pre-S4 backlog by at least 50% by 2026-12-31 without relaxing provenance/quality gates; for the casacivil baseline this means backlog <=588 (at least 608 of the original 1196 at S4)."
+        next_action: "Persist the baseline cohort semantics by source/type and prioritize conversion of the 656 S2→S3 and 520 S3→S4 casacivil gaps while preserving provenance/quality gates."
       - id: "kr-ro-recurring-cycle-health"
         status: active
         metric: "Consecutive scheduled discover/harvest/parse/release cycles without an unresolved systemic failure."
@@ -68,7 +68,8 @@ fronts:
     objective: "Make the coverage frontier itself a first-class, reproducible public artifact."
     origin: "PRD §10.4 requires exposing archived/text/structured coverage; current public surface mainly exposes S4."
     issues: [174]
-    next_action: "Implement S1-S4 aggregation, machine-readable output and /cobertura/ presentation; record the first baseline as evidence."
+    evidence_prs: [185]
+    next_action: "Implementation and baseline exist; verify the first production coverage.json on the -latest item and the deployed /cobertura/ read path, then close the workstream if both match."
 
   - id: "ingestion-resilience"
     kind: workstream
@@ -86,17 +87,18 @@ fronts:
     objective: "Converge the legacy scrape path and manifest-driven discover→harvest path without regressing coverage or observability."
     origin: "RFC-0003; production fixes #93/#94 removed the original blocker."
     issues: [176]
-    evidence_prs: [173]
-    next_action: "Finish RFC-0003 Fase 1 by implementing #176 (cdx-auto in discovery); only then plan workflow redirection, and defer deprecation until two clean weekly cycles."
+    evidence_prs: [173, 179]
+    next_action: "RFC-0003 Fase 1 is complete (#176 closed). Materialize Fase 2 as a bounded issue, redirect production workflows to discover→harvest with before/after coverage evidence, and keep scrape deprecation blocked until two clean weekly cycles."
 
   - id: "dataset-release-integrity"
     kind: workstream
-    status: active
+    status: completed
     parents: [ro-coverage-q4-2026]
     objective: "Make every published dataset release independently citable and reproducible while preserving a convenient latest pointer for the portal."
     origin: "Verified risk from #151: scheduled releases default to --version 0 while the frontend points at leizilla-dataset-ro-v0."
     issues: [175]
-    next_action: "Implement immutable release identifiers plus a small latest pointer; migrate frontend/docs without introducing an application backend."
+    evidence_prs: [180]
+    next_action: "No active implementation slice: immutable release identifiers and the mutable -latest pointer are merged and #175 is closed; monitor recurring releases and reopen only on reproducibility regressions."
 
   - id: "legal-semantic-integrity"
     kind: objective
@@ -180,7 +182,7 @@ fronts:
     objective: "Make the public portal legible and auditable on desktop and narrow viewports, with evidence/provenance semantics matching the dataset."
     origin: "Public-product reviews after M13."
     issues: [102, 159, 167]
-    next_action: "Close semantic labeling dependencies from date-provenance, then execute responsive/auditability regression work in #159 and model/format tests in #102."
+    next_action: "Responsive auditability and law-page model tests are implemented; finish the date-provenance/public-labeling dependency in #157/#167 and keep the visual regression gate healthy."
     key_results:
       - id: "kr-public-semantic-legibility"
         status: blocked
@@ -191,19 +193,20 @@ fronts:
         issues: [167]
         next_action: "Unblock by completing date-provenance, then verify the published route with the real dataset."
       - id: "kr-public-responsive-audit"
-        status: active
+        status: met
         metric: "Declared public routes passing the project's desktop + narrow viewport audit."
-        current: "Issue #159 remains open."
+        current: "Issue #159 closed as completed on 2026-09-24 after the canonical visual-evidence gate was established for desktop and narrow viewports."
         target: "All declared critical routes pass the canonical audit with preserved screenshots/evidence."
         issues: [159]
-        next_action: "Run the canonical surface audit on the currently published site, fix reproducible defects, and preserve evidence."
+        next_action: "Maintain the capture gate on future surface changes; reopen only if a declared critical route loses reproducible evidence."
       - id: "kr-law-page-regression-tests"
-        status: open
+        status: met
         metric: "Core law-page modeling/formatting behaviors covered by deterministic tests."
-        current: "Issue #102 remains open."
+        current: "PR #186 merged 43 Vitest/jsdom tests covering every model/format branch enumerated in #102: current version selection, tree reconstruction, labels/breadcrumbs, citation/links, CSV/JSON serialization and Arrow date inputs. Issue #102 remains administratively open."
         target: "All critical model/format branches identified in #102 covered by regression tests."
         issues: [102]
-        next_action: "Implement #102 in a bounded test-focused PR."
+        evidence_prs: [186]
+        next_action: "Close #102 as completed; future DOM-side-effect tests are optional follow-up and were outside the issue's stated scope."
 
   - id: "opf-structural-parser-rnd"
     kind: research
@@ -233,7 +236,7 @@ fronts:
     objective: "Expand the proven static/preserved pipeline to federal Planalto legislation in Q1/2027 without exporting unresolved RO semantic/release debt."
     origin: "README roadmap Q1/2027."
     next_action: "Maintain Planalto pipeline readiness, but do not start broad federal ingestion until release integrity and the core semantic contracts are stable."
-    blockers: [175, 157, 118]
+    blockers: [157, 118]
 ---
 
 # Leizilla Project DAG
