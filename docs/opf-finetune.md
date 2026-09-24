@@ -109,6 +109,84 @@ Commit `data/opf/gold/{train,val,test}.jsonl` + `data/opf/gold/manifest.json` to
 (the `.gitignore` whitelist already allows `data/opf/gold/**`). The split must be
 PT-BR, in-domain, and leak-free (no same/near-duplicate doc across splits).
 
+### Phase 2.5 — scale the gold (four paths, cheapest first)
+
+Scaling past v0 does **not** mean re-running the de-novo labeling flow on more
+documents. Four paths, ordered by cost per gold document — validated on the sibling
+causaganha segmenter (2026-07-16), which scaled 20 → 106 real gold docs in one day
+with the same tooling:
+
+**Path 1 — regex-bootstrap + subagent *audit* (default).** The regex baseline already
+scores exact micro-F1 0.95 on gold, which flips the labeling economics: pre-label every
+sampled document with it, then have one subagent per document only **verify and
+correct** — confirm the easy markers, fix the known residuals (`§` inside citation
+lists, ementa preamble over-capture). An audit pass is much cheaper and more reliable
+per document than labeling from scratch:
+
+```bash
+uv run leizilla opf-sample    --ente ro --fontes assembleia,casacivil --n 50 --seed 13
+uv run leizilla opf-bootstrap --pool data/opf/pool/pool.jsonl
+# -> data/opf/pool/bootstrapped.jsonl   (regex pre-labels, info.audit_status=pending)
+# -> data/opf/pool/bootstrap_manifest.json (spans per category — read this FIRST)
+```
+
+Each bootstrapped record carries `info.prelabeled_by="regex_segmenter_v1"` — keep that
+provenance through to the gold manifest so bootstrapped gold is always distinguishable
+from de-novo gold. After the audit, run the usual `validate` + preview gates before
+promotion; the eval slice still gets the 4-role ensemble regardless of how the labels
+were produced.
+
+**Path 2 — project parsed XML back onto OCR text (silver at scale).** The parse
+pipeline already produced XSD-validated Leizilla XML for whole normas (M4/M12) — each
+dispositivo carries its rótulo (`Art. 5º`, `§ 2º`, …). Aligning those rótulos back to
+the source OCR text yields marker spans mechanically, at whatever scale the parsed
+corpus has. Treat the result as **silver** (training-mix material), never eval gold:
+the parser's own errors would leak into the labels. Same two gates as any
+weak-supervision source: mechanical validation, then a stratified spot-check audit
+before it enters a training mix.
+
+**Path 3 — targeted pre-filters for the starved categories.** When
+`bootstrap_manifest.json` shows a category with little/no support in a general sample
+(the sibling project's measured lesson: an 18-doc general round produced *zero* new
+spans for its rarest category, while an 8-doc pre-filtered round hit 7/8), don't sample
+more general documents — pre-filter the pool for where the category actually lives
+before dispatching auditors:
+
+- `ali_marcador` → documents dense in `^[a-z]\)` lines (CLT/CDC-style coded statutes);
+- `vigencia` / `revogacao` → emendas and leis matching `entra em vigor|revogam-se`;
+- keep the **staged vs. active** convention (above) while a category crosses ~25 spans.
+
+**Path 4 — synthetic normas (offsets exact by construction).** Legislative structure
+is highly templated, which makes a deterministic renderer unusually effective here —
+the approach is ported from causaganha's synthetic segmenter (RFC 0011 there), where
+it was validated against a real fine-tune:
+
+```bash
+uv run leizilla opf-synth --n 200 --seed 13 --ali-per-inciso 3
+# -> data/opf/synthetic/synthetic.jsonl + synthetic_manifest.json
+```
+
+What synthetic uniquely buys, beyond volume:
+
+- **Starved categories on demand** — every real law has ~1 `ementa`/`vigencia`/
+  `revogacao`; the renderer emits them per document and `ali_marcador` at any density.
+- **Hard negatives as first-class citizens** — marker-shaped surfaces that must NOT be
+  labeled, drawn from the regex baseline's own audited failure modes (lowercase `art.`
+  cross-references, `§` inside citation chains, compiled-text `(Revogado pela Lei …)`
+  history notes). A model only learns a distinction its training data contains.
+- **Off-regex OCR surfaces** — degradations the regex misses *by construction*
+  (dropped period in `Art 5º`, `§` misread as `S`), i.e. exactly the residual where
+  OPF must earn its keep over the 0.95-F1 baseline.
+
+Ground rules: synthetic goes into the **training mix only**, never val/test; every
+record carries `info.source="synthetic"` + generator seed; marker surfaces on the
+clean profile must stay regex-parseable (enforced by test — synthetic that drifts
+off-regime would teach conventions the corpus doesn't have).
+
+Stratification rule unchanged in every path: equal allocation per fonte (skill
+Warning 1) — the OCR-noisy assembleia/casacivil documents are the valuable ones, not
+more clean Planalto text.
+
 ### Phase 3 — train + eval (Colab GPU)
 
 Training needs a GPU and the OPF CLI; CI does not run it. The ready-to-run notebook is
