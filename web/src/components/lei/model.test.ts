@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LeiRow } from '../../lib/db';
 import {
   absoluteLeiUrl,
   aggregateFontes,
   buildTree,
+  copyText,
   currentRows,
+  downloadBlob,
   groupHistorico,
   rowsToCsv,
   rowsToJson,
@@ -227,5 +229,110 @@ describe('rowsToCsv / rowsToJson', () => {
     expect(csv).toContain('2000-01-01');
     expect(json[0].data_ato).toBe('2000-01-01');
     expect(json[0].ano_lei).toBe(2000);
+  });
+});
+
+describe('copyText', () => {
+  // jsdom does not implement document.execCommand at all, so vi.spyOn (which
+  // requires an existing method) can't be used here — assign/delete directly.
+  function stubExecCommand(impl: (cmd: string) => boolean): ReturnType<typeof vi.fn> {
+    const fn = vi.fn(impl);
+    (document as unknown as { execCommand: typeof fn }).execCommand = fn;
+    return fn;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    delete (document as unknown as { execCommand?: unknown }).execCommand;
+  });
+
+  it('uses navigator.clipboard.writeText when available and succeeds', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+
+    const ok = await copyText('olá mundo');
+
+    expect(ok).toBe(true);
+    expect(writeText).toHaveBeenCalledWith('olá mundo');
+  });
+
+  it('falls back to execCommand when clipboard.writeText throws', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'));
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    const execCommand = stubExecCommand(() => true);
+
+    const ok = await copyText('via fallback');
+
+    expect(ok).toBe(true);
+    expect(execCommand).toHaveBeenCalledWith('copy');
+    // the temporary textarea must not leak into the document
+    expect(document.querySelector('textarea')).toBeNull();
+  });
+
+  it('falls back to execCommand when navigator.clipboard is absent', async () => {
+    vi.stubGlobal('navigator', {});
+    const execCommand = stubExecCommand(() => true);
+
+    const ok = await copyText('sem clipboard API');
+
+    expect(ok).toBe(true);
+    expect(execCommand).toHaveBeenCalledWith('copy');
+  });
+
+  it('returns false when both clipboard and execCommand fail', async () => {
+    vi.stubGlobal('navigator', {});
+    stubExecCommand(() => false);
+
+    expect(await copyText('sem sorte')).toBe(false);
+  });
+
+  it('returns false when execCommand throws', async () => {
+    vi.stubGlobal('navigator', {});
+    stubExecCommand(() => {
+      throw new Error('not supported');
+    });
+
+    expect(await copyText('erro')).toBe(false);
+  });
+});
+
+describe('downloadBlob', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('creates an anchor with the right href/download, clicks it, then revokes the URL', () => {
+    const createObjectURL = vi.fn().mockReturnValue('blob:mock-url');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
+
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    downloadBlob('versoes.csv', 'a,b\n1,2\n', 'text/csv');
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+    // the temporary anchor must not leak into the document
+    expect(document.querySelector('a[download="versoes.csv"]')).toBeNull();
+  });
+
+  it('names the blob content with the given mime type', () => {
+    let capturedBlob: Blob | undefined;
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn((blob: Blob) => {
+        capturedBlob = blob;
+        return 'blob:mock-url';
+      }),
+      revokeObjectURL: vi.fn(),
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    downloadBlob('versoes.json', '{}', 'application/json');
+
+    expect(capturedBlob?.type).toBe('application/json');
   });
 });

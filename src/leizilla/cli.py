@@ -809,10 +809,19 @@ def cmd_consolidate(
         lei_id = f.stem
         try:
             xml_content = f.read_text(encoding="utf-8")
-            items.append((lei_id, ente, xml_content))
         except OSError as e:
             echo(f"  Erro ao ler {f.name}: {e}")
             read_errors += 1
+            continue
+        # Issue #118: the parse step already runs the XSD gate before writing
+        # its own output, but consolidate reads whatever is in xml_dir — it
+        # may include files that never went through `parse` (manual edits,
+        # older batches). Gate here too so a structurally invalid XML can't
+        # reach the published Parquet just because it skipped that step.
+        if not _xsd_gate(xml_content, warn_prefix=f"  {f.name}: "):
+            read_errors += 1
+            continue
+        items.append((lei_id, ente, xml_content))
 
     if not items:
         echo("Nenhum XML pôde ser lido.")

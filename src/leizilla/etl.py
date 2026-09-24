@@ -328,6 +328,17 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                 fontes_list: list[dict[str, Any]] = []
                 for fonte in versao.findall(f"{{{NS}}}fonte"):
                     ia_id = fonte.get("ia-id", "")
+                    if not ia_id:
+                        # Issue #118: XSD requires ia-id, but the ETL boundary
+                        # trusts the file independently of the XSD gate (e.g.
+                        # consolidate reads any XML dir, not only parser output).
+                        # An empty ia-id was previously counted in num_fontes
+                        # with no real provenance behind it.
+                        raise ValueError(
+                            f"<fonte> without ia-id in dispositivo {path!r} of "
+                            f"{lei_id!r} — every fonte must reference a raw IA "
+                            "item."
+                        )
                     div_s = fonte.get("diverge")
                     diverge = (div_s or "").strip().lower() in ("true", "1")
                     td = fonte.find(f"{{{NS}}}texto") if diverge else None
