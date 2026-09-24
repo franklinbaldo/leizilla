@@ -173,8 +173,14 @@ _RE_URN_LEX = re.compile(
 )
 
 
-def _extract_data_publicacao(urn_lex: str | None) -> datetime.date | None:
-    """Decompose URN LEX → publication date.
+def _extract_data_ato(urn_lex: str | None) -> datetime.date | None:
+    """Decompose URN LEX → the act's representative date (data do ato).
+
+    This is the date embedded in the URN-LEX descriptor (signature/
+    promulgation date), NOT proof of publication — the URN carries no
+    evidence of when/whether the act was published. Callers that need
+    a proven publication date must look at an explicit
+    `<inicio tipo="data-publicacao">` with its `<fonte>` witness.
 
     Returns None when urn-lex is absent, fails the regex, carries a
     regex-valid but calendar-invalid date (e.g. `2020-13-01`), OR when
@@ -198,6 +204,12 @@ def _extract_data_publicacao(urn_lex: str | None) -> datetime.date | None:
         return datetime.date.fromisoformat(data_str)
     except ValueError:
         return None
+
+
+# Compat alias: kept private because tests/test_schema_consistency.py
+# still names the function this way. `_extract_data_ato` is the
+# canonical name; this alias carries no separate behavior.
+_extract_data_publicacao = _extract_data_ato
 
 
 def _urn_is_reduced_year_only(urn_lex: str | None) -> bool:
@@ -237,7 +249,7 @@ class _Ctx:
     file: Path
     root: ET.Element
     urn_lex: str | None
-    data_publicacao: datetime.date | None
+    data_ato: datetime.date | None
     paths_seen: dict[str, ET.Element]
     violations: list[Violation]
 
@@ -277,7 +289,7 @@ def _walk_all_dispositivos(root: ET.Element):
 def _inherited_em(chain: list[ET.Element]) -> datetime.date | None:
     """Walk ancestor chain (nearest first) looking for the first dispositivo
     whose own first <versao> declares `em`. Returns None if no ancestor
-    has a declared `em` — caller falls back to data-publicacao da URN.
+    has a declared `em` — caller falls back to data-ato da URN.
 
     Per §4.3 step 2: missing `em` inherits from "ancestral mais próximo
     que tem uma <versao> com `em` declarado".
@@ -445,7 +457,7 @@ def _check_path_token_map(ctx: _Ctx) -> None:
 
 
 def _check_inheritance_inicio(ctx: _Ctx) -> None:
-    """§7.5+§7.6 — Versão sem `em` herda; versão com `em ≠ data-publicacao`
+    """§7.5+§7.6 — Versão sem `em` herda; versão com `em ≠ data-ato`
     e sem `alterado-por` deve ter <inicio>.
 
     Carve-outs (§7.5):
@@ -458,14 +470,14 @@ def _check_inheritance_inicio(ctx: _Ctx) -> None:
        de dia/mês, §7.5 suspenso (mesmo behavior que carve-out 1).
 
     Escopo do §7.6: a regra só dispara em versões com `em` declarado.
-    Versões que herdam `em ≠ data-publicacao` do ancestral não disparam
+    Versões que herdam `em ≠ data-ato` do ancestral não disparam
     §7.6 aqui — o ancestral é quem deveria ter `<inicio>` ou
     `alterado-por`, e se ele não tem, §7.6 já reportou nele. Evita
     duplicar a mesma violação em todos os descendentes que herdam.
     """
-    pub = ctx.data_publicacao
-    if ctx.urn_lex is not None and pub is None:
-        # pub é None em 2 casos: regex falhou OU year-only. Distinguir:
+    ato = ctx.data_ato
+    if ctx.urn_lex is not None and ato is None:
+        # ato é None em 2 casos: regex falhou OU year-only. Distinguir:
         if _urn_is_reduced_year_only(ctx.urn_lex):
             # Carve-out: URN reduzida válida. Sem âncora precisa, mas
             # também não há malformação a reportar.
@@ -482,7 +494,7 @@ def _check_inheritance_inicio(ctx: _Ctx) -> None:
         for v in d.findall(f"{{{NS}}}versao"):
             em = v.get("em")
             if em is None:
-                # Herança implícita — §7.5 OK quando pub disponível
+                # Herança implícita — §7.5 OK quando ato disponível
                 # (ou quando urn-lex ausente, caso fallback exempto).
                 continue
             alterado_por = v.get("alterado-por")
@@ -493,8 +505,8 @@ def _check_inheritance_inicio(ctx: _Ctx) -> None:
                 # XSD já validou xs:date; aqui ignoramos.
                 continue
             if (
-                pub is not None
-                and em_date != pub
+                ato is not None
+                and em_date != ato
                 and alterado_por is None
                 and inicio is None
             ):
@@ -502,7 +514,7 @@ def _check_inheritance_inicio(ctx: _Ctx) -> None:
                 ctx.add(
                     6,
                     f'<versao em="{em}"> em <dispositivo path="{path}"> difere de '
-                    f"data-publicacao={pub.isoformat()}, sem alterado-por e sem <inicio>",
+                    f"data-ato={ato.isoformat()}, sem alterado-por e sem <inicio>",
                 )
 
 
@@ -511,11 +523,11 @@ def _check_versoes_ordem(ctx: _Ctx) -> None:
     increasing (when present).
 
     Missing `em` resolves via §4.3 inheritance chain: own > nearest
-    ancestor with declared `em` > data-publicacao. Comparing inherited
+    ancestor with declared `em` > data-ato. Comparing inherited
     dates catches cases where a nested dispositivo declares an `em`
     earlier than its parent's first versão.
     """
-    pub = ctx.data_publicacao
+    ato = ctx.data_ato
     for d, chain in _walk_all_dispositivos(ctx.root):
         prev_date: datetime.date | None = None
         for v in d.findall(f"{{{NS}}}versao"):
@@ -527,8 +539,8 @@ def _check_versoes_ordem(ctx: _Ctx) -> None:
                 except ValueError:
                     continue
             else:
-                # §4.3 inheritance: ancestor first, then pub.
-                cur = _inherited_em(chain) or pub
+                # §4.3 inheritance: ancestor first, then ato.
+                cur = _inherited_em(chain) or ato
                 if cur is None:
                     continue
             if prev_date is not None and cur <= prev_date:
@@ -710,7 +722,7 @@ def check_file(file: Path) -> list[Violation]:
         file=file,
         root=root,
         urn_lex=urn_lex,
-        data_publicacao=_extract_data_publicacao(urn_lex),
+        data_ato=_extract_data_ato(urn_lex),
         paths_seen={},
         violations=[],
     )
