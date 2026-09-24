@@ -136,6 +136,22 @@ class TestScrapeOne:
         call_kwargs = pub.upload_raw.call_args
         assert call_kwargs.kwargs["fetched_from"] == "source-fallback"
 
+    @patch("leizilla.scraper.wayback.ensure_archived", return_value=None)
+    @patch(
+        "leizilla.scraper.wayback.fetch_bytes",
+        return_value=b"<!DOCTYPE html><html>error</html>",
+    )
+    @patch("leizilla.scraper.wayback.save_page", return_value=False)
+    @patch("leizilla.scraper.robots.is_allowed", return_value=True)
+    def test_direct_fallback_rejects_non_pdf(
+        self, _r: Any, _s: Any, _f: Any, _c: Any
+    ) -> None:
+        """Fallback direto retornando HTML (não PDF) não deve ser upado pro IA."""
+        pub = _make_publisher()
+        result = scrape_one(_FONTE_URL, _PDF_URL, _LEI, pub)
+        assert result == {"success": False, "reason": "not-pdf", "url": _PDF_URL}
+        pub.upload_raw.assert_not_called()
+
 
 class TestMakeRateLimiter:
     def test_returns_callable(self) -> None:
