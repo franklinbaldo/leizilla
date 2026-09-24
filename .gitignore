@@ -172,6 +172,7 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 .claude/settings.local.json
+.claude/worktrees/
 
 # Leizilla specific. `data/*` (not `data/`) ignores the contents while still
 # allowing specific children to be re-included below — a directory ignored with a
