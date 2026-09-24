@@ -54,6 +54,7 @@
 | **M12.2** — Otimização de Scrape e Parse-All via Consultas em Lote (Vetorização) | 🟢 done | #67 | Evita iterações sequenciais longas fazendo buscas em lote via API do Internet Archive e CDX da Wayback Machine. Merged. |
 | **M13** — Produto público v1 | 🟢 done | — | Nome antigo: "frontend polish". Página própria por lei (`/lei/?id=…` — Texto/Versões/Evidências/Dados), busca agrupada por norma, home com manifesto + painel de cobertura, página `/cobertura/` (funil S1→S5), filtros derivados do dataset. Critérios de aceite (b)–(g) confirmados em main (`web/src/pages/{index,lei,cobertura}.astro`); (a) confirmado em produção em 2026-09-24 (ver log). |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
+| **M13.1** — Releases imutáveis + ponteiro latest (issue #175) | 🟢 done | (rotina 2026-09-24) | `upload_dataset()` publica `leizilla-dataset-{ente}-v{N}-{revision}` (imutável, nunca reaproveitado) + atualiza `leizilla-dataset-{ente}-v{N}-latest` (ponteiro mutável com `latest.json`). Frontend (`db.ts`) aponta por padrão para o `-latest`; `ReleaseCitation.svelte` resolve o identifier imutável em runtime para citação. README/SCHEMA.md/`docs/okf/pipeline/release-dataset.md` atualizados. Ver log 2026-09-24. |
 | **M14.1** — OPF fine-tune: fundação de prep de dados | 🟡 in-progress | — | ADR-0012 + ontologia `leizilla_normas_v1` + sampler estratificado (`opf-sample`) + helper `opf_annotate.py` vendorado + doc `docs/opf-finetune.md`. Fase 1 de 4 (prep → anotar → treinar Colab → integrar). |
 | **M14.2** — OPF gold v0→v1 (anotação por subagentes + Fase 2.5 caminho 1) | 🟡 in-progress | — | v0: `data/opf/gold/` (6 leis federais reais, 251 spans) via subagentes LLM (shard-por-doc) + resolução determinística de offset + ensemble de avaliadores no eval slice. **v1 (2026-09-24)**: +13 docs reais de OCR ruidoso de RO/casacivil (train split; total 476 spans) via Fase 2.5 caminho 1 (`opf-sample`+`opf-bootstrap` pré-rotula com regex, um subagente por doc audita) — ver log 2026-09-24. Fase 2 de 4. |
 | **M14.3** — OPF treino/eval (notebook Colab GPU) | 🟡 in-progress | — | `notebooks/opf_train_colab.ipynb` pronto (aponta pro `main`, gold v0 já commitado; 3 bugs reais de CLI achados em revisão e corrigidos — `--seed`→`--shuffle-seed`, `--checkpoint` ausente no train, `--label-space-json` inválido no eval). **Reativado por decisão do mantenedor em 2026-07-14** (não pelo gatilho de evidência da atualização de 2026-06-06 — o v0 segue single-fonte/texto limpo). Falta rodar no Colab (GPU), fora do alcance de sessões sem GPU/Drive interativo. Ver ADR-0012 "Atualização (2026-07-14)". |
@@ -235,6 +236,60 @@ correspondente deixado na issue #151.
 #177, ainda aberta) — a próxima sessão deve tratá-lo como ledger canônico
 só depois do merge; até lá, IMPLEMENTATION.md + `docs/rfc/` + issues
 seguem sendo a fonte de verdade reconstruível.
+
+### 2026-09-24 (sessão 3) — M13.1: releases de dataset imutáveis + ponteiro latest (issue #175)
+
+**Rotina disparada por webhook `issues.opened`** (issue #175, aberta pelo mantenedor).
+
+**Problema verificado**: `parse-release.yml` publica diariamente com `--version 0`, e o
+mesmo identifier (`leizilla-dataset-ro-v0`) era usado tanto como "latest móvel" quanto
+como artefato citado publicamente como release — `upload_dataset()` sobrescrevia o
+mesmo item IA a cada publicação agendada, então citar `leizilla-dataset-ro-v0` hoje e
+amanhã resolvia para conteúdos diferentes. Confirmado lendo `publisher.upload_dataset`,
+`cli.cmd_release_dataset`, `parse-release.yml` e o fallback hardcoded em `web/src/lib/db.ts`.
+
+**Correção — separar release imutável de ponteiro mutável**:
+- `publisher._dataset_revision()`: timestamp UTC compacto (`YYYYMMDDtHHMMSSz`),
+  IA-identifier-safe, auto-computado se não passado explicitamente.
+- `upload_dataset()` agora publica `leizilla-dataset-{ente}-v{version}-{revision}` —
+  nunca reaproveita um identifier existente, então cada release agendada é um item IA
+  novo, permanentemente recuperável. `build_dataset_meta()` ganha o campo `revision`.
+- Novo método `_publish_latest_pointer()` (chamado por padrão, `publish_latest=True`):
+  reenvia o mesmo parquet/meta + um `latest.json` pequeno para o identifier fixo
+  `leizilla-dataset-{ente}-v{version}-latest`, com `identifier`/`ia_url`/`parquet_url`
+  apontando para o release imutável recém-publicado. Fail-open: falha no ponteiro não
+  derruba a publicação do release imutável (já é o artefato citável); `cmd_release_dataset`
+  ecoa um aviso nesse caso em vez de abortar.
+- Frontend (`web/src/lib/db.ts`): fallback hardcoded trocado de `.../leizilla-dataset-ro-v0/...`
+  para `.../leizilla-dataset-ro-v0-latest/...` — a URL que o portal consulta por padrão
+  passa a ser explicitamente o ponteiro documentado como mutável, não mais um item que
+  finge ser uma versão estável. Novo `fetchLatestPointer()` (fail-open) resolve
+  `latest.json` em runtime para exibir o identifier imutável real. Novo componente
+  compartilhado `ReleaseCitation.svelte` (usado em `HomePanel`, `cobertura.astro` e
+  `Dados.svelte` — as três superfícies "página de dados" do produto) substitui o texto
+  estático "Como citar" que citava o ponteiro móvel por uma citação resolvida em
+  runtime contra o release imutável, com fallback honesto quando a resolução falha.
+- Docs: README (`§ Releases imutáveis vs. ponteiro latest`), `docs/SCHEMA.md` §1.4/§5.5,
+  `docs/okf/pipeline/release-dataset.md` — todos atualizados para descrever os dois
+  identifiers e por que cada um existe.
+- `parse-release.yml` não precisou de mudança — chama `release-dataset --version N` sem
+  saber de `revision`/pointer, ambos internos ao comando.
+
+**Testes**: 11 novos em `tests/test_publisher_dataset.py` (revisão default/explícita/
+inválida, identifiers nunca reaproveitados, ponteiro publicado por padrão e
+desabilitável, `latest.json` referenciando o release correto, falha do ponteiro não
+derruba o release, CLI ecoando sucesso/aviso do ponteiro). `uv run pytest`: 793
+passed/13 skipped (suíte completa, todos os testes existentes intactos). `uv run mypy
+src/`: só os 3 erros pré-existentes de stub do `types-requests` (não tocam os
+arquivos alterados). `npm run build` (web): passa sem erros de tipo.
+
+**Não feito nesta sessão** (fora de escopo, não pedido pela issue): backfill de
+`latest.json` para o item `leizilla-dataset-ro-v0` já publicado antes desta mudança
+(a próxima execução do `parse-release.yml` já cobre isso publicando um release
+imutável real + o ponteiro `-latest` pela primeira vez); migração/deleção do item
+`v0` legado (releases antigas continuam diretamente recuperáveis por design — nunca
+apagamos).
+
 
 ### 2026-09-24 (sessão 3) — merge PR #172; RFC-0003 doc-drift corrigido; harvest ganha paridade de relatório com scrape (Fase 1 parcial)
 

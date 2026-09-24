@@ -130,11 +130,6 @@ def cmd_harvest(
         pub = InternetArchivePublisher()
 
         stats = harvest_pending_resources(db, pub, limit=limit, ente=ente, tipo=tipo)
-        for item in stats.get("items", []):
-            if item["status"] == "ok":
-                echo(f"  OK: {item['ia_id']} → {item['ia_url']}")
-            else:
-                echo(f"  Falha [{item['reason']}]: {item['chave']}")
         echo("Colheita concluída:")
         echo(f"  Sucesso: {stats['success']}")
         echo(f"  Falhas: {stats['failed']}")
@@ -673,7 +668,13 @@ def cmd_release_dataset(
         False, "--dry-run", help="Reporta stats sem fazer upload"
     ),
 ) -> None:
-    """Publicar Parquet no IA como leizilla-dataset-{ente}-v{version} (M4 restante)."""
+    """Publicar Parquet no IA (M4 restante; releases imutáveis, issue #175).
+
+    Cada chamada publica um release imutável e citável
+    (leizilla-dataset-{ente}-v{version}-{revision}) e atualiza o ponteiro
+    mutável leizilla-dataset-{ente}-v{version}-latest usado por padrão pelos
+    consumidores (frontend inclusive) para descobrir a release corrente.
+    """
     import time
 
     import duckdb
@@ -757,6 +758,16 @@ def cmd_release_dataset(
         echo(
             f"Dataset publicado: {result['ia_url']} ({result.get('row_count', '?')} linhas)"
         )
+        latest_pointer = result.get("latest_pointer")
+        if latest_pointer is not None:
+            if latest_pointer.get("success"):
+                echo(f"Ponteiro latest atualizado: {latest_pointer['ia_url']}")
+            else:
+                echo(
+                    "Aviso: ponteiro latest falhou "
+                    f"({latest_pointer.get('error', 'erro desconhecido')}) — "
+                    "release imutável publicada normalmente."
+                )
     else:
         echo(f"Upload falhou: {result.get('error', 'erro desconhecido')}")
         raise typer.Exit(1)
