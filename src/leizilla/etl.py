@@ -194,6 +194,16 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
     root = ET.fromstring(xml_content)
 
     urn_lex = root.get("urn-lex")
+    if urn_lex is not None and not _RE_URN_LEX.match(urn_lex):
+        # Issue #118: the ETL/release boundary has no gate of its own today —
+        # a malformed urn-lex would otherwise silently yield tipo_lei=None,
+        # numero_lei=None, ano_lei=0 (see _parse_lei_fields) instead of failing,
+        # reaching the published Parquet with corrupted identity metadata.
+        raise ValueError(
+            f"Malformed urn-lex for {lei_id!r}: {urn_lex!r} does not match the "
+            "canonical URN-LEX grammar — refusing to derive rows from an "
+            "unparseable identifier."
+        )
     vigente_em = _parse_date(root.get("vigente-em"))
     data_ato = _extract_data_ato(urn_lex)
     tipo_lei, numero_lei, ano_lei = _parse_lei_fields(lei_id, urn_lex)
@@ -309,6 +319,17 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                 fontes_list: list[dict[str, Any]] = []
                 for fonte in versao.findall(f"{{{NS}}}fonte"):
                     ia_id = fonte.get("ia-id", "")
+                    if not ia_id:
+                        # Issue #118: XSD requires ia-id, but the ETL boundary
+                        # trusts the file independently of the XSD gate (e.g.
+                        # consolidate reads any XML dir, not only parser output).
+                        # An empty ia-id was previously counted in num_fontes
+                        # with no real provenance behind it.
+                        raise ValueError(
+                            f"<fonte> without ia-id in dispositivo {path!r} of "
+                            f"{lei_id!r} — every fonte must reference a raw IA "
+                            "item."
+                        )
                     div_s = fonte.get("diverge")
                     diverge = (div_s or "").strip().lower() in ("true", "1")
                     td = fonte.find(f"{{{NS}}}texto") if diverge else None

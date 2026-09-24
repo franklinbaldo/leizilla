@@ -688,3 +688,76 @@ class TestXmlToRowsComRevogacaoCascata:
     def test_row_count(self) -> None:
         # art-10, art-10-par-1, art-10-par-1-inc-1, art-10-par-2, art-11 = 5
         assert len(self.rows) == 5
+
+
+# ---------------------------------------------------------------------------
+# Release-boundary gates (issue #118): the ETL/release path had no independent
+# validation of its own, so malformed urn-lex or fonte-without-ia-id could
+# silently reach the published Parquet. These fail closed instead.
+# ---------------------------------------------------------------------------
+
+
+class TestReleaseBoundaryGates:
+    def test_malformed_urn_lex_raises(self) -> None:
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
+     urn-lex="not-a-valid-urn-lex" vigente-em="2026-05-20">
+  <dispositivo path="art-1">
+    <versao>
+      <texto>Texto.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-lei-00001"/>
+    </versao>
+  </dispositivo>
+</lei>
+"""
+        with pytest.raises(ValueError, match="urn-lex"):
+            xml_to_rows(xml, "lei-1", "ro")
+
+    def test_absent_urn_lex_is_allowed(self) -> None:
+        # urn-lex is XSD-optional; None must keep working (only malformed
+        # non-None values are rejected).
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
+     vigente-em="2026-05-20">
+  <dispositivo path="art-1">
+    <versao>
+      <texto>Texto.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-lei-00001"/>
+    </versao>
+  </dispositivo>
+</lei>
+"""
+        rows = xml_to_rows(xml, "lei-1", "ro")
+        assert rows[0]["urn_lex_lei"] is None
+
+    def test_empty_ia_id_raises(self) -> None:
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
+     urn-lex="urn:lex:br;rondonia:estadual:lei:2010-03-01;4242"
+     vigente-em="2026-05-20">
+  <dispositivo path="art-1">
+    <versao>
+      <texto>Texto.</texto>
+      <fonte ia-id=""/>
+    </versao>
+  </dispositivo>
+</lei>
+"""
+        with pytest.raises(ValueError, match="ia-id"):
+            xml_to_rows(xml, "lei-1", "ro")
+
+    def test_missing_ia_id_attribute_raises(self) -> None:
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
+     urn-lex="urn:lex:br;rondonia:estadual:lei:2010-03-01;4242"
+     vigente-em="2026-05-20">
+  <dispositivo path="art-1">
+    <versao>
+      <texto>Texto.</texto>
+      <fonte/>
+    </versao>
+  </dispositivo>
+</lei>
+"""
+        with pytest.raises(ValueError, match="ia-id"):
+            xml_to_rows(xml, "lei-1", "ro")

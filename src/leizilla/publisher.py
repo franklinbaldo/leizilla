@@ -582,6 +582,42 @@ class IndexFetchError(Exception):
     """
 
 
+class DatasetMetaFetchError(Exception):
+    """Falha transitória ao buscar o dataset_meta.json do release ``-latest``.
+
+    Mesma distinção de ``IndexFetchError``: um 404/403 confirmado significa "ainda
+    não existe release publicado" (seguro publicar); qualquer outra falha é
+    transitória e não deve ser confundida com "sem release anterior" — o piso de
+    linhas (issue #118) ficaria sem efeito justo quando a rede está instável.
+    """
+
+
+def _fetch_previous_release_row_count(ente: str, version: int) -> Optional[int]:
+    """Linhas do release ``-latest`` corrente para ``(ente, version)`` (issue #118).
+
+    Retorna ``None`` quando não há release anterior publicado (404/403 confirmado
+    — primeira publicação é sempre segura). Levanta ``DatasetMetaFetchError`` em
+    falha transitória para o chamador abortar em vez de tratar "não deu pra
+    checar" como "nunca foi publicado" e furar o piso por acidente.
+    """
+    latest_id = f"leizilla-dataset-{ente}-v{version}-{_DATASET_LATEST_SUFFIX}"
+    url = download_url(latest_id, "dataset_meta.json")
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            meta = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code in (403, 404):
+            return None
+        raise DatasetMetaFetchError(
+            f"HTTP {e.code} ao buscar dataset_meta.json de {latest_id}"
+        ) from e
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+        raise DatasetMetaFetchError(str(e)) from e
+    row_count = meta.get("row_count")
+    return int(row_count) if isinstance(row_count, (int, float)) else None
+
+
 def _fetch_existing_index(item_id: str) -> Optional[str]:
     """Baixa o index.csv corrente de um item de range do IA.
 
@@ -1423,6 +1459,31 @@ class InternetArchivePublisher:
             parquet_path, ente, version, row_count, git_sha, effective_revision
         )
         effective_row_count = dataset_meta["row_count"]
+
+        try:
+            previous_row_count = _fetch_previous_release_row_count(ente, version)
+        except DatasetMetaFetchError as e:
+            return {
+                "success": False,
+                "error": (
+                    "Não foi possível confirmar o piso de linhas do release "
+                    f"corrente antes de publicar (issue #118): {e}"
+                ),
+                "ia_id": ia_id,
+            }
+
+        if previous_row_count is not None and effective_row_count < previous_row_count:
+            return {
+                "success": False,
+                "error": (
+                    f"Piso de linhas violado: {effective_row_count} linhas < "
+                    f"{previous_row_count} já publicadas em "
+                    f"leizilla-dataset-{ente}-v{version}-{_DATASET_LATEST_SUFFIX} "
+                    "(issue #118). Publicação recusada — reduções de linhas "
+                    "exigem revisão manual, não um release automático."
+                ),
+                "ia_id": ia_id,
+            }
 
         with tempfile.TemporaryDirectory() as tmp:
             parquet_dst = Path(tmp) / "versoes.parquet"
