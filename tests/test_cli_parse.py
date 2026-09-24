@@ -3,6 +3,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from leizilla.cli import app, _xsd_gate
@@ -38,15 +39,23 @@ class TestXsdGate:
         )
         assert _xsd_gate("<lei/>") is True
 
-    def test_returns_true_when_xmllint_not_found(self, tmp_path):
-        schema = tmp_path / "leizilla-v0.1.xsd"
-        schema.write_text("<xs:schema/>")
-        with patch("subprocess.run", side_effect=FileNotFoundError):
-            with patch("leizilla.cli.Path") as mock_path:
-                mock_path.return_value.__truediv__ = MagicMock(return_value=schema)
-                mock_path.return_value.parents = [None, None, tmp_path]
-                result = _xsd_gate("<lei/>")
+    def test_returns_true_when_xmllint_not_found_locally(self, monkeypatch):
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+        with (
+            patch("subprocess.run", side_effect=FileNotFoundError),
+            patch.object(Path, "exists", return_value=True),
+        ):
+            result = _xsd_gate("<lei/>")
         assert result is True
+
+    def test_raises_when_xmllint_not_found_in_ci(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        with (
+            patch("subprocess.run", side_effect=FileNotFoundError),
+            patch.object(Path, "exists", return_value=True),
+        ):
+            with pytest.raises(RuntimeError, match="xmllint"):
+                _xsd_gate("<lei/>")
 
     def test_returns_true_on_xmllint_success(self):
         with (

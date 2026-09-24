@@ -213,6 +213,29 @@ lote), issue #127 (contrato de `numero` com sufixo de letra — decisão de
 design end-to-end, maior que "dívida pequena"), issue #167 (semântica de data
 legada nos downloads — depende de #170, WIP de outra sessão, não tocado).
 
+### 2026-09-24 (sessão 4, cont.) — issue #102: vitest + cobertura de `model.ts`/`format.ts` (frontend, workstream separado)
+
+Segunda frente da mesma sessão de stewardship, escolhida por ser um workstream diferente (produto/frontend) das duas frentes de backend/pipeline já cobertas acima, sem sobreposição de arquivos com nenhuma das PRs de harvest/discovery em voo (#178/#179/#180/#181/#182/#183/#185). `web/` não tinha nenhum framework de teste configurado (`package.json` sem `devDependencies` nem script `test`) — issue #102 (aberta desde a M13/#101, "não bloqueante") pedia cobertura para a lógica pura de `web/src/components/lei/model.ts` e `web/src/lib/format.ts` (seleção de redação vigente, árvore de dispositivos, rótulos derivados do path, citação, exportação CSV/JSON), hoje só verificada manualmente.
+
+- Adicionado `vitest` + `jsdom` como `devDependencies` (registry acessível no sandbox, `npm ping` confirmou); `vitest.config.ts` com `environment: 'jsdom'` (necessário para `location`/`navigator`/`document` usados em `absoluteLeiUrl`/`citation`/`copyText`); script `"test": "vitest run"`.
+- `web/src/lib/format.test.ts` (26 testes) e `web/src/components/lei/model.test.ts` (17 testes): cobrem o escopo do issue — `currentRows()` (versão única, vigente vs. superseded, dispositivo inteiramente revogado mantendo a última redação, ordem de input invertida, empate de `em` entre duas versões abertas); `buildTree()` (artigo→parágrafo→inciso→alínea, bloco organizacional com filhos, `parent_path` órfão promovido a top-level, ordenação por `dispositivo_ordem`, ementa fora da árvore); `pathSegments`/`rotulo`/`breadcrumb` (art-1 ordinal, art-10 cardinal, art-5-a com sufixo de emenda, par-unico, inciso romano, alínea, capítulo/seção/subseção, token desconhecido fail-open); `citation`/`absoluteLeiUrl` (incluindo o teste do fallback de origem sem `location` explícito citado no issue); `rowsToCsv`/`rowsToJson` (escaping de vírgula/aspas/quebra de linha, bigint→number, datas→ISO); `groupHistorico`, `aggregateFontes`, `formatDate` (number/bigint/Date/string/null), `parseFontes` fail-open. Não coberto (fora do essencial de "modelagem/formatação", debit menor): `copyText`/`downloadBlob` (efeitos colaterais de DOM, não lógica de derivação).
+- `deploy-web.yml`: novo step `Run unit tests` (`npm run test`) entre `npm ci` e o build, no job `build` que já roda em todo PR que toca `web/**` — regressão nessa lógica agora quebra CI antes do deploy, não só depois em smoke test manual.
+- Validação: `npx vitest run` — 43 passed; `npm run build` — build Astro inalterado e verde.
+
+**Achado fora de escopo, não corrigido aqui**: `npm audit` (produção, `--omit=dev`) mostra uma vulnerabilidade **crítica** em `astro@6.4.8` (XSS via atributos spread não escapados, GHSA-f48w-9m4c-m7f5) — pré-existente (versão do Astro inalterada por este PR; confirmado via `git diff package-lock.json`, nenhum diff no bloco `node_modules/astro`), já sinalizada pelo Dependabot do próprio GitHub e com fix disponível via PR #139 aberta (`astro` 6.4.8→7.1.3). Não mexida aqui — convention da rotina é pular PRs de Dependabot sem revisão própria, e um bump de major version do Astro merece sessão dedicada de teste (build + smoke visual), não algo encaixado de passagem. Registrado para quem revisar #139: a urgência é maior do que "dependency bump de rotina", é uma vulnerabilidade crítica em produção.
+
+### 2026-09-24 (sessão 4) — issue #151, itens 3 e 5: `_xsd_gate` fail-closed em CI + higiene de docs/cadáveres
+
+**Rotina agendada de stewardship de portfólio.** Estado reconstruído a partir do repo: `docs/okf/project-dag.md` ainda não existe em `main` (proposto pela PR aberta #177, não mergeada nesta sessão); fonte de status seguiu sendo este arquivo, por instrução do CLAUDE.md. Triagem do GitHub mostrou 12 PRs abertas, a maioria criada nas últimas horas por sessões paralelas cobrindo os itens 1/2/4 da issue #151 (PRs #181/#182/#183) e as issues #174/#175/#176 (PRs #185/#180/#179/#178). O comentário mais recente da issue #151 (18:54 UTC) já registrava os itens 3 e 5 como "ainda abertos — deixados para sessão de follow-up" — exatamente o par não coberto por nenhuma PR em voo, escolhido aqui para evitar duplicar trabalho já em andamento em outra branch.
+
+**Item 3 — `_xsd_gate` deixava de validar XSD silenciosamente em CI**: `_xsd_gate` (`src/leizilla/cli.py`) capturava `FileNotFoundError` de `xmllint` ausente e retornava `True` incondicionalmente (fail-open), inclusive em `GITHUB_ACTIONS=true`; nenhum job de `parse-release.yml` instalava `libxml2-utils` (só `schema-validate.yml` o fazia) — o gate de integridade do pipeline diário de publicação dependia de um detalhe não documentado da imagem `ubuntu-latest`. Corrigido: `_xsd_gate` agora levanta `RuntimeError` quando `xmllint` está ausente **e** `GITHUB_ACTIONS=="true"` (capturado pelos `except RuntimeError` já existentes em `cmd_parse`/`cmd_parse_all`, virando `exit 1` visível em vez de sucesso silencioso); comportamento local inalterado (fail-open, sem travar dev sem `xmllint`). Adicionado step `Install xmllint` (`apt-get install -y libxml2-utils`) nos 4 jobs de `parse-release.yml` que chamam `parse-all --upload` (assembleia, casacivil-lei, casacivil-lc, dispatch) — o job `etl` não precisa (não chama `_xsd_gate`). 2 testes novos em `tests/test_cli_parse.py::TestXsdGate` (fail-open local vs. fail-closed em CI simulada via `monkeypatch.setenv("GITHUB_ACTIONS", "true")`).
+
+**Item 5 — higiene de docs e cadáveres**: `README.md` tinha exemplos que falham hoje (`uv sync --dev` em vez de `--extra dev`; `discover --origem rondonia --start-coddoc…` — `discover` não aceita mais range algum, é 100% manifest-driven desde M10.A; `download`/`search` com `--origem` inexistente) — reescritos para `discover --ente ro`, `harvest --ente ro --limit 100`, `stats --ente ro`, `search --ente ro --text …`, cada um verificado com `--help` contra a CLI atual. `CLAUDE.md` tinha o mesmo drift na tabela de referência de CLI (`scrape`/`parse-all` com `--start-coddoc`/`--end-coddoc`, que não existem — o flag real é `--start`/`--end`); corrigido. `docs/DEVELOPMENT.md` (layout `src/` flat pré-M1, schema `leis` de ADR-0003, CLI com `--origem`) movido para `docs/archive/DEVELOPMENT.md` com banner RFC-0002 — conteúdo histórico preservado; `CONTRIBUTING.md` (única referência viva ao arquivo) redirecionado para `CLAUDE.md`/`docs/SCHEMA.md`. `scripts/backup_database.py` e `scripts/run_rondonia_crawler.py` deletados — ambos chamavam `publisher.upload_pdf()`, método removido desde M2.3 (confirmado: `grep -n "def upload_pdf" src/leizilla/publisher.py` não retorna nada; nenhuma outra referência viva aos scripts fora do próprio log histórico deste arquivo). `tests/test_e2e_rondonia.py` (classe-based, mais antigo) consolidado em `tests/test_rondonia_e2e.py` (function-based, mais novo e já cobria o mesmo cenário com melhor parsing de frontmatter YAML) — a única cobertura exclusiva do arquivo removido (`export_parquet`) foi portada como `test_parquet_export`; duplicação já apontada como follow-up pendente da RFC-0005.
+
+**Validação**: `uv run leizilla dev check` — 777 passed, 13 skipped (778 vs. os 782 da sessão 3 refletem a consolidação de 5 testes duplicados, não perda de cobertura); `uv run mypy src/ --ignore-missing-imports` — só os 3 erros pré-existentes de stub `types-requests`, nenhum nos arquivos tocados; cada comando reescrito do README verificado com `--help` contra a CLI real antes de editar.
+
+**Não feito nesta sessão**: `docs/okf/project-dag.md` (PR #177) não foi revisado/mergeado — decisão de merge de PR de outra sessão fica fora do escopo desta rotina sem revisão própria; M14 segue bloqueado para sessão headless (GPU/Colab); nenhuma das PRs #178–#185 foi tocada (workspaces de outras sessões, sem conflito com os arquivos desta).
+
 ### 2026-09-24 (sessão 4) — M15.1: instrumentação de cobertura S1-S4 (issue #174) + baseline real
 
 **Rotina disparada por `issues.opened` (#174, aberta pelo mantenedor junto com
@@ -2047,14 +2070,17 @@ IA documentado em 2026-07-14 — "reduce your request rate... appears to be
 spam" — batendo porque centenas de uploads sequenciais por hora miram o mesmo
 IA item de range). Issues #136/#140 continuam abertas ligadas a este achado.
 
-**Portfólio de PRs irmãs da sessão 5 — reconciliado**: #184/#183/#182/#181
-(itens 1/2/4 da issue #151) e #179 (RFC-0003 Fase 1, issue #176 — fechada)
-mergeados; #180 (releases imutáveis + ponteiro `latest`, issue #175 — fechada)
-mergeado; #185 (cobertura S1–S4, issue #174 — fechada) mergeado, com um bug
-real corrigido no processo (`upload_coverage` mirava um identifier que #180
-tornou inalcançável — ver log); #186 (xsd-gate fail-closed + higiene de
-docs/scripts mortos + testes de frontend, issue #151 itens 3/5 + #102)
-reconciliado e com CI verde, aguardando merge. #178 ficou aberta com um
+**Portfólio de PRs irmãs da sessão 5 — todas reconciliadas e mergeadas**:
+#184 (log/docs), #181/#182/#183 (itens 1/2/4 da issue #151) e #179
+(RFC-0003 Fase 1, issue #176 — fechada); #180 (releases imutáveis + ponteiro
+`latest`, issue #175 — fechada); #185 (cobertura S1–S4, issue #174 —
+fechada), com um bug real corrigido no processo (`upload_coverage` mirava um
+identifier que #180 tornou inalcançável — ver log); #186 (itens 3/5 da
+issue #151 — xsd-gate fail-closed + higiene de docs/scripts mortos — e
+issue #102, testes de frontend). Issue #151 agora tem os 5 itens da sua
+lista ordenada endereçados. Nenhuma PR de portfólio da sessão 5 segue aberta
+exceto #178 (superseded) e #177 (DAG/OKR, aguardando review dedicada do
+mantenedor) — ver abaixo. #178 ficou aberta com um
 comentário explicando por que #179 foi preferida (conclusão contraditória
 sobre RFC-0003 Fase 1); sua cobertura de teste adicional
 (`test_wayback_html_response_triggers_fallback`, `test_direct_fallback_rejects_non_pdf`)
