@@ -54,6 +54,7 @@
 | **M12.2** — Otimização de Scrape e Parse-All via Consultas em Lote (Vetorização) | 🟢 done | #67 | Evita iterações sequenciais longas fazendo buscas em lote via API do Internet Archive e CDX da Wayback Machine. Merged. |
 | **M13** — Produto público v1 | 🟢 done | — | Nome antigo: "frontend polish". Página própria por lei (`/lei/?id=…` — Texto/Versões/Evidências/Dados), busca agrupada por norma, home com manifesto + painel de cobertura, página `/cobertura/` (funil S1→S5), filtros derivados do dataset. Critérios de aceite (b)–(g) confirmados em main (`web/src/pages/{index,lei,cobertura}.astro`); (a) confirmado em produção em 2026-09-24 (ver log). |
 | **M5.3** — Benchmark DuckDB-WASM real + FTS | 🔴 blocked | — | Aguarda dataset publicado (~100k+ rows RO). ILIKE no DuckDB columnar é suficiente para ~300k rows estimados; FTS só se benchmark in-browser medir > 1s. |
+| **M13.1** — Releases imutáveis + ponteiro latest (issue #175) | 🟢 done | (rotina 2026-09-24) | `upload_dataset()` publica `leizilla-dataset-{ente}-v{N}-{revision}` (imutável, nunca reaproveitado) + atualiza `leizilla-dataset-{ente}-v{N}-latest` (ponteiro mutável com `latest.json`). Frontend (`db.ts`) aponta por padrão para o `-latest`; `ReleaseCitation.svelte` resolve o identifier imutável em runtime para citação. README/SCHEMA.md/`docs/okf/pipeline/release-dataset.md` atualizados. Ver log 2026-09-24. |
 | **M14.1** — OPF fine-tune: fundação de prep de dados | 🟡 in-progress | — | ADR-0012 + ontologia `leizilla_normas_v1` + sampler estratificado (`opf-sample`) + helper `opf_annotate.py` vendorado + doc `docs/opf-finetune.md`. Fase 1 de 4 (prep → anotar → treinar Colab → integrar). |
 | **M14.2** — OPF gold v0→v1 (anotação por subagentes + Fase 2.5 caminho 1) | 🟡 in-progress | — | v0: `data/opf/gold/` (6 leis federais reais, 251 spans) via subagentes LLM (shard-por-doc) + resolução determinística de offset + ensemble de avaliadores no eval slice. **v1 (2026-09-24)**: +13 docs reais de OCR ruidoso de RO/casacivil (train split; total 476 spans) via Fase 2.5 caminho 1 (`opf-sample`+`opf-bootstrap` pré-rotula com regex, um subagente por doc audita) — ver log 2026-09-24. Fase 2 de 4. |
 | **M14.3** — OPF treino/eval (notebook Colab GPU) | 🟡 in-progress | — | `notebooks/opf_train_colab.ipynb` pronto (aponta pro `main`, gold v0 já commitado; 3 bugs reais de CLI achados em revisão e corrigidos — `--seed`→`--shuffle-seed`, `--checkpoint` ausente no train, `--label-space-json` inválido no eval). **Reativado por decisão do mantenedor em 2026-07-14** (não pelo gatilho de evidência da atualização de 2026-06-06 — o v0 segue single-fonte/texto limpo). Falta rodar no Colab (GPU), fora do alcance de sessões sem GPU/Drive interativo. Ver ADR-0012 "Atualização (2026-07-14)". |
@@ -113,47 +114,58 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
-### 2026-09-24 (sessão 3) — merge PR #172; RFC-0003 doc-drift corrigido; harvest ganha paridade de relatório com scrape (Fase 1 parcial)
+### 2026-09-24 (sessão 3) — M13.1: releases de dataset imutáveis + ponteiro latest (issue #175)
 
-**FASE 1 — triagem**: 4 PRs abertas. #139/#142 (Dependabot) — anotadas e
-puladas (regra da rotina). #170 (`steward/vigencia-data-ato-provenance`,
-autor humano) — segue draft, marcada pelo próprio autor como "GREEN parcial",
-com TODOs pendentes; não é desta rotina mexer em WIP alheio. #172
-(`claude/ecstatic-franklin-llu93p`, gold v1 do OPF) — CI verde (4/4),
-`mergeable_state: clean`, sem review bloqueante (só um comentário do bot
-Codex avisando que bateu o limite de uso, não é uma review); mergeada via
-squash (`5f4a22b`).
+**Rotina disparada por webhook `issues.opened`** (issue #175, aberta pelo mantenedor).
 
-**FASE 2 — trabalho novo**: M14 (OPF) segue bloqueado para sessão headless
-(M14.3 precisa de GPU/Colab interativo; M14.2 precisa de mais fontes RO
-publicadas no IA — `assembleia` ainda não tem raw items). Ao revisar
-"Próximos passos imediatos", achei doc-drift real: a RFC-0003
-(convergência scrape→harvest) dizia "aguardando merge de #93 e #94" — ambas
-estão mergeadas desde 07/2026, então a Fase 1 da RFC já podia ter começado.
-Escolhi o pedaço mais estreito e reversível da Fase 1 — paridade de
-relatório entre `harvest` e `scrape` — em vez da mudança maior (portar
-`cdx_max` do CDX da Wayback para as estratégias de discovery), que mexe em
-mais lugares e merece sessão própria:
+**Problema verificado**: `parse-release.yml` publica diariamente com `--version 0`, e o
+mesmo identifier (`leizilla-dataset-ro-v0`) era usado tanto como "latest móvel" quanto
+como artefato citado publicamente como release — `upload_dataset()` sobrescrevia o
+mesmo item IA a cada publicação agendada, então citar `leizilla-dataset-ro-v0` hoje e
+amanhã resolvia para conteúdos diferentes. Confirmado lendo `publisher.upload_dataset`,
+`cli.cmd_release_dataset`, `parse-release.yml` e o fallback hardcoded em `web/src/lib/db.ts`.
 
-- `scraper.harvest_pending_resources` agora popula `stats["items"]` (um dict
-  por recurso processado: `status`/`chave`/`ia_id`/`ia_url` no sucesso,
-  `status`/`chave`/`reason` na falha) — chave nova, não quebra os 3 contadores
-  agregados que os testes existentes já checavam.
-- `cli.cmd_harvest` itera `stats["items"]` e imprime `OK: <ia_id> → <ia_url>`
-  / `Falha [reason]: <chave>` por recurso, igual ao que `cmd_scrape` já fazia
-  — antes só saía o agregado (sucesso/falhas/robots-blocked), sem rastro de
-  qual item falhou e por quê.
-- 1 teste novo (`test_items_report_parity_with_scrape`) cobrindo sucesso +
-  robots-blocked no mesmo lote. `uv run leizilla dev check`: 782 passed, 13
-  skipped. `mypy src/ --ignore-missing-imports`: só os 3 erros pré-existentes
-  de stub ausente (`types-requests`), nenhum nos arquivos tocados.
-- RFC-0003 e a entrada correspondente em "Próximos passos imediatos"
-  atualizadas para não ficar em drift (princípio 2): status "aprovado, Fase 1
-  em andamento"; registrado explicitamente o que falta (cdx_max→discovery;
-  Fases 2/3 ainda não iniciadas).
+**Correção — separar release imutável de ponteiro mutável**:
+- `publisher._dataset_revision()`: timestamp UTC compacto (`YYYYMMDDtHHMMSSz`),
+  IA-identifier-safe, auto-computado se não passado explicitamente.
+- `upload_dataset()` agora publica `leizilla-dataset-{ente}-v{version}-{revision}` —
+  nunca reaproveita um identifier existente, então cada release agendada é um item IA
+  novo, permanentemente recuperável. `build_dataset_meta()` ganha o campo `revision`.
+- Novo método `_publish_latest_pointer()` (chamado por padrão, `publish_latest=True`):
+  reenvia o mesmo parquet/meta + um `latest.json` pequeno para o identifier fixo
+  `leizilla-dataset-{ente}-v{version}-latest`, com `identifier`/`ia_url`/`parquet_url`
+  apontando para o release imutável recém-publicado. Fail-open: falha no ponteiro não
+  derruba a publicação do release imutável (já é o artefato citável); `cmd_release_dataset`
+  ecoa um aviso nesse caso em vez de abortar.
+- Frontend (`web/src/lib/db.ts`): fallback hardcoded trocado de `.../leizilla-dataset-ro-v0/...`
+  para `.../leizilla-dataset-ro-v0-latest/...` — a URL que o portal consulta por padrão
+  passa a ser explicitamente o ponteiro documentado como mutável, não mais um item que
+  finge ser uma versão estável. Novo `fetchLatestPointer()` (fail-open) resolve
+  `latest.json` em runtime para exibir o identifier imutável real. Novo componente
+  compartilhado `ReleaseCitation.svelte` (usado em `HomePanel`, `cobertura.astro` e
+  `Dados.svelte` — as três superfícies "página de dados" do produto) substitui o texto
+  estático "Como citar" que citava o ponteiro móvel por uma citação resolvida em
+  runtime contra o release imutável, com fallback honesto quando a resolução falha.
+- Docs: README (`§ Releases imutáveis vs. ponteiro latest`), `docs/SCHEMA.md` §1.4/§5.5,
+  `docs/okf/pipeline/release-dataset.md` — todos atualizados para descrever os dois
+  identifiers e por que cada um existe.
+- `parse-release.yml` não precisou de mudança — chama `release-dataset --version N` sem
+  saber de `revision`/pointer, ambos internos ao comando.
 
-**FASE 3 — encerramento**: ver PR desta sessão (branch
-`claude/ecstatic-franklin-bzz7x0`) para o resumo final.
+**Testes**: 11 novos em `tests/test_publisher_dataset.py` (revisão default/explícita/
+inválida, identifiers nunca reaproveitados, ponteiro publicado por padrão e
+desabilitável, `latest.json` referenciando o release correto, falha do ponteiro não
+derruba o release, CLI ecoando sucesso/aviso do ponteiro). `uv run pytest`: 793
+passed/13 skipped (suíte completa, todos os testes existentes intactos). `uv run mypy
+src/`: só os 3 erros pré-existentes de stub do `types-requests` (não tocam os
+arquivos alterados). `npm run build` (web): passa sem erros de tipo.
+
+**Não feito nesta sessão** (fora de escopo, não pedido pela issue): backfill de
+`latest.json` para o item `leizilla-dataset-ro-v0` já publicado antes desta mudança
+(a próxima execução do `parse-release.yml` já cobre isso publicando um release
+imutável real + o ponteiro `-latest` pela primeira vez); migração/deleção do item
+`v0` legado (releases antigas continuam diretamente recuperáveis por design — nunca
+apagamos).
 
 ### 2026-09-24 (sessão 2) — M14.2: gold v1 via Fase 2.5 caminho 1 sobre OCR real de RO; PRs #115/#116 corrigidas para "merged"
 
@@ -1703,16 +1715,8 @@ publicados no IA — nada a amostrar lá ainda).
 
 **Convergência scrape→harvest**: ver
 [`docs/rfc/0003-convergencia-scrape-harvest.md`](docs/rfc/0003-convergencia-scrape-harvest.md)
-— #93/#94 (os fixes de produção que bloqueavam a Fase 1) estão mergeados desde
-07/2026; texto anterior aqui ficou em drift (princípio 2) dizendo "aguardando
-merge". Fase 1 começou em 2026-09-24 (sessão 3): `harvest_pending_resources`
-agora reporta por item (`stats["items"]`), igualando o formato `OK: <ia_id> →
-<ia_url>` / `Falha [reason]: <chave>` que `scrape` já tinha. Falta, ainda na
-Fase 1: portar a descoberta de `cdx_max` via Wayback CDX (hoje só em
-`cmd_scrape`/casacivil) para as estratégias de discovery do manifesto
-(`"end": "cdx-auto"`). Fases 2 (workflows) e 3 (deprecação do `scrape`) seguem
-não iniciadas — são mudanças maiores (remoção/fusão de workflow) que merecem
-sessão própria, não bundle com um fix de doc-drift.
+— aguardando merge dos fixes de produção #93 (Wayback devolvendo HTML) e #94
+(navegação nos buckets), encontrados nas primeiras execuções reais de 06/2026.
 
 **Dívida técnica identificada**: Protocol formal para estratégias de discovery (`WaybackCdxDiscovery`,
 `SequentialDiscovery`, `PlaywrightCrawlerDiscovery`) — RESOLVIDO: Substituiu-se a class base por `DiscoveryStrategyProtocol(Protocol)`.

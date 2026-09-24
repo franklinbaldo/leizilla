@@ -1,6 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import CoberturaPanel from '../components/cobertura/CoberturaPanel.svelte';
+import ReleaseCitation from '../components/ReleaseCitation.svelte';
 import { STAGES } from '../lib/format';
 // Constantes puras derivadas em build-time (nenhuma conexão é aberta aqui) —
 // mantêm esta seção estática em sincronia com o que o navegador consulta.
@@ -136,13 +137,7 @@ import { iaDetailsUrl } from '../lib/format';
       brasileiros, sem proteção autoral (art. 8º, IV, Lei 9.610/98); o dataset é
       publicado como dados abertos, de uso livre.
     </p>
-    <p>
-      <strong>Como citar:</strong> <em>Leizilla — legislação pública preservada,
-      estruturada e auditável.</em> Dataset Parquet <code>versoes</code>,
-      Internet Archive{DATASET_IA_ITEM && (
-        <Fragment> (item <code>{DATASET_IA_ITEM}</code>)</Fragment>
-      )}. Disponível em <a href={DATASET_PARQUET_URL} rel="external">{DATASET_PARQUET_URL}</a>.
-    </p>
+    <ReleaseCitation client:only="svelte" />
   </section>
 </Layout>
 
