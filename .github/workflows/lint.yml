@@ -30,7 +30,7 @@ jobs:
         run: uv run ruff check .
 
       - name: Ruff — format check
-        run: uv run ruff format --check .
+        run: uv run ruff format --check --diff .
 
       - name: Mypy — type check
         run: uv run mypy src/ --ignore-missing-imports
