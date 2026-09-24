@@ -113,6 +113,48 @@ Fonte oficial → ETAPA 1 (raw IA item)        → IA OCR automático (_djvu.txt
 
 Toda decisão importante recebe entrada aqui com data. Não delete entradas — supersede com nova entrada referenciando a anterior.
 
+### 2026-09-24 (sessão 3) — merge PR #172; RFC-0003 doc-drift corrigido; harvest ganha paridade de relatório com scrape (Fase 1 parcial)
+
+**FASE 1 — triagem**: 4 PRs abertas. #139/#142 (Dependabot) — anotadas e
+puladas (regra da rotina). #170 (`steward/vigencia-data-ato-provenance`,
+autor humano) — segue draft, marcada pelo próprio autor como "GREEN parcial",
+com TODOs pendentes; não é desta rotina mexer em WIP alheio. #172
+(`claude/ecstatic-franklin-llu93p`, gold v1 do OPF) — CI verde (4/4),
+`mergeable_state: clean`, sem review bloqueante (só um comentário do bot
+Codex avisando que bateu o limite de uso, não é uma review); mergeada via
+squash (`5f4a22b`).
+
+**FASE 2 — trabalho novo**: M14 (OPF) segue bloqueado para sessão headless
+(M14.3 precisa de GPU/Colab interativo; M14.2 precisa de mais fontes RO
+publicadas no IA — `assembleia` ainda não tem raw items). Ao revisar
+"Próximos passos imediatos", achei doc-drift real: a RFC-0003
+(convergência scrape→harvest) dizia "aguardando merge de #93 e #94" — ambas
+estão mergeadas desde 07/2026, então a Fase 1 da RFC já podia ter começado.
+Escolhi o pedaço mais estreito e reversível da Fase 1 — paridade de
+relatório entre `harvest` e `scrape` — em vez da mudança maior (portar
+`cdx_max` do CDX da Wayback para as estratégias de discovery), que mexe em
+mais lugares e merece sessão própria:
+
+- `scraper.harvest_pending_resources` agora popula `stats["items"]` (um dict
+  por recurso processado: `status`/`chave`/`ia_id`/`ia_url` no sucesso,
+  `status`/`chave`/`reason` na falha) — chave nova, não quebra os 3 contadores
+  agregados que os testes existentes já checavam.
+- `cli.cmd_harvest` itera `stats["items"]` e imprime `OK: <ia_id> → <ia_url>`
+  / `Falha [reason]: <chave>` por recurso, igual ao que `cmd_scrape` já fazia
+  — antes só saía o agregado (sucesso/falhas/robots-blocked), sem rastro de
+  qual item falhou e por quê.
+- 1 teste novo (`test_items_report_parity_with_scrape`) cobrindo sucesso +
+  robots-blocked no mesmo lote. `uv run leizilla dev check`: 782 passed, 13
+  skipped. `mypy src/ --ignore-missing-imports`: só os 3 erros pré-existentes
+  de stub ausente (`types-requests`), nenhum nos arquivos tocados.
+- RFC-0003 e a entrada correspondente em "Próximos passos imediatos"
+  atualizadas para não ficar em drift (princípio 2): status "aprovado, Fase 1
+  em andamento"; registrado explicitamente o que falta (cdx_max→discovery;
+  Fases 2/3 ainda não iniciadas).
+
+**FASE 3 — encerramento**: ver PR desta sessão (branch
+`claude/ecstatic-franklin-bzz7x0`) para o resumo final.
+
 ### 2026-09-24 (sessão 2) — M14.2: gold v1 via Fase 2.5 caminho 1 sobre OCR real de RO; PRs #115/#116 corrigidas para "merged"
 
 **Rotina agendada, FASE 1**: única PR aberta acionável era #170 (draft de outra
@@ -1661,8 +1703,16 @@ publicados no IA — nada a amostrar lá ainda).
 
 **Convergência scrape→harvest**: ver
 [`docs/rfc/0003-convergencia-scrape-harvest.md`](docs/rfc/0003-convergencia-scrape-harvest.md)
-— aguardando merge dos fixes de produção #93 (Wayback devolvendo HTML) e #94
-(navegação nos buckets), encontrados nas primeiras execuções reais de 06/2026.
+— #93/#94 (os fixes de produção que bloqueavam a Fase 1) estão mergeados desde
+07/2026; texto anterior aqui ficou em drift (princípio 2) dizendo "aguardando
+merge". Fase 1 começou em 2026-09-24 (sessão 3): `harvest_pending_resources`
+agora reporta por item (`stats["items"]`), igualando o formato `OK: <ia_id> →
+<ia_url>` / `Falha [reason]: <chave>` que `scrape` já tinha. Falta, ainda na
+Fase 1: portar a descoberta de `cdx_max` via Wayback CDX (hoje só em
+`cmd_scrape`/casacivil) para as estratégias de discovery do manifesto
+(`"end": "cdx-auto"`). Fases 2 (workflows) e 3 (deprecação do `scrape`) seguem
+não iniciadas — são mudanças maiores (remoção/fusão de workflow) que merecem
+sessão própria, não bundle com um fix de doc-drift.
 
 **Dívida técnica identificada**: Protocol formal para estratégias de discovery (`WaybackCdxDiscovery`,
 `SequentialDiscovery`, `PlaywrightCrawlerDiscovery`) — RESOLVIDO: Substituiu-se a class base por `DiscoveryStrategyProtocol(Protocol)`.

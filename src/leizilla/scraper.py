@@ -187,7 +187,12 @@ def harvest_pending_resources(
     Se `tipo` for fornecido, processa apenas recursos desse tipo de documento.
     """
     pending = storage.get_pending_resources(limit=limit, ente=ente, tipo=tipo)
-    stats = {"success": 0, "failed": 0, "robots-blocked": 0}
+    stats: Dict[str, Any] = {
+        "success": 0,
+        "failed": 0,
+        "robots-blocked": 0,
+        "items": [],
+    }
     rate_limiter = make_rate_limiter()
     # Índice acumulado por item de range neste lote: vários recursos do mesmo
     # (ente, fonte, tipo) caem no mesmo item; sem isto cada upload releria do IA
@@ -206,6 +211,9 @@ def harvest_pending_resources(
         if not robots.is_allowed(url):
             storage.update_resource_status(url, "robots-blocked")
             stats["robots-blocked"] += 1
+            stats["items"].append(
+                {"status": "robots-blocked", "chave": chave, "reason": "robots-blocked"}
+            )
             continue
 
         # Resolve via Wayback com proveniência: SPN-first, reusa QUALQUER captura
@@ -243,6 +251,9 @@ def harvest_pending_resources(
             print(f"[WARN] fetch returned None for {chave} ({url})", file=sys.stderr)
             storage.update_resource_status(url, "failed")
             stats["failed"] += 1
+            stats["items"].append(
+                {"status": "failed", "chave": chave, "reason": "fetch-failed"}
+            )
             continue
 
         # Validate PDF magic bytes — source may serve HTML error pages with .pdf URLs
@@ -254,6 +265,9 @@ def harvest_pending_resources(
             )
             storage.update_resource_status(url, "not-pdf")
             stats["failed"] += 1
+            stats["items"].append(
+                {"status": "failed", "chave": chave, "reason": "not-pdf"}
+            )
             continue
 
         # Salva em arquivo temporário para upload
@@ -301,6 +315,14 @@ def harvest_pending_resources(
                 }
                 storage.insert_lei(lei_record)
                 stats["success"] += 1
+                stats["items"].append(
+                    {
+                        "status": "ok",
+                        "chave": chave,
+                        "ia_id": result.get("ia_id"),
+                        "ia_url": result.get("ia_url"),
+                    }
+                )
             else:
                 print(
                     f"[WARN] upload failed for {chave}: {result.get('error', '?')}",
@@ -308,6 +330,9 @@ def harvest_pending_resources(
                 )
                 storage.update_resource_status(url, "failed")
                 stats["failed"] += 1
+                stats["items"].append(
+                    {"status": "failed", "chave": chave, "reason": "upload-failed"}
+                )
         except Exception as exc:
             print(
                 f"[ERROR] exception for {chave}: {exc}",
@@ -315,6 +340,9 @@ def harvest_pending_resources(
             )
             storage.update_resource_status(url, "failed")
             stats["failed"] += 1
+            stats["items"].append(
+                {"status": "failed", "chave": chave, "reason": f"exception: {exc}"}
+            )
         finally:
             tmp_path.unlink(missing_ok=True)
 
