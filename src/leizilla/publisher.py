@@ -239,6 +239,7 @@ def build_dataset_meta(
 
 _IA_SCRAPE_URL = "https://archive.org/services/search/v1/scrape"
 _IA_DOWNLOAD_URL = "https://archive.org/download"
+_IA_METADATA_URL = "https://archive.org/metadata"
 
 
 def count_ia_items(identifier_prefix: str) -> Optional[int]:
@@ -303,6 +304,23 @@ def _scrape_identifiers(identifier_prefix: str) -> Optional[list[str]]:
         except Exception:
             return None
     return ids
+
+
+def scrape_identifiers(identifier_prefix: str) -> Optional[list[str]]:
+    """Wrapper público de ``_scrape_identifiers`` para consumidores fora deste
+    módulo (ex. ``coverage.py``) — mantém a função interna intacta para não
+    perturbar os testes existentes que a fazem mock pelo nome privado."""
+    return _scrape_identifiers(identifier_prefix)
+
+
+def fetch_existing_index(item_id: str) -> Optional[str]:
+    """Wrapper público de ``_fetch_existing_index`` — ver ``scrape_identifiers``."""
+    return _fetch_existing_index(item_id)
+
+
+def get_git_sha() -> Optional[str]:
+    """Wrapper público de ``_get_git_sha`` — ver ``scrape_identifiers``."""
+    return _get_git_sha()
 
 
 def list_raw_ids(ente: str, fonte: str) -> Set[str]:
@@ -402,6 +420,82 @@ def list_parsed_raw_ids(ente: str, fonte: str) -> Set[str]:
     return raw_ids
 
 
+def list_parsed_raw_ids_strict(ente: str, fonte: str) -> Optional[Set[str]]:
+    """Como ``list_parsed_raw_ids``, mas all-or-nothing: ``None`` se a listagem de
+    itens parsed OU a leitura de **qualquer** ``parsed_meta.json`` falhar, em vez
+    de tratar silenciosamente esse item como "não existe".
+
+    ``list_parsed_raw_ids`` é fail-open por design para ``parse-all
+    --skip-existing`` (uma falha pontual não pode travar o pipeline). Para
+    ``coverage.py`` essa mesma tolerância viraria um S4 subcontado sem aviso — o
+    critério de aceite da issue #174 exige que ausência de dado nunca vire zero
+    silencioso, então aqui uma falha parcial invalida o lote inteiro.
+    """
+    q = (
+        f"identifier:leizilla-{ente}-* "
+        f"AND NOT identifier:leizilla-raw-{ente}-* "
+        f"AND NOT identifier:leizilla-bundle-{ente}-* "
+        f"AND NOT identifier:leizilla-dataset-{ente}-*"
+    )
+    base_url = (
+        f"{_IA_SCRAPE_URL}?q={urllib.parse.quote(q)}&count=10000&fields=identifier"
+    )
+
+    parsed_ids: list[str] = []
+    cursor: Optional[str] = None
+
+    while True:
+        url = base_url
+        if cursor:
+            url += f"&cursor={urllib.parse.quote(cursor)}"
+        page_data = None
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    page_data = json.loads(resp.read())
+                break
+            except Exception:
+                if attempt == 2:
+                    return None
+                time.sleep(1)
+        parsed_ids.extend(
+            item["identifier"] for item in (page_data or {}).get("items", [])
+        )
+        cursor = (page_data or {}).get("cursor")
+        if not cursor:
+            break
+
+    raw_ids: Set[str] = set()
+    prefix = f"leizilla-raw-{ente}-{fonte}-"
+
+    for ia_id_parsed in parsed_ids:
+        meta_url = f"{_IA_DOWNLOAD_URL}/{ia_id_parsed}/parsed_meta.json"
+        meta = None
+        # Timeouts pontuais são comuns fazendo dezenas/centenas de requisições
+        # sequenciais ao IA (confirmado: ~10% dos itens numa coleção real de
+        # ~200). All-or-nothing sem retry tornaria S4 praticamente sempre
+        # `None` em produção — poucas tentativas curtas bastam pra distinguir
+        # "flutuação de rede" de "IA realmente fora do ar".
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(
+                    meta_url, headers={"User-Agent": _USER_AGENT}
+                )
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    meta = json.loads(resp.read())
+                break
+            except Exception:
+                if attempt == 2:
+                    return None
+                time.sleep(1)
+        raw_id = str((meta or {}).get("ia_id_raw", ""))
+        if raw_id.startswith(prefix):
+            raw_ids.add(raw_id)
+
+    return raw_ids
+
+
 def list_parsed_ia_ids(ente: str) -> list[str]:
     """Return all parsed IA item identifiers for this ente.
 
@@ -457,6 +551,25 @@ def fetch_parsed_xml(ia_id: str, output_path: Path) -> bool:
         return True
     except Exception:
         return False
+
+
+def fetch_item_filenames(item_id: str) -> Optional[Set[str]]:
+    """Nomes de todos os arquivos (originais + derivados, ex. ``*_djvu.txt``) de
+    um item IA, via ``archive.org/metadata`` (uma requisição por item, não por
+    arquivo).
+
+    Usado por ``coverage.py`` para checar se o OCR já foi derivado de um PDF sem
+    baixar o texto inteiro. ``None`` em erro de rede (não confundir com item sem
+    arquivos, que devolve conjunto vazio).
+    """
+    url = f"{_IA_METADATA_URL}/{item_id}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+        return {f.get("name", "") for f in data.get("files", []) if f.get("name")}
+    except Exception:
+        return None
 
 
 class IndexFetchError(Exception):
@@ -1452,6 +1565,46 @@ class InternetArchivePublisher:
             }
         except subprocess.CalledProcessError as e:
             return {"success": False, "error": e.stderr, "ia_id": latest_id}
+
+    def upload_coverage(
+        self,
+        coverage_report: Dict[str, Any],
+        ente: str,
+        version: int = 0,
+    ) -> Dict[str, Any]:
+        """Upload coverage.json (issue #174) para o item IA do dataset publicado.
+
+        Ponteiro mutável do dataset (``leizilla-dataset-{ente}-v{version}-latest``)
+        — ``ia upload`` num item existente só adiciona/atualiza arquivos, não
+        recria o item. Assim o painel público (`/cobertura/`) resolve cobertura e
+        dataset a partir da mesma origem, sem um segundo item para manter em sincronia.
+        """
+        if not self.access_key or not self.secret_key:
+            return {"success": False, "error": "IA credentials not configured"}
+
+        ia_id = f"leizilla-dataset-{ente}-v{version}-latest"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            coverage_path = Path(tmp) / "coverage.json"
+            coverage_path.write_text(
+                json.dumps(coverage_report, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            try:
+                self._run_ia_upload(["ia", "upload", ia_id, str(coverage_path)])
+                return {
+                    "success": True,
+                    "ia_id": ia_id,
+                    "ia_url": f"https://archive.org/details/{ia_id}",
+                }
+            except FileNotFoundError:
+                return {
+                    "success": False,
+                    "error": "ia CLI não encontrado — instale 'internetarchive'",
+                    "ia_id": ia_id,
+                }
+            except subprocess.CalledProcessError as e:
+                return {"success": False, "error": e.stderr, "ia_id": ia_id}
 
     def upload_to_archive(
         self,

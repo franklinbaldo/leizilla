@@ -30,6 +30,15 @@ export const DATASET_META_URL: string | null = DATASET_IA_ITEM
   : null;
 
 /**
+ * coverage.json (issue #174) lives on the same mutable `-latest` pointer used by
+ * the portal. S1-S3 come from IA evidence and are computed by the pipeline, not
+ * from the Parquet loaded by DuckDB-WASM.
+ */
+export const COVERAGE_JSON_URL: string | null = DATASET_IA_ITEM
+  ? `https://archive.org/download/${DATASET_IA_ITEM}/coverage.json`
+  : null;
+
+/**
  * latest.json do ponteiro mutável — só existe quando DATASET_IA_ITEM é de fato um
  * ponteiro `-latest` (publisher._publish_latest_pointer). Null noutro caso (ex.:
  * PUBLIC_PARQUET_URL apontando direto para uma release imutável ou outro host).

@@ -623,17 +623,30 @@ O frontend exibe cada lei no estágio em que está, com aviso explícito:
 
 ### 10.4. Exposição de cobertura
 
-O frontend exibe a fronteira de cobertura como dado público:
+**Implementado (issue #174, M15.1).** O frontend exibe a fronteira de
+cobertura S1→S4 como dado público, por fonte e tipo normativo:
 
 ```
-1.243 arquivadas · 890 com texto · 412 estruturadas
+casacivil: 1.243 arquivadas · 1.243 identificadas · 890 com texto · 412 estruturadas
 ```
 
-Expor o próprio gap é credibilidade, não vergonha. Os números vêm de consultas
-ao `index.csv` de cada range item (arquivadas), à disponibilidade de `_djvu.txt`
-no IA (com texto) e à contagem de parsed items (`leizilla stats --ia` conta
-itens IA, não atos individuais — o painel de cobertura precisa de fonte
-index/OCR-aware, a implementar em M13).
+Expor o próprio gap é credibilidade, não vergonha. Os números vêm de:
+`src/leizilla/coverage.py` consulta o `index.csv` de cada range item do IA
+(S1 arquivado — toda linha, identificada ou não; S2 identificado — linhas com
+`(tipo, número)` resolvido, ADR-0011), a existência do derivado `_djvu.txt`
+via `archive.org/metadata/{item}` ou a presença de HTML nativo (S3 com texto),
+e `publisher.list_parsed_raw_ids_strict` para os itens já parseados e
+publicados (S4 estruturado) — não a contagem crua de itens IA de
+`leizilla stats --ia`, que mistura raw/parsed/dataset sem discriminar por
+norma.
+
+Cada contador é `null` (nunca um 0 silencioso) quando uma medição de rede
+falhar — critério de aceite da issue #174. Reproduzível via
+`leizilla coverage --ente ro [--json]`; publicado como `coverage.json` no
+ponteiro mutável `leizilla-dataset-{ente}-v{version}-latest` (`leizilla coverage
+--upload`, após a release diária em `parse-release.yml`) e consumido por
+`/cobertura/` (`FunilPanel.svelte`) via
+fetch direto — não pelo DuckDB-WASM, já que S1-S3 não vivem no Parquet.
 
 ---
 
