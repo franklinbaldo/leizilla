@@ -42,14 +42,33 @@ _ORGANIZACIONAL_TOKENS: list[tuple[re.Pattern[str], str]] = [
 
 _ORGANIZACIONAL_TIPOS = {t for _, t in _ORGANIZACIONAL_TOKENS}
 
+#   numero: digits, optionally with a single lowercase letter suffix (issue
+#   #127) for a law split/renumbered after promulgation (e.g. ";72-a" for
+#   "Lei 72-A" — a distinct law from ";72"). Previously `[a-z0-9.\-]+`, which
+#   also accepted dots and multi-char suffixes never actually produced by
+#   this codebase (parser.py always emits digits-only or digits+"-letter");
+#   that extra permissiveness was itself a conflation risk, so it is
+#   tightened to the real contract. Mirrored in
+#   scripts/check_schema_consistency.py and docs/schemas/leizilla-v0.1.xsd —
+#   keep all three in sync.
 _RE_URN_LEX = re.compile(
     r"^urn:lex:br"
     r"(?P<locais>(;[a-z][a-z0-9.]*)*)"
     r":(?P<autoridade>[a-z][a-z0-9.]*(;[a-z][a-z0-9.]*)*)"
     r":(?P<tipo>[a-z][a-z0-9.]*)"
     r":(?P<data>\d{4}(-\d{2}-\d{2})?)"
-    r"(;(?P<numero>[a-z0-9.\-]+))?"
+    r"(;(?P<numero>\d+(-[a-z])?))?"
     r"(?P<paths>(![a-z0-9._\-]+)*)$"
+)
+
+
+# Tail of a canonical parsed ia_id (SCHEMA.md §5.3), used as a fallback when
+# urn_lex is absent/undecodable. Anchored at the end (not a naive split) so
+# the optional "-{letter}" suffix (issue #127) doesn't shift indices the way
+# a positional `lei_id.split("-")[-2]` would.
+_RE_LEI_ID_TAIL = re.compile(
+    r"-(?P<tipo>[a-z]+)-(?P<numero_digits>\d+)(?:-(?P<numero_suffix>[a-zA-Z]))?"
+    r"-(?P<ano>\d{4})$"
 )
 
 
@@ -130,12 +149,12 @@ def _parse_lei_fields(
     if len(parts) >= 5 and parts[0] == "leizilla":
         if len(parts) >= 4 and parts[3] == "fallback":
             return parts[2], None, 0
-        try:
-            ano_s, num_s, tipo_s = parts[-1], parts[-2], parts[-3]
-            if len(ano_s) == 4 and ano_s.isdigit() and num_s.isdigit():
-                return tipo_s, num_s.lstrip("0") or "0", int(ano_s)
-        except (IndexError, ValueError):
-            pass
+        m = _RE_LEI_ID_TAIL.search(lei_id)
+        if m:
+            digits = m.group("numero_digits").lstrip("0") or "0"
+            suffix = m.group("numero_suffix")
+            numero = f"{digits}-{suffix.lower()}" if suffix else digits
+            return m.group("tipo"), numero, int(m.group("ano"))
     return "desconhecido", None, 0
 
 
@@ -194,16 +213,6 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
     root = ET.fromstring(xml_content)
 
     urn_lex = root.get("urn-lex")
-    if urn_lex is not None and not _RE_URN_LEX.match(urn_lex):
-        # Issue #118: the ETL/release boundary has no gate of its own today —
-        # a malformed urn-lex would otherwise silently yield tipo_lei=None,
-        # numero_lei=None, ano_lei=0 (see _parse_lei_fields) instead of failing,
-        # reaching the published Parquet with corrupted identity metadata.
-        raise ValueError(
-            f"Malformed urn-lex for {lei_id!r}: {urn_lex!r} does not match the "
-            "canonical URN-LEX grammar — refusing to derive rows from an "
-            "unparseable identifier."
-        )
     vigente_em = _parse_date(root.get("vigente-em"))
     data_ato = _extract_data_ato(urn_lex)
     tipo_lei, numero_lei, ano_lei = _parse_lei_fields(lei_id, urn_lex)

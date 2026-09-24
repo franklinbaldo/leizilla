@@ -787,6 +787,31 @@ def test_inv10_filename_matches_urn_canonical(tmp_path: Path) -> None:
     assert csc.check_file(f) == []
 
 
+def test_inv10_filename_matches_urn_with_letter_suffix(tmp_path: Path) -> None:
+    """Issue #127: canonical filename + URN both carrying a "-{letra}"
+    numero suffix ("Lei 72-A") must cross-check cleanly, same as a plain
+    numeric numero — the grammars are kept in sync."""
+    body = """  <dispositivo path="art-1">
+    <versao>
+      <texto>X</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00072"/>
+    </versao>
+  </dispositivo>"""
+    f = _write_named(
+        tmp_path,
+        "leizilla-ro-lei-00072-a-1999",
+        _wrap(body, urn_lex="urn:lex:br;rondonia:estadual:lei:1999-06-15;72-a"),
+    )
+    assert csc.check_file(f) == []
+
+
+def test_re_ia_parsed_accepts_letter_suffix() -> None:
+    m = csc._RE_IA_PARSED.match("leizilla-ro-lei-00072-a-1999")
+    assert m is not None
+    assert m.group("numero") == "00072-a"
+    assert m.group("ano") == "1999"
+
+
 def test_inv10_filename_numero_mismatch(tmp_path: Path) -> None:
     """Filename 09999 mas URN 7777 → §7.10."""
     body = """  <dispositivo path="art-1">
