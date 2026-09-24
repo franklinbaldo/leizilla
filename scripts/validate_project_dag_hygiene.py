@@ -3,6 +3,7 @@
 # dependencies = ["pyyaml>=6.0"]
 # ///
 """Fail-closed hygiene checks for docs/okf/project-dag.md."""
+
 from __future__ import annotations
 
 from collections import Counter
@@ -38,9 +39,7 @@ def validate(path: Path) -> dict[str, int]:
     if any(controls.values()):
         raise ValueError(
             "forbidden control characters: "
-            + ", ".join(
-                f"{name}={count}" for name, count in controls.items() if count
-            )
+            + ", ".join(f"{name}={count}" for name, count in controls.items() if count)
         )
 
     text = raw.decode("utf-8")
