@@ -253,6 +253,7 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                     _parse_date(em_s) if em_s else (ancestor_em or data_ato)
                 )
 
+            em_occurrences: dict[str, int] = {}
             for v_idx, versao in enumerate(versoes_elems):
                 em = versao_ems[v_idx]
                 alterado_por = versao.get("alterado-por")
@@ -293,7 +294,12 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                         }
                     )
 
-                versao_id = f"{lei_id}#{path}#{em.isoformat() if em else 'unknown'}"
+                em_key = em.isoformat() if em else "unknown"
+                em_occurrences[em_key] = em_occurrences.get(em_key, 0) + 1
+                collision_suffix = (
+                    f"-v{em_occurrences[em_key]}" if em_occurrences[em_key] > 1 else ""
+                )
+                versao_id = f"{lei_id}#{path}#{em_key}{collision_suffix}"
 
                 rows.append(
                     {

@@ -7,13 +7,32 @@ import pytest
 
 from leizilla import storage
 from leizilla.discovery import (
+    DEFAULT_CDX_AUTO_FALLBACK_END,
     SequentialDiscovery,
     WaybackCdxDiscovery,
     load_manifest,
     parse_filename,
+    resolve_cdx_max_by_tipo,
     run_discovery,
 )
 from leizilla.ia_utils import parse_identity
+
+
+def _cdx_mock_response(rows: list) -> MagicMock:
+    """Build a `urllib.request.urlopen` mock returning a CDX-shaped JSON body."""
+    header = [
+        "urlkey",
+        "timestamp",
+        "original",
+        "mimetype",
+        "statuscode",
+        "digest",
+        "length",
+    ]
+    mock_resp = MagicMock()
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.read.return_value = json.dumps([header, *rows]).encode("utf-8")
+    return mock_resp
 
 
 def test_parse_filename():
@@ -248,24 +267,26 @@ def test_run_discovery(temp_db):
         }
     ]
 
-    from leizilla.discovery import PlaywrightCrawlerDiscovery
+    from leizilla.discovery import CasacivilIndexDiscovery, PlaywrightCrawlerDiscovery
 
     with (
         patch.object(WaybackCdxDiscovery, "run", return_value=mock_res_cdx),
         patch.object(SequentialDiscovery, "run", return_value=mock_res_seq),
+        patch.object(CasacivilIndexDiscovery, "run", return_value=[]),
         patch.object(PlaywrightCrawlerDiscovery, "run", return_value=[]),
     ):
         total = run_discovery("ro", temp_db)
 
-    # casacivil: 1 cdx (sequencial removido; probe section é para wayback-save, não discover)
-    assert total == 1
+    # casacivil: 1 cdx + 8 sequential (um "sequential" cdx-auto por tipo do
+    # manifesto de casacivil, RFC-0003 Fase 1) — cada um mockado retornando o
+    # mesmo mock_res_seq (L2.pdf), então só 2 URLs distintas chegam ao DuckDB.
+    assert total == 9
 
     pending = temp_db.get_pending_resources()
-    assert (
-        len(pending) == 1
-    )  # lei-00001 (cdx only; sequential is now probe, not discovery)
+    assert len(pending) == 2  # lei-00001 (cdx) + lei-00002 (sequential, deduplicado)
     urls = [p["url"] for p in pending]
     assert "http://example.com/L1.pdf" in urls
+    assert "http://example.com/L2.pdf" in urls
 
 
 def test_run_discovery_scoped_to_fonte(temp_db):
@@ -287,13 +308,188 @@ def test_run_discovery_scoped_to_fonte(temp_db):
         }
     ]
 
-    from leizilla.discovery import PlaywrightCrawlerDiscovery
+    from leizilla.discovery import CasacivilIndexDiscovery, PlaywrightCrawlerDiscovery
 
     with (
         patch.object(WaybackCdxDiscovery, "run", return_value=mock_res_cdx),
+        patch.object(CasacivilIndexDiscovery, "run", return_value=[]),
+        patch.object(SequentialDiscovery, "run", return_value=[]),
         patch.object(PlaywrightCrawlerDiscovery, "run") as mock_playwright_run,
     ):
         total = run_discovery("ro", temp_db, fonte="casacivil")
 
     assert total == 1
     mock_playwright_run.assert_not_called()
+
+
+class TestResolveCdxMaxByTipo:
+    """resolve_cdx_max_by_tipo — porta o cdx_max do legado cmd_scrape/casacivil
+    (RFC-0003 Fase 1) para uma função reutilizável pelas estratégias de discovery."""
+
+    def test_normal_response(self):
+        rows = [
+            [
+                "com,example)/files/l10.pdf",
+                "20220101000000",
+                "http://example.com/Files/L10.pdf",
+                "application/pdf",
+                "200",
+                "D1",
+                "1",
+            ],
+            [
+                "com,example)/files/l5120.pdf",
+                "20220102000000",
+                "http://example.com/Files/L5120.pdf",
+                "application/pdf",
+                "200",
+                "D2",
+                "1",
+            ],
+            [
+                "com,example)/files/d3.pdf",
+                "20220103000000",
+                "http://example.com/Files/D3.pdf",
+                "application/pdf",
+                "200",
+                "D3",
+                "1",
+            ],
+        ]
+        with patch("urllib.request.urlopen", return_value=_cdx_mock_response(rows)):
+            result = resolve_cdx_max_by_tipo("http://example.com/Files/")
+        assert result == {"lei": 5120, "decreto": 3}
+
+    def test_ignores_non_200_and_non_pdf(self):
+        rows = [
+            [
+                "com,example)/files/l10.pdf",
+                "20220101000000",
+                "http://example.com/Files/L10.pdf",
+                "application/pdf",
+                "302",
+                "D1",
+                "1",
+            ],
+            [
+                "com,example)/files/readme.txt",
+                "20220101000000",
+                "http://example.com/Files/readme.txt",
+                "text/plain",
+                "200",
+                "D2",
+                "1",
+            ],
+        ]
+        with patch("urllib.request.urlopen", return_value=_cdx_mock_response(rows)):
+            result = resolve_cdx_max_by_tipo("http://example.com/Files/")
+        assert result == {}
+
+    def test_empty_response(self):
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.read.return_value = json.dumps([]).encode("utf-8")
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = resolve_cdx_max_by_tipo("http://example.com/Files/")
+        assert result == {}
+
+    def test_header_only_response(self):
+        with patch("urllib.request.urlopen", return_value=_cdx_mock_response([])):
+            result = resolve_cdx_max_by_tipo("http://example.com/Files/")
+        assert result == {}
+
+    def test_timeout_fails_open(self):
+        import socket
+
+        with patch("urllib.request.urlopen", side_effect=socket.timeout("timed out")):
+            result = resolve_cdx_max_by_tipo("http://example.com/Files/")
+        assert result == {}
+
+    def test_network_error_fails_open(self):
+        with patch("urllib.request.urlopen", side_effect=OSError("network down")):
+            result = resolve_cdx_max_by_tipo("http://example.com/Files/")
+        assert result == {}
+
+    def test_malformed_json_fails_open(self):
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.read.return_value = b"not json"
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = resolve_cdx_max_by_tipo("http://example.com/Files/")
+        assert result == {}
+
+
+class TestSequentialDiscoveryCdxAuto:
+    """SequentialDiscovery com `"end": "cdx-auto"` (RFC-0003 Fase 1)."""
+
+    def _config(self, **overrides):
+        config = {
+            "strategy": "sequential",
+            "templates": ["http://example.com/Files/L{num}.pdf"],
+            "start": 1,
+            "end": "cdx-auto",
+        }
+        config.update(overrides)
+        return config
+
+    def test_resolves_end_from_cdx(self):
+        rows = [
+            [
+                "com,example)/files/l7.pdf",
+                "20220101000000",
+                "http://example.com/Files/L7.pdf",
+                "application/pdf",
+                "200",
+                "D1",
+                "1",
+            ]
+        ]
+        with patch("urllib.request.urlopen", return_value=_cdx_mock_response(rows)):
+            resources = SequentialDiscovery(self._config(), "ro", "casacivil").run()
+        assert len(resources) == 7
+        assert resources[-1]["url"] == "http://example.com/Files/L7.pdf"
+
+    def test_empty_cdx_falls_back_to_default(self):
+        with patch("urllib.request.urlopen", return_value=_cdx_mock_response([])):
+            resources = SequentialDiscovery(self._config(), "ro", "casacivil").run()
+        assert len(resources) == DEFAULT_CDX_AUTO_FALLBACK_END
+
+    def test_cdx_error_fails_open_to_default(self):
+        with patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
+            resources = SequentialDiscovery(self._config(), "ro", "casacivil").run()
+        assert len(resources) == DEFAULT_CDX_AUTO_FALLBACK_END
+
+    def test_custom_end_fallback(self):
+        config = self._config(end_fallback=3)
+        with patch("urllib.request.urlopen", return_value=_cdx_mock_response([])):
+            resources = SequentialDiscovery(config, "ro", "casacivil").run()
+        assert len(resources) == 3
+
+    def test_invalid_end_string_raises(self):
+        with pytest.raises(ValueError, match="cdx-auto"):
+            SequentialDiscovery(self._config(end="latest"), "ro", "casacivil")
+
+    def test_start_past_resolved_end_yields_nothing(self):
+        config = self._config(start=100)
+        rows = [
+            [
+                "com,example)/files/l7.pdf",
+                "20220101000000",
+                "http://example.com/Files/L7.pdf",
+                "application/pdf",
+                "200",
+                "D1",
+                "1",
+            ]
+        ]
+        with patch("urllib.request.urlopen", return_value=_cdx_mock_response(rows)):
+            resources = SequentialDiscovery(config, "ro", "casacivil").run()
+        assert resources == []
+
+    def test_fixed_end_never_queries_cdx(self):
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            resources = SequentialDiscovery(
+                self._config(end=2), "ro", "casacivil"
+            ).run()
+        mock_urlopen.assert_not_called()
+        assert len(resources) == 2

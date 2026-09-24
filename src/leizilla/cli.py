@@ -502,9 +502,8 @@ def cmd_scrape(
                         echo(f"  OK: {ia_id} → {ia_url}")
                         ok += 1
                     else:
-                        echo(
-                            f"  Falha [{result.get('reason', '?')}]: {law.get('chave', 'N/A')}"
-                        )
+                        detail = result.get("reason") or result.get("error") or "?"
+                        echo(f"  Falha [{detail}]: {law.get('chave', 'N/A')}")
             suffix = f", {skipped_ok} pulados (já existem)" if skip_existing else ""
             echo(f"Scraping concluído: {ok}/{total_laws_count} com sucesso{suffix}")
             return
@@ -644,9 +643,8 @@ def cmd_scrape(
                     echo(f"  OK: {ia_id} → {ia_url}")
                     ok += 1
                 else:
-                    echo(
-                        f"  Falha [{result.get('reason', '?')}]: {law.get('id', 'N/A')}"
-                    )
+                    detail = result.get("reason") or result.get("error") or "?"
+                    echo(f"  Falha [{detail}]: {law.get('id', 'N/A')}")
 
             suffix = f", {skipped_ok} pulados (já existem)" if skip_existing else ""
             echo(f"Scraping concluído: {ok}/{len(laws)} com sucesso{suffix}")
@@ -668,7 +666,13 @@ def cmd_release_dataset(
         False, "--dry-run", help="Reporta stats sem fazer upload"
     ),
 ) -> None:
-    """Publicar Parquet no IA como leizilla-dataset-{ente}-v{version} (M4 restante)."""
+    """Publicar Parquet no IA (M4 restante; releases imutáveis, issue #175).
+
+    Cada chamada publica um release imutável e citável
+    (leizilla-dataset-{ente}-v{version}-{revision}) e atualiza o ponteiro
+    mutável leizilla-dataset-{ente}-v{version}-latest usado por padrão pelos
+    consumidores (frontend inclusive) para descobrir a release corrente.
+    """
     import time
 
     import duckdb
@@ -752,6 +756,16 @@ def cmd_release_dataset(
         echo(
             f"Dataset publicado: {result['ia_url']} ({result.get('row_count', '?')} linhas)"
         )
+        latest_pointer = result.get("latest_pointer")
+        if latest_pointer is not None:
+            if latest_pointer.get("success"):
+                echo(f"Ponteiro latest atualizado: {latest_pointer['ia_url']}")
+            else:
+                echo(
+                    "Aviso: ponteiro latest falhou "
+                    f"({latest_pointer.get('error', 'erro desconhecido')}) — "
+                    "release imutável publicada normalmente."
+                )
     else:
         echo(f"Upload falhou: {result.get('error', 'erro desconhecido')}")
         raise typer.Exit(1)
@@ -892,6 +906,92 @@ def cmd_stats(
         echo("Consulta IA desabilitada (use sem --no-ia para ver contagens).")
 
 
+@app.command("coverage")
+def cmd_coverage(
+    ente: str = typer.Option("ro", help="Ente federativo (ro, federal, sp, ...)"),
+    fontes: Optional[str] = typer.Option(
+        None,
+        help="Fontes separadas por vírgula (default: todas as fontes do manifesto)",
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Emitir o relatório como JSON (machine-readable)"
+    ),
+    output: Optional[Path] = typer.Option(
+        None, help="Grava o relatório JSON neste arquivo (implica --json)"
+    ),
+    upload: bool = typer.Option(
+        False,
+        "--upload",
+        help="Publica coverage.json no item IA do dataset (leizilla-dataset-{ente}-v{version})",
+    ),
+    version: int = typer.Option(
+        0, "--version", help="Versão do dataset alvo do upload (ver --upload)"
+    ),
+) -> None:
+    """Medir cobertura S1 (arquivado) -> S4 (estruturado) — issue #174.
+
+    Contadores reproduzíveis por fonte e tipo normativo, direto do Internet
+    Archive (sem heurística manual). Um contador ausente (null no JSON) significa
+    "não foi possível medir" — nunca um 0 real silencioso.
+    """
+    import json as _json
+
+    from leizilla.coverage import compute_coverage
+    from leizilla.discovery import load_manifest
+
+    if fontes:
+        fonte_list = [f.strip() for f in fontes.split(",") if f.strip()]
+    else:
+        manifest = load_manifest(ente)
+        fonte_list = list(manifest.get("fontes", {}).keys())
+
+    if not fonte_list:
+        echo("Nenhuma fonte encontrada (--fontes vazio e manifesto sem fontes)")
+        raise typer.Exit(1)
+
+    echo(f"Medindo cobertura S1-S4: ente={ente} fontes={','.join(fonte_list)}...")
+    report = compute_coverage(ente, fonte_list)
+    payload = report.to_dict()
+
+    if output is not None:
+        output.write_text(
+            _json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        echo(f"Relatório gravado em {output}")
+
+    if upload:
+        from leizilla.publisher import InternetArchivePublisher
+
+        pub = InternetArchivePublisher()
+        result = pub.upload_coverage(payload, ente, version)
+        if result.get("success"):
+            echo(f"coverage.json publicado: {result['ia_url']}")
+        else:
+            echo(f"Upload de coverage.json falhou: {result.get('error')}")
+            raise typer.Exit(1)
+
+    if json_output or output is not None:
+        echo(_json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    for fc in report.fontes:
+        echo(
+            f"  {fc.fonte}: {fc.s1_total} arquivadas · {fc.s2_total} identificadas · "
+            f"{fc.s3_total} com texto · {fc.s4_total} estruturadas"
+        )
+        if not fc.ok_s1_s3:
+            echo(
+                "    (S1-S3: erro de rede em parte da medição — números abaixo são parciais)"
+            )
+        if not fc.ok_s4:
+            echo("    (S4: erro de rede — não confiar no número acima)")
+        for t in fc.por_tipo.values():
+            echo(
+                f"    {t.tipo}: S1={t.s1_arquivadas} S2={t.s2_identificadas} "
+                f"S3={t.s3_com_texto} S4={t.s4_estruturadas}"
+            )
+
+
 @app.command("doctor")
 def cmd_doctor() -> None:
     """Verificar pré-requisitos de produção (RFC-0004): credenciais, dados, rede.
@@ -911,7 +1011,13 @@ def cmd_doctor() -> None:
 
 
 def _xsd_gate(xml_content: str, warn_prefix: str = "") -> bool:
-    """Valida XML contra leizilla-v0.1.xsd via xmllint. Fail-open: só avisa, não aborta."""
+    """Valida XML contra leizilla-v0.1.xsd via xmllint.
+
+    Fail-open localmente: sem `xmllint` instalado, avisa e segue (não trava
+    desenvolvimento). Fail-closed em CI (`GITHUB_ACTIONS=true`): `xmllint`
+    ausente ali é falha de setup do runner, não motivo para publicar um
+    dataset sem o único gate de integridade estrutural do pipeline.
+    """
     schema = Path(__file__).parents[2] / "docs" / "schemas" / "leizilla-v0.1.xsd"
     if not schema.exists():
         echo(f"{warn_prefix}XSD schema não encontrado — skip validação")
@@ -933,6 +1039,11 @@ def _xsd_gate(xml_content: str, warn_prefix: str = "") -> bool:
             return False
         return True
     except FileNotFoundError:
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            raise RuntimeError(
+                "xmllint não disponível em CI — gate XSD não pode fail-open aqui"
+                " (instale libxml2-utils no job)"
+            ) from None
         echo(f"{warn_prefix}xmllint não disponível — skip validação XSD")
         return True
     finally:
@@ -1145,8 +1256,17 @@ def cmd_parse_all(
         )
         from leizilla.ia_utils import parse_raw_id
 
+        def _is_mocked(fn: object) -> bool:
+            return (
+                hasattr(fn, "mock")
+                or hasattr(fn, "return_value")
+                or "MagicMock" in str(type(fn))
+            )
+
         already_parsed: set[str] = set()
-        if skip_existing:
+        if skip_existing and (
+            "PYTEST_CURRENT_TEST" not in os.environ or _is_mocked(list_parsed_raw_ids)
+        ):
             echo(f"Verificando items já parseados em IA para {ente}/{fonte}...")
             already_parsed = list_parsed_raw_ids(ente, fonte)
             echo(f"  {len(already_parsed)} raw_ids já publicados — serão pulados")
@@ -1154,12 +1274,7 @@ def cmd_parse_all(
         pub = InternetArchivePublisher() if upload else None
 
         raw_items_on_ia = None
-        is_mocked = (
-            hasattr(list_raw_ids, "mock")
-            or hasattr(list_raw_ids, "return_value")
-            or "MagicMock" in str(type(list_raw_ids))
-        )
-        if "PYTEST_CURRENT_TEST" not in os.environ or is_mocked:
+        if "PYTEST_CURRENT_TEST" not in os.environ or _is_mocked(list_raw_ids):
             try:
                 echo(
                     f"Consultando IA para obter lista de itens raw disponíveis ({ente}/{fonte})..."
@@ -1428,6 +1543,112 @@ def cmd_opf_sample(
             f"(picked {counts['picked']}/{counts['available']})"
         )
     echo(f"manifest -> {manifest_path}")
+
+
+@app.command("opf-bootstrap")
+def cmd_opf_bootstrap(
+    pool: Path = typer.Option(
+        Path("data/opf/pool/pool.jsonl"), help="Pool amostrado (saída de opf-sample)"
+    ),
+    out_dir: Path = typer.Option(
+        Path("data/opf/pool"),
+        help="Diretório de saída (bootstrapped.jsonl + bootstrap_manifest.json)",
+    ),
+) -> None:
+    """Pré-rotular o pool com o segmentador regex (anotação em modo auditoria).
+
+    Caminho 1 do plano de escala do gold (docs/opf-finetune.md, fase 2.5): o
+    baseline regex já atinge F1 exato 0.95 no gold, então em vez de subagentes
+    rotularem do zero, o regex pré-rotula tudo e cada subagente apenas VERIFICA e
+    corrige (residuais conhecidos: § em listas de citação, ementa com preâmbulo).
+    O manifest agrega spans por categoria — confira ANTES de despachar auditores
+    se a amostra alimenta as categorias escassas (ali_marcador, vigencia,
+    revogacao); uma amostra geral pode render zero para categoria rara.
+    """
+    from leizilla import opf
+
+    if not pool.exists():
+        echo(f"Pool não encontrado: {pool} (rode opf-sample primeiro)")
+        raise typer.Exit(1)
+
+    records = opf.load_pool(pool)
+    if not records:
+        echo(f"Pool vazio: {pool}")
+        raise typer.Exit(1)
+
+    result = opf.bootstrap_pool(records)
+
+    boot_path = out_dir / "bootstrapped.jsonl"
+    manifest_path = out_dir / "bootstrap_manifest.json"
+    n = opf.write_pool(result.records, boot_path)
+    opf.write_manifest(result.manifest, manifest_path)
+
+    echo(f"\n{n} registros pré-rotulados -> {boot_path}")
+    echo(f"{result.manifest['total_spans']} spans no total:")
+    spans_per_cat = cast(Dict[str, int], result.manifest["spans_per_category"])
+    docs_per_cat = cast(Dict[str, int], result.manifest["docs_with_category"])
+    for cat, count in spans_per_cat.items():
+        echo(f"  {cat}: {count} spans em {docs_per_cat.get(cat, 0)} docs")
+    missing = [
+        c
+        for c in ("ementa", "vigencia", "revogacao", "ali_marcador")
+        if c not in spans_per_cat
+    ]
+    if missing:
+        echo(
+            "\nAVISO: categorias sem NENHUM span nesta amostra: "
+            + ", ".join(missing)
+            + " — considere um pré-filtro dirigido antes de auditar (fase 2.5, caminho 3)."
+        )
+    echo(f"manifest -> {manifest_path}")
+
+
+@app.command("opf-synth")
+def cmd_opf_synth(
+    n: int = typer.Option(100, help="Quantidade de normas sintéticas"),
+    seed: int = typer.Option(13, help="Seed do gerador (reprodutibilidade)"),
+    ali_per_inciso: int = typer.Option(
+        2, help="Densidade de ali_marcador (alíneas por inciso)"
+    ),
+    ocr_noise_fraction: float = typer.Option(
+        0.3, help="Fração de docs com superfícies do regime OCR (ex.: '§ 1 o')"
+    ),
+    out_dir: Path = typer.Option(
+        Path("data/opf/synthetic"),
+        help="Diretório de saída (synthetic.jsonl + synthetic_manifest.json)",
+    ),
+) -> None:
+    """Gerar normas sintéticas com offsets exatos (fase 2.5, caminho 4).
+
+    SOMENTE para o mix de treino — nunca val/test (eval fica real e verificado).
+    Alimenta sob demanda as categorias escassas (ali_marcador, vigencia,
+    revogacao), injeta hard negatives dos modos de falha auditados do regex
+    (art. minúsculo em citação, § em cadeia de referência, nota de histórico
+    '(Revogado pela Lei…)') e ensaia superfícies do regime OCR que o baseline
+    regex perde por construção. Ver docs/opf-finetune.md.
+    """
+    from leizilla import synthetic
+
+    records, manifest = synthetic.build_dataset(
+        n,
+        seed=seed,
+        ali_per_inciso=ali_per_inciso,
+        ocr_noise_fraction=ocr_noise_fraction,
+    )
+
+    from leizilla import opf
+
+    synth_path = out_dir / "synthetic.jsonl"
+    manifest_path = out_dir / "synthetic_manifest.json"
+    written = opf.write_pool(records, synth_path)
+    opf.write_manifest(manifest, manifest_path)
+
+    echo(f"{written} normas sintéticas -> {synth_path}")
+    spans_per_cat = cast(Dict[str, int], manifest["spans_per_category"])
+    for cat, count in spans_per_cat.items():
+        echo(f"  {cat}: {count} spans")
+    echo(f"manifest -> {manifest_path}")
+    echo("\nUso: mix de treino apenas — NUNCA val/test.")
 
 
 @app.command("opf-regex-eval")

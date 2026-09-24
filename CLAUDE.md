@@ -15,15 +15,33 @@ other states over time.
 
 ## Source of truth
 
-**`IMPLEMENTATION.md` holds the canonical milestone status** — what is done,
-in-progress, or blocked. Read it before planning work. Do not reintroduce a
-separate TODO/status doc; status lives in `IMPLEMENTATION.md` and design lives
-in `docs/adr/` and `docs/SCHEMA.md`.
+**`docs/okf/project-dag.md` is the canonical executable project state**:
+live objectives, OKRs, dependencies, blockers, issues/evidence and next actions.
+Read and validate it before planning work.
 
-Current state: milestones **M0–M12.2 are done** (discovery, scraping, IA upload,
-OCR fetch, LLM parsing, ETL→Parquet, dataset release, frontend foundation).
-**M5.3** (DuckDB-WASM benchmark + FTS) is blocked pending a large published
-dataset. **M13** (Produto público v1 — frontend as product surface) is in flight.
+The other sources keep narrower responsibilities:
+
+- `docs/PRD.md` — product mission and requirements;
+- `docs/adr/` + `docs/SCHEMA.md` — architectural/data contracts;
+- `docs/okf/**` — operational reference;
+- `IMPLEMENTATION.md` — materialized milestones, decisions and chronological log;
+- `README.md` — public roadmap horizons;
+- GitHub issues — bounded executable slices;
+- PRs/branches — implementation workspaces, never the durable state ledger.
+
+Do not create a competing TODO/status document and do not encode transient state in
+automation prompts. New material workstreams belong in the DAG before substantive
+execution. Autonomous sessions should normally advance a portfolio of compatible live
+leaves rather than one serial task.
+
+Validate the graph with:
+
+```bash
+uv run scripts/validate_project_dag_hygiene.py
+uv run scripts/project_dag_from_okf.py
+```
+
+See RFC-0007 for the governance split.
 
 ## Development setup
 
@@ -147,11 +165,11 @@ All commands run as `uv run leizilla <command>`. Most take `--ente` (default `ro
 | `discover --ente ro` | run manifest discovery → enqueue resources |
 | `harvest --ente ro --limit 100` | process the pending queue (scrape + upload) |
 | `reconcile --ente ro [--fonte assembleia]` | promote `_unidentified` holding files into range items once discovery context yields `(tipo, número)` (ADR-0011 §1) |
-| `scrape --ente ro --fonte casacivil --tipo lei --start-coddoc 1 --end-coddoc 10` | range scrape one source |
+| `scrape --ente ro --fonte casacivil --tipo lei --start 1 --end 10` | range scrape one source |
 | `bundle-raw --ente ro --fonte casacivil` | consolidate raw PDFs into one IA item (torrents) |
 | `fetch-ocr --ente ro --limit 100` | pull IA OCR text into DuckDB |
 | `parse --ente ro --raw-id leizilla-raw-ro-casacivil-lei-05120` | LLM parse one raw item → XML (`--upload`, `--input-type ocr\|html`) |
-| `parse-all --ente ro --start-coddoc 1 --end-coddoc 100` | batch parse a range (`--upload`, `--skip-existing`, `--error-threshold`, `--output-dir`) |
+| `parse-all --ente ro --start 1 --end 100` | batch parse a range (`--upload`, `--skip-existing`, `--error-threshold`, `--output-dir`) |
 | `fetch-all-parsed --ente ro --output-dir data/parsed` | download all parsed XML from IA |
 | `consolidate data/parsed --output out.parquet --ente ro` | XML dir (positional) → Parquet |
 | `release-dataset out.parquet --ente ro --version 0` | publish Parquet (positional) dataset to IA |

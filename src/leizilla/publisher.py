@@ -44,6 +44,12 @@ _DATASET_IDENTIFIER_RE = (
     r"^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)$"
 )
 
+# Release imutável e citável (issue #175): revisão embutida no identifier, nunca
+# reaproveitada — cada publicação agendada gera um item novo em vez de sobrescrever
+# o anterior.
+_DATASET_REVISION_RE = r"^\d{8}t\d{6}z$"
+_DATASET_LATEST_SUFFIX = "latest"
+
 _USER_AGENT = "leizilla-crawler/0.1"
 
 logger = logging.getLogger(__name__)
@@ -151,6 +157,17 @@ def build_raw_meta_html(
     }
 
 
+def _dataset_revision(dt: Optional[datetime] = None) -> str:
+    """Revisão UTC compacta para um release de dataset (ex.: ``20260924t181131z``).
+
+    Formato compatível com identifiers do IA (``[a-z0-9-]*``) — sem ``:`` nem ``-``
+    internos, então cada chamada produz um valor distinto por segundo, garantindo que
+    um identifier de release nunca é reaproveitado por uma publicação seguinte.
+    """
+    d = dt or datetime.now(tz=timezone.utc)
+    return d.strftime("%Y%m%dt%H%M%Sz")
+
+
 def _get_git_sha() -> Optional[str]:
     try:
         return (
@@ -177,11 +194,16 @@ def build_dataset_meta(
     version: int,
     row_count: Optional[int] = None,
     git_sha: Optional[str] = None,
+    revision: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Constrói dataset_meta.json para IA dataset item (SCHEMA.md §3.3).
 
     KV footer no Parquet (PyArrow) é deferido para M5; por agora o metadata
     vai num sidecar JSON no mesmo IA item.
+
+    ``revision`` (issue #175) identifica a publicação específica — embutida no
+    identifier do release imutável, distinta de ``generated_at`` (que fica legível
+    mas não é IA-identifier-safe).
     """
     parquet_bytes = parquet_path.read_bytes()
     if row_count is None:
@@ -203,6 +225,7 @@ def build_dataset_meta(
         "schema_version": "0.1",
         "ente": ente,
         "version": version,
+        "revision": revision or _dataset_revision(),
         "table": "versoes",
         "generated_at": datetime.now(tz=timezone.utc).isoformat(),
         "row_count": row_count,
@@ -216,6 +239,7 @@ def build_dataset_meta(
 
 _IA_SCRAPE_URL = "https://archive.org/services/search/v1/scrape"
 _IA_DOWNLOAD_URL = "https://archive.org/download"
+_IA_METADATA_URL = "https://archive.org/metadata"
 
 
 def count_ia_items(identifier_prefix: str) -> Optional[int]:
@@ -280,6 +304,23 @@ def _scrape_identifiers(identifier_prefix: str) -> Optional[list[str]]:
         except Exception:
             return None
     return ids
+
+
+def scrape_identifiers(identifier_prefix: str) -> Optional[list[str]]:
+    """Wrapper público de ``_scrape_identifiers`` para consumidores fora deste
+    módulo (ex. ``coverage.py``) — mantém a função interna intacta para não
+    perturbar os testes existentes que a fazem mock pelo nome privado."""
+    return _scrape_identifiers(identifier_prefix)
+
+
+def fetch_existing_index(item_id: str) -> Optional[str]:
+    """Wrapper público de ``_fetch_existing_index`` — ver ``scrape_identifiers``."""
+    return _fetch_existing_index(item_id)
+
+
+def get_git_sha() -> Optional[str]:
+    """Wrapper público de ``_get_git_sha`` — ver ``scrape_identifiers``."""
+    return _get_git_sha()
 
 
 def list_raw_ids(ente: str, fonte: str) -> Set[str]:
@@ -379,6 +420,82 @@ def list_parsed_raw_ids(ente: str, fonte: str) -> Set[str]:
     return raw_ids
 
 
+def list_parsed_raw_ids_strict(ente: str, fonte: str) -> Optional[Set[str]]:
+    """Como ``list_parsed_raw_ids``, mas all-or-nothing: ``None`` se a listagem de
+    itens parsed OU a leitura de **qualquer** ``parsed_meta.json`` falhar, em vez
+    de tratar silenciosamente esse item como "não existe".
+
+    ``list_parsed_raw_ids`` é fail-open por design para ``parse-all
+    --skip-existing`` (uma falha pontual não pode travar o pipeline). Para
+    ``coverage.py`` essa mesma tolerância viraria um S4 subcontado sem aviso — o
+    critério de aceite da issue #174 exige que ausência de dado nunca vire zero
+    silencioso, então aqui uma falha parcial invalida o lote inteiro.
+    """
+    q = (
+        f"identifier:leizilla-{ente}-* "
+        f"AND NOT identifier:leizilla-raw-{ente}-* "
+        f"AND NOT identifier:leizilla-bundle-{ente}-* "
+        f"AND NOT identifier:leizilla-dataset-{ente}-*"
+    )
+    base_url = (
+        f"{_IA_SCRAPE_URL}?q={urllib.parse.quote(q)}&count=10000&fields=identifier"
+    )
+
+    parsed_ids: list[str] = []
+    cursor: Optional[str] = None
+
+    while True:
+        url = base_url
+        if cursor:
+            url += f"&cursor={urllib.parse.quote(cursor)}"
+        page_data = None
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    page_data = json.loads(resp.read())
+                break
+            except Exception:
+                if attempt == 2:
+                    return None
+                time.sleep(1)
+        parsed_ids.extend(
+            item["identifier"] for item in (page_data or {}).get("items", [])
+        )
+        cursor = (page_data or {}).get("cursor")
+        if not cursor:
+            break
+
+    raw_ids: Set[str] = set()
+    prefix = f"leizilla-raw-{ente}-{fonte}-"
+
+    for ia_id_parsed in parsed_ids:
+        meta_url = f"{_IA_DOWNLOAD_URL}/{ia_id_parsed}/parsed_meta.json"
+        meta = None
+        # Timeouts pontuais são comuns fazendo dezenas/centenas de requisições
+        # sequenciais ao IA (confirmado: ~10% dos itens numa coleção real de
+        # ~200). All-or-nothing sem retry tornaria S4 praticamente sempre
+        # `None` em produção — poucas tentativas curtas bastam pra distinguir
+        # "flutuação de rede" de "IA realmente fora do ar".
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(
+                    meta_url, headers={"User-Agent": _USER_AGENT}
+                )
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    meta = json.loads(resp.read())
+                break
+            except Exception:
+                if attempt == 2:
+                    return None
+                time.sleep(1)
+        raw_id = str((meta or {}).get("ia_id_raw", ""))
+        if raw_id.startswith(prefix):
+            raw_ids.add(raw_id)
+
+    return raw_ids
+
+
 def list_parsed_ia_ids(ente: str) -> list[str]:
     """Return all parsed IA item identifiers for this ente.
 
@@ -434,6 +551,25 @@ def fetch_parsed_xml(ia_id: str, output_path: Path) -> bool:
         return True
     except Exception:
         return False
+
+
+def fetch_item_filenames(item_id: str) -> Optional[Set[str]]:
+    """Nomes de todos os arquivos (originais + derivados, ex. ``*_djvu.txt``) de
+    um item IA, via ``archive.org/metadata`` (uma requisição por item, não por
+    arquivo).
+
+    Usado por ``coverage.py`` para checar se o OCR já foi derivado de um PDF sem
+    baixar o texto inteiro. ``None`` em erro de rede (não confundir com item sem
+    arquivos, que devolve conjunto vazio).
+    """
+    url = f"{_IA_METADATA_URL}/{item_id}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+        return {f.get("name", "") for f in data.get("files", []) if f.get("name")}
+    except Exception:
+        return None
 
 
 class IndexFetchError(Exception):
@@ -1242,10 +1378,24 @@ class InternetArchivePublisher:
         version: int = 0,
         row_count: Optional[int] = None,
         git_sha: Optional[str] = None,
+        revision: Optional[str] = None,
+        publish_latest: bool = True,
     ) -> Dict[str, Any]:
         """Upload versoes.parquet + dataset_meta.json para IA.
 
-        Identifier: leizilla-dataset-{ente}-v{version} (SCHEMA.md §1.4, §3.5).
+        Identifier do release: leizilla-dataset-{ente}-v{version}-{revision}
+        (SCHEMA.md §1.4, §3.5; revisão imutável, issue #175). ``revision`` é um
+        timestamp UTC (auto se omitido, ver ``_dataset_revision``) — cada chamada
+        publica um item novo, nunca reaproveita um identifier já existente, então
+        citar esse ia_id sempre resolve para o mesmo conteúdo.
+
+        Quando ``publish_latest=True`` (default), também atualiza o ponteiro
+        MUTÁVEL leizilla-dataset-{ente}-v{version}-latest — mesmo parquet/meta +
+        um ``latest.json`` apontando para o ia_id imutável acima. É esse ponteiro
+        que consumidores (o frontend, por exemplo) devem usar por padrão para
+        descobrir a release corrente sem hardcodar um identifier específico;
+        releases antigas seguem diretamente recuperáveis pelo próprio ia_id.
+
         row_count e git_sha são opcionais — caller passa se já os computou.
         """
         if not self.access_key or not self.secret_key:
@@ -1261,9 +1411,16 @@ class InternetArchivePublisher:
                 f"ente must match [a-z][a-z0-9-]* to satisfy _DATASET_IDENTIFIER_RE, got {ente!r}"
             )
 
-        ia_id = f"leizilla-dataset-{ente}-v{version}"
+        effective_revision = revision or _dataset_revision()
+        if not re.match(_DATASET_REVISION_RE, effective_revision):
+            raise ValueError(
+                f"revision must match {_DATASET_REVISION_RE} "
+                f"(ex: 20260924t181131z), got {effective_revision!r}"
+            )
+
+        ia_id = f"leizilla-dataset-{ente}-v{version}-{effective_revision}"
         dataset_meta = build_dataset_meta(
-            parquet_path, ente, version, row_count, git_sha
+            parquet_path, ente, version, row_count, git_sha, effective_revision
         )
         effective_row_count = dataset_meta["row_count"]
 
@@ -1277,8 +1434,9 @@ class InternetArchivePublisher:
 
             coverage = _entity_coverage(ente)
             desc = (
-                f"Dataset Parquet (tabela versoes) das leis do ente {ente.upper()}, "
-                f"versão v{version}, gerado pelo projeto Leizilla. "
+                f"Release imutável e citável (revisão {effective_revision}) do "
+                f"dataset Parquet (tabela versoes) das leis do ente {ente.upper()}, "
+                f"schema v{version}, gerado pelo projeto Leizilla. "
                 f"Contém {effective_row_count} linhas."
             )
             try:
@@ -1290,7 +1448,8 @@ class InternetArchivePublisher:
                         str(parquet_dst),
                         str(meta_path),
                         "--metadata",
-                        f"title:Leizilla Dataset {ente.upper()} v{version}",
+                        f"title:Leizilla Dataset {ente.upper()} v{version} "
+                        f"({effective_revision})",
                         "--metadata",
                         "mediatype:data",
                         "--metadata",
@@ -1305,11 +1464,141 @@ class InternetArchivePublisher:
                         f"description:{desc}",
                     ]
                 )
+            except FileNotFoundError:
+                return {
+                    "success": False,
+                    "error": "ia CLI não encontrado — instale 'internetarchive'",
+                    "ia_id": ia_id,
+                }
+            except subprocess.CalledProcessError as e:
+                return {"success": False, "error": e.stderr, "ia_id": ia_id}
+
+            result: Dict[str, Any] = {
+                "success": True,
+                "ia_id": ia_id,
+                "ia_url": f"https://archive.org/details/{ia_id}",
+                "row_count": effective_row_count,
+                "revision": effective_revision,
+            }
+
+            if publish_latest:
+                result["latest_pointer"] = self._publish_latest_pointer(
+                    parquet_dst, meta_path, dataset_meta, ente, version, ia_id
+                )
+
+            return result
+
+    def _publish_latest_pointer(
+        self,
+        parquet_dst: Path,
+        meta_path: Path,
+        dataset_meta: Dict[str, Any],
+        ente: str,
+        version: int,
+        release_ia_id: str,
+    ) -> Dict[str, Any]:
+        """Atualiza leizilla-dataset-{ente}-v{version}-latest (issue #175).
+
+        Item pequeno e deliberadamente MUTÁVEL — nunca citar por si só; existe só
+        para consumidores descobrirem a release imutável corrente
+        (``release_ia_id``) sem hardcodar um identifier específico. Falha aqui é
+        fail-open: não derruba a publicação do release imutável, que já é o
+        artefato citável — o caller decide como reportar ``success=False`` aqui.
+        """
+        latest_id = f"leizilla-dataset-{ente}-v{version}-{_DATASET_LATEST_SUFFIX}"
+        latest_payload = {
+            "identifier": release_ia_id,
+            "ia_url": f"https://archive.org/details/{release_ia_id}",
+            "parquet_url": (
+                f"https://archive.org/download/{release_ia_id}/versoes.parquet"
+            ),
+            "revision": dataset_meta.get("revision"),
+            "generated_at": dataset_meta.get("generated_at"),
+            "git_sha": dataset_meta.get("git_sha"),
+            "row_count": dataset_meta.get("row_count"),
+            "hash_parquet": dataset_meta.get("hash_parquet"),
+        }
+        latest_json_path = meta_path.parent / "latest.json"
+        latest_json_path.write_text(
+            json.dumps(latest_payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        desc = (
+            f"Ponteiro MUTÁVEL para a release corrente do dataset {ente.upper()} "
+            f"v{version} — não cite este item; cite {release_ia_id} "
+            f"(ver latest.json)."
+        )
+        try:
+            self._run_ia_upload(
+                [
+                    "ia",
+                    "upload",
+                    latest_id,
+                    str(parquet_dst),
+                    str(meta_path),
+                    str(latest_json_path),
+                    "--metadata",
+                    f"title:Leizilla Dataset {ente.upper()} v{version} "
+                    "(latest pointer)",
+                    "--metadata",
+                    "mediatype:data",
+                    "--metadata",
+                    f"subject:leis;leizilla;{ente};parquet;versoes;latest",
+                    "--metadata",
+                    "creator:leizilla-etl",
+                    "--metadata",
+                    "language:pt",
+                    "--metadata",
+                    f"description:{desc}",
+                ]
+            )
+            return {
+                "success": True,
+                "ia_id": latest_id,
+                "ia_url": f"https://archive.org/details/{latest_id}",
+                "points_to": release_ia_id,
+            }
+        except FileNotFoundError:
+            return {
+                "success": False,
+                "error": "ia CLI não encontrado — instale 'internetarchive'",
+                "ia_id": latest_id,
+            }
+        except subprocess.CalledProcessError as e:
+            return {"success": False, "error": e.stderr, "ia_id": latest_id}
+
+    def upload_coverage(
+        self,
+        coverage_report: Dict[str, Any],
+        ente: str,
+        version: int = 0,
+    ) -> Dict[str, Any]:
+        """Upload coverage.json (issue #174) para o ponteiro `-latest` do dataset.
+
+        Mesmo item que o ponteiro mutável (``publisher._publish_latest_pointer``,
+        issue #175) — ``ia upload`` num item existente só adiciona/atualiza
+        arquivos, não recria o item. Cobertura é instrumentação operacional que
+        muda independente de qual release imutável está em vigor, então vive no
+        ponteiro (o item que o frontend de fato consulta por padrão — ver
+        ``DATASET_IA_ITEM``/``COVERAGE_JSON_URL`` em ``web/src/lib/db.ts``), não
+        num item de release imutável específico.
+        """
+        if not self.access_key or not self.secret_key:
+            return {"success": False, "error": "IA credentials not configured"}
+
+        ia_id = f"leizilla-dataset-{ente}-v{version}-{_DATASET_LATEST_SUFFIX}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            coverage_path = Path(tmp) / "coverage.json"
+            coverage_path.write_text(
+                json.dumps(coverage_report, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            try:
+                self._run_ia_upload(["ia", "upload", ia_id, str(coverage_path)])
                 return {
                     "success": True,
                     "ia_id": ia_id,
                     "ia_url": f"https://archive.org/details/{ia_id}",
-                    "row_count": effective_row_count,
                 }
             except FileNotFoundError:
                 return {

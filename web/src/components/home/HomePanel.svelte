@@ -18,6 +18,7 @@
     withBase,
     iaDetailsUrl,
   } from '../../lib/format';
+  import ReleaseCitation from '../ReleaseCitation.svelte';
 
   let loading = $state(true);
   let failed = $state(false);
@@ -188,6 +189,8 @@ FROM read_parquet('${DATASET_PARQUET_URL}');`}</code></pre>
           </p>
         {/if}
       </details>
+
+      <ReleaseCitation />
     </article>
   </section>
 {/if}

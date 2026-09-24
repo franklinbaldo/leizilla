@@ -5,6 +5,7 @@ implementation, fully offline. The embedded sample laws are real data
 extracted from pge-ro/cotel_scrap.
 """
 
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -148,6 +149,14 @@ def test_real_world_legal_search_terms(storage: DuckDBStorage) -> None:
     for term in ["decreto", "orçamento", "receita", "estado", "governador"]:
         results = storage.search_leis(texto=term)
         assert len(results) >= 1, f"Should find results for legal term: {term}"
+
+
+def test_parquet_export(storage: DuckDBStorage) -> None:
+    """The `leizilla export` CLI path (DuckDBStorage.export_parquet) works."""
+    with tempfile.TemporaryDirectory() as export_dir:
+        parquet_file = Path(export_dir) / "rondonia_laws.parquet"
+        storage.export_parquet(parquet_file, ente="rondonia")
+        assert parquet_file.exists()
 
 
 def test_cotel_scrap_markdown_compatibility() -> None:
