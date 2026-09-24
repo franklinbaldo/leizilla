@@ -1,3 +1,14 @@
+> [!WARNING]
+> **ARQUIVADO** (2026-09-24): guia pré-M1 — layout `src/` flat, CLI com flags
+> mortas (`--origem`, `download`/`upload` sem `--ente`), schema `leis` de
+> ADR-0003 hoje superado pelo modelo dispositivo-cêntrico de
+> [`docs/SCHEMA.md`](../SCHEMA.md). Setup de desenvolvimento e comandos
+> atuais vivem em [`CLAUDE.md`](../../CLAUDE.md) (seção "Development setup" /
+> "Everyday commands" / "CLI reference"). Movido de `docs/` para
+> `docs/archive/` conforme
+> [RFC-0002 — Governança documental](../rfc/0002-governanca-documental.md).
+> Preservado como histórico; conteúdo original intacto abaixo.
+
 # 🛠️ Development Guide
 
 Guia técnico para desenvolvimento diário no Leizilla.

@@ -147,11 +147,11 @@ All commands run as `uv run leizilla <command>`. Most take `--ente` (default `ro
 | `discover --ente ro` | run manifest discovery → enqueue resources |
 | `harvest --ente ro --limit 100` | process the pending queue (scrape + upload) |
 | `reconcile --ente ro [--fonte assembleia]` | promote `_unidentified` holding files into range items once discovery context yields `(tipo, número)` (ADR-0011 §1) |
-| `scrape --ente ro --fonte casacivil --tipo lei --start-coddoc 1 --end-coddoc 10` | range scrape one source |
+| `scrape --ente ro --fonte casacivil --tipo lei --start 1 --end 10` | range scrape one source |
 | `bundle-raw --ente ro --fonte casacivil` | consolidate raw PDFs into one IA item (torrents) |
 | `fetch-ocr --ente ro --limit 100` | pull IA OCR text into DuckDB |
 | `parse --ente ro --raw-id leizilla-raw-ro-casacivil-lei-05120` | LLM parse one raw item → XML (`--upload`, `--input-type ocr\|html`) |
-| `parse-all --ente ro --start-coddoc 1 --end-coddoc 100` | batch parse a range (`--upload`, `--skip-existing`, `--error-threshold`, `--output-dir`) |
+| `parse-all --ente ro --start 1 --end 100` | batch parse a range (`--upload`, `--skip-existing`, `--error-threshold`, `--output-dir`) |
 | `fetch-all-parsed --ente ro --output-dir data/parsed` | download all parsed XML from IA |
 | `consolidate data/parsed --output out.parquet --ente ro` | XML dir (positional) → Parquet |
 | `release-dataset out.parquet --ente ro --version 0` | publish Parquet (positional) dataset to IA |

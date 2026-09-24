@@ -139,6 +139,8 @@ _RE_IA_PARSED_FALLBACK = re.compile(
     r"(?P<fonte>[a-z]+)-(?P<chave>[a-z0-9-]+)$"
 )
 _RE_IA_DATASET = re.compile(
+    # Prefixo de família (SCHEMA.md §5.5) — releases imutáveis e o ponteiro
+    # `-latest` (issue #175) acrescentam um sufixo depois de `v{N}`.
     r"^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)$"
 )
 _RE_IA_BUNDLE = re.compile(
