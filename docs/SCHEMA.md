@@ -247,6 +247,8 @@ Conteúdo: `versoes.parquet` + `dataset_meta.json` (gerados por `upload_dataset(
   "confianca_parse_global": 0.92,
   "regras_desempate": ["voto-majoritario", "ocr-confianca"],
   "validacao_xsd": "passed",
+  "texto_truncado": false,
+  "tamanho_texto_original": 6200,
 
   "auditoria_embeddings": {
     "ultimo_check": "2026-05-21T03:00:00Z",
