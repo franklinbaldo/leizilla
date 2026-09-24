@@ -42,22 +42,19 @@ _ORGANIZACIONAL_TOKENS: list[tuple[re.Pattern[str], str]] = [
 
 _ORGANIZACIONAL_TIPOS = {t for _, t in _ORGANIZACIONAL_TOKENS}
 
-#   numero: digits, optionally with a single lowercase letter suffix (issue
-#   #127) for a law split/renumbered after promulgation (e.g. ";72-a" for
-#   "Lei 72-A" — a distinct law from ";72"). Previously `[a-z0-9.\-]+`, which
-#   also accepted dots and multi-char suffixes never actually produced by
-#   this codebase (parser.py always emits digits-only or digits+"-letter");
-#   that extra permissiveness was itself a conflation risk, so it is
-#   tightened to the real contract. Mirrored in
-#   scripts/check_schema_consistency.py and docs/schemas/leizilla-v0.1.xsd —
-#   keep all three in sync.
+# Generic URN-LEX descriptor grammar. It accepts the forms documented in
+# SCHEMA.md §5.6, including numeric descriptors such as "72-a" and generic
+# descriptors such as "lex-16" or "estatuto.idoso". parser.py::_RE_NUMERO is
+# intentionally stricter because it describes what the Leizilla producer emits,
+# not every descriptor accepted by LexML. Keep this generic boundary aligned
+# with the XSD and consistency checker.
 _RE_URN_LEX = re.compile(
     r"^urn:lex:br"
     r"(?P<locais>(;[a-z][a-z0-9.]*)*)"
     r":(?P<autoridade>[a-z][a-z0-9.]*(;[a-z][a-z0-9.]*)*)"
     r":(?P<tipo>[a-z][a-z0-9.]*)"
     r":(?P<data>\d{4}(-\d{2}-\d{2})?)"
-    r"(;(?P<numero>\d+(-[a-z])?))?"
+    r"(;(?P<numero>[a-z0-9.\-]+))?"
     r"(?P<paths>(![a-z0-9._\-]+)*)$"
 )
 

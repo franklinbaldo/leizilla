@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1"
+     schema-version="0.1"
+     urn-lex="urn:lex:br;rondonia:estadual:lei:1999-12-21;lex-16"
+     vigente-em="2026-09-24">
+  <dispositivo path="art-1">
+    <versao>
+      <texto>Fixture de descritor URN-LEX genérico.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-lei-00016"/>
+    </versao>
+  </dispositivo>
+</lei>
