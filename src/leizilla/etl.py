@@ -57,7 +57,7 @@ _RE_URN_LEX = re.compile(
     r":(?P<autoridade>[a-z][a-z0-9.]*(;[a-z][a-z0-9.]*)*)"
     r":(?P<tipo>[a-z][a-z0-9.]*)"
     r":(?P<data>\d{4}(-\d{2}-\d{2})?)"
-    r"(;(?P<numero>\d+(-[a-z])?))?"
+    r"(;(?P<numero>[a-z0-9.\-]+))?"
     r"(?P<paths>(![a-z0-9._\-]+)*)$"
 )
 

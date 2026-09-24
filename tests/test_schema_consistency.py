@@ -952,6 +952,16 @@ def test_inv05_urn_year_only_is_exempt(tmp_path: Path) -> None:
     )
 
 
+def test_urn_regex_preserves_generic_lexml_descriptors() -> None:
+    """Issue #127: producer-number grammar must not narrow generic URN references."""
+    valid_urns = [
+        "urn:lex:br;rondonia:estadual:lei:1999-12-21;lex-16",
+        "urn:lex:br;rondonia:estadual:lei:2003-10-01;estatuto.idoso",
+        "urn:lex:br;rondonia:estadual:lei:2020-01-01;72-a",
+    ]
+    for urn in valid_urns:
+        assert csc._RE_URN_LEX.match(urn), f"generic LexML descriptor rejected: {urn}"
+
 def test_urn_regex_accepts_hierarchical_authority() -> None:
     """Codex P1: URN com autoridade hierárquica via `;` interno
     (`ministerio.fazenda;secretaria.receita.federal`) é forma canônica
