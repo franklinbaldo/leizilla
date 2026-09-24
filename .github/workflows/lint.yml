@@ -21,6 +21,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --extra dev
 
+      - name: Install xmllint
+        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
+
       - name: Validate project DAG
         run: |
           uv run scripts/validate_project_dag_hygiene.py

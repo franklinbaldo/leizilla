@@ -691,6 +691,53 @@ class TestXmlToRowsComRevogacaoCascata:
 
 
 # ---------------------------------------------------------------------------
+# Release-boundary gates (issue #118): the ETL/release path had no independent
+# validation of its own, so a <fonte> without ia-id could silently reach the
+# published Parquet with no real provenance behind it. Fails closed instead.
+#
+# Note: a urn-lex canonicalization gate was deliberately NOT added here —
+# _parse_lei_fields already falls back to lei_id-based extraction for an
+# unparseable/mis-cased urn-lex (issue #127, see TestNumeroLetterSuffix
+# below), and a hard-fail on any regex mismatch would regress that tested
+# graceful degradation.
+# ---------------------------------------------------------------------------
+
+
+class TestReleaseBoundaryGates:
+    def test_empty_ia_id_raises(self) -> None:
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
+     urn-lex="urn:lex:br;rondonia:estadual:lei:2010-03-01;4242"
+     vigente-em="2026-05-20">
+  <dispositivo path="art-1">
+    <versao>
+      <texto>Texto.</texto>
+      <fonte ia-id=""/>
+    </versao>
+  </dispositivo>
+</lei>
+"""
+        with pytest.raises(ValueError, match="ia-id"):
+            xml_to_rows(xml, "lei-1", "ro")
+
+    def test_missing_ia_id_attribute_raises(self) -> None:
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
+     urn-lex="urn:lex:br;rondonia:estadual:lei:2010-03-01;4242"
+     vigente-em="2026-05-20">
+  <dispositivo path="art-1">
+    <versao>
+      <texto>Texto.</texto>
+      <fonte/>
+    </versao>
+  </dispositivo>
+</lei>
+"""
+        with pytest.raises(ValueError, match="ia-id"):
+            xml_to_rows(xml, "lei-1", "ro")
+
+
+# ---------------------------------------------------------------------------
 # numero_lei with a letter suffix (issue #127) — round-trip, no conflation
 # ---------------------------------------------------------------------------
 
