@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LeiRow } from '../../lib/db';
 import {
   absoluteLeiUrl,
   aggregateFontes,
   buildTree,
+  copyText,
   currentRows,
+  downloadBlob,
   groupHistorico,
   rowsToCsv,
   rowsToJson,
@@ -227,5 +229,61 @@ describe('rowsToCsv / rowsToJson', () => {
     expect(csv).toContain('2000-01-01');
     expect(json[0].data_ato).toBe('2000-01-01');
     expect(json[0].ano_lei).toBe(2000);
+  });
+});
+
+
+describe('copyText / downloadBlob', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('copyText uses the Clipboard API when available', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    await expect(copyText('texto para copiar')).resolves.toBe(true);
+    expect(writeText).toHaveBeenCalledWith('texto para copiar');
+  });
+
+  it('copyText falls back to a temporary textarea when Clipboard API fails', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
+    });
+    const execCommand = vi.fn().mockReturnValue(true);
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: execCommand,
+    });
+
+    await expect(copyText('fallback')).resolves.toBe(true);
+    expect(execCommand).toHaveBeenCalledWith('copy');
+    expect(document.querySelector('textarea')).toBeNull();
+  });
+
+  it('downloadBlob creates, clicks and revokes a temporary object URL', () => {
+    const createObjectURL = vi.fn().mockReturnValue('blob:leizilla-test');
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: createObjectURL,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: revokeObjectURL,
+    });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    downloadBlob('lei.json', '{"ok":true}', 'application/json');
+
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(createObjectURL.mock.calls[0][0]).toBeInstanceOf(Blob);
+    expect(click).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:leizilla-test');
+    expect(document.querySelector('a[download="lei.json"]')).toBeNull();
   });
 });
