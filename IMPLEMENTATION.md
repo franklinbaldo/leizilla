@@ -213,6 +213,60 @@ lote), issue #127 (contrato de `numero` com sufixo de letra — decisão de
 design end-to-end, maior que "dívida pequena"), issue #167 (semântica de data
 legada nos downloads — depende de #170, WIP de outra sessão, não tocado).
 
+**Correção ao reconciliar com `main` (sessão concorrente)**: outra sessão
+avançou em paralelo e mergeou #180, #185, #186 e, na sequência, #178 — a
+recomendação acima ("mergear #179 e não #178") foi substituída por uma
+reconciliação que manteve os dois: o texto técnico de #179 (implementação
+real de `cdx-auto`) prevaleceu em `docs/rfc/0003-convergencia-scrape-harvest.md`
+e nesta mesma seção do log, com a cobertura de teste de #178
+(`test_wayback_html_response_triggers_fallback`, caminho harvest) creditada
+lado a lado em vez de descartada — ver a entrada de sessão 4 logo abaixo e
+sua nota de correção. #177 segue como reconciliação separada, tratada à
+parte por exigir leitura própria (governança/CI). #185/#186 são as próximas
+entradas deste log.
+
+### 2026-09-24 (sessão 4) — RFC-0003 Fase 1: cobertura de teste do fallback HTML→direct no harvest (achado sobre `cdx_max` superado em paralelo por #179)
+
+**Rotina agendada, FASE 1**: só as 3 PRs já conhecidas seguem abertas — #139/#142
+(Dependabot, skip) e #170 (draft alheio, `steward/vigencia-data-ato-provenance`,
+ainda com TODOs do próprio autor); nada novo para triar.
+
+**FASE 2 — RFC-0003 Fase 1, item restante**: a entrada anterior (sessão 3) deixou
+dois itens pendentes da Fase 1: (a) portar a descoberta de `cdx_max` para
+`SequentialDiscovery` via `"end": "cdx-auto"`; (b) garantir teste cobrindo o
+caminho harvest do fallback HTML→direct-download (fix do PR #93).
+
+Antes de codar (a), verifiquei quem consumiria essa capacidade e concluí (nesta
+sessão, sem visibilidade de outra sessão paralela trabalhando o mesmo item) que
+**nenhum manifesto usava `"strategy": "sequential"` no momento em que essa
+verificação foi feita** — `casacivil` já estava em `casacivil-index` +
+`wayback-cdx` na descoberta manifest-driven, ambas dinâmicas, sem `end` fixo.
+**Correção ao reconciliar com main**: uma sessão paralela (#179, mergeada em
+paralelo) chegou a essa mesma bifurcação e decidiu na direção oposta —
+implementou `resolve_cdx_max_by_tipo()` e adicionou entradas `sequential`
+`cdx-auto` para os 8 tipos de casacivil em `manifests/ro.json`, criando o
+consumidor que esta análise não via ainda. Ver `docs/rfc/0003-convergencia-scrape-harvest.md`
+para o texto final reconciliado — a conclusão "sem consumidor" desta entrada
+ficou superada pelo trabalho de #179 e é preservada aqui só como registro do
+raciocínio no momento, não como estado atual.
+
+Escolhi então (b), que é escopo estreito e sem ambiguidade de design:
+`harvest_pending_resources` **reimplementa** (não chama) a lógica de
+`scrape_one` — inclusive o fallback quando o Wayback devolve HTML de erro
+em vez do PDF (`pdf_bytes[:4] != b"%PDF"` → fallback direto) — e só o
+caminho `scrape_one` tinha teste cobrindo esse fallback
+(`test_wayback_html_response_triggers_fallback` /
+`test_direct_fallback_rejects_non_pdf` em `tests/test_scraper.py`). Um bug
+futuro nessa lógica duplicada no harvest passaria batido pela suíte. Dois
+testes novos em `tests/test_harvest_pipeline.py`
+(`test_wayback_html_response_triggers_fallback`,
+`test_direct_fallback_rejects_non_pdf`) espelham os do scrape contra
+`harvest_pending_resources` — ambos passaram já na primeira tentativa
+(o código de produção já estava correto; era só a cobertura que faltava).
+`uv run leizilla dev check`: 784 passed, 13 skipped. `mypy src/
+--ignore-missing-imports`: só os 3 erros pré-existentes de stub ausente
+(`types-requests`).
+
 ### 2026-09-24 (sessão 4, cont.) — issue #102: vitest + cobertura de `model.ts`/`format.ts` (frontend, workstream separado)
 
 Segunda frente da mesma sessão de stewardship, escolhida por ser um workstream diferente (produto/frontend) das duas frentes de backend/pipeline já cobertas acima, sem sobreposição de arquivos com nenhuma das PRs de harvest/discovery em voo (#178/#179/#180/#181/#182/#183/#185). `web/` não tinha nenhum framework de teste configurado (`package.json` sem `devDependencies` nem script `test`) — issue #102 (aberta desde a M13/#101, "não bloqueante") pedia cobertura para a lógica pura de `web/src/components/lei/model.ts` e `web/src/lib/format.ts` (seleção de redação vigente, árvore de dispositivos, rótulos derivados do path, citação, exportação CSV/JSON), hoje só verificada manualmente.
@@ -493,7 +547,6 @@ arquivos alterados). `npm run build` (web): passa sem erros de tipo.
 imutável real + o ponteiro `-latest` pela primeira vez); migração/deleção do item
 `v0` legado (releases antigas continuam diretamente recuperáveis por design — nunca
 apagamos).
-
 
 ### 2026-09-24 (sessão 3) — merge PR #172; RFC-0003 doc-drift corrigido; harvest ganha paridade de relatório com scrape (Fase 1 parcial)
 
@@ -2101,14 +2154,31 @@ produção (próxima execução agendada de `parse-release.yml` — secrets já
 existem, RFC-0004). Baseline conhecido no momento do merge: casacivil
 S1=1196→S4=20; assembleia 0 em tudo (nenhum raw publicado ainda nessa fonte).
 
-**Convergência scrape→harvest (RFC-0003)**: Fase 1 concluída (#173 + #179).
-Falta, como dívida secundária, o `end: 5000` hardcoded do
-`playwright-crawler` de `assembleia` (achado de #178, ainda sem PR própria).
-Fases 2 (redirecionar workflows) e 3 (aposentar `cmd_scrape`) seguem não
-iniciadas — dado o achado de causa raiz acima, a Fase 2 pode ganhar urgência
-assim que a causa real das falhas do `rondonia_crawler.yml` for confirmada e
-corrigida (ou se `discover-harvest.yml`, que não mostra o mesmo padrão de
-cancelamento, provar-se suficiente sozinho).
+**Convergência scrape→harvest — Fase 1 concluída** (2026-09-24, sessões 3+4): ver
+[`docs/rfc/0003-convergencia-scrape-harvest.md`](docs/rfc/0003-convergencia-scrape-harvest.md).
+`harvest_pending_resources` reporta por item, igualando o formato `OK: <ia_id> →
+<ia_url>` / `Falha [reason]: <chave>` que `scrape` já tinha (#173);
+`SequentialDiscovery` aceita `"end": "cdx-auto"` (resolvido via a nova
+`resolve_cdx_max_by_tipo()`, fail-safe) e `manifests/ro.json` tem uma entrada
+`sequential` por tipo de casacivil, então `discover → harvest` cobre o mesmo
+caso de probing que antes só existia em `cmd_scrape`/casacivil (#176/#179); em
+paralelo, o fallback HTML→direct-download do PR #93 ganhou cobertura de teste
+própria no caminho harvest (#178) — comportamento já estava correto em
+produção, só faltava a suíte pegar uma regressão futura ali. O gap real de
+range hardcoded que sobra é `assembleia` (`playwright-crawler`,
+`start:1, end:5000` fixo) — mecanismo diferente (HTML numerado por URL, não
+nome de arquivo PDF casável via CDX), registrado como dívida técnica, não
+bloqueante hoje. Próximo: **Fase 2** — `rondonia_crawler.yml` passa a chamar
+`discover`+`harvest` (um único workflow semanal) e `cmd_scrape` vira wrapper
+fino sobre o mesmo caminho; depois **Fase 3** — aviso de deprecação em
+`scrape` e, só após duas execuções semanais sem regressão de cobertura
+(`stats --ia`), remoção. Nenhuma das duas foi iniciada — mudam
+workflow/comportamento em produção e merecem sessão própria com o
+`stats --ia` de antes/depois em mãos. A Fase 2 pode ganhar urgência antes do
+previsto se a causa raiz das falhas semanais do `rondonia_crawler.yml`
+(sessão 5, achado no topo deste log) for confirmada e corrigida, ou se
+`discover-harvest.yml` — que não mostra o mesmo padrão de cancelamento —
+provar-se suficiente sozinho.
 
 **M14 (OPF fine-tune) segue em progresso** (M14.1–M14.2 done, M14.4 done;
 M14.3 aguarda execução em GPU/Colab fora do alcance headless).
