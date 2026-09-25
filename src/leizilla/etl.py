@@ -213,6 +213,22 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
     root = ET.fromstring(xml_content)
 
     urn_lex = root.get("urn-lex")
+    if urn_lex is not None and not urn_lex.startswith("urn:lex:br"):
+        # Issue #195: this is NOT the grammar-level urn-lex canonicalization
+        # gate that was deliberately left out of #192 — a value that fails
+        # only the strict _RE_URN_LEX grammar (e.g. an uppercase numero
+        # suffix) is exactly what _parse_lei_fields's lei_id-based fallback
+        # is designed to recover from (issue #127/#191) and must keep doing
+        # so. A urn-lex that doesn't even start with the canonical prefix is
+        # not unparseable, it's corrupted — e.g. the literal string "null"
+        # the parser used to emit before #203, or an empty sentinel
+        # (urn-lex="") — and reaching this point it would also poison
+        # urn_dispositivo below (f"{urn_lex}!{path}"). A urn-lex attribute
+        # that is simply absent (None) is untouched and still falls back.
+        raise ValueError(
+            f"urn-lex {urn_lex!r} in {lei_id!r} does not start with "
+            "'urn:lex:br' — looks corrupted, not merely grammar-mismatched."
+        )
     vigente_em = _parse_date(root.get("vigente-em"))
     data_ato = _extract_data_ato(urn_lex)
     tipo_lei, numero_lei, ano_lei = _parse_lei_fields(lei_id, urn_lex)
