@@ -107,6 +107,12 @@ Path rules:
 - Normative paths (global): ementa, preambulo, art-N, art-N-par-unico, art-N-par-M, art-N-inc-N, art-N-inc-N-ali-a
 - Organizational paths (namespaced): tit-N, tit-N-cap-N, tit-N-cap-N-sec-N
 - Use lower-case with hyphens only, first char must be a-z
+- Every N is a plain arabic ordinal (1, 2, 3, ...), even when the source
+  prints the inciso/item as a roman numeral (I, II, III, IV...) or an
+  ordinal word — convert it to the arabic position. Never copy a roman
+  numeral, an uppercase letter, or anything outside [a-z0-9-] into a path
+  segment; the only place a letter belongs in an identifier is the law's
+  own "numero" suffix (e.g. "72-a"), never a dispositivo path.
 - Paths MUST be unique within the document. Before you output, verify no two
   <dispositivo> share the same path. If the source appears to repeat an
   article/inciso number (OCR duplication, ambiguous renumbering), do NOT pick
@@ -147,6 +153,11 @@ URN rules — the urn-lex on <lei> and the "urn_lex" field must be identical:
   date are missing. Do NOT substitute today's date into the URN.
 - NUMERO is the same value as the "numero" field: digits, optionally with a
   lowercase "-x" suffix (e.g. "9999" or "72-a"). Never strip the suffix.
+- If "urn_lex" is null (no date found at all), OMIT the urn-lex attribute
+  from <lei> entirely — do not write the literal text "null", an empty
+  string, or any placeholder. Downstream tooling recovers identity from
+  the law's own number/year when urn-lex is absent; a literal "null"
+  string is invalid and gets the whole document rejected.
 
 Use vigente-em={today} — this is the "as of" reference for the snapshot and is
 independent of the publication date encoded in the URN.
