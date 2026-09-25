@@ -2,7 +2,11 @@ name: Wayback Save — submete URLs faltantes ao Wayback Machine
 
 on:
   schedule:
-    # Toda segunda-feira às 03:00 UTC — submete URLs novas que ainda não estão no Wayback
+    # Toda segunda-feira às 03:00 UTC — submete URLs novas que ainda não estão no Wayback.
+    # Matrix por tipo abaixo (não um job único com os 8 templates do manifesto
+    # casacivil em sequência): a pacing fixa de --delay por URL num backlog
+    # grande de um único job estourava o teto de 360min do runner hospedado em
+    # ~20% das execuções (#149). Cada tipo isolado tem um range bem menor.
     - cron: "0 3 * * 1"
   workflow_dispatch:
     inputs:
@@ -13,7 +17,7 @@ on:
         description: "Fonte (casacivil, assembleia)"
         default: "casacivil"
       tipo:
-        description: "Tipo de lei (lei, lc, decreto, ec, resolucao, portaria, decreto-lei) — vazio = todos (a CLI já processa todos os tipos do manifesto numa única chamada)"
+        description: "Tipo de lei (lei, lc, decreto, ec, resolucao, portaria, decreto-lei) — vazio = todos os tipos em paralelo (matrix, um job por tipo)"
         default: ""
       start:
         description: "Número inicial do range. Se vazio, a CLI usa cdx_max - 20."
@@ -29,8 +33,16 @@ permissions:
   contents: read
   issues: write
 
+# Singleton: evita um dispatch manual correndo ao mesmo tempo que o cron
+# semanal (ambos disputariam o rate limit do Wayback SPN2 nos mesmos tipos).
+concurrency:
+  group: wayback-save
+  cancel-in-progress: false
+
 jobs:
-  wayback-save:
+  # ── DISPATCH com tipo específico: um job único, comportamento anterior ────
+  wayback-save-single:
+    if: github.event_name == 'workflow_dispatch' && inputs.tipo != ''
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -43,22 +55,68 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Wayback Save
+      - name: Wayback Save — ${{ inputs.tipo }}
         env:
           IAS3_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IAS3_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
           uv run leizilla wayback-save \
-            --ente "${{ github.event.inputs.ente || 'ro' }}" \
-            --fonte "${{ github.event.inputs.fonte || 'casacivil' }}" \
-            ${{ github.event.inputs.tipo != '' && format('--tipo {0}', github.event.inputs.tipo) || '' }} \
-            ${{ github.event.inputs.start != '' && format('--start {0}', github.event.inputs.start) || '' }} \
-            --probe-window "${{ github.event.inputs.probe_window || '200' }}" \
-            --delay "${{ github.event.inputs.delay || '2' }}"
+            --ente "${{ inputs.ente }}" \
+            --fonte "${{ inputs.fonte }}" \
+            --tipo "${{ inputs.tipo }}" \
+            ${{ inputs.start != '' && format('--start {0}', inputs.start) || '' }} \
+            --probe-window "${{ inputs.probe_window }}" \
+            --delay "${{ inputs.delay }}"
 
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}
         uses: ./.github/actions/notify-run-failure
         with:
-          job-label: "wayback-save"
+          job-label: "wayback-save / ${{ inputs.tipo }}"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── SCHEDULED ou DISPATCH sem tipo: matrix por tipo, range menor por job ──
+  wayback-save-parallel:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.tipo == '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      # max-parallel: 2 — mesmo racional do discover-harvest.yml (#141): o
+      # Wayback SPN2 também tem rate limit próprio, e vários tipos batendo
+      # nele ao mesmo tempo é mais arriscado que sequenciar. O ganho aqui não
+      # é rodar tudo junto, é cada job ter um range MENOR (só os templates de
+      # um tipo, não os 8 do manifesto) — isso é o que resolve o estouro do
+      # teto de 360min (#149), não o paralelismo em si.
+      max-parallel: 2
+      matrix:
+        tipo: [lei, lc, decreto, ec, resolucao, portaria, decreto-lei]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Wayback Save — ${{ matrix.tipo }}
+        env:
+          IAS3_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IAS3_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          uv run leizilla wayback-save \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --fonte "${{ inputs.fonte || 'casacivil' }}" \
+            --tipo "${{ matrix.tipo }}" \
+            ${{ inputs.start != '' && format('--start {0}', inputs.start) || '' }} \
+            --probe-window "${{ inputs.probe_window || '200' }}" \
+            --delay "${{ inputs.delay || '2' }}"
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "wayback-save / ${{ matrix.tipo }}"
           github-token: ${{ secrets.GITHUB_TOKEN }}
