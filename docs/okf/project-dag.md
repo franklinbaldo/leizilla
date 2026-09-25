@@ -103,7 +103,7 @@ fronts:
     parents: [leizilla-root]
     objective: "Ensure the structured dataset never states stronger legal provenance, temporal status or identity semantics than the underlying evidence supports."
     origin: "Post-go-live schema/ETL review found date, temporal and identifier conflation risks."
-    next_action: "Date-provenance, temporal-version and identifier-contract KRs are met. Only release-validation-gated remains active: decide whether the deferred urn_lex-canonicalization slice of #118 needs a narrower follow-up issue."
+    next_action: "Prioritize #201 as the current release-validation blocker; keep #195 as a separate narrow URN-boundary hardening follow-up."
     key_results:
       - id: "kr-date-provenance-honest"
         status: active
@@ -133,7 +133,7 @@ fronts:
         current: "Issue #118 closed (2026-09-24) via two merged PRs: `versao_id` uniqueness was already enforced pre-existing; PR #193 added the row-count floor guard on `release-dataset` (refuses to publish fewer rows than the currently published release, latest-pointer-first with legacy-item fallback); PR #192 added empty/missing `ia-id` rejection in `xml_to_rows` and wired the existing `_xsd_gate` into `consolidate` (previously only `parse`/`parse-all` ran it). Deliberately NOT done: a hard urn_lex-grammar validation at the export boundary (tracked as its own follow-up, issue #195, since it was found to regress the intentional lei_id-fallback degradation `_parse_lei_fields` uses for an unparseable/mis-cased urn-lex from PR #191/#127). PR #193's floor guard itself then blocked the actual first `-latest` release live in production — archive.org returns 503, not 404, for a file under a nonexistent item, which the guard read as inconclusive; fixed in PR #198 (existence check via `archive.org/metadata`) — see dataset-release-integrity/#196 for the live incident this caused."
         target: "All ETL-build and release boundaries fail closed on declared floor violations and emit actionable diagnostics."
         issues: [118, 195, 201]
-        next_action: "None on #118 itself (closed). #195 (urn_lex canonicalization) is an open, independent follow-up — pick up when convenient, not release-blocking."
+        next_action: "Resolve #201 without weakening the existing validation floor; then continue #195 as an independent hardening slice."
 
   - id: "date-provenance"
     kind: workstream
