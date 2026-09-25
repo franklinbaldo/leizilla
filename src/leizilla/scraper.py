@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from leizilla import robots, wayback
+from leizilla.discovery import load_manifest
 from leizilla.parser import fetch_html
 from leizilla.publisher import InternetArchivePublisher
 from leizilla.ratelimit import make_rate_limiter
@@ -167,6 +168,29 @@ def scrape_one_html(
         return {"success": False, "reason": "upload-failed", "error": str(exc)}
 
 
+def _resolve_tipo_ingestion(
+    ente: str, fonte: str, manifest_cache: Dict[str, Dict[str, Any]]
+) -> str:
+    """Lê `tipo_ingestion` do manifesto de `ente`/`fonte` (default "pdf").
+
+    Issue #248: `discovered_resources` não carrega `tipo_ingestion` (é metadado
+    do manifesto, não do recurso descoberto), então `harvest_pending_resources`
+    precisa reconsultar o manifesto por linha. `manifest_cache` evita reler o
+    JSON do disco a cada recurso do mesmo ente dentro do mesmo batch.
+    Fail-open: manifesto ausente/malformado ou fonte não declarada nele
+    preserva o comportamento pré-existente (caminho PDF).
+    """
+    if ente not in manifest_cache:
+        try:
+            manifest_cache[ente] = load_manifest(ente)
+        except (FileNotFoundError, ValueError):
+            manifest_cache[ente] = {}
+    fontes_cfg = manifest_cache[ente].get("fontes", {})
+    fonte_cfg = fontes_cfg.get(fonte, {})
+    tipo_ingestion = fonte_cfg.get("tipo_ingestion", "pdf")
+    return str(tipo_ingestion)
+
+
 # make_rate_limiter moved to leizilla.ratelimit (re-imported above) so
 # publisher.py can reuse it for IA upload pacing without an import cycle
 # (this module already imports InternetArchivePublisher from publisher.py).
@@ -198,6 +222,7 @@ def harvest_pending_resources(
     # (ente, fonte, tipo) caem no mesmo item; sem isto cada upload releria do IA
     # (sem read-after-write) e sobrescreveria a linha do upload anterior.
     index_cache: Dict[str, str] = {}
+    manifest_cache: Dict[str, Dict[str, Any]] = {}
 
     for res in pending:
         url = res["url"]
@@ -206,6 +231,68 @@ def harvest_pending_resources(
         tipo = res["tipo_documento"]
         chave = res["chave"]
         wb_url = res["wayback_snapshot"]
+
+        # Fontes HTML (ex.: federal/planalto) não têm bytes %PDF para validar —
+        # despacham para scrape_one_html em vez do caminho PDF abaixo (#248).
+        if _resolve_tipo_ingestion(ente, fonte, manifest_cache) == "html":
+            lei_data_html = {
+                "id": f"{ente}-{fonte}-{chave}",
+                "ente": ente,
+                "fonte": fonte,
+                "chave": chave,
+                "titulo": f"{tipo.upper()} {chave} ({ente.upper()})",
+                "url_original": url,
+            }
+            html_result = scrape_one_html(
+                url,
+                lei_data_html,
+                publisher,
+                rate_limiter=rate_limiter,
+                index_cache=index_cache,
+            )
+            if not html_result.get("success"):
+                reason = html_result.get("reason", "fetch-failed")
+                if reason == "robots-blocked":
+                    # Permanente (princípio #10): nunca re-selecionado por
+                    # get_pending_resources() já que seu status deixa de ser
+                    # 'pending'.
+                    storage.update_resource_status(url, "robots-blocked")
+                    stats["robots-blocked"] += 1
+                    item_status = "robots-blocked"
+                else:
+                    # scrape_one_html não distingue falha permanente de
+                    # transiente (diferente de fetch_bytes_detailed no caminho
+                    # PDF) — fica 'pending' para ser re-tentado (#121).
+                    storage.update_resource_status(url, "pending")
+                    stats["failed"] += 1
+                    item_status = "failed"
+                stats["items"].append(
+                    {"status": item_status, "chave": chave, "reason": reason}
+                )
+                continue
+
+            storage.update_resource_status(url, "downloaded")
+            storage.insert_lei(
+                {
+                    "id": lei_data_html["id"],
+                    "titulo": lei_data_html["titulo"],
+                    "numero": chave.split("-")[-1] if "-" in chave else chave,
+                    "ente": ente,
+                    "tipo_lei": tipo,
+                    "url_original": url,
+                    "url_pdf_ia": html_result.get("ia_url"),
+                }
+            )
+            stats["success"] += 1
+            stats["items"].append(
+                {
+                    "status": "ok",
+                    "chave": chave,
+                    "ia_id": html_result.get("ia_id"),
+                    "ia_url": html_result.get("ia_url"),
+                }
+            )
+            continue
 
         # Robots check
         if not robots.is_allowed(url):
