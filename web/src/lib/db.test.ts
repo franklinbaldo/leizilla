@@ -1,5 +1,28 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DATASET_PARQUET_URL, probeDatasetAccess } from './db';
+import { DATASET_PARQUET_URL, datasetIaItemFromParquetUrl, probeDatasetAccess } from './db';
+
+describe('datasetIaItemFromParquetUrl', () => {
+  it('extracts the item from the canonical Internet Archive URL', () => {
+    expect(
+      datasetIaItemFromParquetUrl(
+        'https://archive.org/download/leizilla-dataset-ro-v0-latest/versoes.parquet',
+      ),
+    ).toBe('leizilla-dataset-ro-v0-latest');
+  });
+
+  it('preserves the same item identity when the parquet is served by a CORS proxy', () => {
+    expect(
+      datasetIaItemFromParquetUrl(
+        'https://leizilla-cors.example.workers.dev/download/leizilla-dataset-ro-v0-latest/versoes.parquet',
+      ),
+    ).toBe('leizilla-dataset-ro-v0-latest');
+  });
+
+  it('returns null when the URL does not preserve the IA download pathname', () => {
+    expect(datasetIaItemFromParquetUrl('https://example.org/versoes.parquet')).toBeNull();
+    expect(datasetIaItemFromParquetUrl('not a url')).toBeNull();
+  });
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
