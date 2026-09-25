@@ -201,3 +201,164 @@ class TestCmdFetchAllParsed:
 
         assert result.exit_code == 0
         assert new_dir.exists()
+
+
+class TestCmdFetchAllParsedExtraIdsFile:
+    """--extra-ids-file: union hand-off para fechar o lag de indexação do IA
+    (issue #233) — fetch_parsed_xml busca por id direto, não pela busca."""
+
+    def test_unions_extra_ids_not_yet_indexed_by_search(self, tmp_path: Path):
+        # A busca do IA (list_parsed_ia_ids) ainda não indexou o item recém
+        # uploadado nesta mesma run; o extra-ids-file supre o gap.
+        ids_from_search = ["leizilla-ro-lei-00001-2001"]
+        extra_ids_file = tmp_path / "extra-ids.txt"
+        extra_ids_file.write_text("leizilla-ro-lei-00002-2002\n", encoding="utf-8")
+
+        with (
+            patch(
+                "leizilla.publisher.list_parsed_ia_ids", return_value=ids_from_search
+            ),
+            patch(
+                "leizilla.publisher.fetch_parsed_xml", return_value=True
+            ) as mock_fetch,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "fetch-all-parsed",
+                    "--ente",
+                    "ro",
+                    "--output-dir",
+                    str(tmp_path / "out"),
+                    "--extra-ids-file",
+                    str(extra_ids_file),
+                ],
+            )
+
+        assert result.exit_code == 0
+        fetched_ids = {call.args[0] for call in mock_fetch.call_args_list}
+        assert fetched_ids == {
+            "leizilla-ro-lei-00001-2001",
+            "leizilla-ro-lei-00002-2002",
+        }
+        assert mock_fetch.call_count == 2
+
+    def test_does_not_double_download_id_already_in_search_results(
+        self, tmp_path: Path
+    ):
+        ids_from_search = ["leizilla-ro-lei-00001-2001"]
+        extra_ids_file = tmp_path / "extra-ids.txt"
+        # Mesmo id já presente na busca — não deve gerar download duplicado.
+        extra_ids_file.write_text("leizilla-ro-lei-00001-2001\n", encoding="utf-8")
+
+        with (
+            patch(
+                "leizilla.publisher.list_parsed_ia_ids", return_value=ids_from_search
+            ),
+            patch(
+                "leizilla.publisher.fetch_parsed_xml", return_value=True
+            ) as mock_fetch,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "fetch-all-parsed",
+                    "--ente",
+                    "ro",
+                    "--output-dir",
+                    str(tmp_path / "out"),
+                    "--extra-ids-file",
+                    str(extra_ids_file),
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert mock_fetch.call_count == 1
+
+    def test_missing_extra_ids_file_is_ignored_fail_open(self, tmp_path: Path):
+        ids_from_search = ["leizilla-ro-lei-00001-2001"]
+        missing_file = tmp_path / "does-not-exist.txt"
+
+        with (
+            patch(
+                "leizilla.publisher.list_parsed_ia_ids", return_value=ids_from_search
+            ),
+            patch("leizilla.publisher.fetch_parsed_xml", return_value=True),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "fetch-all-parsed",
+                    "--ente",
+                    "ro",
+                    "--output-dir",
+                    str(tmp_path / "out"),
+                    "--extra-ids-file",
+                    str(missing_file),
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert "Encontrados 1 itens" in result.output
+
+    def test_empty_extra_ids_file_is_ignored(self, tmp_path: Path):
+        ids_from_search = ["leizilla-ro-lei-00001-2001"]
+        empty_file = tmp_path / "extra-ids.txt"
+        empty_file.write_text("", encoding="utf-8")
+
+        with (
+            patch(
+                "leizilla.publisher.list_parsed_ia_ids", return_value=ids_from_search
+            ),
+            patch(
+                "leizilla.publisher.fetch_parsed_xml", return_value=True
+            ) as mock_fetch,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "fetch-all-parsed",
+                    "--ente",
+                    "ro",
+                    "--output-dir",
+                    str(tmp_path / "out"),
+                    "--extra-ids-file",
+                    str(empty_file),
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert mock_fetch.call_count == 1
+
+    def test_extra_ids_alone_are_enough_even_if_search_finds_nothing(
+        self, tmp_path: Path
+    ):
+        # Se list_parsed_ia_ids falhar/vier vazio (fail-open) mas ainda assim
+        # tivermos um hand-off da mesma run, não devemos desistir.
+        extra_ids_file = tmp_path / "extra-ids.txt"
+        extra_ids_file.write_text("leizilla-ro-lei-00099-2020\n", encoding="utf-8")
+
+        with (
+            patch("leizilla.publisher.list_parsed_ia_ids", return_value=[]),
+            patch(
+                "leizilla.publisher.fetch_parsed_xml", return_value=True
+            ) as mock_fetch,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "fetch-all-parsed",
+                    "--ente",
+                    "ro",
+                    "--output-dir",
+                    str(tmp_path / "out"),
+                    "--extra-ids-file",
+                    str(extra_ids_file),
+                ],
+            )
+
+        assert result.exit_code == 0
+        mock_fetch.assert_called_once_with(
+            "leizilla-ro-lei-00099-2020",
+            tmp_path / "out" / "leizilla-ro-lei-00099-2020.xml",
+        )
