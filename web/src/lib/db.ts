@@ -81,6 +81,46 @@ export async function fetchLatestPointer(): Promise<LatestPointer | null> {
   }
 }
 
+/**
+ * Faz um GET leve (`Range: bytes=0-0`) contra `url` e diz se o navegador
+ * conseguiu ler a resposta. Usado só como sonda de CORS/rede — nunca lança,
+ * nunca lê o corpo além do necessário para a Promise resolver.
+ */
+async function probeRangeGet(url: string): Promise<boolean> {
+  try {
+    await fetch(url, { headers: { Range: 'bytes=0-0' } });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export type DatasetAccessProbe = 'ok' | 'cors-blocked' | 'unavailable';
+
+/**
+ * Diagnostica por que `read_parquet(DATASET_PARQUET_URL)` pode ter falhado no
+ * navegador, depois do fato (chamar isto não corrige nada, só classifica).
+ *
+ * O Internet Archive não é consistente: `/download/{item}/dataset_meta.json`
+ * responde com `Access-Control-Allow-Origin`, mas `/download/{item}/*.parquet`
+ * (servido como `application/octet-stream`) não — confirmado ao vivo
+ * 2026-09-25 (mesmo item, mesmo nó de armazenamento, curl com `-H Origin`)
+ * durante a investigação da issue #167, e already hit and fixed upstream in
+ * the sibling causaganha project (issue #1482/PR #1521) with the identical
+ * root cause. O navegador nunca expõe "bloqueado por CORS" como um erro
+ * distinto de "rede fora do ar" — por isso a sonda: se `DATASET_META_URL`
+ * (que tem CORS confirmado) carrega mas o próprio Parquet não, a causa mais
+ * provável é esse gap de CORS específico do arquivo, não uma instabilidade
+ * genérica da rede/do IA. Sem controle (URL de metadata indisponível), ou com
+ * o controle também falhando, não há como distinguir — devolve 'unavailable'
+ * em vez de adivinhar.
+ */
+export async function probeDatasetAccess(): Promise<DatasetAccessProbe> {
+  if (await probeRangeGet(PARQUET_URL)) return 'ok';
+  if (!DATASET_META_URL) return 'unavailable';
+  return (await probeRangeGet(DATASET_META_URL)) ? 'cors-blocked' : 'unavailable';
+}
+
 const WASM_VERSION = '1.32.0';
 
 const CDN =
