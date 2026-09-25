@@ -8,16 +8,17 @@
     error instanceof Error ? error.message : error ? String(error) : null,
   );
 
-  // issue #167/#223: um navegador nunca expõe "bloqueado por CORS" como um
-  // erro distinto de "rede fora do ar" (a mensagem em `detail` é sempre um
-  // NetworkError/TypeError genérico) — por isso a sonda ativa, não o texto do
-  // erro. Confirmado ao vivo 2026-09-25: archive.org manda
-  // Access-Control-Allow-Origin para dataset_meta.json mas não para o
-  // .parquet do mesmo item (mesmo nó de armazenamento) — uma falha
-  // permanente e específica deste arquivo, não uma instabilidade transitória
-  // de rede. Mesma causa-raiz já corrigida no projeto irmão causaganha
-  // (issue #1482/PR #1521, ainda não implantada por falta de credencial
-  // Cloudflare). Sonda roda uma vez por montagem; nunca refaz a query.
+  // ADR-0014: o DuckDB-WASM lê um espelho same-origin do Parquet (publicado
+  // junto do site a cada deploy), não o item do Internet Archive diretamente
+  // — archive.org não envia Access-Control-Allow-Origin para .parquet (issue
+  // #223), então um fetch() cross-origin do navegador nunca conseguiria ler o
+  // arquivo de lá, independentemente da conexão. Um navegador nunca expõe
+  // essa distinção no texto do erro (sempre um NetworkError/TypeError
+  // genérico) — por isso a sonda ativa. Se o espelho falhar mas
+  // dataset_meta.json (servido direto pelo IA, com CORS confirmado) carregar
+  // normalmente, a causa é local a este arquivo (ex.: deploy ainda não
+  // sincronizou o espelho) — mirror-unreachable. Sonda roda uma vez por
+  // montagem; nunca refaz a query.
   let probe = $state<DatasetAccessProbe | null>(null);
 
   $effect(() => {
@@ -30,26 +31,25 @@
     };
   });
 
-  const corsBlocked = $derived(probe === 'cors-blocked');
+  const mirrorUnreachable = $derived(probe === 'mirror-unreachable');
 </script>
 
 <!--
   Estado público de indisponibilidade: uma falha ao carregar o Parquet prova
   somente que este acesso falhou. Não atribuímos a causa nem inferimos que o
   acervo deixou de existir ou ainda não foi publicado — exceto no caso
-  cors-blocked, onde a sonda confirma uma causa específica e permanente.
+  mirror-unreachable, onde a sonda confirma uma causa específica deste arquivo.
 -->
 <article class="unavailable">
   <header>
     <strong>Não foi possível acessar o acervo agora</strong>
   </header>
-  {#if corsBlocked}
+  {#if mirrorUnreachable}
     <p>
-      O Internet Archive não envia cabeçalho <code>Access-Control-Allow-Origin</code>
-      para este arquivo Parquet (confirmado: o mesmo item responde com CORS para
-      <code>dataset_meta.json</code>, mas não para o <code>.parquet</code>). Isso bloqueia
-      o navegador de ler o arquivo diretamente, independentemente da sua conexão —
-      tentar de novo não vai resolver.
+      O espelho do Parquet publicado junto com o site não respondeu, embora os metadados do
+      Internet Archive (<code>dataset_meta.json</code>) estejam acessíveis normalmente — a
+      causa é específica deste arquivo (por exemplo, um deploy ainda não sincronizou o
+      espelho mais recente), não a sua conexão. Tentar de novo mais tarde pode resolver.
       <a href="https://github.com/franklinbaldo/leizilla/issues/223" rel="external"
         >Acompanhar issue #223</a
       >.

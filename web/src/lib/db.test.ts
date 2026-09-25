@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DATASET_PARQUET_URL, datasetIaItemFromParquetUrl, probeDatasetAccess } from './db';
+import { datasetIaItemFromParquetUrl, getDuckdbSourceUrl, probeDatasetAccess } from './db';
 
 describe('datasetIaItemFromParquetUrl', () => {
   it('extracts the item from the canonical Internet Archive URL', () => {
@@ -29,35 +29,42 @@ afterEach(() => {
 });
 
 describe('probeDatasetAccess', () => {
-  // issue #167/#223: archive.org sends Access-Control-Allow-Origin for
-  // dataset_meta.json but not for the .parquet file of the same item — a
-  // permanent, file-specific CORS gap that a browser only ever surfaces as a
-  // generic network error, indistinguishable from a transient outage. This
-  // probe is how the UI tells the two apart.
-  it('returns "ok" when the parquet URL itself is reachable', async () => {
+  // ADR-0014: DuckDB-WASM reads a same-origin mirror of the Parquet by default
+  // (getDuckdbSourceUrl()), not the archive.org item directly — archive.org never
+  // sends Access-Control-Allow-Origin for .parquet (issue #223), so a browser
+  // fetch() to it would never succeed regardless of network health. This probe
+  // tells a genuinely-down mirror apart from an unrelated network outage.
+  it('returns "ok" when the mirror URL itself is reachable', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 206 }));
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(probeDatasetAccess()).resolves.toBe('ok');
     expect(fetchMock).toHaveBeenCalledWith(
-      DATASET_PARQUET_URL,
+      getDuckdbSourceUrl(),
       expect.objectContaining({ headers: { Range: 'bytes=0-0' } }),
     );
   });
 
-  it('returns "cors-blocked" when only the parquet fetch fails', async () => {
+  it('returns "mirror-unreachable" when only the mirror fetch fails', async () => {
+    const sourceUrl = getDuckdbSourceUrl();
     const fetchMock = vi.fn().mockImplementation((url: string) => {
-      if (url === DATASET_PARQUET_URL) {
+      if (url === sourceUrl) {
         return Promise.reject(new TypeError('Failed to fetch'));
       }
       return Promise.resolve(new Response(null, { status: 200 }));
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(probeDatasetAccess()).resolves.toBe('cors-blocked');
+    await expect(probeDatasetAccess()).resolves.toBe('mirror-unreachable');
   });
 
-  it('returns "unavailable" when both the parquet and control fetches fail', async () => {
+  it('returns "unavailable" when the mirror responds with a non-ok status', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
+
+    await expect(probeDatasetAccess()).resolves.toBe('unavailable');
+  });
+
+  it('returns "unavailable" when both the mirror and control fetches fail', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
 
     await expect(probeDatasetAccess()).resolves.toBe('unavailable');
