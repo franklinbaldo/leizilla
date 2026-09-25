@@ -2,9 +2,14 @@ name: Discover & Harvest (manifest-driven)
 
 on:
   schedule:
-    # Sábado 02:00 UTC — paralelismo dos 7 tipos limitado a 2 por vez
+    # Sábado 02:00 UTC — os 7 tipos rodam em sequência, um job de cada vez
     # (max-parallel na matrix abaixo), pra não fazer o IA recusar a rajada
-    # de uploads como spam (achado de produção, 2026-07-14).
+    # de uploads como spam (achado de produção, 2026-07-14). max-parallel: 2
+    # ainda deixava ~30% das execuções serem throttled pelo IA (#141); o
+    # limite de recursos por job também caiu de 500 para 200 pelo mesmo
+    # motivo — rajadas menores, throughput semanal total inalterado (o
+    # backlog real por tipo/semana fica bem abaixo do limite de qualquer
+    # forma; isto é headroom de segurança, não um corte de trabalho).
     - cron: "0 2 * * 6"
   workflow_dispatch:
     inputs:
@@ -23,7 +28,7 @@ on:
         default: ""
       limit:
         description: "Limite de recursos por job"
-        default: "500"
+        default: "200"
 
 permissions:
   contents: read
@@ -77,12 +82,20 @@ jobs:
     timeout-minutes: 360
     strategy:
       fail-fast: false
-      # max-parallel: 2 (não 7, o default) — os 7 jobs fariam upload pro IA
-      # ao mesmo tempo; uma rajada assim levou o IA a recusar uploads como
-      # spam em produção (2026-07-14: "Please reduce your request rate").
-      # `_run_ia_upload` (publisher.py) já paceia/retry por processo, mas não
-      # protege contra 7 PROCESSOS distintos batendo juntos.
-      max-parallel: 2
+      # max-parallel: 1 (serializa os 7 jobs) — os 7 jobs rodando ao mesmo
+      # tempo (max-parallel: 7, o default) fariam upload pro IA em paralelo;
+      # uma rajada assim levou o IA a recusar uploads como spam em produção
+      # (2026-07-14: "Please reduce your request rate"). `_run_ia_upload`
+      # (publisher.py) já paceia/retry POR PROCESSO (rate limiter interno +
+      # backoff exponencial em erro transiente), mas isso não protege contra
+      # múltiplos PROCESSOS distintos batendo no IA ao mesmo tempo — dois
+      # processos a ~1 req/2s cada já dobram a taxa efetiva vista pelo IA.
+      # max-parallel: 2 ainda deixava ~30% das execuções throttled (#141);
+      # serializar totalmente é o próximo degrau de segurança. Isso alonga o
+      # tempo de relógio do workflow como um todo (até 7x pior caso), mas não
+      # o tempo de CADA job — o teto de 360min é por job, não cumulativo — e
+      # o throughput semanal total (soma dos 7 `--limit`) não muda.
+      max-parallel: 1
       matrix:
         tipo: [lei, lc, decreto, ec, resolucao, portaria, decreto-lei]
 
@@ -106,7 +119,7 @@ jobs:
           uv run leizilla harvest \
             --ente "${{ inputs.ente || 'ro' }}" \
             --tipo "${{ matrix.tipo }}" \
-            --limit "${{ inputs.limit || '500' }}"
+            --limit "${{ inputs.limit || '200' }}"
 
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}
