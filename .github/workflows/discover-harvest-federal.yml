@@ -55,22 +55,22 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: data/leizilla.duckdb
-          key: discover-db-${{ github.run_id }}
+          key: discover-db-federal-${{ inputs.tipo }}-${{ github.run_id }}
           restore-keys: |
-            discover-db-
+            discover-db-federal-${{ inputs.tipo }}-
 
-      - name: Discover
+      - name: Discover — ${{ inputs.tipo }}
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: uv run leizilla discover --ente federal --fonte planalto
+        run: uv run leizilla discover --ente federal --fonte planalto --tipo "${{ inputs.tipo }}"
 
       - name: Save discovered-resources DB cache
         if: ${{ !cancelled() }}
         uses: actions/cache/save@v4
         with:
           path: data/leizilla.duckdb
-          key: discover-db-${{ github.run_id }}
+          key: discover-db-federal-${{ inputs.tipo }}-${{ github.run_id }}
 
       - name: Harvest — ${{ inputs.tipo }}
         env:
@@ -89,53 +89,17 @@ jobs:
           job-label: "discover-harvest-federal / ${{ inputs.tipo }}"
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-  discover-shared:
-    if: inputs.tipo == ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv sync
-
-      - name: Restore discovered-resources DB cache
-        uses: actions/cache/restore@v4
-        with:
-          path: data/leizilla.duckdb
-          key: discover-db-${{ github.run_id }}
-          restore-keys: |
-            discover-db-
-
-      - name: Discover (ente federal)
-        env:
-          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: uv run leizilla discover --ente federal --fonte planalto
-
-      - name: Save discovered-resources DB cache
-        if: ${{ !cancelled() }}
-        uses: actions/cache/save@v4
-        with:
-          path: data/leizilla.duckdb
-          key: discover-db-${{ github.run_id }}
-
-      - name: Upload discovered-resources DB
-        uses: actions/upload-artifact@v4
-        with:
-          name: discovered-db-federal
-          path: data/leizilla.duckdb
-          retention-days: 1
-
-      - name: Notify on failure
-        if: ${{ failure() || cancelled() }}
-        uses: ./.github/actions/notify-run-failure
-        with:
-          job-label: "discover-harvest-federal / discover"
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
+  # ── DISPATCH sem tipo: descoberta+harvest por tipo, escopo limitado ──
+  # Espelha discover-harvest.yml's harvest-parallel (achado de produção
+  # 2026-09-25, #234/#251): um discover-shared único descobrindo todos os
+  # tipos numa chamada só reproduz o mesmo problema que a redundância 7x
+  # original — um job monolítico pode exceder o teto de 360min. Cada job da
+  # matrix agora descobre e colhe só o seu próprio tipo (`leizilla discover
+  # --tipo`), sem hand-off de artifact entre discover e harvest. Isto importa
+  # ainda mais aqui: os ranges do Planalto são bem maiores que os da RO (lei:
+  # 1-16000).
   harvest-parallel:
-    needs: discover-shared
-    if: needs.discover-shared.result == 'success'
+    if: inputs.tipo == ''
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
@@ -151,11 +115,30 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
 
-      - name: Download discovered-resources DB
-        uses: actions/download-artifact@v4
+      - name: Restore discovered-resources DB cache
+        uses: actions/cache/restore@v4
         with:
-          name: discovered-db-federal
-          path: data/
+          path: data/leizilla.duckdb
+          key: discover-db-federal-${{ matrix.tipo }}-${{ github.run_id }}
+          restore-keys: |
+            discover-db-federal-${{ matrix.tipo }}-
+
+      - name: Discover — ${{ matrix.tipo }}
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          uv run leizilla discover \
+            --ente federal \
+            --fonte planalto \
+            --tipo "${{ matrix.tipo }}"
+
+      - name: Save discovered-resources DB cache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v4
+        with:
+          path: data/leizilla.duckdb
+          key: discover-db-federal-${{ matrix.tipo }}-${{ github.run_id }}
 
       - name: Harvest — ${{ matrix.tipo }}
         env:

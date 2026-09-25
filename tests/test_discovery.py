@@ -514,6 +514,40 @@ def test_run_discovery_scoped_to_fonte(temp_db):
     mock_playwright_run.assert_not_called()
 
 
+def test_run_discovery_scoped_to_tipo(temp_db):
+    """tipo='decreto' só deve rodar os templates sequential cujo nome de
+    amostra resolve para 'decreto' (D{num}.pdf e DEC{num}.pdf no manifesto
+    de casacivil), pulando lei/lc/ec/resolucao/portaria/decreto-lei — mas
+    ainda roda as estratégias amplas (casacivil-index/wayback-cdx), que não
+    têm tipo determinável e não são o custo caro (o head_check sequencial
+    por número é).
+    """
+    from leizilla.discovery import CasacivilIndexDiscovery, PlaywrightCrawlerDiscovery
+
+    seen_templates: list[str] = []
+
+    def _fake_run(self, storage=None):
+        seen_templates.append(self.templates[0])
+        return []
+
+    with (
+        patch.object(WaybackCdxDiscovery, "run", return_value=[]) as mock_cdx,
+        patch.object(CasacivilIndexDiscovery, "run", return_value=[]) as mock_index,
+        patch.object(SequentialDiscovery, "run", _fake_run),
+        patch.object(PlaywrightCrawlerDiscovery, "run") as mock_playwright_run,
+    ):
+        total = run_discovery("ro", temp_db, fonte="casacivil", tipo="decreto")
+
+    assert total == 0
+    mock_cdx.assert_called_once()
+    mock_index.assert_called_once()
+    mock_playwright_run.assert_not_called()
+    assert seen_templates == [
+        "https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/D{num}.pdf",
+        "https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/DEC{num}.pdf",
+    ]
+
+
 class TestResolveCdxMaxByTipo:
     """resolve_cdx_max_by_tipo — porta o cdx_max do legado cmd_scrape/casacivil
     (RFC-0003 Fase 1) para uma função reutilizável pelas estratégias de discovery."""

@@ -57,29 +57,33 @@ jobs:
       # um checkout limpo com data/leizilla.duckdb inexistente, então o
       # dedup-por-DB que a SequentialDiscovery agora executa nunca acha nada
       # — todo HEAD request é refeito toda semana mesmo para URLs já
-      # conhecidas há meses. restore-keys pega o cache mais recente com esse
-      # prefixo mesmo sem match exato de key (github.run_id garante que a
-      # key de save é sempre nova, então o cache acumula run a run).
+      # conhecidas há meses. Cache é por tipo (não mais compartilhado entre
+      # todos): cada tipo acumula seu próprio histórico run a run, e um tipo
+      # não paga por descoberta de outro tipo.
       - name: Restore discovered-resources DB cache
         uses: actions/cache/restore@v4
         with:
           path: data/leizilla.duckdb
-          key: discover-db-${{ github.run_id }}
+          key: discover-db-${{ inputs.tipo }}-${{ github.run_id }}
           restore-keys: |
-            discover-db-
+            discover-db-${{ inputs.tipo }}-
 
-      - name: Discover
+      - name: Discover — ${{ inputs.tipo }}
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: uv run leizilla discover --ente "${{ inputs.ente }}" --fonte "${{ inputs.fonte }}"
+        run: |
+          uv run leizilla discover \
+            --ente "${{ inputs.ente }}" \
+            --fonte "${{ inputs.fonte }}" \
+            --tipo "${{ inputs.tipo }}"
 
       - name: Save discovered-resources DB cache
         if: ${{ !cancelled() }}
         uses: actions/cache/save@v4
         with:
           path: data/leizilla.duckdb
-          key: discover-db-${{ github.run_id }}
+          key: discover-db-${{ inputs.tipo }}-${{ github.run_id }}
 
       - name: Harvest — ${{ inputs.tipo }}
         env:
@@ -98,72 +102,33 @@ jobs:
           job-label: "discover-harvest / ${{ inputs.tipo }}"
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── Descoberta compartilhada para o cron/matrix (roda 1x, não 1x por tipo) ─
-  # Achado de produção 2026-09-25: `discover` (ente ro, fonte casacivil) não é
-  # scoped por tipo — uma única chamada já descobre lei/lc/decreto/ec/
-  # resolucao/portaria/decreto-lei de uma vez. O `harvest-parallel` de baixo
-  # antes rodava esse mesmo Discover DENTRO de cada um dos 7 jobs da matrix
-  # (cada job roda num runner isolado, sem estado compartilhado), repetindo a
-  # varredura completa do site 7x em série (max-parallel: 1). Isso sozinho
-  # inflou o ciclo semanal de horas para potencialmente dias (observado:
-  # discovery de um único tipo já passou de 4h) — a esmagadora maioria do
-  # tempo era descoberta redundante, não harvest. Agora a descoberta roda uma
-  # vez aqui e o DuckDB resultante (`discovered_resources`) é passado como
-  # artifact para os 7 jobs de harvest lerem.
-  discover-shared:
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.tipo == '')
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv sync
-      - run: uv run playwright install chromium --with-deps
-
-      # See harvest-single's identical step above for why this matters: PR
-      # #247 wired SequentialDiscovery's DB-dedup check through, but without
-      # a persisted DB to check against, every scheduled run still starts
-      # from an empty discovered_resources and re-issues a HEAD request for
-      # every number since start=1 on every head_check tipo.
-      - name: Restore discovered-resources DB cache
-        uses: actions/cache/restore@v4
-        with:
-          path: data/leizilla.duckdb
-          key: discover-db-${{ github.run_id }}
-          restore-keys: |
-            discover-db-
-
-      - name: Discover (ente ro)
-        env:
-          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: uv run leizilla discover --ente "${{ inputs.ente || 'ro' }}" --fonte "${{ inputs.fonte || 'casacivil' }}"
-
-      - name: Save discovered-resources DB cache
-        if: ${{ !cancelled() }}
-        uses: actions/cache/save@v4
-        with:
-          path: data/leizilla.duckdb
-          key: discover-db-${{ github.run_id }}
-
-      - name: Upload discovered-resources DB
-        uses: actions/upload-artifact@v4
-        with:
-          name: discovered-db
-          path: data/leizilla.duckdb
-          retention-days: 1
-
-      - name: Notify on failure
-        if: ${{ failure() || cancelled() }}
-        uses: ./.github/actions/notify-run-failure
-        with:
-          job-label: "discover-harvest / discover"
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-  # ── SCHEDULED ou DISPATCH sem tipo: todos os tipos, paralelismo limitado ──
+  # ── SCHEDULED ou DISPATCH sem tipo: descoberta+harvest por tipo, escopo limitado ──
+  # Achado de produção 2026-09-25 (#234): `discover` (ente ro, fonte casacivil)
+  # não é scoped por tipo por padrão — uma única chamada descobre
+  # lei/lc/decreto/ec/resolucao/portaria/decreto-lei de uma vez, e rodá-la
+  # dentro de cada um dos 7 jobs da matrix repetia a varredura completa do
+  # site 7x em série (max-parallel: 1), inflando o ciclo semanal de horas
+  # para potencialmente dias.
+  #
+  # Um job `discover-shared` único (discovery de TODOS os tipos numa
+  # chamada, resultado repassado via artifact) removeu a redundância 7x mas
+  # reintroduziu o mesmo problema num único job: run 36118095901 (só a
+  # descoberta não-escopada, sem cache ainda) excedeu o teto de 360min do
+  # job e foi cancelado pelo GitHub antes de terminar — 8 tipos discovery
+  # não cabem no orçamento de um job só, mesmo sem redundância.
+  #
+  # Achado de produção 2026-09-25 (#251): esta é a mesma causa raiz do
+  # discover-shared standalone acima — não é rate-limiting do IA, é o
+  # volume total de `head_check` sequencial por número somado em UMA
+  # chamada. A correção (`leizilla discover --tipo`, ver discovery.py) deixa
+  # cada job da matrix descobrir só o seu próprio tipo, então nenhum job
+  # paga o custo agregado dos 8 tipos — nem em série (redundância 7x) nem
+  # numa única chamada monolítica (teto de 360min). Descoberta e harvest
+  # ficam no MESMO job por tipo (sem discover-shared nem artifact
+  # hand-off): mais simples, e o cache do DuckDB (abaixo) já é por-tipo, então
+  # cada tipo acumula seu próprio dedup histórico run a run.
   harvest-parallel:
-    needs: discover-shared
-    if: needs.discover-shared.result == 'success'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.tipo == '')
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
@@ -180,9 +145,9 @@ jobs:
       # serializar totalmente é o próximo degrau de segurança. Isso alonga o
       # tempo de relógio do workflow como um todo, mas não o tempo de CADA
       # job — o teto de 360min é por job, não cumulativo — e o throughput
-      # semanal total (soma dos 7 `--limit`) não muda. Desde que a descoberta
-      # saiu daqui (discover-shared acima), cada job só faz harvest — bem
-      # mais rápido que quando cada um refazia a descoberta inteira.
+      # semanal total (soma dos 7 `--limit`) não muda. A descoberta de cada
+      # job agora é escopada ao seu próprio tipo (--tipo), não mais a fonte
+      # inteira — bem mais rápido que descobrir todos os tipos por job.
       max-parallel: 1
       matrix:
         tipo: [lei, lc, decreto, ec, resolucao, portaria, decreto-lei]
@@ -192,11 +157,30 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
 
-      - name: Download discovered-resources DB
-        uses: actions/download-artifact@v4
+      - name: Restore discovered-resources DB cache
+        uses: actions/cache/restore@v4
         with:
-          name: discovered-db
-          path: data/
+          path: data/leizilla.duckdb
+          key: discover-db-${{ matrix.tipo }}-${{ github.run_id }}
+          restore-keys: |
+            discover-db-${{ matrix.tipo }}-
+
+      - name: Discover — ${{ matrix.tipo }}
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          uv run leizilla discover \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --fonte "${{ inputs.fonte || 'casacivil' }}" \
+            --tipo "${{ matrix.tipo }}"
+
+      - name: Save discovered-resources DB cache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v4
+        with:
+          path: data/leizilla.duckdb
+          key: discover-db-${{ matrix.tipo }}-${{ github.run_id }}
 
       - name: Harvest — ${{ matrix.tipo }}
         env:
