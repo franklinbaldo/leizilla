@@ -481,6 +481,82 @@ class TestCmdParseAll:
         assert "XSD inválido" in result.output
         mock_upload.assert_not_called()
 
+    def test_uploaded_ids_out_writes_uploaded_ia_ids(self, tmp_path: Path):
+        """--uploaded-ids-out grava os ia_ids uploadados nesta run, um por
+        linha, para hand-off direto ao fetch-all-parsed (issue #233)."""
+        out_file = tmp_path / "uploaded-ids.txt"
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start",
+                    "1",
+                    "--end",
+                    "2",
+                    "--ente",
+                    "ro",
+                    "--uploaded-ids-out",
+                    str(out_file),
+                ],
+            )
+        assert result.exit_code == 0
+        assert out_file.exists()
+        lines = out_file.read_text(encoding="utf-8").splitlines()
+        assert lines == ["leizilla-ro-lei-00042-1990", "leizilla-ro-lei-00042-1990"]
+
+    def test_uploaded_ids_out_writes_empty_file_when_nothing_uploaded(
+        self, tmp_path: Path
+    ):
+        """Sem uploads bem-sucedidos, o arquivo ainda é criado, vazio (o
+        workflow trata isso com if-no-files-found/if-no-artifact-found)."""
+        out_file = tmp_path / "nested" / "uploaded-ids.txt"
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value=None),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start",
+                    "1",
+                    "--end",
+                    "2",
+                    "--no-upload",
+                    "--uploaded-ids-out",
+                    str(out_file),
+                ],
+            )
+        assert result.exit_code == 0
+        assert out_file.exists()
+        assert out_file.read_text(encoding="utf-8") == ""
+
+    def test_uploaded_ids_out_omitted_keeps_previous_behavior(self):
+        """Sem a flag, nenhum arquivo é criado — comportamento aditivo."""
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ),
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
+            result = runner.invoke(
+                app,
+                ["parse-all", "--start", "1", "--end", "2"],
+            )
+        assert result.exit_code == 0
+        assert "uploaded-ids" not in result.output
+
     def test_api_exception_per_item_counted_not_abort(self):
         """Exceção da API (timeout, rate-limit) em um item conta como falha sem abortar o batch."""
         call_count = {"n": 0}

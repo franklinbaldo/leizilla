@@ -88,7 +88,23 @@ jobs:
             --ente ro --fonte assembleia \
             --start 1 --end 5000 \
             --limit 6 --output-dir /tmp/leizilla-xmls \
-            --skip-existing --error-threshold 20 --upload
+            --skip-existing --error-threshold 20 --upload \
+            --uploaded-ids-out /tmp/uploaded-ids-assembleia.txt
+
+      # Hand-off direto dos ia_ids uploadados nesta run para o job `etl`
+      # (issue #233): a busca do IA usada por `fetch-all-parsed` tem lag de
+      # indexação de ~20-60s e pode não enxergar itens recém-uploadados
+      # ainda na mesma execução do workflow. `if: always()` + retention
+      # curta + if-no-files-found: ignore porque o job pode não ter
+      # uploadado nada (fail-open).
+      - name: Upload uploaded-ids artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uploaded-ids-assembleia
+          path: /tmp/uploaded-ids-assembleia.txt
+          retention-days: 1
+          if-no-files-found: ignore
 
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}
@@ -122,7 +138,19 @@ jobs:
             --ente ro --fonte casacivil --tipo lei \
             --start 1 --end 6000 \
             --limit 6 --output-dir /tmp/leizilla-xmls \
-            --skip-existing --error-threshold 20 --upload
+            --skip-existing --error-threshold 20 --upload \
+            --uploaded-ids-out /tmp/uploaded-ids-casacivil-lei.txt
+
+      # Hand-off para o job `etl` — ver comentário equivalente no job
+      # parse-assembleia (issue #233).
+      - name: Upload uploaded-ids artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uploaded-ids-casacivil-lei
+          path: /tmp/uploaded-ids-casacivil-lei.txt
+          retention-days: 1
+          if-no-files-found: ignore
 
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}
@@ -156,7 +184,19 @@ jobs:
             --ente ro --fonte casacivil --tipo lc \
             --start 1 --end 1300 \
             --limit 6 --output-dir /tmp/leizilla-xmls \
-            --skip-existing --error-threshold 20 --upload
+            --skip-existing --error-threshold 20 --upload \
+            --uploaded-ids-out /tmp/uploaded-ids-casacivil-lc.txt
+
+      # Hand-off para o job `etl` — ver comentário equivalente no job
+      # parse-assembleia (issue #233).
+      - name: Upload uploaded-ids artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uploaded-ids-casacivil-lc
+          path: /tmp/uploaded-ids-casacivil-lc.txt
+          retention-days: 1
+          if-no-files-found: ignore
 
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}
@@ -199,8 +239,20 @@ jobs:
             --limit "${{ inputs.limit || '50' }}" \
             --output-dir /tmp/leizilla-xmls \
             --error-threshold 20 \
+            --uploaded-ids-out /tmp/uploaded-ids-dispatch.txt \
             $SKIP_FLAG \
             $UPLOAD_FLAG
+
+      # Hand-off para o job `etl` — ver comentário equivalente no job
+      # parse-assembleia (issue #233).
+      - name: Upload uploaded-ids artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uploaded-ids-dispatch
+          path: /tmp/uploaded-ids-dispatch.txt
+          retention-days: 1
+          if-no-files-found: ignore
 
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}
@@ -222,11 +274,31 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libxml2-utils
       - run: mkdir -p /tmp/leizilla-xmls
 
+      # Baixa os ia_ids uploadados pelos jobs parse-* nesta mesma run
+      # (issue #233). if-no-artifact-found: ignore porque nenhum job pode
+      # ter publicado um artefato (todos pulados/falhos/sem upload) —
+      # fail-open, igual ao resto do pipeline.
+      - name: Download uploaded-ids artifacts (se houver)
+        uses: actions/download-artifact@v4
+        with:
+          pattern: uploaded-ids-*
+          path: /tmp/uploaded-ids
+          merge-multiple: true
+          if-no-artifact-found: ignore
+
+      - name: Merge uploaded-ids artifacts into a single extra-ids file
+        run: |
+          mkdir -p /tmp/uploaded-ids
+          : > /tmp/extra-ids.txt
+          find /tmp/uploaded-ids -type f -name '*.txt' -exec cat {} + >> /tmp/extra-ids.txt 2>/dev/null || true
+          echo "ia_ids extras desta run (hand-off, issue #233): $(wc -l < /tmp/extra-ids.txt)"
+
       - name: Fetch all parsed XMLs from IA (cumulative Parquet)
         run: |
           uv run leizilla fetch-all-parsed \
             --ente "${{ inputs.ente || 'ro' }}" \
-            --output-dir /tmp/leizilla-xmls
+            --output-dir /tmp/leizilla-xmls \
+            --extra-ids-file /tmp/extra-ids.txt
 
       - name: Consolidate XMLs → Parquet
         # `consolidate` exits 1 whenever it skips any structurally-invalid XML
