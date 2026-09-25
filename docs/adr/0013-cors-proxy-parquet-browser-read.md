@@ -83,9 +83,15 @@ opção 2 (reportar ao IA) em paralelo, sem prazo de bloqueio mútuo.**
 ## Bloqueios
 
 - **Credencial Cloudflare** (conta + API token do Workers free tier) — nenhuma sessão até
-  agora teve acesso a essa credencial. Sem ela, o port de `causaganha` (issue #1482/PR
-  #1521 lá) não pode ser implantado; o código-fonte de referência já existe e está validado
-  em produção no projeto irmão, então a implementação em si não é o gargalo.
+  agora teve acesso a essa credencial. Sem ela, o Worker não pode ser implantado.
+  O código-fonte já existe em `deployment/archive-cors-proxy/` (port de `causaganha`
+  issue #1482/PR #1521, escrito e testado nesta sessão — 8 testes cobrindo path
+  allowlist, preflight, forwarding de `Range` e erro de upstream, `node --test`), então a
+  implementação em si não é mais o gargalo, só o `wrangler deploy` propriamente dito.
+  `web/src/lib/db.ts`'s `DATASET_IA_ITEM` também já deriva a identidade do item pelo
+  pathname `/download/{item}/...` em vez de exigir o host `archive.org` literal, então
+  apontar `PUBLIC_PARQUET_URL` para o domínio do Worker depois do deploy não quebra
+  `dataset_meta.json`/`coverage.json` (que continuam servidos direto do IA, já têm CORS).
 - **Canal de reporte ao Internet Archive** — não há uma conta de suporte configurada para
   este projeto; melhor feito manualmente pelo mantenedor.
 
