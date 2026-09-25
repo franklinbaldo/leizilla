@@ -15,6 +15,32 @@ const PARQUET_URL =
 export const DATASET_PARQUET_URL = PARQUET_URL;
 
 /**
+ * URL que o DuckDB-WASM efetivamente lê (ADR-0014) — deliberadamente distinta de
+ * DATASET_PARQUET_URL/PARQUET_URL acima. O Internet Archive não envia
+ * Access-Control-Allow-Origin para arquivos .parquet (issue #223): um `fetch()`
+ * disparado pelo navegador para archive.org nunca consegue ler o arquivo, ainda que
+ * clicar num `<a href={DATASET_PARQUET_URL}>` funcione normalmente (navegação de
+ * página inteira não passa pela checagem de CORS). Por padrão, resolve para um
+ * espelho same-origin publicado junto do site (`web/public/data/{ente}/versoes.parquet`,
+ * sincronizado a cada deploy a partir do item `-latest` do IA — ver
+ * `.github/workflows/deploy-web.yml`): mesma origem elimina o problema de CORS por
+ * definição, sem proxy nem credencial de terceiros. DATASET_PARQUET_URL continua
+ * apontando para o item canônico do IA para citação/download/identidade — isso nunca
+ * muda, só a fonte que o DuckDB-WASM consulta internamente.
+ */
+export function getDuckdbSourceUrl(): string {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_DUCKDB_SOURCE_URL) {
+    return import.meta.env.PUBLIC_DUCKDB_SOURCE_URL as string;
+  }
+  const base = (typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL) || '/';
+  const relative = `${base}data/ro/versoes.parquet`;
+  if (typeof window !== 'undefined' && window.location) {
+    return new URL(relative, window.location.href).toString();
+  }
+  return relative;
+}
+
+/**
  * Extrai a identidade lógica do item IA do pathname `/download/{item}/...`.
  *
  * O host é deliberadamente ignorado: ADR-0013 permite servir o Parquet por um
@@ -99,37 +125,34 @@ export async function fetchLatestPointer(): Promise<LatestPointer | null> {
  */
 async function probeRangeGet(url: string): Promise<boolean> {
   try {
-    await fetch(url, { headers: { Range: 'bytes=0-0' } });
-    return true;
+    const res = await fetch(url, { headers: { Range: 'bytes=0-0' } });
+    return res.ok;
   } catch {
     return false;
   }
 }
 
-export type DatasetAccessProbe = 'ok' | 'cors-blocked' | 'unavailable';
+export type DatasetAccessProbe = 'ok' | 'mirror-unreachable' | 'unavailable';
 
 /**
- * Diagnostica por que `read_parquet(DATASET_PARQUET_URL)` pode ter falhado no
+ * Diagnostica por que `read_parquet(getDuckdbSourceUrl())` pode ter falhado no
  * navegador, depois do fato (chamar isto não corrige nada, só classifica).
  *
- * O Internet Archive não é consistente: `/download/{item}/dataset_meta.json`
- * responde com `Access-Control-Allow-Origin`, mas `/download/{item}/*.parquet`
- * (servido como `application/octet-stream`) não — confirmado ao vivo
- * 2026-09-25 (mesmo item, mesmo nó de armazenamento, curl com `-H Origin`)
- * durante a investigação da issue #167, e already hit and fixed upstream in
- * the sibling causaganha project (issue #1482/PR #1521) with the identical
- * root cause. O navegador nunca expõe "bloqueado por CORS" como um erro
- * distinto de "rede fora do ar" — por isso a sonda: se `DATASET_META_URL`
- * (que tem CORS confirmado) carrega mas o próprio Parquet não, a causa mais
- * provável é esse gap de CORS específico do arquivo, não uma instabilidade
- * genérica da rede/do IA. Sem controle (URL de metadata indisponível), ou com
- * o controle também falhando, não há como distinguir — devolve 'unavailable'
- * em vez de adivinhar.
+ * ADR-0014: por padrão o DuckDB-WASM lê um espelho same-origin do Parquet, não
+ * o item do Internet Archive diretamente (arquive.org não envia
+ * Access-Control-Allow-Origin para .parquet — issue #223 — então um fetch()
+ * cross-origin do navegador nunca leria o arquivo de lá). Se esse espelho
+ * falhar (ainda não sincronizado por um deploy, ou uma falha de rede
+ * específica a esse arquivo) mas `DATASET_META_URL` (servido direto pelo IA,
+ * com CORS confirmado) carregar normalmente, a causa é local a este arquivo,
+ * não uma instabilidade genérica de rede — 'mirror-unreachable'. Sem controle
+ * (URL de metadata indisponível), ou com o controle também falhando, não há
+ * como distinguir — devolve 'unavailable' em vez de adivinhar.
  */
 export async function probeDatasetAccess(): Promise<DatasetAccessProbe> {
-  if (await probeRangeGet(PARQUET_URL)) return 'ok';
+  if (await probeRangeGet(getDuckdbSourceUrl())) return 'ok';
   if (!DATASET_META_URL) return 'unavailable';
-  return (await probeRangeGet(DATASET_META_URL)) ? 'cors-blocked' : 'unavailable';
+  return (await probeRangeGet(DATASET_META_URL)) ? 'mirror-unreachable' : 'unavailable';
 }
 
 const WASM_VERSION = '1.32.0';
@@ -193,7 +216,7 @@ async function _init(): Promise<duckdb.AsyncDuckDB> {
         );
       }
       await conn.query(
-        `CREATE OR REPLACE VIEW versoes AS SELECT * FROM read_parquet('${PARQUET_URL}');`,
+        `CREATE OR REPLACE VIEW versoes AS SELECT * FROM read_parquet('${getDuckdbSourceUrl()}');`,
       );
     } finally {
       await conn.close();

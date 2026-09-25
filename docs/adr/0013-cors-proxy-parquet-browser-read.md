@@ -1,6 +1,9 @@
 # ADR-0013 — Proxy CORS para leitura direta do Parquet publicado pelo navegador
 
-**Status**: Aprovada — implementação bloqueada em credencial (ver "Bloqueios" abaixo)
+**Status**: Aprovada — implementação bloqueada em credencial (ver "Bloqueios" abaixo). O
+gap de CORS em si foi corrigido por outra via em [ADR-0014](0014-same-origin-dataset-mirror.md)
+(espelho same-origin, sem dependência de credencial), que não revoga esta decisão — o Worker
+continua uma opção válida, só deixou de ser a única.
 **Data**: 2026-09-25
 **Contexto**: `browser-read-cors-integrity` no DAG do projeto; issue #223; PR #224 (mitigação de
 classificação, já mergeada)

@@ -6,6 +6,12 @@ on:
     paths: ["web/**"]
   pull_request:
     paths: ["web/**"]
+  schedule:
+    # ADR-0014: o espelho same-origin do Parquet (web/public/data/ro/versoes.parquet) só
+    # fica fresco quando este workflow builda de novo — um push que não toca web/** nunca
+    # dispara isto sozinho. ~30min depois do cron diário de parse-release.yml (06:00 UTC)
+    # dá tempo de uma release nova já estar publicada no IA antes deste sync rodar.
+    - cron: "30 6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -36,6 +42,20 @@ jobs:
       - name: Run unit tests
         working-directory: web
         run: npm run test
+
+      # ADR-0014: DuckDB-WASM lê este arquivo same-origin, não o item do Internet Archive
+      # diretamente (archive.org não envia Access-Control-Allow-Origin para .parquet —
+      # issue #223). Refaz o espelho a cada build para refletir a release corrente; se o
+      # IA estiver instável, mantém a cópia já commitada em vez de falhar o deploy inteiro
+      # (fail-open, mesmo padrão do resto do pipeline) — pior caso, o site serve dados de
+      # um deploy anterior até o próximo sync bem-sucedido.
+      - name: Sync dataset mirror from Internet Archive
+        run: |
+          mkdir -p web/public/data/ro
+          curl -fsSL "https://archive.org/download/leizilla-dataset-ro-v0-latest/versoes.parquet" \
+            -o web/public/data/ro/versoes.parquet.new \
+          && mv web/public/data/ro/versoes.parquet.new web/public/data/ro/versoes.parquet \
+          || echo "::warning::não foi possível sincronizar o espelho do dataset — mantendo a cópia já commitada"
 
       - name: Build Astro site
         working-directory: web
