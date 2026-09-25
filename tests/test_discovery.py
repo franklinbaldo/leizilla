@@ -8,6 +8,8 @@ import pytest
 from leizilla import storage
 from leizilla.discovery import (
     DEFAULT_CDX_AUTO_FALLBACK_END,
+    STRATEGIES,
+    PlanaltoDiscovery,
     SequentialDiscovery,
     WaybackCdxDiscovery,
     load_manifest,
@@ -57,6 +59,26 @@ def test_load_manifest():
     assert manifest["ente"] == "ro"
     assert "casacivil" in manifest["fontes"]
     assert "assembleia" in manifest["fontes"]
+
+
+def test_load_manifest_federal():
+    """Issue #246: manifests/federal.json existe e usa a estratégia 'planalto'."""
+    manifest = load_manifest("federal")
+    assert manifest["ente"] == "federal"
+    assert "planalto" in manifest["fontes"]
+    discovery_cfgs = manifest["fontes"]["planalto"]["discovery"]
+    assert discovery_cfgs, "esperado ao menos uma estratégia de descoberta"
+    tipos = {cfg["tipo"] for cfg in discovery_cfgs}
+    # Cobre todos os tipos que fontes.federal.discover_planalto_laws suporta.
+    assert tipos == {"lei", "lcp", "decreto", "decreto-lei", "emc", "mpv"}
+    for cfg in discovery_cfgs:
+        assert cfg["strategy"] == "planalto"
+        assert cfg["start"] >= 1
+        assert cfg["end"] > cfg["start"]
+
+
+def test_strategies_registry_includes_planalto():
+    assert STRATEGIES["planalto"] is PlanaltoDiscovery
 
     with pytest.raises(FileNotFoundError):
         load_manifest("non_existent_ente")
@@ -198,6 +220,86 @@ def test_run_discovery_second_run_skips_head_checks_for_known_urls(temp_db):
     # Nada novo pra descobrir e nenhum HEAD refeito pras 3 URLs já conhecidas.
     assert second_total == 0
     assert head_checked_urls == []
+
+
+def _fake_planalto_laws(tipo: str, start: int, end: int, **kwargs) -> list:
+    """Substitui fontes.federal.discover_planalto_laws sem chamar a API Câmara."""
+    return [
+        {
+            "ente": "federal",
+            "fonte": "planalto",
+            "chave": f"{tipo}-{num:05d}",
+            "tipo": tipo,
+            "numero": num,
+            "url_original": f"https://www.planalto.gov.br/ccivil_03/leis/L{num}.htm",
+        }
+        for num in range(start, end + 1)
+    ]
+
+
+def test_planalto_discovery_basic():
+    config = {"strategy": "planalto", "tipo": "lei", "start": 1, "end": 3}
+    with patch(
+        "leizilla.fontes.federal.discover_planalto_laws",
+        side_effect=_fake_planalto_laws,
+    ):
+        with patch("leizilla.discovery._head_exists", return_value=True):
+            resources = PlanaltoDiscovery(config, "federal", "planalto").run()
+
+    assert len(resources) == 3
+    assert resources[0]["ente"] == "federal"
+    assert resources[0]["fonte"] == "planalto"
+    assert resources[0]["tipo_documento"] == "lei"
+    assert resources[0]["chave"] == "lei-00001"
+    assert resources[0]["url"] == "https://www.planalto.gov.br/ccivil_03/leis/L1.htm"
+
+
+def test_planalto_discovery_head_check_filters_missing():
+    config = {
+        "strategy": "planalto",
+        "tipo": "lei",
+        "start": 1,
+        "end": 5,
+        "head_check": True,
+    }
+
+    def fake_head(url: str, timeout: float = 10.0) -> bool:
+        return any(f"/L{n}.htm" in url for n in [2, 4])
+
+    with patch(
+        "leizilla.fontes.federal.discover_planalto_laws",
+        side_effect=_fake_planalto_laws,
+    ):
+        with patch("leizilla.discovery._head_exists", side_effect=fake_head):
+            resources = PlanaltoDiscovery(config, "federal", "planalto").run()
+
+    assert [r["chave"] for r in resources] == ["lei-00002", "lei-00004"]
+
+
+def test_planalto_discovery_skips_known_urls(temp_db):
+    temp_db.insert_resource(
+        {
+            "url": "https://www.planalto.gov.br/ccivil_03/leis/L2.htm",
+            "ente": "federal",
+            "fonte": "planalto",
+            "tipo_documento": "lei",
+            "chave": "lei-00002",
+            "status": "pending",
+            "wayback_snapshot": None,
+        }
+    )
+    config = {"strategy": "planalto", "tipo": "lei", "start": 1, "end": 3}
+
+    with patch(
+        "leizilla.fontes.federal.discover_planalto_laws",
+        side_effect=_fake_planalto_laws,
+    ):
+        with patch("leizilla.discovery._head_exists", return_value=True):
+            resources = PlanaltoDiscovery(config, "federal", "planalto").run(temp_db)
+
+    chaves = [r["chave"] for r in resources]
+    assert "lei-00002" not in chaves
+    assert sorted(chaves) == ["lei-00001", "lei-00003"]
 
 
 def test_wayback_cdx_discovery():

@@ -1,0 +1,52 @@
+{
+  "ente": "federal",
+  "fontes": {
+    "planalto": {
+      "tipo_ingestion": "html",
+      "discovery": [
+        {
+          "strategy": "planalto",
+          "tipo": "lei",
+          "start": 1,
+          "end": 16000,
+          "head_check": true
+        },
+        {
+          "strategy": "planalto",
+          "tipo": "lcp",
+          "start": 1,
+          "end": 250,
+          "head_check": true
+        },
+        {
+          "strategy": "planalto",
+          "tipo": "decreto",
+          "start": 1,
+          "end": 13500,
+          "head_check": true
+        },
+        {
+          "strategy": "planalto",
+          "tipo": "decreto-lei",
+          "start": 1,
+          "end": 2500,
+          "head_check": true
+        },
+        {
+          "strategy": "planalto",
+          "tipo": "emc",
+          "start": 1,
+          "end": 160,
+          "head_check": true
+        },
+        {
+          "strategy": "planalto",
+          "tipo": "mpv",
+          "start": 1,
+          "end": 1500,
+          "head_check": true
+        }
+      ]
+    }
+  }
+}
