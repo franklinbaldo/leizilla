@@ -561,6 +561,18 @@ class TestParseLaw:
         assert block["cache_control"] == {"type": "ephemeral"}
         assert "cache_control" not in system_msg
 
+    def test_no_cache_control_for_gemini_model(self):
+        # issue #201/#205: litellm doesn't drop cache_control for Gemini —
+        # it translates it into an explicit cachedContent request, which
+        # fails with RESOURCE_EXHAUSTED (TotalCachedContentStorageTokensPer
+        # ModelFreeTier=0) on the free tier. Must never be sent for Gemini.
+        with _llm(_LLM_OK, keys={"GEMINI_API_KEY": "test-key"}) as m:
+            parser.parse_law("ocr text", _IA_ID, "ro", model="gemini/gemini-2.5-flash")
+
+        _, kwargs = m.call_args
+        block = kwargs["messages"][0]["content"][0]
+        assert "cache_control" not in block
+
     def test_zero_pads_numero(self):
         short_numero = json.dumps(
             {
