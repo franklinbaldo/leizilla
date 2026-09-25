@@ -1,0 +1,175 @@
+name: Discover & Harvest — Federal (Planalto)
+
+# Primeiro workflow para ente=federal (PR #249: manifests/federal.json +
+# PlanaltoDiscovery). Deliberadamente só workflow_dispatch por enquanto —
+# nenhuma sessão até agora teve credenciais IA/LLM para testar isto contra
+# o Planalto ao vivo, então este é o primeiro teste real, não um cron não
+# verificado. Promova para `schedule:` (espelhando discover-harvest.yml)
+# depois que um dispatch manual confirmar discover/harvest funcionando.
+#
+# Estrutura espelha discover-harvest.yml (achado de produção 2026-09-25 lá:
+# descoberta não-scoped-por-tipo rodando dentro de cada job da matrix é
+# redundante; o cache do DuckDB entre runs é o que faz o dedup-por-DB da
+# SequentialDiscovery (PR #247) realmente evitar HEAD requests repetidos —
+# ranges do Planalto são bem maiores que os da RO (lei: 1-16000), então isso
+# importa ainda mais aqui.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tipo:
+        description: "Tipo (lei, lcp, decreto, decreto-lei, emc, mpv) — vazio = todos em paralelo"
+        type: choice
+        default: ""
+        options:
+          - ""
+          - lei
+          - lcp
+          - decreto
+          - decreto-lei
+          - emc
+          - mpv
+      limit:
+        description: "Limite de recursos por job (ranges federais são grandes; comece conservador)"
+        default: "50"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: discover-harvest-federal
+  cancel-in-progress: false
+
+jobs:
+  harvest-single:
+    if: inputs.tipo != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+
+      - name: Restore discovered-resources DB cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/leizilla.duckdb
+          key: discover-db-${{ github.run_id }}
+          restore-keys: |
+            discover-db-
+
+      - name: Discover
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: uv run leizilla discover --ente federal --fonte planalto
+
+      - name: Save discovered-resources DB cache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v4
+        with:
+          path: data/leizilla.duckdb
+          key: discover-db-${{ github.run_id }}
+
+      - name: Harvest — ${{ inputs.tipo }}
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          uv run leizilla harvest \
+            --ente federal \
+            --tipo "${{ inputs.tipo }}" \
+            --limit "${{ inputs.limit }}"
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "discover-harvest-federal / ${{ inputs.tipo }}"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  discover-shared:
+    if: inputs.tipo == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+
+      - name: Restore discovered-resources DB cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/leizilla.duckdb
+          key: discover-db-${{ github.run_id }}
+          restore-keys: |
+            discover-db-
+
+      - name: Discover (ente federal)
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: uv run leizilla discover --ente federal --fonte planalto
+
+      - name: Save discovered-resources DB cache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v4
+        with:
+          path: data/leizilla.duckdb
+          key: discover-db-${{ github.run_id }}
+
+      - name: Upload discovered-resources DB
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovered-db-federal
+          path: data/leizilla.duckdb
+          retention-days: 1
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "discover-harvest-federal / discover"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  harvest-parallel:
+    needs: discover-shared
+    if: needs.discover-shared.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      # max-parallel: 1 — mesmo racional do discover-harvest.yml (#141): evita
+      # múltiplos processos batendo no upload do IA ao mesmo tempo.
+      max-parallel: 1
+      matrix:
+        tipo: [lei, lcp, decreto, decreto-lei, emc, mpv]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+
+      - name: Download discovered-resources DB
+        uses: actions/download-artifact@v4
+        with:
+          name: discovered-db-federal
+          path: data/
+
+      - name: Harvest — ${{ matrix.tipo }}
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          uv run leizilla harvest \
+            --ente federal \
+            --tipo "${{ matrix.tipo }}" \
+            --limit "${{ inputs.limit || '50' }}"
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "discover-harvest-federal / ${{ matrix.tipo }}"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
