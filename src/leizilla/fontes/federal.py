@@ -81,6 +81,10 @@ _ATO_RANGES = [
     (2023, 2026),
 ]
 
+_USER_AGENT = (
+    "leizilla-crawler/0.1 (legal-indexer; https://github.com/franklinbaldo/leizilla)"
+)
+
 # Câmara API: sigla por tipo de ato
 _CAMARA_SIGLA: Dict[str, str] = {
     "lei": "LEI",
@@ -138,10 +142,16 @@ def _camara_year_lookup(tipo: str, numero: int) -> Optional[int]:
         f"https://dadosabertos.camara.leg.br/api/v2/legislacoes"
         f"?siglaTipo={sigla}&numero={numero}&itens=1&formato=json"
     )
+    # A API da Câmara (ou WAF na frente dela) responde 405/anti-bot a
+    # requisições sem User-Agent identificável — o default do urllib
+    # ("Python-urllib/x.y") é um alvo comum de bloqueio. Todo outro
+    # cliente HTTP do projeto (robots.py, discovery.py) já envia um
+    # User-Agent; esta era a única exceção (issue #262).
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
         # URL é construída com base fixa (dadosabertos.camara.leg.br) + int
         # controlado — sem input de usuário. S310 não se aplica aqui.
-        with urllib.request.urlopen(url, timeout=3) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=3) as resp:  # noqa: S310
             data = json.loads(resp.read().decode())
             dados = data.get("dados", [])
             if dados:
