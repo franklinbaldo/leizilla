@@ -3,7 +3,7 @@ type: "Project Map"
 title: "Leizilla Project DAG"
 description: "Canonical OKF graph of Leizilla delivery fronts, OKRs, dependencies, blockers and next actions. Work branches and GitHub issues execute the graph; they are not the durable project ledger."
 tags: [leizilla, okf, project-dag, okr, delivery, governance]
-timestamp: 2026-09-25T01:31:00+00:00
+timestamp: 2026-09-25T02:45:00+00:00
 state_model: "project-dag-v1"
 graph_policy:
   source_of_truth: "this authored Markdown/OKF document"
@@ -37,7 +37,7 @@ fronts:
     parents: [leizilla-root]
     objective: "Turn the Q4/2026 roadmap promise of more complete Rondônia coverage into a measurable, recurring delivery outcome."
     origin: "README roadmap: Q4/2026 = cobertura RO mais completa + releases recorrentes."
-    next_action: "Run the S1-S4 tooling against production data to capture the first real baseline. #141/#149's scope-split fix merged (PR #207) but needs a real scheduled run to verify before closing; #136/#140 stay deferred to pipeline-convergence."
+    next_action: "First S1-S4 production baseline captured 2026-09-25 (see kr-ro-backlog-conversion). #141/#149's scope-split fix (PR #207) is mid-verification: this session dispatched wayback-save.yml (run 36082098747) and discover-harvest.yml (run 36082100347) workflow_dispatch on main — as of session end, wayback-save's matrix jobs are still running (2/7 in_progress — `lc`, `lei` — after 1h+, rest queued behind the account's runner concurrency cap; each matrix job now bounded to one tipo instead of all 8, so this is expected to finish within budget, but was NOT observed to completion this session). Next session: check runs 36082098747/36082100347 for conclusion (success/failure/timeout) before closing or re-opening #141/#149. #136/#140 stay deferred to pipeline-convergence."
     key_results:
       - id: "kr-ro-s1-s4-observable"
         status: met
@@ -49,9 +49,9 @@ fronts:
       - id: "kr-ro-backlog-conversion"
         status: active
         metric: "Share of the reproducibly measured S1/S2/S3 backlog that has reached S4."
-        current: "Tooling exists (kr-ro-s1-s4-observable, met) but no production baseline has been captured yet."
-        target: "Reduce the first measured pre-S4 backlog by at least 50% by 2026-12-31 without relaxing provenance/quality gates."
-        next_action: "Run `leizilla coverage` against production IA/DuckDB state to record the first real census; freeze the denominator semantics from that run."
+        current: "First production baseline captured 2026-09-25 (`uv run leizilla coverage --ente ro --json`, read-only against IA, reproducible by anyone with network access — no IA/LLM credentials required): ente=ro, fontes=casacivil+assembleia. casacivil: S1=1196 S2=1196 S3=572 S4=20 (decreto: S1=307 S2=307 S3=215 S4=0; lei: S1=889 S2=889 S3=357 S4=20). assembleia: S1=S2=S3=S4=0 (no resources discovered yet for this fonte). Denominator frozen: pre-S4 backlog = S1 total − S4 total = 1196 − 20 = 1176."
+        target: "Reduce the first measured pre-S4 backlog by at least 50% by 2026-12-31 without relaxing provenance/quality gates — i.e. S4 ≥ 608 (currently 20) against the frozen S1=1196 denominator."
+        next_action: "Track S4 growth against this frozen baseline as parse-release.yml runs (18/day pacing, see dataset-release-integrity for the item-4/item-13 gate blockers still limiting throughput). Re-run `leizilla coverage --json` periodically to update `current` without changing the frozen denominator unless S1 itself grows (new discovery)."
       - id: "kr-ro-recurring-cycle-health"
         status: active
         metric: "Consecutive scheduled discover/harvest/parse/release cycles without an unresolved systemic failure."
@@ -77,7 +77,7 @@ fronts:
     origin: "Production crawl/harvest failures and issue #121."
     issues: [136, 140, 141, 149]
     evidence_prs: [190, 207]
-    next_action: "Issue #121 (the transient-failure-becomes-permanent-loss defect) is fixed and merged (PR #190). #141/#149 (scheduled-workflow timeout/throttling) have an unverified scope-split fix merged (PR #207) — see kr-ro-recurring-cycle-health for what's still needed before closing. #136/#140 stay deferred to pipeline-convergence."
+    next_action: "Issue #121 (the transient-failure-becomes-permanent-loss defect) is fixed and merged (PR #190). #141/#149 (scheduled-workflow timeout/throttling) have a scope-split fix merged (PR #207); production verification dispatched this session but not observed to completion — see kr-ro-recurring-cycle-health for the run IDs and what's still needed before closing. #136/#140 stay deferred to pipeline-convergence."
 
   - id: "pipeline-convergence"
     kind: workstream
@@ -96,8 +96,8 @@ fronts:
     objective: "Make every published dataset release independently citable and reproducible while preserving a convenient latest pointer for the portal."
     origin: "Verified risk from #151: scheduled releases default to --version 0 while the frontend points at leizilla-dataset-ro-v0."
     issues: [175, 196, 201, 205]
-    evidence_prs: [198, 204, 210, 213, 215]
-    next_action: "Chain of fixes, in order: PR #198 (503-vs-404 existence-check), #203 (parser prompt fix), #204 (OCR bare-filename fallback for item 4) and #210 (Gemini `cache_control` quota fix) are all merged — item 4's LLM call now completes instead of failing on OCR resolution or 429ing. Re-dispatching `parse-release.yml` for item 4 after #210 (run 36078510721) then hit a third bug: `_extract_json` failed on a response with over-escaped quotes in the `xml` field. PR #213 (merged) fixed that. A dry-run re-dispatch of `parse-release.yml` for item 4 right after #213 merged (run 36082463634, this session) still failed with the same 'no extractable JSON' error — but the existing log only printed the first 300 chars, which decode to well-formed JSON, so whatever actually breaks the parse is later in the response and was invisible. Likely cause: `max_tokens=4096` truncating a longer `lei` mid-XML, never closing the JSON string/object — but unconfirmed. PR #215 (open) adds `finish_reason` and both head+tail of the response to the log so the next failure is diagnosable. Once #215 merges, dispatch `parse-release.yml` for item 4 again (dry-run first) to see the real defect and fix it. Item 13 remains a separate external IA-side blocker (no OCR derivative under either filename) with no code fix available. `-latest` stays unpublished and #196 stays open until both items 4 and 13 are resolved (or a deliberate one-time floor exception is decided) — do not force the floor guard open to work around this."
+    evidence_prs: [198, 204, 210, 213, 215, 216]
+    next_action: "Chain of fixes, in order: PR #198, #203, #204, #210, #213 all merged — each fixed a distinct bug in item 4's reparse (existence-check, prompt, OCR-fetch fallback, Gemini cache-quota, over-escaped-quote JSON). PR #215 (merged) added `finish_reason`/head+tail diagnostics. Dispatching `parse-release.yml` dry-run for item 4 with those diagnostics (run 36086040197, this session) finally revealed the real, distinct fourth bug: `finish_reason=length, len=422` — Gemini 2.5 Flash's internal 'thinking' tokens were consuming almost all of the 4096-token `max_tokens` budget before any visible JSON/XML was emitted, truncating the response mid-string. PR #216 (open, this session) fixes it: `reasoning_effort=\"disable\"` for `gemini/*` models (→ `thinkingBudget=0` in litellm), scoped like the existing Anthropic-only `cache_control` guard. Once #216 merges: re-dispatch `parse-release.yml` dry-run for item 4 to confirm the parse now completes, then a real (non-dry-run) dispatch to actually publish it. Item 13 remains a separate external IA-side blocker (no OCR derivative under either filename) with no code fix available. `-latest` stays unpublished and #196 stays open until both items 4 and 13 are resolved (or a deliberate one-time floor exception is decided) — do not force the floor guard open to work around this."
 
   - id: "legal-semantic-integrity"
     kind: objective
@@ -135,8 +135,8 @@ fronts:
         current: "Issue #118 closed (2026-09-24) via two merged PRs: `versao_id` uniqueness was already enforced pre-existing; PR #193 added the row-count floor guard on `release-dataset` (refuses to publish fewer rows than the currently published release, latest-pointer-first with legacy-item fallback); PR #192 added empty/missing `ia-id` rejection in `xml_to_rows` and wired the existing `_xsd_gate` into `consolidate` (previously only `parse`/`parse-all` ran it). Deliberately NOT done: a hard urn_lex-grammar validation at the export boundary (tracked as its own follow-up, issue #195, since it was found to regress the intentional lei_id-fallback degradation `_parse_lei_fields` uses for an unparseable/mis-cased urn-lex from PR #191/#127). PR #193's floor guard itself then blocked the actual first `-latest` release live in production — archive.org returns 503, not 404, for a file under a nonexistent item, which the guard read as inconclusive; fixed in PR #198 (existence check via `archive.org/metadata`) — see dataset-release-integrity/#196 for the live incident this caused."
         target: "All ETL-build and release boundaries fail closed on declared floor violations and emit actionable diagnostics."
         issues: [118, 201]
-        evidence_prs: [192, 193, 198, 206, 213]
-        next_action: "None on #118 (closed). #195 (urn_lex prefix-corruption gate) closed via merged PR #206: `xml_to_rows` now rejects a present-but-corrupted `urn-lex` that doesn't start with `urn:lex:br` (e.g. the literal string \"null\"), without regressing the #127/#191 lei_id-fallback for grammar-level mismatches. #201 is the gate correctly doing its job: it rejects 2/20 already-published `ro` items on real XSD violations (roman-numeral path segments, literal `urn-lex=\"null\"`) — see dataset-release-integrity for the reparse/root-cause status (PR #204 + #210 fix the code paths; PR #213, open, fixes the third bug found mid-reparse — `_extract_json` tolerating over-escaped LLM JSON; item 13 is an external IA-side gap)."
+        evidence_prs: [192, 193, 198, 206, 213, 216]
+        next_action: "None on #118 (closed). #195 (urn_lex prefix-corruption gate) closed via merged PR #206: `xml_to_rows` now rejects a present-but-corrupted `urn-lex` that doesn't start with `urn:lex:br` (e.g. the literal string \"null\"), without regressing the #127/#191 lei_id-fallback for grammar-level mismatches. #201 is the gate correctly doing its job: it rejects 2/20 already-published `ro` items on real XSD violations (roman-numeral path segments, literal `urn-lex=\"null\"`) — see dataset-release-integrity for the full reparse/root-cause chain (PR #204/#210/#213 fixed three distinct bugs; PR #216, open, fixes a fourth — Gemini thinking tokens truncating the response before max_tokens; item 13 is an external IA-side gap)."
 
   - id: "date-provenance"
     kind: workstream
@@ -173,8 +173,8 @@ fronts:
     objective: "Fail closed before publishing datasets that violate schema, identity, temporal or quality-floor contracts."
     origin: "Issue #118 and post-go-live audit findings."
     issues: [118, 201]
-    evidence_prs: [192, 193, 198, 206, 213, 215]
-    next_action: "See legal-semantic-integrity's kr-release-validation-gated for what's merged (PRs #192, #193, #198, #206 — #195 closed). #201: PR #204 (merged) fixes the parser's OCR-fetch fallback for one of the 2 gate-rejected items; PR #210 (merged) fixes a second bug (Gemini cache_control quota); PR #213 (merged) fixes a third (over-escaped JSON quotes). A post-#213 dry-run re-dispatch for item 4 still failed the same way, invisible in the truncated log — PR #215 (open) adds enough diagnostic detail (finish_reason, response head+tail) to actually root-cause the next failure. See dataset-release-integrity for the full chain and the remaining external IA-side blocker (item 13)."
+    evidence_prs: [192, 193, 198, 206, 213, 215, 216]
+    next_action: "See legal-semantic-integrity's kr-release-validation-gated for what's merged (PRs #192, #193, #198, #206 — #195 closed). #201: PRs #204, #210, #213 (all merged) each fixed a distinct bug blocking item 4's reparse. PR #215 (merged) added finish_reason/head+tail diagnostics, which this session used (run 36086040197) to find a fourth bug — Gemini 'thinking' tokens truncating the response before max_tokens (finish_reason=length). PR #216 (open) fixes it. See dataset-release-integrity for the full chain and the remaining external IA-side blocker (item 13)."
 
   - id: "public-surface-auditability"
     kind: objective
@@ -188,11 +188,11 @@ fronts:
       - id: "kr-public-semantic-legibility"
         status: blocked
         metric: "Known public labels/download affordances that imply stronger publication/vigência evidence than the dataset supports."
-        current: "The schema-level conflation this KR depended on (date-provenance, #157) is resolved and closed. Issue #167 itself remains open and self-describes an explicit resume precondition: the project's official visual-capture capability must successfully load the published Parquet and open a norm's Dados section again (it failed with a timeout on archive.org's versoes.parquet in the last attempt, commit 84cfdc6, run 33956952230), or a canonical UI fixture representing the same dataset must exist — #167 explicitly asks not to change the presentation before that observability is restored."
+        current: "The schema-level conflation this KR depended on (date-provenance, #157) is resolved and closed. Issue #167 itself remains open and self-describes an explicit resume precondition: the project's official visual-capture capability must successfully load the published Parquet and open a norm's Dados section again (it failed with a timeout on archive.org's versoes.parquet in the last attempt, commit 84cfdc6, run 33956952230), or a canonical UI fixture representing the same dataset must exist — #167 explicitly asks not to change the presentation before that observability is restored. Checked this session (2026-09-25): `.github/workflows/visual-capture.yml` / `web/scripts/capture-accessibility.mjs` only navigate to the home route (`/leizilla/`, `CAPTURE_URL` default) across 4 viewport/dataset-availability cases — it does not visit `/lei/?id=...` or exercise the Dados section at all, so its recent green runs (e.g. run 36078751593) are not evidence toward this precondition. Neither an automated `/lei/` capture nor a canonical fixture exists yet; the precondition is still genuinely unmet, not just stale."
         target: "0 known misleading labels; legacy fields are explained where still published."
         blockers: []
         issues: [167]
-        next_action: "Do not implement #167's UI change yet. First confirm (via the official visual-capture workflow or a canonical fixture) that /lei/'s Dados section is observable again; only then add the legacy-naming disclosure copy before JSON/CSV downloads."
+        next_action: "Do not implement #167's UI change yet. Either extend visual-capture to load a real `/lei/?id=...` route against the published dataset (needs a live, non-blocked `-latest`/`v0` item — see dataset-release-integrity), or build a canonical UI fixture (e.g. a vitest+jsdom render of `Dados.svelte` against representative sample rows) — only then add the legacy-naming disclosure copy before JSON/CSV downloads."
       - id: "kr-public-responsive-audit"
         status: met
         metric: "Declared public routes passing the project's desktop + narrow viewport audit."
