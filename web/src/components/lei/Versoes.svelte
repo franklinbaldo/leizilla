@@ -45,6 +45,16 @@
                   >
                 {/each})
               </span>
+            {:else if v.inicio_tipo === 'data-publicacao'}
+              <!--
+                issue #167 criterio 3: docs/SCHEMA.md §4.4 exige que `data-publicacao`
+                só seja usado quando a publicação está "explicitamente
+                declarada/comprovada" — mas isso nem sempre foi garantido no ETL
+                (bug histórico corrigido só em PR #228/#230). Sem `inicio_fontes`, o
+                rótulo acima é indistinguível de uma alegação comprovada; este aviso
+                torna a ausência de prova visível em vez de silenciosa.
+              -->
+              <span class="inicio-sem-evidencia">(sem evidência registrada no dataset)</span>
             {/if}
             {#if v.alterado_por}
               <span class="alterado">— alterado por <code>{v.alterado_por}</code></span>
@@ -79,8 +89,12 @@
   }
   .inicio,
   .inicio-evidencia,
+  .inicio-sem-evidencia,
   .alterado {
     color: var(--pico-muted-color, #666);
+  }
+  .inicio-sem-evidencia {
+    font-style: italic;
   }
   .alterado code {
     font-size: 0.9em;
