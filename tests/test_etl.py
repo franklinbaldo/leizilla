@@ -695,11 +695,16 @@ class TestXmlToRowsComRevogacaoCascata:
 # validation of its own, so a <fonte> without ia-id could silently reach the
 # published Parquet with no real provenance behind it. Fails closed instead.
 #
-# Note: a urn-lex canonicalization gate was deliberately NOT added here —
-# _parse_lei_fields already falls back to lei_id-based extraction for an
-# unparseable/mis-cased urn-lex (issue #127, see TestNumeroLetterSuffix
-# below), and a hard-fail on any regex mismatch would regress that tested
-# graceful degradation.
+# Note: a urn-lex *canonicalization* gate (hard-failing on any _RE_URN_LEX
+# grammar mismatch) was deliberately NOT added here — _parse_lei_fields
+# already falls back to lei_id-based extraction for an unparseable/mis-cased
+# urn-lex (issue #127, see TestNumeroLetterSuffix below), and a hard-fail on
+# any regex mismatch would regress that tested graceful degradation.
+#
+# What WAS added (issue #195) is a much narrower prefix gate: a urn-lex that
+# doesn't even start with "urn:lex:br" (e.g. the literal string "null", or an
+# empty-but-present sentinel) is gross corruption, not a grammar mismatch,
+# and gets rejected outright — see TestUrnLexPrefixGate below.
 # ---------------------------------------------------------------------------
 
 
@@ -735,6 +740,59 @@ class TestReleaseBoundaryGates:
 """
         with pytest.raises(ValueError, match="ia-id"):
             xml_to_rows(xml, "lei-1", "ro")
+
+
+class TestUrnLexPrefixGate:
+    """Issue #195: reject a urn-lex that doesn't start with 'urn:lex:br'
+    (gross corruption) without reintroducing a hard failure against the full
+    _RE_URN_LEX grammar (which must keep falling back to lei_id, #127/#191)."""
+
+    @staticmethod
+    def _xml(urn_lex_attr: str) -> str:
+        return f"""<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
+     {urn_lex_attr}
+     vigente-em="2026-05-20">
+  <dispositivo path="art-1">
+    <versao>
+      <texto>Texto.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00072"/>
+    </versao>
+  </dispositivo>
+</lei>
+"""
+
+    def test_literal_null_string_raises(self) -> None:
+        # Production case from issue #201: the parser used to emit the
+        # literal text "null" instead of omitting the attribute.
+        xml = self._xml('urn-lex="null"')
+        with pytest.raises(ValueError, match="urn-lex"):
+            xml_to_rows(xml, "lei-1", "ro")
+
+    def test_empty_string_sentinel_raises(self) -> None:
+        xml = self._xml('urn-lex=""')
+        with pytest.raises(ValueError, match="urn-lex"):
+            xml_to_rows(xml, "lei-1", "ro")
+
+    def test_garbage_prefix_raises(self) -> None:
+        xml = self._xml('urn-lex="not-a-urn-at-all"')
+        with pytest.raises(ValueError, match="urn-lex"):
+            xml_to_rows(xml, "lei-1", "ro")
+
+    def test_missing_attribute_does_not_raise(self) -> None:
+        # No urn-lex attribute at all (§7.5 carve-out) is a legitimate
+        # absence, not corruption — must keep falling back via lei_id.
+        xml = self._xml("")
+        rows = xml_to_rows(xml, "leizilla-ro-lei-00072-1999", "ro")
+        assert rows[0]["numero_lei"] == "72"
+
+    def test_letter_suffix_grammar_mismatch_does_not_raise(self) -> None:
+        # Starts with "urn:lex:br" but fails the strict _RE_URN_LEX grammar
+        # (uppercase numero suffix) — this is exactly the #127/#191 fallback
+        # case the prefix gate must NOT catch.
+        xml = self._xml('urn-lex="urn:lex:br;rondonia:estadual:lei:1999-06-15;72-A"')
+        rows = xml_to_rows(xml, "leizilla-ro-lei-00072-a-1999", "ro")
+        assert rows[0]["numero_lei"] == "72-a"
 
 
 # ---------------------------------------------------------------------------
