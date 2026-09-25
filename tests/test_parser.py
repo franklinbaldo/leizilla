@@ -768,14 +768,33 @@ class TestParseLaw:
             assert parser.parse_law("ocr text", _IA_ID, "ro") is None
 
     def test_truncates_ocr_to_limit(self):
-        long_ocr = "x" * 20000
+        # Hardcoding a length here would silently stop testing truncation
+        # once _OCR_CHAR_LIMIT was raised past it (as happened when the
+        # limit moved from 8000 to 24000 chars) — derive it instead.
+        long_ocr = "x" * (parser._OCR_CHAR_LIMIT + 5000)
         with _llm(_LLM_OK) as m:
             parser.parse_law(long_ocr, _IA_ID, "ro")
 
         _, kwargs = m.call_args
         user_content = kwargs["messages"][1]["content"]
-        assert len(user_content) < 20000 + 100  # headers + truncated body
+        assert len(user_content) < len(long_ocr) + 100  # headers + truncated body
         assert "x" * (parser._OCR_CHAR_LIMIT + 1) not in user_content
+
+    def test_max_tokens_covers_the_raised_char_limit(self):
+        # Issue #201/#220 (live 2026-09-25): leizilla-ro-lei-00004-1983's
+        # 12788-char OCR was cut at the old 8000-char _OCR_CHAR_LIMIT, and
+        # the LLM correctly parsed only the truncated 63% it received —
+        # 3 dispositivos instead of the previously published 20, silently
+        # shrinking the released dataset. _OCR_CHAR_LIMIT alone moved to
+        # 24000 to cover that document; max_tokens must move with it, or a
+        # bigger input just relocates the same silent truncation to the
+        # output side instead of fixing it.
+        with _llm(_LLM_OK) as m:
+            parser.parse_law("ocr text", _IA_ID, "ro")
+
+        _, kwargs = m.call_args
+        assert kwargs["max_tokens"] >= 16000
+        assert parser._OCR_CHAR_LIMIT >= 20000
 
     def test_flags_truncated_ocr_in_meta(self):
         # Issue #151 item 4: OCR longer than the char limit is silently
