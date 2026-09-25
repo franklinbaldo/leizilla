@@ -118,6 +118,51 @@ class TestFetchOcr:
 
         assert captured == [_RESOLVED]
 
+    def test_falls_back_to_bare_filename_when_prefixed_file_missing(self):
+        # issue #201: some early captures only ever got an OCR derivative
+        # under their bare (unprefixed) upload filename — resolve_raw_url
+        # still returns the {tipo}-{numero}-prefixed name (the current
+        # convention), so a 404 there must retry without the prefix before
+        # giving up.
+        prefixed = (
+            "https://archive.org/download/leizilla_ro_casacivil_lei_0001-1000/"
+            "lei-00004_52859958_djvu.txt"
+        )
+        bare = (
+            "https://archive.org/download/leizilla_ro_casacivil_lei_0001-1000/"
+            "52859958_djvu.txt"
+        )
+        requested: list[str] = []
+
+        def fake_urlopen(req, **kw):  # type: ignore[no-untyped-def]
+            requested.append(req.full_url)
+            if req.full_url == prefixed:
+                raise OSError("404")
+            return _make_urlopen_resp("OCR text")
+
+        with patch("leizilla.parser.resolve_raw_url", return_value=prefixed):
+            with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                assert parser.fetch_ocr(_IA_ID) == "OCR text"
+
+        assert requested == [prefixed, bare]
+
+    def test_no_fallback_when_bare_filename_also_missing(self):
+        prefixed = (
+            "https://archive.org/download/leizilla_ro_casacivil_lei_0001-1000/"
+            "lei-00013_85b0957e_djvu.txt"
+        )
+        with patch("leizilla.parser.resolve_raw_url", return_value=prefixed):
+            with patch("urllib.request.urlopen", side_effect=OSError("404")):
+                assert parser.fetch_ocr(_IA_ID) is None
+
+    def test_no_fallback_attempted_when_url_has_no_prefix(self):
+        # _RESOLVED's filename (3f8a_djvu.txt) has no {tipo}-{numero} prefix
+        # to strip — a single failed attempt must not retry the same URL.
+        with patch("leizilla.parser.resolve_raw_url", return_value=_RESOLVED):
+            with patch("urllib.request.urlopen", side_effect=OSError("404")) as mocked:
+                assert parser.fetch_ocr(_IA_ID) is None
+        assert mocked.call_count == 1
+
 
 class TestFetchHtml:
     def test_returns_html_on_success(self):
@@ -189,6 +234,53 @@ class TestFetchIaHtml:
         with patch("leizilla.parser.resolve_raw_url", return_value=_RESOLVED_HTML):
             with patch("urllib.request.urlopen", side_effect=OSError("timeout")):
                 assert parser.fetch_ia_html(_IA_ID) is None
+
+    def test_falls_back_to_bare_filename_when_prefixed_file_missing(self):
+        prefixed = (
+            "https://archive.org/download/leizilla_federal_planalto_lei_0001-1000/"
+            "lei-00004_52859958.html"
+        )
+        bare = (
+            "https://archive.org/download/leizilla_federal_planalto_lei_0001-1000/"
+            "52859958.html"
+        )
+        requested: list[str] = []
+
+        def fake_urlopen(req, **kw):  # type: ignore[no-untyped-def]
+            requested.append(req.get_full_url())
+            if req.get_full_url() == prefixed:
+                raise OSError("404")
+            return _make_urlopen_resp("<html>Lei federal</html>")
+
+        with patch("leizilla.parser.resolve_raw_url", return_value=prefixed):
+            with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                assert parser.fetch_ia_html(_IA_ID) == "<html>Lei federal</html>"
+
+        assert requested == [prefixed, bare]
+
+
+class TestStripNamePrefix:
+    def test_strips_tipo_numero_prefix(self):
+        url = "https://archive.org/download/item/lei-00004_52859958_djvu.txt"
+        assert (
+            parser._strip_name_prefix(url)
+            == "https://archive.org/download/item/52859958_djvu.txt"
+        )
+
+    def test_strips_prefix_with_letter_suffix(self):
+        url = "https://archive.org/download/item/lei-00072-a_deadbeef.pdf"
+        assert (
+            parser._strip_name_prefix(url)
+            == "https://archive.org/download/item/deadbeef.pdf"
+        )
+
+    def test_returns_none_when_filename_has_no_prefix(self):
+        url = "https://archive.org/download/item/3f8a_djvu.txt"
+        assert parser._strip_name_prefix(url) is None
+
+    def test_returns_none_when_filename_has_no_underscore(self):
+        url = "https://archive.org/download/item/3f8a.pdf"
+        assert parser._strip_name_prefix(url) is None
 
 
 class TestExtractJson:

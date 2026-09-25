@@ -177,6 +177,34 @@ class ParseResult:
     output_tokens: int = field(default=0)
 
 
+def _get_text(url: str, timeout: int) -> Optional[str]:
+    req = urllib.request.Request(url)
+    req.add_header("User-Agent", _USER_AGENT)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="replace")  # type: ignore[no-any-return]
+    except Exception:
+        return None
+
+
+def _strip_name_prefix(url: str) -> Optional[str]:
+    """Drop a ``{tipo}-{numero}`` filename prefix from a resolved raw URL.
+
+    ``ia_utils.raw_filename`` names current raw files ``{name_prefix}_{uuid5}
+    {suffix}`` (ADR-0011), but a handful of early captures (issue #201) only
+    ever got an IA-derived product (``_djvu.txt``, ``.html``, …) under their
+    original, unprefixed upload name ``{uuid5}{suffix}`` — IA's derive queue
+    ran once, against the first filename an identical-content upload used, and
+    never re-ran for the later prefixed duplicate. Returns None when the
+    filename carries no such prefix to strip.
+    """
+    base, _, filename = url.rpartition("/")
+    prefix, sep, rest = filename.partition("_")
+    if not sep or not re.match(r"^[a-z][a-z0-9-]*-\d+(-[a-z])?$", prefix):
+        return None
+    return f"{base}/{rest}"
+
+
 def fetch_ocr(ia_id: str, timeout: int = 30) -> Optional[str]:
     """Fetch OCR text (_djvu.txt) for a raw IA item. Returns None on failure.
 
@@ -187,13 +215,13 @@ def fetch_ocr(ia_id: str, timeout: int = 30) -> Optional[str]:
     url = resolve_raw_url(ia_id, "_djvu.txt", timeout=timeout)
     if url is None:
         return None
-    req = urllib.request.Request(url)
-    req.add_header("User-Agent", _USER_AGENT)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read().decode("utf-8", errors="replace")  # type: ignore[no-any-return]
-    except Exception:
+    text = _get_text(url, timeout)
+    if text is not None:
+        return text
+    fallback_url = _strip_name_prefix(url)
+    if fallback_url is None:
         return None
+    return _get_text(fallback_url, timeout)
 
 
 def fetch_html(url: str, timeout: int = 30) -> Optional[str]:
@@ -226,7 +254,13 @@ def fetch_ia_html(ia_id: str, timeout: int = 30) -> Optional[str]:
     url = resolve_raw_url(ia_id, ".html", timeout=timeout)
     if url is None:
         return None
-    return fetch_html(url, timeout=timeout)
+    html = fetch_html(url, timeout=timeout)
+    if html is not None:
+        return html
+    fallback_url = _strip_name_prefix(url)
+    if fallback_url is None:
+        return None
+    return fetch_html(fallback_url, timeout=timeout)
 
 
 def _extract_json(text: str) -> Optional[Dict[str, Any]]:
