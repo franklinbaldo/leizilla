@@ -383,6 +383,30 @@ class TestNormalizeRomanNumeralPaths:
         assert "Artigo XII" in parser._normalize_roman_numeral_paths(xml)
 
 
+class TestStripNullUrnLex:
+    def test_strips_literal_null_urn_lex_attribute(self):
+        # issue #201: item 13's reparse emitted urn-lex="null" despite the
+        # prompt's explicit "omit the attribute instead" rule — the XSD's
+        # urn-lex pattern requires "urn:lex:br...", so the literal string
+        # fails validation and the whole document gets rejected.
+        xml = '<lei urn-lex="null" vigente-em="2026-07-13"><dispositivo/></lei>'
+        stripped = parser._strip_null_urn_lex(xml)
+        assert "urn-lex" not in stripped
+        assert parser._is_well_formed(stripped)
+
+    def test_case_and_quote_insensitive(self):
+        assert "urn-lex" not in parser._strip_null_urn_lex("<lei urn-lex='NULL'>")
+        assert "urn-lex" not in parser._strip_null_urn_lex('<lei urn-lex="Null">')
+
+    def test_leaves_a_real_urn_lex_untouched(self):
+        xml = _VALID_XML
+        assert parser._strip_null_urn_lex(xml) == xml
+
+    def test_never_touches_null_appearing_in_prose(self):
+        xml = "<texto>O valor é null por padrão.</texto>"
+        assert parser._strip_null_urn_lex(xml) == xml
+
+
 class TestParseLaw:
     def test_returns_result_on_valid_response(self):
         with _llm(_LLM_OK):
@@ -413,6 +437,31 @@ class TestParseLaw:
         assert result is not None
         assert 'path="art-1-inc-3"' in result.xml
         assert "III" not in result.xml
+
+    def test_strips_null_urn_lex_in_llm_output(self):
+        # End-to-end: a model that ignores the "omit, don't write null" rule
+        # (issue #201, item 13) must not slip an XSD-invalid urn-lex past
+        # parse_law — the document should still parse via the lei_id
+        # fallback rather than being rejected outright.
+        xml_with_null_urn = _VALID_XML.replace(
+            ' urn-lex="urn:lex:br;rondonia:estadual:lei:1999-06-15;9999"',
+            ' urn-lex="null"',
+        )
+        response = json.dumps(
+            {
+                "xml": xml_with_null_urn,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "9999",
+                "ano": 1999,
+                "urn_lex": None,
+            }
+        )
+        with _llm(response):
+            result = parser.parse_law("ocr text", _IA_ID, "ro")
+
+        assert result is not None
+        assert "urn-lex" not in result.xml
 
     def test_parsed_meta_structure(self):
         with _llm(_LLM_OK):

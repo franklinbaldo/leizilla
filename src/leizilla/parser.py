@@ -411,6 +411,28 @@ def _normalize_roman_numeral_paths(xml: str) -> str:
     return _PATH_ATTR_RE.sub(_fix_value, xml)
 
 
+# Matches urn-lex="null" (any case, single or double quotes) — never a real
+# URN, which always starts "urn:lex:br".
+_NULL_URN_LEX_RE = re.compile(r'\burn-lex\s*=\s*(["\'])null\1', re.IGNORECASE)
+
+
+def _strip_null_urn_lex(xml: str) -> str:
+    """Drop a literal `urn-lex="null"` attribute (issue #201: item 13's
+    reparse) rather than shipping it.
+
+    The prompt already tells the model to OMIT the attribute entirely when
+    no act date was found, and explains why: the XSD's urn-lex pattern
+    requires "urn:lex:br...", so the literal string "null" fails validation
+    and the whole document gets rejected at the release-boundary gate. Same
+    class of issue as `_normalize_roman_numeral_paths` — a model ignoring an
+    explicit prompt rule isn't something a stronger prompt can guarantee
+    against, so this is the deterministic safety net. Downstream (etl.py's
+    lei_id fallback) already knows how to recover identity from the parsed
+    tipo/numero/ano fields when urn-lex is absent.
+    """
+    return _NULL_URN_LEX_RE.sub("", xml)
+
+
 def _find_provenance_mismatch(root: ET.Element, ia_id: str) -> Optional[str]:
     """Check every <versao> carries exactly one <fonte ia-id="{ia_id}"/>.
 
@@ -574,6 +596,7 @@ def parse_law(
         return None
 
     xml = _normalize_roman_numeral_paths(xml)
+    xml = _strip_null_urn_lex(xml)
 
     provenance_error = _find_provenance_mismatch(ET.fromstring(xml), ia_id)
     if provenance_error:
