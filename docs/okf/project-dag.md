@@ -231,8 +231,8 @@ fronts:
     parents: [leizilla-root, dataset-release-integrity, legal-semantic-integrity]
     objective: "Expand the proven static/preserved pipeline to federal Planalto legislation in Q1/2027 without exporting unresolved RO semantic/release debt."
     origin: "README roadmap Q1/2027."
-    next_action: "#175 and #157 are resolved. #118 is substantially addressed (row-floor guard, ia-id/XSD gates merged) with only a narrow, deliberately-deferred urn_lex-canonicalization slice open — re-evaluate this blocker once that's explicitly closed or superseded by a follow-up issue. Maintain Planalto pipeline readiness in the meantime."
-    blockers: [118]
+    next_action: "Keep federal pipeline readiness work non-destructive, but resume expansion only after #196 is closed with a clean current release."
+    blockers: [196]
 ---
 
 # Leizilla Project DAG
