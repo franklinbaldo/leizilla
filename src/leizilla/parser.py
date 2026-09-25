@@ -436,9 +436,21 @@ def parse_law(
         # (achado ao investigar a issue #201/#205).
         system_block["cache_control"] = {"type": "ephemeral"}
 
+    completion_kwargs: Dict[str, Any] = {}
+    if model.startswith("gemini/"):
+        # Gemini 2.5 Flash "thinking" tokens count against max_tokens, so on
+        # this structured-extraction task they were consuming most of the
+        # 4096-token budget before any visible output — item 4's reparse hit
+        # finish_reason="length" with only 422 chars of JSON emitted (issue
+        # #201/#196, run 36086040197, diagnosed via PR #215's logging).
+        # reasoning_effort="disable" maps to thinkingBudget=0 in litellm,
+        # freeing the whole budget for the actual JSON/XML response.
+        completion_kwargs["reasoning_effort"] = "disable"
+
     response = litellm.completion(
         model=model,
         max_tokens=4096,
+        **completion_kwargs,
         messages=[
             {
                 "role": "system",
