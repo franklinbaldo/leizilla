@@ -1259,6 +1259,17 @@ def cmd_parse_all(
         "--error-threshold",
         help="Taxa máx de falhas de parse tolerada, em %% (0 = desabilitado). Causa exit 1 se excedida.",
     ),
+    uploaded_ids_out: Optional[Path] = typer.Option(
+        None,
+        "--uploaded-ids-out",
+        help=(
+            "Salvar os ia_ids parsed que foram uploadados nesta run, um por "
+            "linha (arquivo vazio se nenhum). Serve de hand-off direto para "
+            "`fetch-all-parsed --extra-ids-file`, fechando o lag de indexação "
+            "do IA logo após o upload na mesma execução do workflow "
+            "(issue #233). Aditivo: sem esta flag, comportamento inalterado."
+        ),
+    ),
 ) -> None:
     """Batch parse: range de números → OCR/HTML → LLM → (upload para IA).
 
@@ -1353,6 +1364,7 @@ def cmd_parse_all(
         upload_fail = 0
         skipped_ok = 0
         processed = 0  # items actually attempted (not skipped by --skip-existing)
+        uploaded_ids: list[str] = []  # ia_ids parsed uploadados nesta run (issue #233)
 
         for num, raw_id in target_items:
             if skip_existing and raw_id in already_parsed:
@@ -1414,11 +1426,21 @@ def cmd_parse_all(
                     if upload_result["success"]:
                         echo(f"  ↑ {upload_result['ia_url']}")
                         uploaded_ok += 1
+                        uploaded_ids.append(result.ia_id_parsed)
                     else:
                         echo(
                             f"  Upload falhou: {upload_result.get('error', 'erro desconhecido')}"
                         )
                         upload_fail += 1
+
+        if uploaded_ids_out is not None:
+            uploaded_ids_out.parent.mkdir(parents=True, exist_ok=True)
+            uploaded_ids_out.write_text(
+                "".join(f"{ia_id}\n" for ia_id in uploaded_ids), encoding="utf-8"
+            )
+            echo(
+                f"  {len(uploaded_ids)} ia_ids uploadados salvos em {uploaded_ids_out}"
+            )
 
         echo(
             f"\nBatch concluído: {parsed_ok} parseados, {parsed_fail} falhos"
@@ -1462,6 +1484,20 @@ def cmd_fetch_all_parsed(
     output_dir: Path = typer.Option(
         ..., "--output-dir", help="Diretório de saída para os XMLs baixados"
     ),
+    extra_ids_file: Optional[Path] = typer.Option(
+        None,
+        "--extra-ids-file",
+        help=(
+            "Arquivo com ia_ids parsed extras (um por linha) a unir com a "
+            "listagem do IA antes do download — tipicamente os ia_ids "
+            "uploadados por `parse-all --uploaded-ids-out` na mesma execução "
+            "do workflow, que a busca do IA ainda não indexou (lag de "
+            "indexação, issue #233). fetch_parsed_xml busca o item "
+            "diretamente por id, não pela busca, então a união fecha o lag "
+            "de forma determinística. Fail-open: arquivo ausente ou vazio é "
+            "ignorado silenciosamente."
+        ),
+    ),
 ) -> None:
     """Baixar todos os XMLs parseados do IA para o diretório local.
 
@@ -1476,15 +1512,41 @@ def cmd_fetch_all_parsed(
     echo(f"Listando itens parsed de '{ente}' no IA...")
     ia_ids = list_parsed_ia_ids(ente)
 
-    if not ia_ids:
+    extra_ids: list[str] = []
+    if extra_ids_file is not None:
+        if extra_ids_file.exists():
+            extra_ids = [
+                line.strip()
+                for line in extra_ids_file.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            if extra_ids:
+                echo(
+                    f"  {len(extra_ids)} ia_ids extras de {extra_ids_file} "
+                    "(hand-off da mesma run, ainda podem não estar indexados no IA)"
+                )
+        else:
+            echo(f"  Aviso: {extra_ids_file} não existe — ignorando (fail-open)")
+
+    merged_ids = sorted(set(ia_ids) | set(extra_ids))
+
+    if not merged_ids:
         echo("Nenhum item parsed encontrado (ou erro de conectividade com IA).")
         return
 
-    echo(f"Encontrados {len(ia_ids)} itens. Baixando XMLs...")
+    echo(
+        f"Encontrados {len(ia_ids)} itens"
+        + (
+            f" + {len(extra_ids)} extras → {len(merged_ids)} no total"
+            if extra_ids
+            else ""
+        )
+        + ". Baixando XMLs..."
+    )
     ok = 0
     skipped = 0
     fail = 0
-    for ia_id in ia_ids:
+    for ia_id in merged_ids:
         dest = output_dir / f"{ia_id}.xml"
         if dest.exists():
             skipped += 1
