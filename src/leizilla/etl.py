@@ -51,6 +51,8 @@ _ORGANIZACIONAL_TIPOS = {t for _, t in _ORGANIZACIONAL_TOKENS}
 #   tightened to the real contract. Mirrored in
 #   scripts/check_schema_consistency.py and docs/schemas/leizilla-v0.1.xsd —
 #   keep all three in sync.
+_RE_URN_LEX_PREFIX = re.compile(r"^urn:lex:br(?:;|:)", re.IGNORECASE)
+
 _RE_URN_LEX = re.compile(
     r"^urn:lex:br"
     r"(?P<locais>(;[a-z][a-z0-9.]*)*)"
@@ -213,6 +215,10 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
     root = ET.fromstring(xml_content)
 
     urn_lex = root.get("urn-lex")
+    if urn_lex and not _RE_URN_LEX_PREFIX.match(urn_lex):
+        raise ValueError(
+            f"Invalid URN-LEX prefix for {lei_id!r}: {urn_lex!r}; expected urn:lex:br"
+        )
     vigente_em = _parse_date(root.get("vigente-em"))
     data_ato = _extract_data_ato(urn_lex)
     tipo_lei, numero_lei, ano_lei = _parse_lei_fields(lei_id, urn_lex)
