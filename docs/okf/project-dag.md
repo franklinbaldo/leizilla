@@ -132,7 +132,7 @@ fronts:
         metric: "Build/release boundaries that publish without the declared schema/quality floor checks."
         current: "Issue #118 closed (2026-09-24) via two merged PRs: `versao_id` uniqueness was already enforced pre-existing; PR #193 added the row-count floor guard on `release-dataset` (refuses to publish fewer rows than the currently published release, latest-pointer-first with legacy-item fallback); PR #192 added empty/missing `ia-id` rejection in `xml_to_rows` and wired the existing `_xsd_gate` into `consolidate` (previously only `parse`/`parse-all` ran it). Deliberately NOT done: a hard urn_lex-grammar validation at the export boundary (tracked as its own follow-up, issue #195, since it was found to regress the intentional lei_id-fallback degradation `_parse_lei_fields` uses for an unparseable/mis-cased urn-lex from PR #191/#127). PR #193's floor guard itself then blocked the actual first `-latest` release live in production — archive.org returns 503, not 404, for a file under a nonexistent item, which the guard read as inconclusive; fixed in PR #198 (existence check via `archive.org/metadata`) — see dataset-release-integrity/#196 for the live incident this caused."
         target: "All ETL-build and release boundaries fail closed on declared floor violations and emit actionable diagnostics."
-        issues: [118, 195]
+        issues: [118, 195, 201]
         next_action: "None on #118 itself (closed). #195 (urn_lex canonicalization) is an open, independent follow-up — pick up when convenient, not release-blocking."
 
   - id: "date-provenance"
