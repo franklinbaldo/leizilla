@@ -2025,6 +2025,13 @@ def cmd_wayback_save(
                     total_existing += 1
                     continue
 
+                if max_submissions is not None and total_submitted >= max_submissions:
+                    echo(
+                        f"  Orçamento de submissões atingido ({max_submissions}); "
+                        "encerrando este lote de forma limpa."
+                    )
+                    break
+
                 if head_check:
                     from leizilla.discovery import _head_exists
 
@@ -2034,13 +2041,6 @@ def cmd_wayback_save(
                     if not exists:
                         total_skipped += 1
                         continue
-
-                if max_submissions is not None and total_submitted >= max_submissions:
-                    echo(
-                        f"  Orçamento de submissões atingido ({max_submissions}); "
-                        "encerrando este lote de forma limpa."
-                    )
-                    break
 
                 if dry_run:
                     echo(f"  -> [{num}] [DRY-RUN] Enviaria para salvar: {url}")
