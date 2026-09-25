@@ -110,6 +110,96 @@ def test_sequential_discovery_head_check():
     assert all(r["tipo_documento"] == "decreto" for r in resources)
 
 
+def test_sequential_discovery_skips_known_urls_without_head_request(temp_db):
+    """Achado de produção 2026-09-25: `storage` existia em `SequentialDiscovery.run`
+    mas `discover_resources`/`run_discovery` nunca o repassavam, então o dedup-por-DB
+    abaixo nunca disparava — toda semana o `head_check` refazia HEAD request para
+    TODOS os números desde `start=1`, não só os novos (ver run_discovery). Esta
+    verifica que uma URL já em `discovered_resources` é pulada SEM HEAD request."""
+    temp_db.insert_resource(
+        {
+            "url": "http://example.com/Files/D2.pdf",
+            "ente": "ro",
+            "fonte": "casacivil",
+            "tipo_documento": "decreto",
+            "chave": "decreto-00002",
+            "status": "pending",
+            "wayback_snapshot": None,
+        }
+    )
+
+    config = {
+        "strategy": "sequential",
+        "templates": ["http://example.com/Files/D{num}.pdf"],
+        "start": 1,
+        "end": 3,
+        "head_check": True,
+    }
+
+    head_checked_urls: list[str] = []
+
+    def fake_head(url: str, timeout: float = 10.0) -> bool:
+        head_checked_urls.append(url)
+        return True
+
+    with patch("leizilla.discovery._head_exists", side_effect=fake_head):
+        resources = SequentialDiscovery(config, "ro", "casacivil").run(temp_db)
+
+    # D2 já conhecido: nem HEAD-checked nem re-incluído no resultado.
+    assert "http://example.com/Files/D2.pdf" not in head_checked_urls
+    urls = [r["url"] for r in resources]
+    assert "http://example.com/Files/D2.pdf" not in urls
+    assert "http://example.com/Files/D1.pdf" in urls
+    assert "http://example.com/Files/D3.pdf" in urls
+    assert sorted(head_checked_urls) == [
+        "http://example.com/Files/D1.pdf",
+        "http://example.com/Files/D3.pdf",
+    ]
+
+
+def test_run_discovery_second_run_skips_head_checks_for_known_urls(temp_db):
+    """Fim a fim via `run_discovery` (o que `leizilla discover` realmente chama):
+    uma segunda rodada não deve refazer HEAD request para URLs que a primeira
+    rodada já gravou em `discovered_resources`."""
+    manifest_fontes = {
+        "casacivil": {
+            "discovery": [
+                {
+                    "strategy": "sequential",
+                    "templates": ["http://example.com/Files/D{num}.pdf"],
+                    "start": 1,
+                    "end": 3,
+                    "head_check": True,
+                }
+            ]
+        }
+    }
+
+    head_checked_urls: list[str] = []
+
+    def fake_head(url: str, timeout: float = 10.0) -> bool:
+        head_checked_urls.append(url)
+        return True
+
+    with (
+        patch(
+            "leizilla.discovery.load_manifest",
+            return_value={"ente": "ro", "fontes": manifest_fontes},
+        ),
+        patch("leizilla.discovery._head_exists", side_effect=fake_head),
+    ):
+        first_total = run_discovery("ro", temp_db)
+        assert first_total == 3
+        assert len(head_checked_urls) == 3
+
+        head_checked_urls.clear()
+        second_total = run_discovery("ro", temp_db)
+
+    # Nada novo pra descobrir e nenhum HEAD refeito pras 3 URLs já conhecidas.
+    assert second_total == 0
+    assert head_checked_urls == []
+
+
 def test_wayback_cdx_discovery():
     config = {
         "strategy": "wayback-cdx",

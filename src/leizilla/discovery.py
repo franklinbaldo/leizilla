@@ -21,7 +21,7 @@ class DiscoveryStrategyProtocol(Protocol):
 
     def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None: ...
 
-    def run(self) -> List[Dict[str, Any]]: ...
+    def run(self, storage: Optional[DuckDBStorage] = None) -> List[Dict[str, Any]]: ...
 
 
 def _ditel_editorial_number(value: str) -> Optional[str]:
@@ -158,7 +158,7 @@ class WaybackCdxDiscovery:
         self.ente = ente
         self.fonte = fonte
 
-    def run(self) -> List[Dict[str, Any]]:
+    def run(self, storage: Optional[DuckDBStorage] = None) -> List[Dict[str, Any]]:
         logger.info(f"Rodando Wayback CDX Discovery para {self.ente}/{self.fonte}...")
         resources = []
 
@@ -344,6 +344,9 @@ class CasacivilIndexDiscovery:
         self.fonte = fonte
 
     def run(self, storage: Optional[DuckDBStorage] = None) -> List[Dict[str, Any]]:
+        # storage não é usado aqui (uma única chamada HTTP, não custa repetir);
+        # o parâmetro só existe para uniformizar a assinatura com as demais
+        # estratégias (DiscoveryStrategyProtocol.run).
         # ADR-0004 continua Wayback-first, mas uma enumeração autoritativa precisa ser
         # atual. Um snapshot histórico serve à proveniência, não à descoberta de
         # novidades: só reutilizamos capturas dentro da janela de frescor padrão (24 h).
@@ -431,7 +434,7 @@ class PlaywrightCrawlerDiscovery:
         self.ente = ente
         self.fonte = fonte
 
-    def run(self) -> List[Dict[str, Any]]:
+    def run(self, storage: Optional[DuckDBStorage] = None) -> List[Dict[str, Any]]:
         logger.info(
             f"Rodando Playwright Discovery para {self.ente}/{self.fonte} (de {self.start} a {self.end})..."
         )
@@ -501,13 +504,22 @@ def load_manifest(ente: str) -> Dict[str, Any]:
     return data
 
 
-def discover_resources(ente: str, fonte: Optional[str] = None) -> List[Dict[str, Any]]:
+def discover_resources(
+    ente: str,
+    fonte: Optional[str] = None,
+    storage: Optional[DuckDBStorage] = None,
+) -> List[Dict[str, Any]]:
     """Roda as estratégias do manifesto e **retorna** os resources (sem inserir).
 
     Diferente de ``run_discovery`` (que persiste), serve à reconciliação: re-deriva
     identidades com os extratores *atuais* (possivelmente melhorados), independente
     das linhas já gravadas em ``discovered_resources``. ``fonte`` filtra para uma
     fonte específica.
+
+    ``storage``, quando passado, é repassado para cada estratégia (só
+    ``SequentialDiscovery`` o usa hoje, para pular URLs já conhecidas sem
+    refazer o HEAD request — ver ``run_discovery``). Deixe ``None`` para a
+    re-derivação completa que a reconciliação precisa.
     """
     manifest = load_manifest(ente)
     out: List[Dict[str, Any]] = []
@@ -522,7 +534,7 @@ def discover_resources(ente: str, fonte: Optional[str] = None) -> List[Dict[str,
                 )
                 continue
             try:
-                out.extend(strategy_cls(discovery_cfg, ente, f).run())
+                out.extend(strategy_cls(discovery_cfg, ente, f).run(storage))
             except Exception as e:
                 logger.error(
                     f"Falha na estratégia '{discovery_cfg.get('strategy')}' "
@@ -539,8 +551,16 @@ def run_discovery(
     ``fonte`` restringe a uma única fonte do manifesto (None = todas). Útil
     para isolar fontes lentas (ex.: PlaywrightCrawlerDiscovery de milhares de
     páginas) de fontes rápidas (ex.: wayback-cdx) sem esperar a mais lenta.
+
+    Passa ``storage`` para as estratégias (achado de produção 2026-09-25:
+    antes disso, ``SequentialDiscovery``'s dedup-por-DB nunca era exercitado
+    em produção — o parâmetro existia mas ninguém o repassava — então toda
+    semana o `head_check` refazia HEAD request para TODOS os números já
+    conhecidos desde `start=1`, não só os novos; para os 6/8 tipos de
+    casacivil com `head_check: true` isso inflava o Discover step para
+    horas e crescia a cada semana conforme o catálogo aumentava).
     """
-    resources = discover_resources(ente, fonte=fonte)
+    resources = discover_resources(ente, fonte=fonte, storage=storage)
     for res in resources:
         storage.insert_resource(res)
     return len(resources)
