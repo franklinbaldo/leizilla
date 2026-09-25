@@ -95,7 +95,7 @@ fronts:
     objective: "Make every published dataset release independently citable and reproducible while preserving a convenient latest pointer for the portal."
     origin: "Verified risk from #151: scheduled releases default to --version 0 while the frontend points at leizilla-dataset-ro-v0."
     issues: [175, 196, 201]
-    next_action: "Immutable release identifiers + mutable latest pointer are implemented and merged (PR #180), but no release had ever been published under the new `-latest` scheme when this session started: `web/src/lib/db.ts` (also merged as part of #175/#180) already defaults to `archive.org/download/leizilla-dataset-ro-v0-latest/versoes.parquet`, and that item did not exist — confirmed live via `curl`/`archive.org/metadata`, meaning the public site could not load any law page. Compounding bug found live: `archive.org`'s download endpoint returns 503 (not 404) for a file under a nonexistent item, which the row-count floor guard from #193/#118 read as inconclusive and failed closed on, deadlocking the very first `-latest` release for any (ente, version). Fixed in PR #198 (existence check via `archive.org/metadata` instead of download-endpoint status codes) — merge it, then re-run `parse-release.yml` (`workflow_dispatch`) to actually publish `leizilla-dataset-ro-v0-latest` and verify the live site loads a real law page again before closing #196."
+    next_action: "Address issues #201 and #196 using current release-validation evidence."
 
   - id: "legal-semantic-integrity"
     kind: objective
