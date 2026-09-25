@@ -332,7 +332,18 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
 
                 inicio_elem = versao.find(f"{{{NS}}}inicio")
                 if inicio_elem is not None:
-                    inicio_tipo = inicio_elem.get("tipo", "data-publicacao")
+                    inicio_tipo = inicio_elem.get("tipo")
+                    if not inicio_tipo:
+                        # docs/SCHEMA.md: "data-publicacao ... nunca é o
+                        # default inferido" — a <inicio> without tipo must
+                        # not silently become the highest-evidence claim.
+                        # Same fail-closed posture as the ia-id gate below.
+                        raise ValueError(
+                            f"<inicio> without tipo in dispositivo {path!r} "
+                            f"of {lei_id!r} — tipo is required (XSD makes it "
+                            "so); it must never silently default to "
+                            "data-publicacao."
+                        )
                 elif alterado_por:
                     inicio_tipo = "texto-lei-alteradora"
                 else:

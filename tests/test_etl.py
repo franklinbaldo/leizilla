@@ -741,6 +741,28 @@ class TestReleaseBoundaryGates:
         with pytest.raises(ValueError, match="ia-id"):
             xml_to_rows(xml, "lei-1", "ro")
 
+    def test_inicio_without_tipo_raises(self) -> None:
+        # docs/SCHEMA.md: <inicio tipo> is XSD-required and data-publicacao
+        # "nunca e o default inferido" — a malformed <inicio> missing tipo
+        # must never silently become that highest-evidence claim.
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<lei xmlns="https://leizilla.org/lei/0.1" schema-version="0.1"
+     urn-lex="urn:lex:br;rondonia:estadual:lei:2010-03-01;4242"
+     vigente-em="2026-05-20">
+  <dispositivo path="art-1">
+    <versao em="2010-06-01">
+      <inicio>
+        <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00072"/>
+      </inicio>
+      <texto>Texto.</texto>
+      <fonte ia-id="leizilla-raw-ro-casacivil-coddoc-00072"/>
+    </versao>
+  </dispositivo>
+</lei>
+"""
+        with pytest.raises(ValueError, match="tipo"):
+            xml_to_rows(xml, "lei-1", "ro")
+
 
 class TestUrnLexPrefixGate:
     """Issue #195: reject a urn-lex that doesn't start with 'urn:lex:br'
