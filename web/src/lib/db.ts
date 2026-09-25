@@ -15,14 +15,25 @@ const PARQUET_URL =
 export const DATASET_PARQUET_URL = PARQUET_URL;
 
 /**
- * Item do dataset no IA, derivado da URL do Parquet quando ela segue o padrão
- * archive.org/download/{item}/versoes.parquet (publisher.upload_dataset).
- * Null quando a URL aponta para outro host (ex.: mirror ou arquivo local).
+ * Extrai a identidade lógica do item IA do pathname `/download/{item}/...`.
+ *
+ * O host é deliberadamente ignorado: ADR-0013 permite servir o Parquet por um
+ * proxy CORS, mas metadata/coverage/latest continuam pertencendo ao item
+ * canônico do Internet Archive. URLs que não preservam esse pathname não
+ * carregam identidade suficiente e retornam null.
  */
-export const DATASET_IA_ITEM: string | null = (() => {
-  const m = PARQUET_URL.match(/^https:\/\/archive\.org\/download\/([^/]+)\//);
-  return m ? m[1] : null;
-})();
+export function datasetIaItemFromParquetUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const match = parsed.pathname.match(/^\/download\/([^/]+)\//);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Item canônico do dataset no IA, mesmo quando o Parquet passa por um proxy CORS. */
+export const DATASET_IA_ITEM: string | null = datasetIaItemFromParquetUrl(PARQUET_URL);
 
 /** dataset_meta.json publicado junto do Parquet (row_count, hash, git_sha…). */
 export const DATASET_META_URL: string | null = DATASET_IA_ITEM

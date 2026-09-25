@@ -1,0 +1,8 @@
+{
+  "name": "leizilla-archive-cors-proxy",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-25",
+  "observability": {
+    "enabled": true
+  }
+}
