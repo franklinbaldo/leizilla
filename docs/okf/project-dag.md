@@ -51,7 +51,7 @@ fronts:
         metric: "Share of the reproducibly measured S1/S2/S3 backlog that has reached S4."
         current: "First production baseline captured 2026-09-25 (`uv run leizilla coverage --ente ro --json`, read-only against IA, reproducible by anyone with network access — no IA/LLM credentials required): ente=ro, fontes=casacivil+assembleia. casacivil: S1=1196 S2=1196 S3=572 S4=20 (decreto: S1=307 S2=307 S3=215 S4=0; lei: S1=889 S2=889 S3=357 S4=20). assembleia: S1=S2=S3=S4=0 (no resources discovered yet for this fonte). Denominator frozen: pre-S4 backlog = S1 total − S4 total = 1196 − 20 = 1176."
         target: "Reduce the first measured pre-S4 backlog by at least 50% by 2026-12-31 without relaxing provenance/quality gates — i.e. S4 ≥ 608 (currently 20) against the frozen S1=1196 denominator."
-        next_action: "Track S4 growth against this frozen baseline as parse-release.yml runs (18/day pacing, see dataset-release-integrity for the item-4/item-13 gate blockers still limiting throughput). Re-run `leizilla coverage --json` periodically to update `current` without changing the frozen denominator unless S1 itself grows (new discovery)."
+        next_action: "This session's parse-release.yml dispatch (run 36094205340) reparsed items 4-13 and published a fresh release (19/20 casacivil/lei items, 209 rows, `-latest` live for the first time — see dataset-release-integrity), and re-ran `leizilla coverage --upload` at the end of that same run, but the uploaded coverage.json was still IA-side processing (pending_tasks) as of session end, so no fresh S4 figure was readable yet. Next session: re-run `uv run leizilla coverage --ente ro --json` (read-only, no credentials needed) to get the actual updated S4 count against the frozen S1=1196 denominator; item 13 (still unparsed, see #201) is the only known remaining gap in the current casacivil/lei range. Track S4 growth as parse-release.yml continues its 18/day pacing (dataset-release-integrity's item-13 external-OCR gap no longer blocks publishing, just excludes that one item)."
       - id: "kr-ro-recurring-cycle-health"
         status: active
         metric: "Consecutive scheduled discover/harvest/parse/release cycles without an unresolved systemic failure."
@@ -95,9 +95,9 @@ fronts:
     parents: [ro-coverage-q4-2026]
     objective: "Make every published dataset release independently citable and reproducible while preserving a convenient latest pointer for the portal."
     origin: "Verified risk from #151: scheduled releases default to --version 0 while the frontend points at leizilla-dataset-ro-v0."
-    issues: [175, 196, 201, 205]
+    issues: [175, 201]
     evidence_prs: [198, 204, 210, 213, 215, 216, 218, 221, 222]
-    next_action: "The 171-vs-199-row gap is ROOT-CAUSED, not just measured: item 4 (leizilla-ro-lei-00004-1983) reparsed to only 3 dispositivos vs 20 previously published because parser.py's _OCR_CHAR_LIMIT (8000 chars) truncated its 12788-char OCR — fixed in PR #221 (raises the limit to 24000, max_tokens 4096→16000), merged. Item 13's urn-lex=\"null\" (issue #201's other rejection) is the model ignoring an explicit prompt instruction, not an external IA gap — fixed in PR #222 (_strip_null_urn_lex post-parse safety net, same pattern as PR #218's roman-numeral fix), merged. This session dispatched parse-release.yml (run 36094205340, workflow_dispatch, start=4 end=13 skip_existing=false) to reparse both items and run consolidate/release-dataset end-to-end; parse-dispatch completed successfully in ~2min, the etl job (fetch-all-parsed → consolidate → release-dataset, including the -latest pointer publish) was still in progress when this session ended. Next session: check run 36094205340's etl job conclusion — if consolidate now reaches 20/20 items and release-dataset's row-count floor guard clears (row count ≥199), leizilla-dataset-ro-v0-latest publishes for the first time ever (confirmed still absent — 503 from archive.org/download/leizilla-dataset-ro-v0-latest/* — as of this session), which also fixes the live public site (web/src/lib/db.ts defaults to that exact pointer). If it fails, investigate the new failure mode; do not force the floor guard open."
+    next_action: "MILESTONE: leizilla-dataset-ro-v0-latest published for the first time ever this session. parse-release.yml run 36094205340 (workflow_dispatch, ro/casacivil/lei items 4-13, skip_existing=false) completed successfully: item 4 reparsed cleanly (PR #221's OCR/token-limit fix, confirmed — was truncated at 8000/12788 OCR chars, now 24000); consolidate reached 19/20 items → 209 rows (≥199 floor, previously 171); release-dataset published leizilla-dataset-ro-v0-20260925t042644z and updated -latest — confirmed live via archive.org/metadata (previously 503). Restores the live public site (web/src/lib/db.ts defaults PUBLIC_PARQUET_URL to this exact -latest pointer). Issues #196/#205 closed with this evidence. Item 13 alone remains excluded — see legal-semantic-integrity's kr-release-validation-gated and issue #201 for the now-confirmed root cause (a genuine external IA gap, not the prompt-following bug PR #222's description speculated): IA never generated a _djvu.txt OCR derivative for lei-00013_85b0957e.pdf (flagged _imgonly_pdfmeta.json, image-only), so parse-all's OCR-required path correctly skips it rather than exercising PR #222's fix. Does not block release (floor guard passed on total rows) but item 13 itself stays out of the dataset until IA re-derives OCR or Leizilla gains a local-OCR fallback path (proposed, not built)."
 
   - id: "legal-semantic-integrity"
     kind: objective
@@ -136,7 +136,7 @@ fronts:
         target: "All ETL-build and release boundaries fail closed on declared floor violations and emit actionable diagnostics."
         issues: [118, 201]
         evidence_prs: [192, 193, 198, 206, 213, 216, 218, 221, 222]
-        next_action: "None on #118 (closed). #195 closed via merged PR #206. #201's two remaining rejections are both root-caused and fixed: item 4's truncated-OCR-input bug (PR #221, merged) and item 13's literal urn-lex=\"null\" from the model ignoring the prompt (PR #222, merged, deterministic _strip_null_urn_lex safety net). A parse-release.yml dispatch reparsing both (run 36094205340) was in progress at session end — see dataset-release-integrity for what's needed to confirm 20/20 items clear the gate and `-latest` publishes."
+        next_action: "None on #118 (closed). #195 closed via merged PR #206. #201's item 4 is fully resolved (PR #221, confirmed live in run 36094205340). Item 13 is confirmed a genuine external IA gap — no OCR derivative exists for its raw PDF (IA flagged it image-only) — not the prompt-following bug PR #222's description speculated; PR #222's _strip_null_urn_lex fix is correct but currently unreachable for this item. -latest published this session regardless (floor guard passed on total row count). See dataset-release-integrity for the full picture and two proposed paths (IA re-derive, or a local-OCR fallback) neither attempted yet."
 
   - id: "date-provenance"
     kind: workstream
@@ -174,7 +174,7 @@ fronts:
     origin: "Issue #118 and post-go-live audit findings."
     issues: [118, 201]
     evidence_prs: [192, 193, 198, 206, 213, 215, 216, 218, 221, 222]
-    next_action: "See legal-semantic-integrity's kr-release-validation-gated for what's merged. #201's two remaining rejections (item 4: truncated OCR input; item 13: literal urn-lex=\"null\") are both root-caused and fixed via PR #221 and PR #222 (merged) — neither was the unrecoverable external IA gap previously assumed. See dataset-release-integrity for the live reparse/release dispatch (run 36094205340) verifying this and publishing `-latest` for the first time."
+    next_action: "See legal-semantic-integrity's kr-release-validation-gated for what's merged. `-latest` published for the first time this session (run 36094205340, 209 rows). Item 4 fully resolved (PR #221). Item 13 confirmed a genuine external IA OCR-derivative gap, not fixable by PR #222's code alone — see dataset-release-integrity for the forensics and proposed next steps."
 
   - id: "public-surface-auditability"
     kind: objective
@@ -245,10 +245,9 @@ fronts:
     parents: [leizilla-root, dataset-release-integrity, legal-semantic-integrity]
     objective: "Expand the proven static/preserved pipeline to federal Planalto legislation in Q1/2027 without exporting unresolved RO semantic/release debt."
     origin: "README roadmap Q1/2027."
-    next_action: "#175, #157, #118 and #195 (urn_lex gate, PR #206) are all resolved. #201's two known-bad items now have merged fixes (PR #221, #222) and a verification dispatch (run 36094205340) was in progress at session end — re-evaluate this blocker once that run's outcome (and whether -latest actually published) is confirmed next session. Maintain Planalto pipeline readiness in the meantime."
+    next_action: "#175, #157, #118 and #195 (urn_lex gate, PR #206) are all resolved. #196 is resolved — `-latest` published for the first time this session (run 36094205340, 209 rows). #201 is down to item 13 alone, confirmed a genuine external IA OCR-derivative gap (not a Leizilla code defect). Re-evaluate whether this single-item residual gap is acceptable to export alongside federal expansion, or whether it should block until resolved — a judgment call for the next session/maintainer, not yet made."
     blockers:
-      - "Issue #201 — fixes merged (PR #221, #222); live verification dispatch (run 36094205340) in progress, not yet confirmed complete."
-      - "Issue #196 — the first -latest dataset release is still unpublished as of session start; same verification run (36094205340) is attempting to publish it."
+      - "Issue #201 — down to 1 item (item 13), confirmed external IA gap (no OCR derivative); not a code defect, needs either IA re-derivation or a local-OCR fallback."
 ---
 
 # Leizilla Project DAG
