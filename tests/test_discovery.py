@@ -107,6 +107,37 @@ def test_sequential_discovery():
     assert resources[0]["chave"] == "lei-00001"
 
 
+def test_head_exists_warns_on_non_http_error(caplog):
+    """Produção 2026-09-25: `_head_exists` tratava QUALQUER exceção (404 real,
+    timeout, conexão recusada, WAF derrubando a conexão) como "recurso não
+    existe", sem distinção — um bloqueio de rede silencioso ficava
+    indistinguível de um 404 genuíno em todo run de discovery (issue #262:
+    1500/1500 HEAD checks do Planalto retornaram falso, sem nenhum sinal de
+    qual desses casos aconteceu). Um HTTPError normal (404/etc.) continua
+    silencioso — é resposta esperada; qualquer outra exceção agora emite um
+    warning identificando a URL e o tipo de falha."""
+    import urllib.error
+
+    from leizilla.discovery import _head_exists
+
+    with patch("urllib.request.urlopen", side_effect=ConnectionResetError("reset")):
+        with caplog.at_level("WARNING", logger="leizilla.discovery"):
+            assert _head_exists("http://example.com/blocked.htm") is False
+    assert "example.com/blocked.htm" in caplog.text
+    assert "ConnectionResetError" in caplog.text
+
+    caplog.clear()
+    with patch(
+        "urllib.request.urlopen",
+        side_effect=urllib.error.HTTPError(
+            "http://example.com/missing.htm", 404, "Not Found", {}, None
+        ),
+    ):
+        with caplog.at_level("WARNING", logger="leizilla.discovery"):
+            assert _head_exists("http://example.com/missing.htm") is False
+    assert caplog.text == ""
+
+
 def test_sequential_discovery_head_check():
     """SequentialDiscovery with head_check=True only includes URLs that pass HEAD."""
     config = {

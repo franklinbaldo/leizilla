@@ -221,6 +221,7 @@ manifest exists.
 | `DUCKDB_PATH` | local DB location | `data/leizilla.duckdb` |
 | `DATA_DIR` | data directory | `data/` |
 | `CRAWLER_DELAY` / `CRAWLER_RETRIES` / `CRAWLER_TIMEOUT` | crawler tuning (ms/count/ms) | `2000` / `3` / `30000` |
+| `LOG_LEVEL` | CLI root logger level (`leizilla.cli:main`) — without this, `logger.info`/`logger.debug` in `discovery.py`/`parser.py`/`publisher.py` produce no output at all, in CI or locally | `INFO` |
 
 See `.env.example`. Permissions for the Claude Code assistant live in
 `.claude/settings.local.json`.
