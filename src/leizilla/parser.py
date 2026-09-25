@@ -352,6 +352,54 @@ def _is_well_formed(xml_str: str) -> bool:
 
 _LEI_NS = "{https://leizilla.org/lei/0.1}"
 
+# Strict roman numeral (1-3999, standard subtractive notation) — used only to
+# recognize a `path` segment worth converting, never to accept malformed
+# forms like "IIII".
+_ROMAN_NUMERAL_RE = re.compile(
+    r"^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$"
+)
+_ROMAN_VALUES = (
+    (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+    (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+    (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+)  # fmt: skip
+_PATH_ATTR_RE = re.compile(r'(path=")([^"]+)(")')
+
+
+def _roman_to_arabic(token: str) -> Optional[int]:
+    """Strict roman-numeral -> int, or None if `token` isn't one (1-3999)."""
+    if not token or not _ROMAN_NUMERAL_RE.match(token):
+        return None
+    value, remaining = 0, token
+    for arabic, roman in _ROMAN_VALUES:
+        while remaining.startswith(roman):
+            value += arabic
+            remaining = remaining[len(roman) :]
+    return value
+
+
+def _normalize_roman_numeral_paths(xml: str) -> str:
+    """Convert an uppercase-roman-numeral `-`-segment in any `path="..."`
+    attribute to plain arabic (issue #201/#118 XSD gate: `DispositivoPath`
+    only accepts `[a-z][a-z0-9-]*`).
+
+    A model that ignores the prompt's "always arabic, never roman" rule
+    (found live on item 4's reparse: `art-1-inc-III`) otherwise produces a
+    well-formed, high-confidence XML that fails the release-boundary XSD
+    gate outright. Scoped to `path` attribute values only — never touches
+    roman numerals appearing in actual law prose (`<texto>` content).
+    """
+
+    def _fix_value(match: "re.Match[str]") -> str:
+        segments = match.group(2).split("-")
+        fixed = [
+            str(arabic) if (arabic := _roman_to_arabic(seg)) is not None else seg
+            for seg in segments
+        ]
+        return match.group(1) + "-".join(fixed) + match.group(3)
+
+    return _PATH_ATTR_RE.sub(_fix_value, xml)
+
 
 def _find_provenance_mismatch(root: ET.Element, ia_id: str) -> Optional[str]:
     """Check every <versao> carries exactly one <fonte ia-id="{ia_id}"/>.
@@ -509,6 +557,8 @@ def parse_law(
             "%s: confidence %.2f mas xml ausente/malformado", ia_id, confidence
         )
         return None
+
+    xml = _normalize_roman_numeral_paths(xml)
 
     provenance_error = _find_provenance_mismatch(ET.fromstring(xml), ia_id)
     if provenance_error:
