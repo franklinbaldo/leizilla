@@ -1895,6 +1895,12 @@ def cmd_wayback_save(
         help="Quantos números além do máximo arquivado no CDX provar por tipo",
     ),
     delay: float = typer.Option(2.0, help="Segundos entre submissões"),
+    max_submissions: Optional[int] = typer.Option(
+        None,
+        "--max-submissions",
+        min=1,
+        help="Encerrar após N URLs novas submetidas/listadas; útil para jobs com orçamento fixo",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Listar URLs sem submeter"),
     skip_head_check: bool = typer.Option(
         False,
@@ -2029,6 +2035,13 @@ def cmd_wayback_save(
                         total_skipped += 1
                         continue
 
+                if max_submissions is not None and total_submitted >= max_submissions:
+                    echo(
+                        f"  Orçamento de submissões atingido ({max_submissions}); "
+                        "encerrando este lote de forma limpa."
+                    )
+                    break
+
                 if dry_run:
                     echo(f"  -> [{num}] [DRY-RUN] Enviaria para salvar: {url}")
                 else:
@@ -2048,6 +2061,11 @@ def cmd_wayback_save(
                     time.sleep(delay)
 
                 total_submitted += 1
+
+            if max_submissions is not None and total_submitted >= max_submissions:
+                break
+        if max_submissions is not None and total_submitted >= max_submissions:
+            break
 
     echo("\n========================================================================")
     echo("   PROCESSO CONCLUÍDO!")
