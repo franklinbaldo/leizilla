@@ -47,6 +47,9 @@ class TestCmdScrapeSkipExisting:
     @patch("leizilla.publisher.list_raw_ids", return_value=set())
     def test_no_skip_with_no_skip_existing_flag(self, mock_list, mock_asyncio):
         """Com --no-skip-existing, list_raw_ids não é chamado."""
+        # asyncio.run mockado nunca consome a corrotina que recebe — fecha
+        # explicitamente para não vazar "coroutine was never awaited" no GC.
+        mock_asyncio.side_effect = lambda coro: coro.close()
         runner.invoke(
             app,
             [
@@ -71,6 +74,7 @@ class TestCmdScrapeSkipExisting:
     )
     def test_skip_existing_flag_calls_list_raw_ids(self, mock_list, mock_asyncio):
         """Com --skip-existing, list_raw_ids é chamado com ente/fonte corretos."""
+        mock_asyncio.side_effect = lambda coro: coro.close()
         runner.invoke(
             app,
             [
@@ -316,7 +320,7 @@ class TestCmdScrapeSkipExisting:
     @patch("leizilla.publisher.list_raw_ids", return_value=set())
     def test_skip_existing_reports_ia_count_in_output(self, mock_list):
         """Com --skip-existing, output inclui contagem de itens existentes no IA."""
-        with patch("leizilla.cli.asyncio.run"):
+        with patch("leizilla.cli.asyncio.run", side_effect=lambda coro: coro.close()):
             result = runner.invoke(
                 app,
                 [
