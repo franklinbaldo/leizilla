@@ -210,6 +210,38 @@ Conteúdo: `versoes.parquet` + `dataset_meta.json` (gerados por `upload_dataset(
 o item `-latest` acrescenta `latest.json`.
 `manifest-{ente}.csv` e `README.md` são planejados — ainda não emitidos no MVP.
 
+### 1.5 Exclusões permanentes conhecidas (gaps de origem externa)
+
+Um item raw pode ficar permanentemente fora do dataset publicado quando o
+próprio Internet Archive nunca produz o derivativo OCR (`_djvu.txt`) de que
+`fetch-ocr`/`parse` dependem — não por defeito de código Leizilla, e sem
+lever local disponível para forçar. `release-boundary-validation` (gate)
+publica o resto do release normalmente (a floor guard de `release-dataset`
+é por contagem total de linhas, não por item específico) em vez de bloquear
+tudo por um item.
+
+**Decisão explícita 2026-09-25** (issue #201, item `leizilla-ro-lei-00013-1983`,
+raw item `leizilla_ro_casacivil_lei_0001-1000`, arquivo `85b0957e.pdf`):
+aceito como exclusão permanente do dataset `ro` até segunda ordem, **não**
+mais um blocker para `federal-expansion-q1-2027` no DAG. Evidência acumulada
+ao longo de várias sessões antes desta decisão: o item carrega
+`_imgonly_pdfmeta.json` (PDF sem camada de texto, precisa de OCR real, não
+extração), `pending_tasks: true` seguiu presente e o `_djvu.txt` seguiu
+ausente através de 23 re-uploads históricos registrados em `history/files/`
+(`.~1~` a `.~23~`) sem nenhum produzir o derivativo — a fila de
+reprocessamento do IA não está "só atrasada", está travada para este
+arquivo específico. Um fallback de OCR local (tesseract/poppler) resolveria,
+mas nenhuma sandbox de sessão até aqui teve esses binários instalados nem
+espaço reservado no `pyproject.toml`/CI para eles; construir isso é um
+projeto deliberado, não uma correção de rotina.
+
+**Critério para reabrir**: (a) `archive.org/metadata/leizilla_ro_casacivil_lei_0001-1000`
+passar a listar `85b0957e_djvu.txt` — republicar o item normalmente pelo
+pipeline existente; ou (b) alguém escopar deliberadamente um fallback de
+OCR local (nova dependência de sistema, adicionada ao extra `dev` e ao
+runner de CI/`parse-release.yml`, não algo para uma sessão espontânea
+tentar de improviso).
+
 ---
 
 ## 2. JSON sidecars
