@@ -3,7 +3,7 @@ type: "Project Map"
 title: "Leizilla Project DAG"
 description: "Canonical OKF graph of Leizilla delivery fronts, OKRs, dependencies, blockers and next actions. Work branches and GitHub issues execute the graph; they are not the durable project ledger."
 tags: [leizilla, okf, project-dag, okr, delivery, governance]
-timestamp: 2026-09-25T00:20:00-04:00
+timestamp: 2026-09-25T01:35:00-04:00
 state_model: "project-dag-v1"
 graph_policy:
   source_of_truth: "this authored Markdown/OKF document"
@@ -37,7 +37,7 @@ fronts:
     parents: [leizilla-root]
     objective: "Turn the Q4/2026 roadmap promise of more complete Rondônia coverage into a measurable, recurring delivery outcome."
     origin: "README roadmap: Q4/2026 = cobertura RO mais completa + releases recorrentes."
-    next_action: "Run the S1-S4 tooling against production data to capture the first real baseline, then triage the remaining scheduled-workflow timeout/throttling failures (#136/#140/#141/#149)."
+    next_action: "Run the S1-S4 tooling against production data to capture the first real baseline. #141/#149's scope-split fix merged (PR #207) but needs a real scheduled run to verify before closing; #136/#140 stay deferred to pipeline-convergence."
     key_results:
       - id: "kr-ro-s1-s4-observable"
         status: met
@@ -55,10 +55,10 @@ fronts:
       - id: "kr-ro-recurring-cycle-health"
         status: active
         metric: "Consecutive scheduled discover/harvest/parse/release cycles without an unresolved systemic failure."
-        current: "#114 and #121 closed with evidence (2026-09-24): #121's transient-403/429-as-permanent-loss bug fixed via merged PR #190 (robots.py cache no longer poisoned by a transient failure; wayback.py fetch_bytes retries with backoff). #136/#140/#141/#149 remain open with root causes confirmed distinct from #121 and from each other: #136/#140 are the legacy rondonia_crawler.yml Playwright range-scan exceeding the 360min job timeout on high-volume sources; #141 is discover-harvest.yml hitting Internet Archive upload rate limits (~30% of runs); #149 is wayback-save.yml's fixed 2s/URL pacing exceeding the 360min budget on ~20% of runs. None of the three are fixable by raising timeout-minutes — 360min is the GitHub-hosted-runner ceiling — so each needs either scope-splitting (matrix/batched runs) or the rondonia_crawler.yml→discover-harvest.yml migration pipeline-convergence already tracks."
+        current: "#114 and #121 closed with evidence (2026-09-24): #121's transient-403/429-as-permanent-loss bug fixed via merged PR #190 (robots.py cache no longer poisoned by a transient failure; wayback.py fetch_bytes retries with backoff). #136/#140/#141/#149 remain open, root causes confirmed distinct from #121 and from each other: #136/#140 are the legacy rondonia_crawler.yml Playwright range-scan exceeding the 360min job timeout on high-volume sources (untouched — gated on pipeline-convergence); #141 is discover-harvest.yml hitting Internet Archive upload rate limits (~30% of runs); #149 is wayback-save.yml's fixed 2s/URL pacing exceeding the 360min budget on ~20% of runs. A scope-split implementation for #141/#149 merged via PR #207 (2026-09-25): wayback-save.yml now matrix-splits by tipo (mirroring discover-harvest.yml's existing pattern) instead of one job walking all 8 casacivil templates sequentially; discover-harvest.yml's matrix went from max-parallel 2→1 and default --limit 500→200 for smaller IA-upload bursts. This is an unverified implementation attempt — it has not yet been exercised against a real scheduled or workflow_dispatch run (PR author explicitly flagged this), so #141/#149 must stay open until a real run confirms the throttling/timeout stops."
         target: "2 consecutive complete scheduled cycles with no unresolved systemic failure and with per-source results visible."
         issues: [136, 140, 141, 149]
-        next_action: "Design a scope-split (matrix by tipo/fonte, or smaller per-run ranges) for wayback-save.yml and discover-harvest.yml so each run finishes inside the 360min ceiling; verify with a real scheduled run before closing #141/#149. #136/#140 close only once rondonia_crawler.yml is deprecated (pipeline-convergence)."
+        next_action: "Trigger (or wait for the next scheduled) wayback-save.yml and discover-harvest.yml runs and check the notify-run-failure issue trail; close #141/#149 referencing PR #207 only once a run (ideally 2 consecutive) confirms no more throttling/timeout. #136/#140 close only once rondonia_crawler.yml is deprecated (pipeline-convergence)."
 
   - id: "coverage-observability"
     kind: workstream
@@ -76,7 +76,8 @@ fronts:
     objective: "Prevent transient network, robots, quota or workflow failures from becoming silent permanent document loss."
     origin: "Production crawl/harvest failures and issue #121."
     issues: [136, 140, 141, 149]
-    next_action: "Issue #121 (the transient-failure-becomes-permanent-loss defect) is fixed and merged (PR #190). The remaining open issues (#136/#140/#141/#149) are scheduled-workflow timeout/throttling problems, not retry-semantics bugs — see kr-ro-recurring-cycle-health for the confirmed root causes and next action."
+    evidence_prs: [190, 207]
+    next_action: "Issue #121 (the transient-failure-becomes-permanent-loss defect) is fixed and merged (PR #190). #141/#149 (scheduled-workflow timeout/throttling) have an unverified scope-split fix merged (PR #207) — see kr-ro-recurring-cycle-health for what's still needed before closing. #136/#140 stay deferred to pipeline-convergence."
 
   - id: "pipeline-convergence"
     kind: workstream
@@ -94,8 +95,9 @@ fronts:
     parents: [ro-coverage-q4-2026]
     objective: "Make every published dataset release independently citable and reproducible while preserving a convenient latest pointer for the portal."
     origin: "Verified risk from #151: scheduled releases default to --version 0 while the frontend points at leizilla-dataset-ro-v0."
-    issues: [175, 196, 201]
-    next_action: "PR #198 (503-vs-404 existence-check fix) merged; the row-count floor guard now correctly reads `-latest`-then-legacy existence. The blocker to actually publishing `leizilla-dataset-ro-v0-latest` is now #201: 2 of the 20 already-parsed `ro` items fail the XSD gate (168 valid rows < 199-row floor). #203 (parser prompt fix for roman-numeral paths / null urn-lex) merged, but re-dispatching a targeted reparse of items 4 and 13 still logged 'OCR indisponível — skip' for both — root-caused live against archive.org: item 4's OCR derivative exists but only under its bare (unprefixed) upload filename, not the `{tipo}-{numero}`-prefixed name `resolve_raw_url()` expects (ADR-0011); item 13 has a valid raw PDF but IA never generated an OCR derivative under either filename at all. PR #204 fixes item 4 (bare-filename fallback in `fetch_ocr`/`fetch_ia_html`) — merge it, then re-dispatch `parse-release.yml` for item 4 only (`start=4 end=4 skip_existing=false`). Item 13 remains an external IA-side blocker (no derive queue output for that upload) with no code fix available here; even with item 4 fixed, 19/20 valid items is likely still short of the 199-row floor, so `-latest` probably stays unpublished and #196 stays open until item 13 is resolved (manual IA-side re-derive, or the floor is deliberately re-evaluated once 19/20 is the practical ceiling)."
+    issues: [175, 196, 201, 205]
+    evidence_prs: [198, 204, 210]
+    next_action: "Chain of fixes this session, in order: PR #198 (503-vs-404 existence-check) merged, so the row-count floor guard correctly reads `-latest`-then-legacy existence. #203 (parser prompt fix) merged but a targeted reparse of the 2 gate-rejected items (#201: item 4, item 13) still failed. PR #204 (merged) found and fixed the first layer: item 4's OCR derivative exists on IA only under its bare (unprefixed) upload filename, not the `{tipo}-{numero}`-prefixed name `resolve_raw_url()` expects (ADR-0011) — `fetch_ocr`/`fetch_ia_html` now retry the bare filename. Item 13 has a valid raw PDF but IA never generated an OCR derivative under either filename — that remains a genuine external IA-side blocker with no code fix available (auto-filed #205 the first time this surfaced). Re-dispatching `parse-release.yml` for item 4 after #204 merged still failed twice (runs 36077234920/36077295848) with a *different*, more serious bug: `parse_law()` was unconditionally sending an Anthropic-only `cache_control` param that litellm silently translates into a Gemini `cachedContent` request, hitting the free tier's `TotalCachedContentStorageTokensPerModelFreeTier=0` cap — this affected every Gemini-model parse call reaching that code path, not just item 4 (this repo's CI has no `ANTHROPIC_API_KEY`, so Gemini is the only production path). Fixed and merged in PR #210. Re-dispatched immediately after (run 36078510721): the LLM call now actually completes (confirming #210's fix works — no more 429), but item 4's response is malformed — `_extract_json` failed on a response wrapped in a ` ```json ` fence whose `xml` field value contains double-backslash-escaped quotes (invalid JSON string escaping), logged as 'LLM response has no extractable JSON'. This is a new, distinct, lower-severity finding (an LLM output-formatting quirk, not an infra/quota blocker) — not yet root-caused or fixed; needs its own investigation (whether `_extract_json`'s fence-stripping/parsing needs to tolerate this escaping pattern, or the prompt needs to discourage it) before item 4 can be re-attempted again. Item 13 remains the separate external IA-side blocker. `-latest` stays unpublished and #196 stays open until both items 4 and 13 are resolved (or a deliberate one-time floor exception is decided) — do not force the floor guard open to work around this."
 
   - id: "legal-semantic-integrity"
     kind: objective
@@ -103,7 +105,7 @@ fronts:
     parents: [leizilla-root]
     objective: "Ensure the structured dataset never states stronger legal provenance, temporal status or identity semantics than the underlying evidence supports."
     origin: "Post-go-live schema/ETL review found date, temporal and identifier conflation risks."
-    next_action: "Date-provenance, temporal-version and identifier-contract KRs are met. Only release-validation-gated remains active: decide whether the deferred urn_lex-canonicalization slice of #118 needs a narrower follow-up issue."
+    next_action: "Date-provenance, temporal-version and identifier-contract KRs are met. #195 (the deferred urn_lex-canonicalization slice of #118) closed via PR #206. Only release-validation-gated remains active, now solely on #201 (2 known-bad already-published items) — see that KR."
     key_results:
       - id: "kr-date-provenance-honest"
         status: active
@@ -132,8 +134,9 @@ fronts:
         metric: "Build/release boundaries that publish without the declared schema/quality floor checks."
         current: "Issue #118 closed (2026-09-24) via two merged PRs: `versao_id` uniqueness was already enforced pre-existing; PR #193 added the row-count floor guard on `release-dataset` (refuses to publish fewer rows than the currently published release, latest-pointer-first with legacy-item fallback); PR #192 added empty/missing `ia-id` rejection in `xml_to_rows` and wired the existing `_xsd_gate` into `consolidate` (previously only `parse`/`parse-all` ran it). Deliberately NOT done: a hard urn_lex-grammar validation at the export boundary (tracked as its own follow-up, issue #195, since it was found to regress the intentional lei_id-fallback degradation `_parse_lei_fields` uses for an unparseable/mis-cased urn-lex from PR #191/#127). PR #193's floor guard itself then blocked the actual first `-latest` release live in production — archive.org returns 503, not 404, for a file under a nonexistent item, which the guard read as inconclusive; fixed in PR #198 (existence check via `archive.org/metadata`) — see dataset-release-integrity/#196 for the live incident this caused."
         target: "All ETL-build and release boundaries fail closed on declared floor violations and emit actionable diagnostics."
-        issues: [118, 195, 201]
-        next_action: "None on #118 itself (closed). #195 (urn_lex canonicalization) is an open, independent follow-up — pick up when convenient, not release-blocking. #201 is the gate correctly doing its job: it rejects 2/20 already-published `ro` items on real XSD violations (roman-numeral path segments, literal `urn-lex=\"null\"`) — see dataset-release-integrity for the reparse/root-cause status (PR #204 fixes one of the two; the other is an external IA-side OCR-derivative gap)."
+        issues: [118, 201]
+        evidence_prs: [192, 193, 198, 206]
+        next_action: "None on #118 (closed). #195 (urn_lex prefix-corruption gate) closed via merged PR #206: `xml_to_rows` now rejects a present-but-corrupted `urn-lex` that doesn't start with `urn:lex:br` (e.g. the literal string \"null\"), without regressing the #127/#191 lei_id-fallback for grammar-level mismatches. #201 is the gate correctly doing its job: it rejects 2/20 already-published `ro` items on real XSD violations (roman-numeral path segments, literal `urn-lex=\"null\"`) — see dataset-release-integrity for the reparse/root-cause status (PR #204 + #210 fix the code paths; item 13 is an external IA-side gap)."
 
   - id: "date-provenance"
     kind: workstream
@@ -169,8 +172,9 @@ fronts:
     parents: [legal-semantic-integrity, dataset-release-integrity]
     objective: "Fail closed before publishing datasets that violate schema, identity, temporal or quality-floor contracts."
     origin: "Issue #118 and post-go-live audit findings."
-    issues: [118, 195, 201]
-    next_action: "See legal-semantic-integrity's kr-release-validation-gated for what's merged (PRs #192, #193, #198) and what's deliberately deferred (urn_lex canonicalization, tracked as its own follow-up issue #195). #201: PR #204 (open) fixes the parser's OCR-fetch fallback for one of the 2 gate-rejected items; see dataset-release-integrity for the other item's external IA-side blocker."
+    issues: [118, 201]
+    evidence_prs: [192, 193, 198, 206]
+    next_action: "See legal-semantic-integrity's kr-release-validation-gated for what's merged (PRs #192, #193, #198, #206 — #195 closed). #201: PR #204 (merged) fixes the parser's OCR-fetch fallback for one of the 2 gate-rejected items; PR #210 (merged) fixes a second, independently-discovered bug (Gemini cache_control quota) that was blocking the reparse itself — confirmed working (the LLM call now completes), but item 4's reparse then hit a third, distinct issue (malformed JSON escaping in the LLM response); see dataset-release-integrity for the full chain and the remaining external IA-side blocker (item 13)."
 
   - id: "public-surface-auditability"
     kind: objective
@@ -231,7 +235,7 @@ fronts:
     parents: [leizilla-root, dataset-release-integrity, legal-semantic-integrity]
     objective: "Expand the proven static/preserved pipeline to federal Planalto legislation in Q1/2027 without exporting unresolved RO semantic/release debt."
     origin: "README roadmap Q1/2027."
-    next_action: "#175 and #157 are resolved. #118 is substantially addressed (row-floor guard, ia-id/XSD gates merged) with only a narrow, deliberately-deferred urn_lex-canonicalization slice open — re-evaluate this blocker once that's explicitly closed or superseded by a follow-up issue. Maintain Planalto pipeline readiness in the meantime."
+    next_action: "#175, #157 and #195 (urn_lex gate, PR #206) are all resolved. #118 is fully addressed. Re-evaluate this blocker once #201 (2 known-bad already-published `ro` items) and the first `-latest` release (#196) are resolved — federal expansion shouldn't export the same class of unresolved release-quality debt. Maintain Planalto pipeline readiness in the meantime."
     blockers: [118]
 ---
 
