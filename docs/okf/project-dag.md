@@ -3,7 +3,7 @@ type: "Project Map"
 title: "Leizilla Project DAG"
 description: "Canonical OKF graph of Leizilla delivery fronts, OKRs, dependencies, blockers and next actions. Work branches and GitHub issues execute the graph; they are not the durable project ledger."
 tags: [leizilla, okf, project-dag, okr, delivery, governance]
-timestamp: 2026-09-24T20:15:00-04:00
+timestamp: 2026-09-24T20:08:00-04:00
 state_model: "project-dag-v1"
 graph_policy:
   source_of_truth: "this authored Markdown/OKF document"
@@ -41,7 +41,7 @@ fronts:
     key_results:
       - id: "kr-ro-s1-s4-observable"
         status: met
-        metric: "Number of canonical coverage stages (S1 discovered, S2 raw preserved, S3 text/OCR available, S4 structured/published) exposed machine-readably and on /cobertura/."
+        metric: "Number of canonical coverage stages (S1 archived, S2 identified, S3 text/OCR available, S4 structured/published) exposed machine-readably and on /cobertura/."
         current: "4/4 stages implemented: `src/leizilla/coverage.py` (S1-S4 aggregation, 22 tests), `leizilla coverage` CLI, and `/cobertura/` route. Issue #174 closed with evidence (2026-09-24)."
         target: "4/4 stages exposed with timestamp/provenance and source/type breakdown where available."
         issues: [174]
