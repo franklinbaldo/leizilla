@@ -1,6 +1,7 @@
 """Leizilla CLI — interface de linha de comando."""
 
 import asyncio
+import logging
 import os
 import re
 import subprocess
@@ -2137,6 +2138,15 @@ def cmd_wayback_save(
 
 
 def main() -> None:
+    # Sem isto, nenhum handler chega a ser anexado ao root logger e todo
+    # `logger.info`/`logger.debug` do pipeline (discovery.py, parser.py,
+    # publisher.py) é silenciosamente descartado — inclusive nos runs de CI,
+    # onde é a única fonte de diagnóstico disponível para depurar falhas
+    # (ex.: por que um HEAD-check em massa retornou 0 recursos).
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        format="%(levelname)s %(name)s: %(message)s",
+    )
     app()
 
 

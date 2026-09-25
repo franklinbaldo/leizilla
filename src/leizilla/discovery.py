@@ -208,8 +208,17 @@ def _head_exists(url: str, timeout: float = 10.0) -> bool:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status in (200, 302)
     except urllib.error.HTTPError as exc:
+        # 404/etc. é resposta normal — a URL candidata simplesmente não
+        # existe, não indica falha de infraestrutura.
         return exc.code in (200, 302)
-    except Exception:
+    except Exception as exc:
+        # Qualquer coisa além de um HTTPError normal (conexão recusada,
+        # timeout, TLS/WAF derrubando a conexão) é indistinguível de um 404
+        # para quem chama, mas é um sinal de infraestrutura genuíno — sem
+        # isto, um bloqueio silencioso (ex.: WAF anti-bot) produz o mesmo
+        # "recurso não existe" que um 404 real, tornando uma perda
+        # sistemática de descoberta indistinguível de "não há nada aqui".
+        logger.warning(f"HEAD check falhou (não é 404) para {url}: {exc!r}")
         return False
 
 
