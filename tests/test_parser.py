@@ -593,6 +593,29 @@ class TestParseLaw:
         block = kwargs["messages"][0]["content"][0]
         assert "cache_control" not in block
 
+    def test_disables_thinking_for_gemini_model(self):
+        # issue #201/#196 (run 36086040197): Gemini 2.5 Flash's "thinking"
+        # tokens count against max_tokens, so on this structured-extraction
+        # task they consumed most of the 4096-token budget before any
+        # visible output — finish_reason="length" with only 422 chars of
+        # JSON emitted. reasoning_effort="disable" (litellm → thinkingBudget
+        # 0) frees the whole budget for the actual response.
+        with _llm(_LLM_OK, keys={"GEMINI_API_KEY": "test-key"}) as m:
+            parser.parse_law("ocr text", _IA_ID, "ro", model="gemini/gemini-2.5-flash")
+
+        _, kwargs = m.call_args
+        assert kwargs.get("reasoning_effort") == "disable"
+
+    def test_no_reasoning_effort_for_anthropic_model(self):
+        # reasoning_effort is Gemini-specific here; must not leak into the
+        # Anthropic call (litellm.drop_params would silently drop it, but
+        # keep the request minimal and explicit about intent).
+        with _llm(_LLM_OK) as m:
+            parser.parse_law("ocr text", _IA_ID, "ro")
+
+        _, kwargs = m.call_args
+        assert "reasoning_effort" not in kwargs
+
     def test_zero_pads_numero(self):
         short_numero = json.dumps(
             {
