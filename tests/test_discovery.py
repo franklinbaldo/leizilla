@@ -138,6 +138,44 @@ def test_head_exists_warns_on_non_http_error(caplog):
     assert caplog.text == ""
 
 
+def test_wayback_snapshot_if_exists_uses_closest_snapshot():
+    """`_wayback_snapshot_if_exists` (PlanaltoDiscovery's existence check, issue
+    #262) delegates to `wayback.closest_snapshot` — the Internet Archive's own
+    availability API — instead of a direct HTTP request to the origin server.
+    This is what makes it immune to planalto.gov.br blocking/dropping direct
+    connections from GitHub Actions runners (confirmed live: 348/348 HEAD
+    checks failed with RemoteDisconnected/TimeoutError, never a real 404)."""
+    from leizilla.discovery import _wayback_snapshot_if_exists
+
+    with patch(
+        "leizilla.wayback.closest_snapshot",
+        return_value=("https://web.archive.org/web/20200101000000/x", "20200101000000"),
+    ):
+        assert (
+            _wayback_snapshot_if_exists("https://www.planalto.gov.br/x.htm")
+            == "https://web.archive.org/web/20200101000000/x"
+        )
+
+    with patch("leizilla.wayback.closest_snapshot", return_value=None):
+        assert _wayback_snapshot_if_exists("https://www.planalto.gov.br/x.htm") is None
+
+
+def test_wayback_snapshot_if_exists_fails_open_on_exception(caplog):
+    """A failure in the Internet Archive's own API (network hiccup on
+    archive.org itself) must fail open — same "not found" outcome as a
+    genuine miss, never an unhandled exception that would abort discovery."""
+    from leizilla.discovery import _wayback_snapshot_if_exists
+
+    with patch(
+        "leizilla.wayback.closest_snapshot", side_effect=OSError("network down")
+    ):
+        with caplog.at_level("WARNING", logger="leizilla.discovery"):
+            assert (
+                _wayback_snapshot_if_exists("https://www.planalto.gov.br/x.htm") is None
+            )
+    assert "x.htm" in caplog.text
+
+
 def test_sequential_discovery_head_check():
     """SequentialDiscovery with head_check=True only includes URLs that pass HEAD."""
     config = {
@@ -274,7 +312,10 @@ def test_planalto_discovery_basic():
         "leizilla.fontes.federal.discover_planalto_laws",
         side_effect=_fake_planalto_laws,
     ):
-        with patch("leizilla.discovery._head_exists", return_value=True):
+        with patch(
+            "leizilla.discovery._wayback_snapshot_if_exists",
+            return_value="https://web.archive.org/web/20200101000000/x",
+        ):
             resources = PlanaltoDiscovery(config, "federal", "planalto").run()
 
     assert len(resources) == 3
@@ -283,6 +324,9 @@ def test_planalto_discovery_basic():
     assert resources[0]["tipo_documento"] == "lei"
     assert resources[0]["chave"] == "lei-00001"
     assert resources[0]["url"] == "https://www.planalto.gov.br/ccivil_03/leis/L1.htm"
+    assert resources[0]["wayback_snapshot"] == (
+        "https://web.archive.org/web/20200101000000/x"
+    )
 
 
 def test_planalto_discovery_head_check_filters_missing():
@@ -294,14 +338,20 @@ def test_planalto_discovery_head_check_filters_missing():
         "head_check": True,
     }
 
-    def fake_head(url: str, timeout: float = 10.0) -> bool:
-        return any(f"/L{n}.htm" in url for n in [2, 4])
+    def fake_wayback_check(url: str) -> str | None:
+        for n in [2, 4]:
+            if f"/L{n}.htm" in url:
+                return f"https://web.archive.org/web/20200101000000/{url}"
+        return None
 
     with patch(
         "leizilla.fontes.federal.discover_planalto_laws",
         side_effect=_fake_planalto_laws,
     ):
-        with patch("leizilla.discovery._head_exists", side_effect=fake_head):
+        with patch(
+            "leizilla.discovery._wayback_snapshot_if_exists",
+            side_effect=fake_wayback_check,
+        ):
             resources = PlanaltoDiscovery(config, "federal", "planalto").run()
 
     assert [r["chave"] for r in resources] == ["lei-00002", "lei-00004"]
@@ -325,7 +375,10 @@ def test_planalto_discovery_skips_known_urls(temp_db):
         "leizilla.fontes.federal.discover_planalto_laws",
         side_effect=_fake_planalto_laws,
     ):
-        with patch("leizilla.discovery._head_exists", return_value=True):
+        with patch(
+            "leizilla.discovery._wayback_snapshot_if_exists",
+            return_value="https://web.archive.org/web/20200101000000/x",
+        ):
             resources = PlanaltoDiscovery(config, "federal", "planalto").run(temp_db)
 
     chaves = [r["chave"] for r in resources]

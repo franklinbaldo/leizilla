@@ -222,6 +222,32 @@ def _head_exists(url: str, timeout: float = 10.0) -> bool:
         return False
 
 
+def _wayback_snapshot_if_exists(url: str) -> Optional[str]:
+    """Retorna a URL do snapshot Wayback existente para ``url``, ou ``None``.
+
+    Existe para substituir `_head_exists` como verificação de existência do
+    Planalto (issue #262): uma verificação HEAD direta ao domínio de origem
+    falha sistematicamente a partir de runners do GitHub Actions — a
+    investigação ao vivo (run 36192448284, após a instrumentação de logging
+    de `logger.warning` em `_head_exists`) mostrou 348/348 candidatos
+    retornando `RemoteDisconnected`/`TimeoutError`, nunca um 404 real,
+    confirmando bloqueio de rede/WAF no runner, não ausência do recurso.
+    `wayback.closest_snapshot` consulta a API de disponibilidade do Internet
+    Archive (que busca o snapshot já capturado por ela, sem nova requisição
+    ao domínio de origem) — imune a esse bloqueio específico. Fail-open:
+    qualquer falha na API do IA devolve ``None`` (mesmo tratamento que um
+    404 real receberia).
+    """
+    from leizilla import wayback
+
+    try:
+        found = wayback.closest_snapshot(url)
+    except Exception as exc:
+        logger.warning(f"Wayback existence check falhou para {url}: {exc!r}")
+        return None
+    return found[0] if found is not None else None
+
+
 #: Fallback quando "end": "cdx-auto" não consegue resolver um limite (CDX vazia,
 #: com erro/timeout, ou sem capturas para o tipo). Mesmo valor que o antigo
 #: default hardcoded em `cmd_scrape`/casacivil (ADR: fail-open, nunca aborta).
@@ -505,6 +531,13 @@ class PlanaltoDiscovery:
     `head_check` (default True, diferente de `SequentialDiscovery`) importa
     mais aqui: numeração federal não tem a densidade quase-contígua da RO, e
     sem verificação um range grande (milhares) geraria majoritariamente 404s.
+    Apesar do nome (mantido por compatibilidade com o manifesto), a verificação
+    é feita via `_wayback_snapshot_if_exists` (API de disponibilidade do
+    Internet Archive), não por HEAD direto ao domínio de origem — planalto.gov.br
+    bloqueia/derruba requisições HTTP diretas de runners do GitHub Actions
+    (confirmado issue #262, 348/348 candidatos com RemoteDisconnected/
+    TimeoutError, nunca um 404 real), tornando o antigo `_head_exists`
+    indistinguível de "nada existe" nesse ambiente.
     """
 
     def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
@@ -528,7 +561,7 @@ class PlanaltoDiscovery:
         candidates = discover_planalto_laws(self.tipo, self.start, self.end)
 
         resources = []
-        last_head_time = 0.0
+        last_check_time = 0.0
         for law in candidates:
             url = law["url_original"]
 
@@ -543,14 +576,15 @@ class PlanaltoDiscovery:
                 except Exception as e:
                     logger.warning(f"Error checking DB for URL {url}: {e}")
 
+            wayback_snapshot = None
             if self.head_check:
-                elapsed = time.monotonic() - last_head_time
+                elapsed = time.monotonic() - last_check_time
                 if elapsed < _HEAD_RATE_LIMIT_S:
                     time.sleep(_HEAD_RATE_LIMIT_S - elapsed)
-                exists = _head_exists(url)
-                last_head_time = time.monotonic()
-                if not exists:
-                    logger.debug(f"HEAD 404/error — skipping {url}")
+                wayback_snapshot = _wayback_snapshot_if_exists(url)
+                last_check_time = time.monotonic()
+                if wayback_snapshot is None:
+                    logger.debug(f"Sem captura Wayback — skipping {url}")
                     continue
 
             resources.append(
@@ -561,7 +595,7 @@ class PlanaltoDiscovery:
                     "tipo_documento": law["tipo"],
                     "chave": law["chave"],
                     "status": "pending",
-                    "wayback_snapshot": None,
+                    "wayback_snapshot": wayback_snapshot,
                 }
             )
         logger.info(
