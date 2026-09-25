@@ -40,6 +40,7 @@ function makeRow(overrides: Partial<LeiRow> = {}): LeiRow {
     ate: null,
     alterado_por: null,
     inicio_tipo: 'data-publicacao',
+    inicio_fontes: null,
     fontes: null,
     num_fontes: 0,
     tem_divergencia: false,

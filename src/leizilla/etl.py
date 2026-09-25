@@ -198,6 +198,7 @@ PARQUET_SCHEMA: dict[str, str] = {
     "ate": "DATE",
     "alterado_por": "VARCHAR",
     "inicio_tipo": "VARCHAR",
+    "inicio_fontes": "VARCHAR",
     "texto": "VARCHAR",
     "texto_normalizado": "VARCHAR",
     "fontes": "VARCHAR",
@@ -331,6 +332,7 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                     ate = None
 
                 inicio_elem = versao.find(f"{{{NS}}}inicio")
+                inicio_fontes: Optional[str] = None
                 if inicio_elem is not None:
                     inicio_tipo = inicio_elem.get("tipo")
                     if not inicio_tipo:
@@ -344,6 +346,25 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                             "so); it must never silently default to "
                             "data-publicacao."
                         )
+                    # Issue #229: the XSD requires <inicio> to carry its own
+                    # <fonte> evidence (proof of the publication/vigência
+                    # claim), but until now it was only read for XSD
+                    # validation and dropped before reaching the Parquet —
+                    # so even a legitimate data-publicacao claim had no
+                    # visible evidence in the published dataset/UI. Mirrors
+                    # the same ia-id fail-closed gate as the versao-level
+                    # fontes loop below.
+                    inicio_fontes_list: list[dict[str, Any]] = []
+                    for fonte in inicio_elem.findall(f"{{{NS}}}fonte"):
+                        ia_id = fonte.get("ia-id", "")
+                        if not ia_id:
+                            raise ValueError(
+                                f"<inicio><fonte> without ia-id in "
+                                f"dispositivo {path!r} of {lei_id!r} — every "
+                                "fonte must reference a raw IA item."
+                            )
+                        inicio_fontes_list.append({"ia_id": ia_id})
+                    inicio_fontes = json.dumps(inicio_fontes_list, ensure_ascii=False)
                 elif alterado_por:
                     inicio_tipo = "texto-lei-alteradora"
                 else:
@@ -393,6 +414,7 @@ def xml_to_rows(xml_content: str, lei_id: str, ente: str) -> list[dict[str, Any]
                         "ate": ate,
                         "alterado_por": alterado_por,
                         "inicio_tipo": inicio_tipo,
+                        "inicio_fontes": inicio_fontes,
                         "texto": texto,
                         "texto_normalizado": _normalize_texto(texto) if texto else None,
                         "fontes": json.dumps(fontes_list, ensure_ascii=False),

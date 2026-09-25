@@ -242,6 +242,7 @@ export const EXPORT_COLUMNS: Array<keyof LeiRow> = [
   'ate',
   'alterado_por',
   'inicio_tipo',
+  'inicio_fontes',
   'fontes',
   'num_fontes',
   'tem_divergencia',

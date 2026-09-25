@@ -246,6 +246,7 @@ export interface LeiRow {
   ate: string | Date | null;
   alterado_por: string | null;
   inicio_tipo: string;
+  inicio_fontes: string | null;
   fontes: string | null;
   num_fontes: number;
   tem_divergencia: boolean;

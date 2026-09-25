@@ -2,7 +2,7 @@
   // Linha do tempo por dispositivo — apenas o que o dataset registra hoje.
   // A consolidação temporal entre normas (S5) ainda não existe; dizemos isso.
   import type { LeiRow } from '../../lib/db';
-  import { breadcrumb } from '../../lib/format';
+  import { breadcrumb, iaDetailsUrl, parseFontes } from '../../lib/format';
   import { fmtDate, groupHistorico, inicioTipoLabel } from './model';
 
   let { rows }: { rows: LeiRow[] } = $props();
@@ -36,6 +36,16 @@
               até <strong>{v.ate == null ? 'vigente' : fmtDate(v.ate)}</strong>
             </span>
             <span class="inicio">— {inicioTipoLabel(v.inicio_tipo)}</span>
+            {#if parseFontes(v.inicio_fontes).length > 0}
+              <span class="inicio-evidencia">
+                (evidência:
+                {#each parseFontes(v.inicio_fontes) as fonte, i (fonte.ia_id)}
+                  {i > 0 ? ', ' : ''}<a href={iaDetailsUrl(fonte.ia_id)} target="_blank" rel="noreferrer"
+                    >{fonte.ia_id}</a
+                  >
+                {/each})
+              </span>
+            {/if}
             {#if v.alterado_por}
               <span class="alterado">— alterado por <code>{v.alterado_por}</code></span>
             {/if}
@@ -68,6 +78,7 @@
     font-size: 0.92em;
   }
   .inicio,
+  .inicio-evidencia,
   .alterado {
     color: var(--pico-muted-color, #666);
   }

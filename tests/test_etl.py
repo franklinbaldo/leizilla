@@ -522,6 +522,7 @@ class TestWriteParquet:
             "ate": None,
             "alterado_por": None,
             "inicio_tipo": "data-publicacao",
+            "inicio_fontes": None,
             "texto": None,
             "texto_normalizado": None,
             "fontes": "[]",
