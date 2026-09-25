@@ -197,7 +197,8 @@ manifest exists.
 - `lint.yml` gates every PR: ruff check, ruff format-check, mypy, pytest.
 - `schema-validate.yml` runs xmllint/xsltproc + the consistency checker when
   schema, fixtures, or related tests change.
-- Weakly covered today: `ocr.py`; `config.py` and `entes.py` have no direct tests.
+- `ocr.py`, `config.py` and `entes.py` all have direct test files
+  (`tests/test_ocr.py`, `tests/test_config.py`, `tests/test_entes.py`).
 
 ## Conventions
 

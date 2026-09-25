@@ -3,7 +3,7 @@ type: "Project Map"
 title: "Leizilla Project DAG"
 description: "Canonical OKF graph of Leizilla delivery fronts, OKRs, dependencies, blockers and next actions. Work branches and GitHub issues execute the graph; they are not the durable project ledger."
 tags: [leizilla, okf, project-dag, okr, delivery, governance]
-timestamp: 2026-09-25T01:35:00-04:00
+timestamp: 2026-09-25T01:31:00+00:00
 state_model: "project-dag-v1"
 graph_policy:
   source_of_truth: "this authored Markdown/OKF document"
@@ -85,9 +85,9 @@ fronts:
     parents: [ro-coverage-q4-2026, ingestion-resilience]
     objective: "Converge the legacy scrape path and manifest-driven discover→harvest path without regressing coverage or observability."
     origin: "RFC-0003; production fixes #93/#94 removed the original blocker."
-    issues: []
+    issues: [95]
     evidence_prs: [173, 179]
-    next_action: "RFC-0003 Fase 1 is done (#176 implemented cdx-auto in discovery, merged via PR #179). #136/#140 (rondonia_crawler.yml timing out on high-volume Playwright range-scans) now give a concrete forcing function to plan the workflow redirection; still defer actually deprecating rondonia_crawler.yml until discover-harvest.yml has two clean weekly cycles as originally planned."
+    next_action: "RFC-0003 Fase 1 is done (#176 implemented cdx-auto in discovery, merged via PR #179). #136/#140 (rondonia_crawler.yml timing out on high-volume Playwright range-scans) now give a concrete forcing function to plan the workflow redirection; still defer actually deprecating rondonia_crawler.yml until discover-harvest.yml has two clean weekly cycles as originally planned. Issue #95 (broader PRD: CaptureRef model, sources/ restructuring, LLM/compiler split) proposes a materially larger refactor than RFC-0003's scrape→harvest convergence — triaged 2026-09-25 and kept open as long-horizon reference, not folded into this workstream's Fase 2/3; fork a dedicated node from here if/when that broader refactor actually starts."
 
   - id: "dataset-release-integrity"
     kind: workstream
@@ -96,8 +96,8 @@ fronts:
     objective: "Make every published dataset release independently citable and reproducible while preserving a convenient latest pointer for the portal."
     origin: "Verified risk from #151: scheduled releases default to --version 0 while the frontend points at leizilla-dataset-ro-v0."
     issues: [175, 196, 201, 205]
-    evidence_prs: [198, 204, 210]
-    next_action: "Chain of fixes this session, in order: PR #198 (503-vs-404 existence-check) merged, so the row-count floor guard correctly reads `-latest`-then-legacy existence. #203 (parser prompt fix) merged but a targeted reparse of the 2 gate-rejected items (#201: item 4, item 13) still failed. PR #204 (merged) found and fixed the first layer: item 4's OCR derivative exists on IA only under its bare (unprefixed) upload filename, not the `{tipo}-{numero}`-prefixed name `resolve_raw_url()` expects (ADR-0011) — `fetch_ocr`/`fetch_ia_html` now retry the bare filename. Item 13 has a valid raw PDF but IA never generated an OCR derivative under either filename — that remains a genuine external IA-side blocker with no code fix available (auto-filed #205 the first time this surfaced). Re-dispatching `parse-release.yml` for item 4 after #204 merged still failed twice (runs 36077234920/36077295848) with a *different*, more serious bug: `parse_law()` was unconditionally sending an Anthropic-only `cache_control` param that litellm silently translates into a Gemini `cachedContent` request, hitting the free tier's `TotalCachedContentStorageTokensPerModelFreeTier=0` cap — this affected every Gemini-model parse call reaching that code path, not just item 4 (this repo's CI has no `ANTHROPIC_API_KEY`, so Gemini is the only production path). Fixed and merged in PR #210. Re-dispatched immediately after (run 36078510721): the LLM call now actually completes (confirming #210's fix works — no more 429), but item 4's response is malformed — `_extract_json` failed on a response wrapped in a ` ```json ` fence whose `xml` field value contains double-backslash-escaped quotes (invalid JSON string escaping), logged as 'LLM response has no extractable JSON'. This is a new, distinct, lower-severity finding (an LLM output-formatting quirk, not an infra/quota blocker) — not yet root-caused or fixed; needs its own investigation (whether `_extract_json`'s fence-stripping/parsing needs to tolerate this escaping pattern, or the prompt needs to discourage it) before item 4 can be re-attempted again. Item 13 remains the separate external IA-side blocker. `-latest` stays unpublished and #196 stays open until both items 4 and 13 are resolved (or a deliberate one-time floor exception is decided) — do not force the floor guard open to work around this."
+    evidence_prs: [198, 204, 210, 213, 215]
+    next_action: "Chain of fixes, in order: PR #198 (503-vs-404 existence-check), #203 (parser prompt fix), #204 (OCR bare-filename fallback for item 4) and #210 (Gemini `cache_control` quota fix) are all merged — item 4's LLM call now completes instead of failing on OCR resolution or 429ing. Re-dispatching `parse-release.yml` for item 4 after #210 (run 36078510721) then hit a third bug: `_extract_json` failed on a response with over-escaped quotes in the `xml` field. PR #213 (merged) fixed that. A dry-run re-dispatch of `parse-release.yml` for item 4 right after #213 merged (run 36082463634, this session) still failed with the same 'no extractable JSON' error — but the existing log only printed the first 300 chars, which decode to well-formed JSON, so whatever actually breaks the parse is later in the response and was invisible. Likely cause: `max_tokens=4096` truncating a longer `lei` mid-XML, never closing the JSON string/object — but unconfirmed. PR #215 (open) adds `finish_reason` and both head+tail of the response to the log so the next failure is diagnosable. Once #215 merges, dispatch `parse-release.yml` for item 4 again (dry-run first) to see the real defect and fix it. Item 13 remains a separate external IA-side blocker (no OCR derivative under either filename) with no code fix available. `-latest` stays unpublished and #196 stays open until both items 4 and 13 are resolved (or a deliberate one-time floor exception is decided) — do not force the floor guard open to work around this."
 
   - id: "legal-semantic-integrity"
     kind: objective
@@ -135,8 +135,8 @@ fronts:
         current: "Issue #118 closed (2026-09-24) via two merged PRs: `versao_id` uniqueness was already enforced pre-existing; PR #193 added the row-count floor guard on `release-dataset` (refuses to publish fewer rows than the currently published release, latest-pointer-first with legacy-item fallback); PR #192 added empty/missing `ia-id` rejection in `xml_to_rows` and wired the existing `_xsd_gate` into `consolidate` (previously only `parse`/`parse-all` ran it). Deliberately NOT done: a hard urn_lex-grammar validation at the export boundary (tracked as its own follow-up, issue #195, since it was found to regress the intentional lei_id-fallback degradation `_parse_lei_fields` uses for an unparseable/mis-cased urn-lex from PR #191/#127). PR #193's floor guard itself then blocked the actual first `-latest` release live in production — archive.org returns 503, not 404, for a file under a nonexistent item, which the guard read as inconclusive; fixed in PR #198 (existence check via `archive.org/metadata`) — see dataset-release-integrity/#196 for the live incident this caused."
         target: "All ETL-build and release boundaries fail closed on declared floor violations and emit actionable diagnostics."
         issues: [118, 201]
-        evidence_prs: [192, 193, 198, 206]
-        next_action: "None on #118 (closed). #195 (urn_lex prefix-corruption gate) closed via merged PR #206: `xml_to_rows` now rejects a present-but-corrupted `urn-lex` that doesn't start with `urn:lex:br` (e.g. the literal string \"null\"), without regressing the #127/#191 lei_id-fallback for grammar-level mismatches. #201 is the gate correctly doing its job: it rejects 2/20 already-published `ro` items on real XSD violations (roman-numeral path segments, literal `urn-lex=\"null\"`) — see dataset-release-integrity for the reparse/root-cause status (PR #204 + #210 fix the code paths; item 13 is an external IA-side gap)."
+        evidence_prs: [192, 193, 198, 206, 213]
+        next_action: "None on #118 (closed). #195 (urn_lex prefix-corruption gate) closed via merged PR #206: `xml_to_rows` now rejects a present-but-corrupted `urn-lex` that doesn't start with `urn:lex:br` (e.g. the literal string \"null\"), without regressing the #127/#191 lei_id-fallback for grammar-level mismatches. #201 is the gate correctly doing its job: it rejects 2/20 already-published `ro` items on real XSD violations (roman-numeral path segments, literal `urn-lex=\"null\"`) — see dataset-release-integrity for the reparse/root-cause status (PR #204 + #210 fix the code paths; PR #213, open, fixes the third bug found mid-reparse — `_extract_json` tolerating over-escaped LLM JSON; item 13 is an external IA-side gap)."
 
   - id: "date-provenance"
     kind: workstream
@@ -173,8 +173,8 @@ fronts:
     objective: "Fail closed before publishing datasets that violate schema, identity, temporal or quality-floor contracts."
     origin: "Issue #118 and post-go-live audit findings."
     issues: [118, 201]
-    evidence_prs: [192, 193, 198, 206]
-    next_action: "See legal-semantic-integrity's kr-release-validation-gated for what's merged (PRs #192, #193, #198, #206 — #195 closed). #201: PR #204 (merged) fixes the parser's OCR-fetch fallback for one of the 2 gate-rejected items; PR #210 (merged) fixes a second, independently-discovered bug (Gemini cache_control quota) that was blocking the reparse itself — confirmed working (the LLM call now completes), but item 4's reparse then hit a third, distinct issue (malformed JSON escaping in the LLM response); see dataset-release-integrity for the full chain and the remaining external IA-side blocker (item 13)."
+    evidence_prs: [192, 193, 198, 206, 213, 215]
+    next_action: "See legal-semantic-integrity's kr-release-validation-gated for what's merged (PRs #192, #193, #198, #206 — #195 closed). #201: PR #204 (merged) fixes the parser's OCR-fetch fallback for one of the 2 gate-rejected items; PR #210 (merged) fixes a second bug (Gemini cache_control quota); PR #213 (merged) fixes a third (over-escaped JSON quotes). A post-#213 dry-run re-dispatch for item 4 still failed the same way, invisible in the truncated log — PR #215 (open) adds enough diagnostic detail (finish_reason, response head+tail) to actually root-cause the next failure. See dataset-release-integrity for the full chain and the remaining external IA-side blocker (item 13)."
 
   - id: "public-surface-auditability"
     kind: objective
@@ -235,8 +235,10 @@ fronts:
     parents: [leizilla-root, dataset-release-integrity, legal-semantic-integrity]
     objective: "Expand the proven static/preserved pipeline to federal Planalto legislation in Q1/2027 without exporting unresolved RO semantic/release debt."
     origin: "README roadmap Q1/2027."
-    next_action: "#175, #157 and #195 (urn_lex gate, PR #206) are all resolved. #118 is fully addressed. Re-evaluate this blocker once #201 (2 known-bad already-published `ro` items) and the first `-latest` release (#196) are resolved — federal expansion shouldn't export the same class of unresolved release-quality debt. Maintain Planalto pipeline readiness in the meantime."
-    blockers: [118]
+    next_action: "#175, #157, #118 and #195 (urn_lex gate, PR #206) are all resolved. Re-evaluate this blocker once #201 (2 known-bad already-published `ro` items) and the first `-latest` release (#196) are resolved — federal expansion shouldn't export the same class of unresolved release-quality debt. Maintain Planalto pipeline readiness in the meantime."
+    blockers:
+      - "Issue #201 — 2 known-bad already-published ro items still failing the release XSD gate."
+      - "Issue #196 — the first -latest dataset release is still unpublished."
 ---
 
 # Leizilla Project DAG
