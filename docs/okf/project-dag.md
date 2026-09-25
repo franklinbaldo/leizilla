@@ -87,7 +87,7 @@ fronts:
     origin: "RFC-0003; production fixes #93/#94 removed the original blocker."
     issues: [95]
     evidence_prs: [173, 179]
-    next_action: "RFC-0003 Fase 1 is done (#176 implemented cdx-auto in discovery, merged via PR #179). #136/#140 (rondonia_crawler.yml timing out on high-volume Playwright range-scans) now give a concrete forcing function to plan the workflow redirection; still defer actually deprecating rondonia_crawler.yml until discover-harvest.yml has two clean weekly cycles as originally planned. Issue #95 (broader PRD: CaptureRef model, sources/ restructuring, LLM/compiler split) proposes a materially larger refactor than RFC-0003's scrape→harvest convergence — triaged 2026-09-25 and kept open as long-horizon reference, not folded into this workstream's Fase 2/3; fork a dedicated node from here if/when that broader refactor actually starts."
+    next_action: "RFC-0003 Fase 1 is done. Production run 36082100347 exposed a bounded Fase 2 inefficiency: each type job reruns the full casacivil discovery before harvesting; the first discovery enumerated 78,144 resources and took about 91 minutes, so max-parallel=1 multiplies this fixed cost across types. Next safe slice: run discovery once per workflow and share its ephemeral queue with serialized harvest jobs; keep #136/#140 open until the new path proves two clean weekly cycles. Issue #95 remains a broader long-horizon refactor, not part of this bounded slice."
 
   - id: "dataset-release-integrity"
     kind: workstream
