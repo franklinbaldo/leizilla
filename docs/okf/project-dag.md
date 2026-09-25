@@ -95,7 +95,7 @@ fronts:
     objective: "Make every published dataset release independently citable and reproducible while preserving a convenient latest pointer for the portal."
     origin: "Verified risk from #151: scheduled releases default to --version 0 while the frontend points at leizilla-dataset-ro-v0."
     issues: [175, 196, 201]
-    next_action: "Address issues #201 and #196 using current release-validation evidence."
+    next_action: "Issue #201 remains: current clean candidate is 168 rows against a 199-row floor; #203 prevents recurrence. Reprocess the 2 historical items and rerun #196."
 
   - id: "legal-semantic-integrity"
     kind: objective
