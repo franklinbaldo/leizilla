@@ -298,6 +298,26 @@ class TestExtractJson:
     def test_returns_none_on_empty(self):
         assert parser._extract_json("") is None
 
+    def test_tolerates_over_escaped_quotes_in_fenced_response(self):
+        # Reproduces issue #201/dataset-release-integrity's item-4 finding:
+        # the model wrapped its reply in a ```json fence and over-escaped a
+        # quote inside the "xml" field (\\" instead of \"), which otherwise
+        # terminates the JSON string early and breaks the whole parse.
+        raw = (
+            "```json\n"
+            '{"xml": "<lei><dispositivo texto=\\\\"art. 1\\\\"></dispositivo></lei>", '
+            '"confidence": 0.9}\n'
+            "```"
+        )
+        result = parser._extract_json(raw)
+        assert result is not None
+        assert result["confidence"] == 0.9
+        assert result["xml"] == '<lei><dispositivo texto="art. 1"></dispositivo></lei>'
+
+    def test_does_not_mask_genuinely_invalid_json(self):
+        raw = '{"xml": "<lei>", "confidence": '
+        assert parser._extract_json(raw) is None
+
 
 class TestIsWellFormed:
     def test_valid_xml(self):
