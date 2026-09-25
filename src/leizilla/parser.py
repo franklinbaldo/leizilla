@@ -407,22 +407,27 @@ def parse_law(
     # Import lazy: litellm é pesado e não deve atrasar comandos que não parseiam.
     import litellm
 
-    litellm.drop_params = True  # descarta cache_control em providers sem suporte
+    litellm.drop_params = True  # descarta params não suportados no provider
+
+    system_block: Dict[str, Any] = {"type": "text", "text": system}
+    if model.startswith(("claude", "anthropic/")):
+        # Prompt caching (Anthropic only): no content block, nunca no root da
+        # mensagem — a objeção que fechou a PR #59. `litellm.drop_params`
+        # descarta params inválidos, mas não protege daqui: para Gemini,
+        # litellm traduz `cache_control` numa cachedContent explícita em vez
+        # de ignorá-la, e o free tier tem
+        # TotalCachedContentStorageTokensPerModelFreeTier=0 — todo parse via
+        # Gemini falhava com 429 RESOURCE_EXHAUSTED antes desta guarda
+        # (achado ao investigar a issue #201/#205).
+        system_block["cache_control"] = {"type": "ephemeral"}
+
     response = litellm.completion(
         model=model,
         max_tokens=4096,
         messages=[
             {
                 "role": "system",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": system,
-                        # Prompt caching (Anthropic): no content block, nunca no
-                        # root da mensagem — a objeção que fechou a PR #59.
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
+                "content": [system_block],
             },
             {
                 "role": "user",
