@@ -369,6 +369,7 @@ Agrupadas por origem (lei / dispositivo / versão). Toda metadata de lei e dispo
 | `ate` | DATE | YES | inferido; NULL = ainda vigente |
 | `alterado_por` | VARCHAR | YES | URN da lei alteradora |
 | `inicio_tipo` | VARCHAR | NO | enum: `data-ato` (default; data do ato via URN, não é prova de publicação) / `data-publicacao` (publicação comprovada) / `texto-lei-alteradora` / `vacatio-legis` / `consolidacao` / `inferencia-llm` / `decisao-judicial` |
+| `inicio_fontes` | VARCHAR (JSON) | YES | array de `{ia_id}` — testemunhos do `<inicio>` (a prova da alegação de `inicio_tipo`); NULL quando não há `<inicio>` explícito no XML (issue #229) |
 | `texto` | VARCHAR | YES | texto canônico estabelecido |
 | `texto_normalizado` | VARCHAR | YES | NFC + cleanup; NOT NULL quando `texto` NOT NULL |
 | `fontes` | VARCHAR (JSON) | NO | array de `{ia_id, diverge?, texto_divergente?}` |
