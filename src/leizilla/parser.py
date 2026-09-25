@@ -49,7 +49,17 @@ _PROVIDER_ENV_VARS: Tuple[Tuple[Tuple[str, ...], Tuple[str, ...]], ...] = (
 )
 _USER_AGENT = "leizilla-crawler/0.1"
 _MIN_CONFIDENCE = 0.5
-_OCR_CHAR_LIMIT = 8000
+# Issue #151 item 4 flagged (but deliberately did not reject) OCR beyond this
+# limit via `texto_truncado` in parsed_meta.json — raising the limit itself
+# was named there as the follow-up. Confirmed live 2026-09-25 (issue #201/
+# #220 investigation): leizilla-ro-lei-00004-1983's raw OCR is 12788 chars;
+# at the old 8000-char limit, the LLM only ever saw ~63% of the law and
+# correctly parsed just what it received — 3 dispositivos instead of the
+# 20 in the previously published (pre-regression) version, silently
+# shrinking the released dataset by 17 rows. 24000 covers that document
+# (and the free-tier model's real context budget) with margin; genuinely
+# longer OCR still gets flagged via `texto_truncado` rather than rejected.
+_OCR_CHAR_LIMIT = 24000
 _HTML_CHAR_LIMIT = 32000  # HTML has markup overhead; more chars needed
 
 # URN local name per ente code (CGPID §5.6)
@@ -497,7 +507,12 @@ def parse_law(
 
     response = litellm.completion(
         model=model,
-        max_tokens=4096,
+        # Raised alongside _OCR_CHAR_LIMIT (24000 chars, ~6-8k tokens of
+        # input): the previous 4096-token output budget was sized for the
+        # old 8000-char input ceiling. A larger input with the same output
+        # cap would just move the truncation from the input side to the
+        # output side instead of fixing it.
+        max_tokens=16000,
         **completion_kwargs,
         messages=[
             {
