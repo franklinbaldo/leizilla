@@ -28,6 +28,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('getDuckdbSourceUrl', () => {
+  // Regression: astro.config.mjs's `base: '/leizilla'` has no trailing slash, and
+  // import.meta.env.BASE_URL preserves that exactly — naively concatenating
+  // `${base}data/...` produced `/leizilladata/ro/versoes.parquet` in production
+  // (confirmed live: a 404, DuckDB-WASM never found the mirror). getDuckdbSourceUrl
+  // must normalize the join the same way web/src/lib/format.ts's withBase() does.
+  it('inserts exactly one slash between a base without a trailing slash and the data path', () => {
+    const originalBase = import.meta.env.BASE_URL;
+    (import.meta.env as Record<string, string>).BASE_URL = '/leizilla';
+    try {
+      const url = getDuckdbSourceUrl();
+      expect(url).not.toContain('leizilladata');
+      expect(new URL(url).pathname).toBe('/leizilla/data/ro/versoes.parquet');
+    } finally {
+      (import.meta.env as Record<string, string>).BASE_URL = originalBase;
+    }
+  });
+});
+
 describe('probeDatasetAccess', () => {
   // ADR-0014: DuckDB-WASM reads a same-origin mirror of the Parquet by default
   // (getDuckdbSourceUrl()), not the archive.org item directly — archive.org never

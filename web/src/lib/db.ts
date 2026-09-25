@@ -32,8 +32,14 @@ export function getDuckdbSourceUrl(): string {
   if (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_DUCKDB_SOURCE_URL) {
     return import.meta.env.PUBLIC_DUCKDB_SOURCE_URL as string;
   }
-  const base = (typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL) || '/';
-  const relative = `${base}data/ro/versoes.parquet`;
+  // BASE_URL's trailing slash isn't guaranteed (astro.config.mjs sets base without one) —
+  // strip it and rejoin explicitly, same normalization web/src/lib/format.ts's withBase()
+  // already uses, to avoid a `leizilladata/...` concatenation bug.
+  const base = (
+    (typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL) ||
+    '/'
+  ).replace(/\/$/, '');
+  const relative = `${base}/data/ro/versoes.parquet`;
   if (typeof window !== 'undefined' && window.location) {
     return new URL(relative, window.location.href).toString();
   }
