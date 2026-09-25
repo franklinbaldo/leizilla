@@ -263,13 +263,12 @@ def fetch_ia_html(ia_id: str, timeout: int = 30) -> Optional[str]:
     return fetch_html(fallback_url, timeout=timeout)
 
 
-def _extract_json(text: str) -> Optional[Dict[str, Any]]:
-    """Extract JSON from LLM response, handling wrapped or embedded JSON.
+def _try_parse_json_object(text: str) -> Optional[Dict[str, Any]]:
+    """Try direct parse, then scan for embedded '{' start positions.
 
     Uses JSONDecoder.raw_decode to scan for object start positions — avoids
     the ReDoS risk of greedy regex on untrusted LLM output with nested braces.
     """
-    text = text.strip()
     try:
         result = json.loads(text)
         if isinstance(result, dict):
@@ -286,6 +285,22 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
             except json.JSONDecodeError:
                 continue
     return None
+
+
+def _extract_json(text: str) -> Optional[Dict[str, Any]]:
+    """Extract JSON from LLM response, handling wrapped or embedded JSON.
+
+    Some models over-escape quotes inside a string field (e.g. a `"xml"`
+    value containing `\\"` where plain `\"` was meant), which prematurely
+    terminates the JSON string and breaks parsing (issue #201/dataset-
+    release-integrity, item 4). When the direct parse fails, retry once
+    with that one extra backslash collapsed before giving up.
+    """
+    text = text.strip()
+    result = _try_parse_json_object(text)
+    if result is not None:
+        return result
+    return _try_parse_json_object(text.replace('\\\\"', '\\"'))
 
 
 def required_env_for(model: str) -> Optional[Tuple[str, ...]]:
