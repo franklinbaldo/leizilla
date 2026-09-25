@@ -2080,6 +2080,37 @@ Outras decisões do mesmo review já incorporadas em SCHEMA.md:
 - **Divergências registradas** em `parsed_meta.json.tem_divergencia` + `parsed_meta.json.num_divergencias` (flag rápido), tabela Parquet `versoes.divergencias` (JSON com diff por versão de dispositivo), e elemento `<divergencia>` em `law.xml`.
 - **Frontend**: `LawCard.svelte` mostra badge "⚠ Divergência entre fontes" com modal; banner adicional se `confianca_parse < 0.8` ou `parse_method` for LLM.
 
+### 2026-09-25 — Sessão de stewardship: ADR-0013 (proxy CORS), reprodução em produção, dívida de teste
+- **ADR-0013** (`docs/adr/0013-cors-proxy-parquet-browser-read.md`): registra a decisão
+  arquitetural pendente da issue #223 — portar o Cloudflare Worker de `causaganha`
+  (issue #1482/PR #1521 lá) como correção principal do bloqueio de CORS do IA para
+  `.parquet`, e reportar o gap ao Internet Archive em paralelo (não-bloqueante).
+  Implementação segue bloqueada por falta de credencial Cloudflare.
+- **Reprodução ao vivo contra o site publicado de verdade** (não só `astro dev` local
+  ou archive.org genericamente): `curl -L` contra o exato ponteiro `-latest` que
+  `web/src/lib/db.ts` usa (`leizilla-dataset-ro-v0-latest/versoes.parquet`) com
+  `Origin: https://franklinbaldo.github.io` confirma 206 sem
+  `access-control-allow-origin`, enquanto `dataset_meta.json` do mesmo item tem o
+  header. Fecha o item 1 da "próxima ação" da issue #223.
+- **Item 13 (issue #201) — leitura revisada**: consultar
+  `archive.org/metadata/leizilla_ro_casacivil_lei_0001-1000` (item raw real, por
+  ADR-0011, não um item por-documento) mostra que o item tem ~140 tarefas
+  `archive.php` pendentes (`status: queued`) — o IA está reprocessando o item agora,
+  o que é mais brando que a conclusão anterior de "gap externo confirmado". Local-OCR
+  fallback fica adiado até confirmar que o djvu.txt de `lei-00013_85b0957e.pdf`
+  continua ausente depois que essa fila esvaziar.
+- **`uv run leizilla coverage --ente ro --json`** relido (read-only, sem credenciais):
+  S4 de `lei` segue em 20 (inalterado) — o reparse dos itens 4-13 não move esse
+  contador porque ele mede presença de XML parseado no item IA, não linhas
+  efetivamente publicadas. A alavanca real para `kr-ro-backlog-conversion` é a fila
+  de `decreto` (215 itens em S3, 0 em S4) via `parse-release.yml` workflow_dispatch —
+  não disparado nesta sessão para não competir com a cota diária do Gemini free-tier
+  já alocada ao cron das 06:00 UTC do mesmo dia.
+- **Dívida de teste**: `tests/test_scrape_skip_existing.py` tinha dois testes cujo mock
+  de `asyncio.run` nunca fechava a corrotina interna de `cmd_scrape`, vazando
+  `RuntimeWarning: coroutine ... was never awaited` (atribuído por acaso a outros
+  testes, no momento do GC). Corrigido fechando a corrotina no `side_effect` do mock.
+
 ---
 
 ## Problemas encontrados
