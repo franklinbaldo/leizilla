@@ -6,6 +6,7 @@ HTTP e IA CLI 100% mockados — sem rede.
 """
 
 import subprocess
+import urllib.request
 from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
@@ -247,6 +248,27 @@ class TestCamaraYearLookupCircuitBreaker:
             result = _camara_year_lookup("lei", 99999)
         mock_open.assert_not_called()
         assert result is None
+
+    def test_sends_identifiable_user_agent(self) -> None:
+        """Sem User-Agent, a API da Câmara responde 405 (issue #262) — o
+        default do urllib ("Python-urllib/x.y") é bloqueado por WAF/anti-bot.
+        """
+        payload = b'{"dados":[{"ano":2014}]}'
+        captured_requests: list = []
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.__enter__ = lambda s: mock_resp
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            mock_resp.read.return_value = payload
+            mock_open.side_effect = lambda req, timeout=None: (
+                captured_requests.append(req) or mock_resp
+            )
+            _camara_year_lookup("mpv", 2170)
+        assert len(captured_requests) == 1
+        sent_request = captured_requests[0]
+        assert isinstance(sent_request, urllib.request.Request)
+        assert sent_request.get_header("User-agent")
+        assert "Python-urllib" not in sent_request.get_header("User-agent")
 
     def test_timeout_is_3s(self) -> None:
         """Verifica que o timeout configurado é 3s (não 10s)."""
