@@ -1,0 +1,82 @@
+name: Deploy Archive CORS Proxy (Cloudflare Worker)
+
+on:
+  push:
+    branches: [main]
+    paths: ["deployment/archive-cors-proxy/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-cors-proxy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deployment/archive-cors-proxy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deployment/archive-cors-proxy
+    steps:
+      - uses: actions/checkout@v4
+
+      # browser-read-cors-integrity (docs/okf/project-dag.md): o Worker em
+      # src/index.js já está implementado e testado desde 2026-09-25, mas
+      # nenhuma sessão até agora teve credenciais Cloudflare para rodar
+      # `wrangler deploy`. Sem elas isto só informa o gap (fail-open, mesmo
+      # padrão de check-credentials.yml) em vez de quebrar todo push que
+      # tocar este diretório — assim que um mantenedor configurar os dois
+      # secrets abaixo em Settings → Secrets → Actions, o próximo push (ou
+      # workflow_dispatch) já publica o Worker sem trabalho manual adicional.
+      - name: Verificar credenciais Cloudflare
+        id: creds
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "## 🔑 Status das credenciais Cloudflare" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Secret | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+          [ -n "$CLOUDFLARE_API_TOKEN" ] \
+            && echo "| CLOUDFLARE_API_TOKEN  | ✅ configurado |" >> "$GITHUB_STEP_SUMMARY" \
+            || echo "| CLOUDFLARE_API_TOKEN  | ❌ **não configurado** |" >> "$GITHUB_STEP_SUMMARY"
+
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] \
+            && echo "| CLOUDFLARE_ACCOUNT_ID | ✅ configurado |" >> "$GITHUB_STEP_SUMMARY" \
+            || echo "| CLOUDFLARE_ACCOUNT_ID | ❌ **não configurado** |" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "> ❌ Faltam secrets. Configure CLOUDFLARE_API_TOKEN e CLOUDFLARE_ACCOUNT_ID" >> "$GITHUB_STEP_SUMMARY"
+            echo "> em Settings → Secrets → Actions para habilitar o deploy automático" >> "$GITHUB_STEP_SUMMARY"
+            echo "> do proxy CORS (issue #223 / ADR-0013)." >> "$GITHUB_STEP_SUMMARY"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy via Wrangler
+        if: steps.creds.outputs.ready == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: deployment/archive-cors-proxy
+          command: deploy
