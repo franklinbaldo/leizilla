@@ -75,9 +75,52 @@ jobs:
           job-label: "discover-harvest / ${{ inputs.tipo }}"
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+  # ── Descoberta compartilhada para o cron/matrix (roda 1x, não 1x por tipo) ─
+  # Achado de produção 2026-09-25: `discover` (ente ro, fonte casacivil) não é
+  # scoped por tipo — uma única chamada já descobre lei/lc/decreto/ec/
+  # resolucao/portaria/decreto-lei de uma vez. O `harvest-parallel` de baixo
+  # antes rodava esse mesmo Discover DENTRO de cada um dos 7 jobs da matrix
+  # (cada job roda num runner isolado, sem estado compartilhado), repetindo a
+  # varredura completa do site 7x em série (max-parallel: 1). Isso sozinho
+  # inflou o ciclo semanal de horas para potencialmente dias (observado:
+  # discovery de um único tipo já passou de 4h) — a esmagadora maioria do
+  # tempo era descoberta redundante, não harvest. Agora a descoberta roda uma
+  # vez aqui e o DuckDB resultante (`discovered_resources`) é passado como
+  # artifact para os 7 jobs de harvest lerem.
+  discover-shared:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.tipo == '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run playwright install chromium --with-deps
+
+      - name: Discover (ente ro)
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: uv run leizilla discover --ente "${{ inputs.ente || 'ro' }}" --fonte "${{ inputs.fonte || 'casacivil' }}"
+
+      - name: Upload discovered-resources DB
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovered-db
+          path: data/leizilla.duckdb
+          retention-days: 1
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "discover-harvest / discover"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
   # ── SCHEDULED ou DISPATCH sem tipo: todos os tipos, paralelismo limitado ──
   harvest-parallel:
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.tipo == '')
+    needs: discover-shared
+    if: needs.discover-shared.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
@@ -92,9 +135,11 @@ jobs:
       # processos a ~1 req/2s cada já dobram a taxa efetiva vista pelo IA.
       # max-parallel: 2 ainda deixava ~30% das execuções throttled (#141);
       # serializar totalmente é o próximo degrau de segurança. Isso alonga o
-      # tempo de relógio do workflow como um todo (até 7x pior caso), mas não
-      # o tempo de CADA job — o teto de 360min é por job, não cumulativo — e
-      # o throughput semanal total (soma dos 7 `--limit`) não muda.
+      # tempo de relógio do workflow como um todo, mas não o tempo de CADA
+      # job — o teto de 360min é por job, não cumulativo — e o throughput
+      # semanal total (soma dos 7 `--limit`) não muda. Desde que a descoberta
+      # saiu daqui (discover-shared acima), cada job só faz harvest — bem
+      # mais rápido que quando cada um refazia a descoberta inteira.
       max-parallel: 1
       matrix:
         tipo: [lei, lc, decreto, ec, resolucao, portaria, decreto-lei]
@@ -103,13 +148,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
-      - run: uv run playwright install chromium --with-deps
 
-      - name: Discover (ente ro)
-        env:
-          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: uv run leizilla discover --ente "${{ inputs.ente || 'ro' }}" --fonte "${{ inputs.fonte || 'casacivil' }}"
+      - name: Download discovered-resources DB
+        uses: actions/download-artifact@v4
+        with:
+          name: discovered-db
+          path: data/
 
       - name: Harvest — ${{ matrix.tipo }}
         env:
