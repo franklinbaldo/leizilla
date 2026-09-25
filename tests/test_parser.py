@@ -335,6 +335,54 @@ class TestIsWellFormed:
         assert parser._is_well_formed(None) is False  # type: ignore[arg-type]
 
 
+class TestRomanToArabic:
+    def test_converts_valid_roman_numerals(self):
+        assert parser._roman_to_arabic("III") == 3
+        assert parser._roman_to_arabic("IV") == 4
+        assert parser._roman_to_arabic("IX") == 9
+        assert parser._roman_to_arabic("XL") == 40
+        assert parser._roman_to_arabic("MCMXCIX") == 1999
+
+    def test_rejects_malformed_or_non_roman_tokens(self):
+        assert parser._roman_to_arabic("IIII") is None  # not standard subtractive form
+        assert parser._roman_to_arabic("VX") is None
+        assert parser._roman_to_arabic("art") is None
+        assert parser._roman_to_arabic("") is None
+
+
+class TestNormalizeRomanNumeralPaths:
+    def test_converts_roman_numeral_path_segments_to_arabic(self):
+        # issue #201/#118: DispositivoPath is `[a-z][a-z0-9-]*` — a model
+        # that ignores the prompt's arabic-only rule (found live on item 4's
+        # reparse: art-1-inc-III) otherwise fails the release-boundary XSD
+        # gate outright.
+        xml = (
+            '<lei><dispositivo path="art-1-inc-III">'
+            '<dispositivo path="art-1-item-I"/>'
+            '<dispositivo path="art-1-item-III-alt"/>'
+            "</dispositivo>"
+            '<dispositivo path="ementa"/></lei>'
+        )
+        normalized = parser._normalize_roman_numeral_paths(xml)
+        assert 'path="art-1-inc-3"' in normalized
+        assert 'path="art-1-item-1"' in normalized
+        assert 'path="art-1-item-3-alt"' in normalized
+        assert 'path="ementa"' in normalized
+
+    def test_leaves_already_arabic_paths_untouched(self):
+        xml = '<dispositivo path="art-1-inc-3-ali-a"/>'
+        assert parser._normalize_roman_numeral_paths(xml) == xml
+
+    def test_never_touches_roman_numerals_outside_path_attributes(self):
+        # Roman numerals in actual law prose (<texto>) must survive verbatim.
+        xml = (
+            '<dispositivo path="art-1">'
+            "<versao><texto>Conforme o Artigo XII da Constituição.</texto></versao>"
+            "</dispositivo>"
+        )
+        assert "Artigo XII" in parser._normalize_roman_numeral_paths(xml)
+
+
 class TestParseLaw:
     def test_returns_result_on_valid_response(self):
         with _llm(_LLM_OK):
@@ -344,6 +392,27 @@ class TestParseLaw:
         assert result.confidence == pytest.approx(0.9)
         assert result.ia_id_parsed == "leizilla-ro-lei-09999-1999"
         assert "lei" in result.xml
+
+    def test_normalizes_roman_numeral_paths_in_llm_output(self):
+        # End-to-end: a model that ignores the arabic-only path rule (issue
+        # #201/#118) must not slip an XSD-invalid path past parse_law.
+        xml_with_roman = _VALID_XML.replace('path="art-1"', 'path="art-1-inc-III"')
+        response = json.dumps(
+            {
+                "xml": xml_with_roman,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "9999",
+                "ano": 1999,
+                "urn_lex": "urn:lex:br;rondonia:estadual:lei:1999-06-15;9999",
+            }
+        )
+        with _llm(response):
+            result = parser.parse_law("ocr text", _IA_ID, "ro")
+
+        assert result is not None
+        assert 'path="art-1-inc-3"' in result.xml
+        assert "III" not in result.xml
 
     def test_parsed_meta_structure(self):
         with _llm(_LLM_OK):
