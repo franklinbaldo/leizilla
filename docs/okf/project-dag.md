@@ -249,8 +249,17 @@ fronts:
     next_action: "#175, #157, #118 and #195 (urn_lex gate, PR #206) are all resolved. #196 is resolved — `-latest` published for the first time this session (run 36094205340, 209 rows). #201 is down to item 13 alone, confirmed a genuine external IA OCR-derivative gap (not a Leizilla code defect). Re-evaluate whether this single-item residual gap is acceptable to export alongside federal expansion, or whether it should block until resolved — a judgment call for the next session/maintainer, not yet made."
     blockers:
       - "Issue #201 — down to 1 item (item 13), confirmed external IA gap (no OCR derivative); not a code defect, needs either IA re-derivation or a local-OCR fallback."
----
 
+  - id: "dependency-security-hygiene"
+    kind: workstream
+    status: active
+    parents: [leizilla-root]
+    objective: "Keep known-vulnerable dependencies out of the build/runtime surface without waiting for a dedicated incident."
+    origin: "GitHub Dependabot summary surfaced 24 alerts (2 critical, 8 high, 13 moderate, 1 low) on the default branch on push during this session; `npm audit` in web/ independently confirmed 15 of them (1 critical, 7 high, 7 moderate) across astro/vite/esbuild/postcss/js-yaml/nanoid/sharp/svgo/smol-toml/devalue."
+    current: "`npm audit fix` (non-major only) plus one explicit `postcss` override (nested transitively under astro's own vite dependency at <=8.5.22, GHSA-fxqj-rqcc-2cmp, not reachable by the top-level fix) resolved all critical/high findings in web/: 15 -> 2, both moderate. `npm test` (53/53) and `npm run build` verified green against the updated lockfile."
+    target: "0 critical/high vulnerabilities in web/'s dependency tree; residual moderate findings tracked with an explicit reason, not silently ignored."
+    next_action: "2 moderate findings remain (vitest/@vitest/mocker path-traversal, GHSA-82fw-gwwq-j7x9), deliberately not fixed here: the only available fix is a vitest 3->5 major bump, dev-only tooling (not shipped to the built site), and risks breaking the test API surface — deserves its own verified PR, not a blind `npm audit fix --force` riding this sweep. The Python side (pyproject.toml) was not audited this session (no `pip-audit`/equivalent run) — GitHub's 24-alert total exceeds npm's 15, so up to 9 alerts (the gap) may be Python-side or GitHub-Actions-side and still unexamined; a future session should run a Python dependency audit and check `.github/workflows/` action pins."
+---
 # Leizilla Project DAG
 
 Este documento é o ledger operacional autorado do projeto. O grafo no frontmatter é
