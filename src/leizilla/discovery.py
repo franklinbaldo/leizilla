@@ -583,10 +583,36 @@ def load_manifest(ente: str) -> Dict[str, Any]:
     return data
 
 
+def _discovery_cfg_tipo(discovery_cfg: Dict[str, Any]) -> Optional[str]:
+    """Deriva o `tipo_documento` alvo de um discovery_cfg, quando determinável.
+
+    Segue o mesmo padrão já usado por `cmd_scrape`/`cmd_discover_probe` em
+    cli.py: para estratégias "sequential", infere o tipo a partir do nome de
+    arquivo de amostra do primeiro template (`parse_filename`); "planalto"
+    já declara `tipo` explicitamente no manifesto. Estratégias que descobrem
+    múltiplos tipos numa única chamada barata (casacivil-index, wayback-cdx)
+    ou que não têm noção de tipo (playwright-crawler) retornam None — quem
+    chama trata None como "sempre roda, não é filtrável por tipo".
+    """
+    strategy = discovery_cfg.get("strategy")
+    if strategy == "planalto":
+        tipo = discovery_cfg.get("tipo")
+        return str(tipo) if tipo else None
+    if strategy == "sequential":
+        templates = discovery_cfg.get("templates") or []
+        if not templates:
+            return None
+        sample_filename = templates[0].format(num=1).split("/")[-1]
+        tipo, _ = parse_filename(sample_filename)
+        return tipo
+    return None
+
+
 def discover_resources(
     ente: str,
     fonte: Optional[str] = None,
     storage: Optional[DuckDBStorage] = None,
+    tipo: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Roda as estratégias do manifesto e **retorna** os resources (sem inserir).
 
@@ -595,10 +621,20 @@ def discover_resources(
     das linhas já gravadas em ``discovered_resources``. ``fonte`` filtra para uma
     fonte específica.
 
+    ``tipo``, quando passado, pula estratégias "sequential"/"planalto" cujo
+    tipo-alvo (derivado do template/manifesto, ver ``_discovery_cfg_tipo``) não
+    bate — é o que permite escopar a descoberta por tipo (ex.: um job de CI
+    dedicado a "decreto"), em vez de sempre varrer todos os tipos de uma fonte
+    de uma vez (achado de produção 2026-09-25: um único job de descoberta não
+    escopada para casacivil/head_check excedeu o timeout de 360min do job).
+    Estratégias sem tipo determinável (índice HTML, CDX amplo, Playwright)
+    sempre rodam, filtradas ou não — são baratas (uma chamada), o custo caro é
+    o `head_check` sequencial por número, que este filtro de fato limita.
+
     ``storage``, quando passado, é repassado para cada estratégia (só
-    ``SequentialDiscovery`` o usa hoje, para pular URLs já conhecidas sem
-    refazer o HEAD request — ver ``run_discovery``). Deixe ``None`` para a
-    re-derivação completa que a reconciliação precisa.
+    ``SequentialDiscovery``/``PlanaltoDiscovery`` o usam hoje, para pular URLs
+    já conhecidas sem refazer o HEAD request — ver ``run_discovery``). Deixe
+    ``None`` para a re-derivação completa que a reconciliação precisa.
     """
     manifest = load_manifest(ente)
     out: List[Dict[str, Any]] = []
@@ -612,6 +648,10 @@ def discover_resources(
                     f"Estratégia '{discovery_cfg.get('strategy')}' não suportada."
                 )
                 continue
+            if tipo is not None:
+                cfg_tipo = _discovery_cfg_tipo(discovery_cfg)
+                if cfg_tipo is not None and cfg_tipo != tipo:
+                    continue
             try:
                 out.extend(strategy_cls(discovery_cfg, ente, f).run(storage))
             except Exception as e:
@@ -623,13 +663,18 @@ def discover_resources(
 
 
 def run_discovery(
-    ente: str, storage: DuckDBStorage, fonte: Optional[str] = None
+    ente: str,
+    storage: DuckDBStorage,
+    fonte: Optional[str] = None,
+    tipo: Optional[str] = None,
 ) -> int:
     """Lê o manifesto do ente, executa as estratégias e salva os resources.
 
     ``fonte`` restringe a uma única fonte do manifesto (None = todas). Útil
     para isolar fontes lentas (ex.: PlaywrightCrawlerDiscovery de milhares de
     páginas) de fontes rápidas (ex.: wayback-cdx) sem esperar a mais lenta.
+    ``tipo`` restringe ainda mais, dentro de uma fonte, às estratégias cujo
+    tipo-alvo bate (ver ``discover_resources``).
 
     Passa ``storage`` para as estratégias (achado de produção 2026-09-25:
     antes disso, ``SequentialDiscovery``'s dedup-por-DB nunca era exercitado
@@ -639,7 +684,7 @@ def run_discovery(
     casacivil com `head_check: true` isso inflava o Discover step para
     horas e crescia a cada semana conforme o catálogo aumentava).
     """
-    resources = discover_resources(ente, fonte=fonte, storage=storage)
+    resources = discover_resources(ente, fonte=fonte, storage=storage, tipo=tipo)
     for res in resources:
         storage.insert_resource(res)
     return len(resources)

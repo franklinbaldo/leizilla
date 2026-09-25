@@ -26,16 +26,27 @@ def cmd_discover(
     fonte: Optional[str] = typer.Option(
         None, help="Fonte específica do manifesto (None = todas as fontes)"
     ),
+    tipo: Optional[str] = typer.Option(
+        None,
+        help=(
+            "Tipo de documento a descobrir (lei, lc, decreto, ec, resolucao, "
+            "portaria, decreto-lei, ...). None = todos os tipos da fonte. "
+            "Escopa só as estratégias sequential/planalto (as únicas cujo "
+            "tipo-alvo é determinável); índices/CDX amplos sempre rodam."
+        ),
+    ),
 ) -> None:
     """Descobrir leis nos portais oficiais usando manifestos."""
     alvo = f"{ente}/{fonte}" if fonte else ente
+    if tipo:
+        alvo += f" (tipo={tipo})"
     echo(f"Descobrindo leis para: {alvo}...")
     try:
         from leizilla.discovery import run_discovery
         from leizilla.storage import DuckDBStorage
 
         db = DuckDBStorage()
-        added = run_discovery(ente, db, fonte=fonte)
+        added = run_discovery(ente, db, fonte=fonte, tipo=tipo)
         echo(f"Descoberta concluída. Adicionados/ignorados recursos: {added} total.")
     except Exception as e:
         echo(f"Erro: {e}")
