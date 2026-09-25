@@ -561,6 +561,20 @@ class TestParseLaw:
         assert block["cache_control"] == {"type": "ephemeral"}
         assert "cache_control" not in system_msg
 
+    def test_cache_control_omitted_for_non_anthropic_models(self):
+        # litellm.drop_params does NOT discard cache_control for other
+        # providers -- it translates it into their own native caching API,
+        # and on Gemini's free tier that fails outright with
+        # litellm.RateLimitError ("TotalCachedContentStorageTokensPerModelFreeTier
+        # limit=0"), failing 100% of parses. Only send it for Anthropic models.
+        with _llm(_LLM_OK, keys={"GEMINI_API_KEY": "g-key"}) as m:
+            parser.parse_law("ocr text", _IA_ID, "ro", model="gemini/gemini-2.5-flash")
+
+        _, kwargs = m.call_args
+        system_msg = kwargs["messages"][0]
+        block = system_msg["content"][0]
+        assert "cache_control" not in block
+
     def test_zero_pads_numero(self):
         short_numero = json.dumps(
             {
