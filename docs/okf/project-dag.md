@@ -186,9 +186,9 @@ fronts:
         metric: "Known public labels/download affordances that imply stronger publication/vigência evidence than the dataset supports."
         current: "The schema-level conflation this KR depended on (date-provenance, #157) is resolved and closed. Issue #167 itself remains open and self-describes an explicit resume precondition: the project's official visual-capture capability must successfully load the published Parquet and open a norm's Dados section again (it failed with a timeout on archive.org's versoes.parquet in the last attempt, commit 84cfdc6, run 33956952230), or a canonical UI fixture representing the same dataset must exist — #167 explicitly asks not to change the presentation before that observability is restored."
         target: "0 known misleading labels; legacy fields are explained where still published."
-        blockers: []
+        blockers: [196]
         issues: [167]
-        next_action: "Do not implement #167's UI change yet. First confirm (via the official visual-capture workflow or a canonical fixture) that /lei/'s Dados section is observable again; only then add the legacy-naming disclosure copy before JSON/CSV downloads."
+        next_action: "Wait for #196 to restore an observable public law page, then perform #167 against current release evidence."
       - id: "kr-public-responsive-audit"
         status: met
         metric: "Declared public routes passing the project's desktop + narrow viewport audit."
