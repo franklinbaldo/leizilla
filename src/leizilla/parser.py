@@ -454,7 +454,24 @@ def parse_law(
     raw = (response.choices[0].message.content or "") if response.choices else ""
     result = _extract_json(raw)
     if result is None:
-        logger.warning("%s: LLM response has no extractable JSON: %r", ia_id, raw[:300])
+        finish_reason = (
+            getattr(response.choices[0], "finish_reason", None)
+            if response.choices
+            else None
+        )
+        # Logs both ends of the response (not just the head) since a
+        # max_tokens truncation — the response hitting the 4096-token cap
+        # mid-XML, never closing its JSON string/object — only shows up at
+        # the tail, and finish_reason == "length" confirms it outright.
+        logger.warning(
+            "%s: LLM response has no extractable JSON (finish_reason=%s, len=%d): "
+            "head=%r tail=%r",
+            ia_id,
+            finish_reason,
+            len(raw),
+            raw[:300],
+            raw[-300:],
+        )
         return None
 
     try:
