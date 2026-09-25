@@ -169,8 +169,8 @@ fronts:
     parents: [legal-semantic-integrity, dataset-release-integrity]
     objective: "Fail closed before publishing datasets that violate schema, identity, temporal or quality-floor contracts."
     origin: "Issue #118 and post-go-live audit findings."
-    issues: [118, 195]
-    next_action: "See legal-semantic-integrity's kr-release-validation-gated for what's merged (PRs #192, #193, #198) and what's deliberately deferred (urn_lex canonicalization, tracked as its own follow-up issue #195)."
+    issues: [118, 195, 201]
+    next_action: "Address #201 first; keep #195 as a separate narrow URN-boundary hardening slice."
 
   - id: "public-surface-auditability"
     kind: objective
