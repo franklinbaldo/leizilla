@@ -2111,6 +2111,37 @@ Outras decisões do mesmo review já incorporadas em SCHEMA.md:
   `RuntimeWarning: coroutine ... was never awaited` (atribuído por acaso a outros
   testes, no momento do GC). Corrigido fechando a corrotina no `side_effect` do mock.
 
+### 2026-09-25 — Sessão de stewardship: gate fail-closed em `<inicio>`, reconciliação de monitoramento
+
+- **Merge da PR #227** (sessão anterior, ADR-0013/item-13/dívida de teste) e da
+  **PR #228** desta sessão: `xml_to_rows` (`src/leizilla/etl.py`) defaultava um
+  `<inicio>` malformado (sem atributo `tipo`) para `inicio_tipo="data-publicacao"` —
+  justo o valor que `docs/SCHEMA.md` §4.4 diz que "nunca é o default inferido",
+  reservado para publicação explicitamente comprovada. O XSD já exige `tipo`
+  (`use="required"`), mas `etl.py` tolera deliberadamente XML não validado pelo XSD
+  (mesmo raciocínio do gate de `<fonte>` sem `ia-id`, issue #118), então um
+  `<inicio>` malformado podia chegar ao dataset publicado afirmando silenciosamente
+  a prova de publicação mais forte que o schema suporta. Corrigido para falhar
+  fechado (`ValueError`), no mesmo padrão do gate de `ia-id` vizinho. Achado
+  investigando a issue #167 (rótulo `data-publicacao` categórico na UI).
+- **Issue #229 registrada** (não implementada): ao corrigir o bug acima, notei que
+  o `<fonte>` que o schema exige dentro de `<inicio>` (a evidência da publicação)
+  é lido do XML só para a validação XSD passar — `xml_to_rows` só coleta `<fonte>`
+  filho direto de `<versao>` (`findall` não desce em `<inicio>`), então essa
+  evidência nunca vira coluna no Parquet nem chega à UI. É uma extensão de schema
+  (nome de coluna, `docs/SCHEMA.md`, `LeiRow`, `model.ts`, `Versoes.svelte`, testes
+  Python+web), não um one-liner fail-closed, por isso ficou registrada para sessão
+  dedicada em vez de implementada às pressas.
+- **Reconciliação de monitoramento** (sem mudança de conclusão, só evidência mais
+  recente): `discover-harvest.yml` run 36082100347 seguia progredindo normalmente
+  (`lc` ainda no passo Discover, ~2h20 depois de iniciar) — reconfirma que não é
+  travamento, só serialização lenta por design (`max-parallel: 1`); item 13 (#201)
+  segue sem `_djvu.txt` e com `pending_tasks` ainda ativo no item raw da IA;
+  `wayback-save.yml` segue com apenas 1 execução limpa pós-fix (PR #207), a meta de
+  2 execuções agendadas consecutivas ainda não foi atingida. Decreto backlog
+  (`kr-ro-backlog-conversion`) não disparado por manter a mesma cautela de cota
+  diária da sessão anterior.
+
 ---
 
 ## Problemas encontrados
