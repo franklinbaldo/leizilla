@@ -27,7 +27,20 @@ async function auditKeyboard(page) {
     const visible = elements.filter((element) => {
       const style = getComputedStyle(element);
       const rect = element.getBoundingClientRect();
-      return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+      // A closed <details> can still report a non-zero bounding rect for its
+      // hidden content in Chromium (a measurement quirk, not real layout) —
+      // exclude it explicitly, since it genuinely isn't reachable by Tab
+      // until the user opens the disclosure. Surfaced by ADR-0014: the home
+      // page's "Testar o dataset com DuckDB" <details> (closed by default)
+      // never rendered in this audit before the dataset actually loaded.
+      const insideClosedDetails = element.closest('details:not([open])') !== null;
+      return (
+        style.visibility !== 'hidden' &&
+        style.display !== 'none' &&
+        rect.width > 0 &&
+        rect.height > 0 &&
+        !insideClosedDetails
+      );
     });
     return visible.map((element, index) => {
       const id = `audit-${index}`;
@@ -85,7 +98,12 @@ try {
       if (message.type() === 'error') consoleErrors.push(message.text());
     });
     if (blockDataset) {
+      // ADR-0014: DuckDB-WASM reads the same-origin mirror (`/data/ro/versoes.parquet`)
+      // by default now, not archive.org directly — blocking only archive.org no longer
+      // forces the unavailable state (the mirror fetch succeeds regardless). Block both
+      // so this stays a faithful "dataset totally unreachable" simulation.
       await page.route('https://archive.org/**', (route) => route.abort('failed'));
+      await page.route('**/data/ro/versoes.parquet', (route) => route.abort('failed'));
     }
     const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 });
     if (blockDataset) {
