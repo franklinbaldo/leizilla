@@ -484,6 +484,84 @@ class PlaywrightCrawlerDiscovery:
         return resources
 
 
+class PlanaltoDiscovery:
+    """Estratégia de descobrimento para o Portal da Legislação (Planalto, federal).
+
+    Diferente de `SequentialDiscovery` (templates PDF fixos), o Planalto serve
+    HTML year-scoped (`/_ato{range}/{ano}/{tipo}/{prefix}{num}.htm`) cujo ano
+    de publicação não é derivável do número sozinho — delega a
+    `fontes.federal.discover_planalto_laws` (lookup de ano via API da Câmara,
+    cache + circuit breaker, fail-open para o padrão legado pré-2003).
+
+    `head_check` (default True, diferente de `SequentialDiscovery`) importa
+    mais aqui: numeração federal não tem a densidade quase-contígua da RO, e
+    sem verificação um range grande (milhares) geraria majoritariamente 404s.
+    """
+
+    def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
+        self.tipo = config["tipo"]
+        self.start = int(config["start"])
+        self.end = int(config["end"])
+        self.ente = ente
+        self.fonte = fonte
+        self.head_check: bool = bool(config.get("head_check", True))
+
+    def run(self, storage: Optional[DuckDBStorage] = None) -> List[Dict[str, Any]]:
+        from leizilla.fontes.federal import discover_planalto_laws
+
+        logger.info(
+            f"Rodando Planalto Discovery para {self.ente}/{self.fonte} "
+            f"tipo={self.tipo} (de {self.start} a {self.end}, "
+            f"head_check={self.head_check})..."
+        )
+        import time
+
+        candidates = discover_planalto_laws(self.tipo, self.start, self.end)
+
+        resources = []
+        last_head_time = 0.0
+        for law in candidates:
+            url = law["url_original"]
+
+            if storage:
+                try:
+                    conn = storage.connect()
+                    res = conn.execute(
+                        "SELECT 1 FROM discovered_resources WHERE url = ?", [url]
+                    ).fetchone()
+                    if res:
+                        continue
+                except Exception as e:
+                    logger.warning(f"Error checking DB for URL {url}: {e}")
+
+            if self.head_check:
+                elapsed = time.monotonic() - last_head_time
+                if elapsed < _HEAD_RATE_LIMIT_S:
+                    time.sleep(_HEAD_RATE_LIMIT_S - elapsed)
+                exists = _head_exists(url)
+                last_head_time = time.monotonic()
+                if not exists:
+                    logger.debug(f"HEAD 404/error — skipping {url}")
+                    continue
+
+            resources.append(
+                {
+                    "url": url,
+                    "ente": self.ente,
+                    "fonte": self.fonte,
+                    "tipo_documento": law["tipo"],
+                    "chave": law["chave"],
+                    "status": "pending",
+                    "wayback_snapshot": None,
+                }
+            )
+        logger.info(
+            f"Planalto Discovery concluído: {len(resources)} recursos encontrados "
+            f"(head_check={self.head_check})"
+        )
+        return resources
+
+
 STRATEGIES: Dict[
     str, Callable[[Dict[str, Any], str, str], DiscoveryStrategyProtocol]
 ] = {
@@ -491,6 +569,7 @@ STRATEGIES: Dict[
     "sequential": SequentialDiscovery,
     "casacivil-index": CasacivilIndexDiscovery,
     "playwright-crawler": PlaywrightCrawlerDiscovery,
+    "planalto": PlanaltoDiscovery,
 }
 
 

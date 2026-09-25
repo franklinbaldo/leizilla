@@ -220,6 +220,35 @@ class TestRunDiscovery:
 # ---------------------------------------------------------------------------
 
 
+class TestResolveTipoIngestion:
+    def test_defaults_to_pdf_for_unknown_ente(self) -> None:
+        from leizilla.scraper import _resolve_tipo_ingestion
+
+        assert _resolve_tipo_ingestion("nonexistent-ente", "fonte-x", {}) == "pdf"
+
+    def test_defaults_to_pdf_for_unknown_fonte_in_known_manifest(self) -> None:
+        from leizilla.scraper import _resolve_tipo_ingestion
+
+        assert _resolve_tipo_ingestion("ro", "nonexistent-fonte", {}) == "pdf"
+
+    def test_reads_html_for_federal_planalto(self) -> None:
+        from leizilla.scraper import _resolve_tipo_ingestion
+
+        assert _resolve_tipo_ingestion("federal", "planalto", {}) == "html"
+
+    def test_caches_manifest_across_calls(self) -> None:
+        from leizilla.discovery import load_manifest as real_load_manifest
+        from leizilla.scraper import _resolve_tipo_ingestion
+
+        cache: Dict[str, Any] = {}
+        with patch(
+            "leizilla.scraper.load_manifest", wraps=real_load_manifest
+        ) as mock_load:
+            _resolve_tipo_ingestion("ro", "casacivil", cache)
+            _resolve_tipo_ingestion("ro", "assembleia", cache)
+        mock_load.assert_called_once_with("ro")
+
+
 class TestHarvestPendingResources:
     def test_empty_queue_returns_zeros(self, temp_db: DuckDBStorage) -> None:
         from leizilla.scraper import harvest_pending_resources
@@ -380,6 +409,123 @@ class TestHarvestPendingResources:
             i for i in stats["items"] if i["status"] == "robots-blocked"
         )
         assert blocked_item["chave"] == "lei-00002"
+
+    def test_html_tipo_ingestion_dispatches_to_scrape_one_html(
+        self, temp_db: DuckDBStorage
+    ) -> None:
+        """Issue #248: fonte com tipo_ingestion=html (ex.: federal/planalto)
+        deve ir por scrape_one_html, não pelo caminho %PDF-only."""
+        from leizilla.scraper import harvest_pending_resources
+
+        temp_db.insert_resource(
+            _make_resource(
+                url="https://www.planalto.gov.br/ccivil_03/leis/L9503.htm",
+                ente="federal",
+                fonte="planalto",
+                chave="lei-09503",
+            )
+        )
+        pub = MagicMock()
+
+        with patch(
+            "leizilla.scraper.scrape_one_html",
+            return_value={
+                "success": True,
+                "ia_id": "leizilla-raw-federal-planalto-lei-09503",
+                "ia_url": "https://archive.org/details/test-html",
+            },
+        ) as mock_scrape_html:
+            stats = harvest_pending_resources(temp_db, pub, limit=10)
+
+        mock_scrape_html.assert_called_once()
+        assert stats["success"] == 1
+        assert stats["failed"] == 0
+        ok_item = stats["items"][0]
+        assert ok_item["status"] == "ok"
+        assert ok_item["ia_id"] == "leizilla-raw-federal-planalto-lei-09503"
+
+        conn = temp_db.connect()
+        row = conn.execute(
+            "SELECT status FROM discovered_resources WHERE url = ?",
+            ["https://www.planalto.gov.br/ccivil_03/leis/L9503.htm"],
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "downloaded"
+
+    def test_html_tipo_ingestion_robots_blocked(self, temp_db: DuckDBStorage) -> None:
+        from leizilla.scraper import harvest_pending_resources
+
+        temp_db.insert_resource(
+            _make_resource(
+                url="https://www.planalto.gov.br/ccivil_03/leis/L1.htm",
+                ente="federal",
+                fonte="planalto",
+                chave="lei-00001",
+            )
+        )
+        pub = MagicMock()
+
+        with patch(
+            "leizilla.scraper.scrape_one_html",
+            return_value={"success": False, "reason": "robots-blocked"},
+        ):
+            stats = harvest_pending_resources(temp_db, pub, limit=10)
+
+        assert stats["robots-blocked"] == 1
+        assert stats["failed"] == 0
+
+    def test_html_tipo_ingestion_fetch_failure_stays_pending(
+        self, temp_db: DuckDBStorage
+    ) -> None:
+        from leizilla.scraper import harvest_pending_resources
+
+        url = "https://www.planalto.gov.br/ccivil_03/leis/L1.htm"
+        temp_db.insert_resource(
+            _make_resource(url=url, ente="federal", fonte="planalto")
+        )
+        pub = MagicMock()
+
+        with patch(
+            "leizilla.scraper.scrape_one_html",
+            return_value={"success": False, "reason": "fetch-failed"},
+        ):
+            stats = harvest_pending_resources(temp_db, pub, limit=10)
+
+        assert stats["failed"] == 1
+        conn = temp_db.connect()
+        row = conn.execute(
+            "SELECT status FROM discovered_resources WHERE url = ?", [url]
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "pending"
+
+    def test_pdf_tipo_ingestion_unaffected_by_html_dispatch(
+        self, temp_db: DuckDBStorage
+    ) -> None:
+        """Manifesto RO declara tipo_ingestion=pdf explicitamente — resolver
+        não deve desviar recursos existentes para scrape_one_html."""
+        from leizilla.scraper import harvest_pending_resources
+
+        temp_db.insert_resource(_make_resource())  # default ente=ro/fonte=casacivil
+        pub = MagicMock()
+        pub.upload_raw.return_value = {
+            "success": True,
+            "ia_url": "https://archive.org/details/test",
+        }
+
+        with (
+            patch("leizilla.scraper.scrape_one_html") as mock_scrape_html,
+            patch("leizilla.scraper.robots.is_allowed", return_value=True),
+            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(b"%PDF-1.4 content", False),
+            ),
+        ):
+            stats = harvest_pending_resources(temp_db, pub, limit=10)
+
+        mock_scrape_html.assert_not_called()
+        assert stats["success"] == 1
 
     def test_wayback_timestamp_threaded_into_upload(
         self, temp_db: DuckDBStorage
