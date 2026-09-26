@@ -45,6 +45,15 @@ on:
       force:
         description: "Se 'true', sobrescreve um identifier já publicado mesmo com ia_id_raw divergente (recuperação deliberada de identity collision, issue #273) — NUNCA usar em runs de rotina"
         default: "false"
+      retract_ia_id_old:
+        description: "Issue #308: ia_id_parsed antigo (órfão) a marcar superseded — deixe vazio para um dispatch normal, sem retratação"
+        default: ""
+      retract_ia_id_new:
+        description: "ia_id_parsed correto que substitui retract_ia_id_old (obrigatório se este for preenchido)"
+        default: ""
+      retract_reason:
+        description: "Motivo da retratação, opcional (ex.: 'numero corrigido, ver #308')"
+        default: ""
 
 permissions:
   contents: read
@@ -268,8 +277,49 @@ jobs:
           job-label: "parse-release / dispatch"
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+  # Issue #308: marca um item parsed antigo/órfão como substituído por um
+  # identifier correto — deliberado, só roda quando explicitamente pedido
+  # (retract_ia_id_old preenchido), nunca em um dispatch normal de parse.
+  # Não apaga nada no IA; só grava um marcador no parsed_meta.json antigo
+  # (ver InternetArchivePublisher.mark_parsed_superseded). O job `etl`
+  # abaixo já reconsolida e republica o dataset a partir do IA
+  # incondicionalmente (if: always()), então uma retratação bem-sucedida
+  # aqui é refletida no próximo Parquet publicado sem nenhum passo extra.
+  retract-parsed:
+    if: github.event_name == 'workflow_dispatch' && inputs.retract_ia_id_old != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+
+      - name: Retract superseded parsed item
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          uv run leizilla retract-parsed \
+            --ia-id-old "${{ inputs.retract_ia_id_old }}" \
+            --ia-id-new "${{ inputs.retract_ia_id_new }}" \
+            --reason "${{ inputs.retract_reason || '' }}"
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "parse-release / retract-parsed"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
   etl:
-    needs: [parse-assembleia, parse-casacivil-lei, parse-casacivil-lc, parse-dispatch]
+    needs:
+      [
+        parse-assembleia,
+        parse-casacivil-lei,
+        parse-casacivil-lc,
+        parse-dispatch,
+        retract-parsed,
+      ]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 120
