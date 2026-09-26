@@ -452,6 +452,35 @@ class TestHarvestPendingResources:
         assert row is not None
         assert row[0] == "downloaded"
 
+    def test_html_tipo_ingestion_threads_prediscovered_snapshot(
+        self, temp_db: DuckDBStorage
+    ) -> None:
+        """Issue #262 follow-up: o wayback_snapshot já descoberto (qualquer
+        idade, via PlanaltoDiscovery/closest_snapshot) precisa chegar ao
+        scrape_one_html — sem isto, scrape_one_html cai no check_available
+        (exige captura <24h), quase sempre None, e daí num fallback direto
+        que planalto.gov.br bloqueia para runners do GitHub Actions."""
+        from leizilla.scraper import harvest_pending_resources
+
+        url = "https://www.planalto.gov.br/ccivil_03/Mpv/mpv1000.htm"
+        res = _make_resource(
+            url=url, ente="federal", fonte="planalto", chave="mpv-01000"
+        )
+        res["wayback_snapshot"] = "https://web.archive.org/web/20200101000000/" + url
+        temp_db.insert_resource(res)
+        pub = MagicMock()
+
+        with patch(
+            "leizilla.scraper.scrape_one_html",
+            return_value={"success": True, "ia_id": "x", "ia_url": "https://ia/x"},
+        ) as mock_scrape_html:
+            harvest_pending_resources(temp_db, pub, limit=10)
+
+        assert (
+            mock_scrape_html.call_args.kwargs["wayback_snapshot"]
+            == res["wayback_snapshot"]
+        )
+
     def test_html_tipo_ingestion_robots_blocked(self, temp_db: DuckDBStorage) -> None:
         from leizilla.scraper import harvest_pending_resources
 

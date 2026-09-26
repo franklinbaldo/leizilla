@@ -534,6 +534,31 @@ class TestScrapeOneHtml:
             scrape_one_html(self._url(), _lei_data_html(), pub, rate_limiter=rate_mock)
         rate_mock.assert_called_once_with(self._url())
 
+    def test_prediscovered_snapshot_used_without_check_available(self) -> None:
+        """Issue #262 follow-up: um snapshot já descoberto (ex.: PlanaltoDiscovery
+        via closest_snapshot, sem limite de idade) deve ser usado diretamente —
+        sem isso, check_available (exige captura <24h) quase sempre retorna None
+        para páginas arquivadas há mais tempo, forçando um fallback direto que
+        hosts como planalto.gov.br bloqueiam para runners do GitHub Actions."""
+        from leizilla.scraper import scrape_one_html
+
+        pub = _publisher()
+        wb_url = "https://web.archive.org/web/20200101000000/https://example.com"
+        mock_run = MagicMock(returncode=0, stdout="", stderr="")
+        with (
+            patch("leizilla.robots.is_allowed", return_value=True),
+            patch("leizilla.wayback.save_page"),
+            patch("leizilla.wayback.check_available") as mock_check_available,
+            patch("leizilla.scraper.fetch_html", return_value="<html>lei</html>"),
+            patch("subprocess.run", return_value=mock_run),
+            patch("leizilla.publisher._fetch_existing_index", return_value=None),
+        ):
+            result = scrape_one_html(
+                self._url(), _lei_data_html(), pub, wayback_snapshot=wb_url
+            )
+        assert result["success"] is True
+        mock_check_available.assert_not_called()
+
     def test_rate_limiter_not_called_when_wayback_succeeds(self) -> None:
         from leizilla.scraper import scrape_one_html
 
