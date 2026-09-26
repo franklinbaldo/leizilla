@@ -478,10 +478,18 @@ class TestScrapeOneHtml:
         assert result["success"] is False
         assert result["reason"] == "fetch-failed"
 
-    def test_fetch_failed_logs_whether_wayback_was_attempted(self, caplog: Any) -> None:
+    def test_fetch_failed_logs_whether_wayback_was_attempted(
+        self, caplog: Any, capsys: Any
+    ) -> None:
         """Issue #262: a bare fetch-failed result doesn't say whether a Wayback
         snapshot existed but its own fetch failed, or no snapshot was found at
-        all — the harvest job log needs this to diagnose a 0-success run."""
+        all — the harvest job log needs this to diagnose a 0-success run.
+
+        Issue #297: a live CI run showed Falhas=10 with none of these
+        logger.warning lines appearing in the job log, for reasons not
+        reproduced locally — so the same diagnostic is also printed to
+        stderr (the mechanism already proven to reach CI logs reliably for
+        the PDF harvest path)."""
         from leizilla.scraper import scrape_one_html
 
         pub = _publisher()
@@ -495,6 +503,9 @@ class TestScrapeOneHtml:
             scrape_one_html(self._url(), _lei_data_html(), pub)
         assert self._url() in caplog.text
         assert "wayback_attempted=False" in caplog.text
+        stderr = capsys.readouterr().err
+        assert self._url() in stderr
+        assert "wayback_attempted=False" in stderr
 
         caplog.clear()
         with (
