@@ -1083,6 +1083,40 @@ class TestFetchExistingIndex:
             with pytest.raises(IndexFetchError):
                 _fetch_existing_index("leizilla_ro_casacivil_lei_1-1000")
 
+    def test_503_on_never_created_item_returns_none(self):
+        # archive.org's download endpoint answers a never-created item (e.g. the
+        # first raw upload for a brand new ente/fonte/tipo range bucket) with 503,
+        # not 403/404 like a missing file inside an existing item (confirmed live,
+        # issue #297/#262: every federal/planalto/mpv harvest attempt failed with
+        # this exact shape). metadata still confirms the item has no index.csv, so
+        # it's safe to start empty rather than abort as if this were transient.
+        from leizilla.publisher import _fetch_existing_index
+
+        with (
+            patch("urllib.request.urlopen", side_effect=self._http_error(503)),
+            patch("leizilla.publisher.fetch_item_filenames", return_value=set()),
+        ):
+            assert (
+                _fetch_existing_index("leizilla_federal_planalto_mpv_0001-1000") is None
+            )
+
+    def test_503_on_item_that_really_has_index_raises(self):
+        # metadata confirms the item DOES have an index.csv — a 503 fetching it is
+        # a genuine transient failure, must still abort (not silently drop history).
+        from leizilla.publisher import _fetch_existing_index, IndexFetchError
+
+        import pytest
+
+        with (
+            patch("urllib.request.urlopen", side_effect=self._http_error(503)),
+            patch(
+                "leizilla.publisher.fetch_item_filenames",
+                return_value={"index.csv"},
+            ),
+        ):
+            with pytest.raises(IndexFetchError):
+                _fetch_existing_index("leizilla_ro_casacivil_lei_1-1000")
+
 
 class TestResolveUuid5AndIndex:
     """_resolve_uuid5_and_index mescla o index.csv do item (append-only) e estende
