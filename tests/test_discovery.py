@@ -215,7 +215,7 @@ def test_sequential_discovery_head_check():
     def fake_head(url: str, timeout: float = 10.0) -> bool:
         return any(f"/D{n}.pdf" in url for n in [2, 4])
 
-    with patch("leizilla.discovery._head_exists", side_effect=fake_head):
+    with patch("leizilla.discovery._head_check_status", side_effect=fake_head):
         discoverer = SequentialDiscovery(config, "ro", "casacivil")
         resources = discoverer.run()
 
@@ -258,7 +258,7 @@ def test_sequential_discovery_skips_known_urls_without_head_request(temp_db):
         head_checked_urls.append(url)
         return True
 
-    with patch("leizilla.discovery._head_exists", side_effect=fake_head):
+    with patch("leizilla.discovery._head_check_status", side_effect=fake_head):
         resources = SequentialDiscovery(config, "ro", "casacivil").run(temp_db)
 
     # D2 já conhecido: nem HEAD-checked nem re-incluído no resultado.
@@ -271,6 +271,103 @@ def test_sequential_discovery_skips_known_urls_without_head_request(temp_db):
         "http://example.com/Files/D1.pdf",
         "http://example.com/Files/D3.pdf",
     ]
+
+
+def test_sequential_discovery_caches_confirmed_404_and_skips_it_next_run(temp_db):
+    """Issue #319: sem cache de 404 CONFIRMADO, um `end` que cresce (cdx-auto)
+    refaz HEAD request, com rate-limit, para TODA a faixa numérica a cada
+    rodada agendada — não só os candidatos novos desde a última — inflando o
+    Discover step para horas e crescendo a cada semana. Um 404 confirmado
+    (`_head_check_status` retorna ``False``) deve ser persistido como
+    `checked_not_found` na primeira rodada e pulado SEM novo HEAD request na
+    segunda."""
+    manifest_fontes = {
+        "casacivil": {
+            "discovery": [
+                {
+                    "strategy": "sequential",
+                    "templates": ["http://example.com/Files/D{num}.pdf"],
+                    "start": 1,
+                    "end": 3,
+                    "head_check": True,
+                }
+            ]
+        }
+    }
+
+    # D2 não existe (404 confirmado); D1/D3 existem.
+    def fake_head(url: str, timeout: float = 10.0) -> bool | None:
+        return False if "/D2.pdf" in url else True
+
+    with (
+        patch(
+            "leizilla.discovery.load_manifest",
+            return_value={"ente": "ro", "fontes": manifest_fontes},
+        ),
+        patch("leizilla.discovery._head_check_status", side_effect=fake_head),
+    ):
+        first_total = run_discovery("ro", temp_db)
+    assert first_total == 2  # D1 e D3; D2 nunca vira um discovered "pending"
+
+    row = (
+        temp_db.connect()
+        .execute(
+            "SELECT status FROM discovered_resources WHERE url = ?",
+            ["http://example.com/Files/D2.pdf"],
+        )
+        .fetchone()
+    )
+    assert row == ("checked_not_found",)
+
+    head_checked_urls: list[str] = []
+
+    def fake_head_second_run(url: str, timeout: float = 10.0) -> bool | None:
+        head_checked_urls.append(url)
+        return True
+
+    with (
+        patch(
+            "leizilla.discovery.load_manifest",
+            return_value={"ente": "ro", "fontes": manifest_fontes},
+        ),
+        patch(
+            "leizilla.discovery._head_check_status", side_effect=fake_head_second_run
+        ),
+    ):
+        second_total = run_discovery("ro", temp_db)
+
+    # Nada novo: D1/D3 já conhecidos (pending), D2 já conhecido (checked_not_found).
+    assert second_total == 0
+    assert head_checked_urls == []
+
+
+def test_sequential_discovery_does_not_cache_ambiguous_head_errors(temp_db):
+    """A non-404 HTTP error or a network exception (`_head_check_status`
+    returns ``None``) must NOT be cached as `checked_not_found` — that would
+    permanently blacklist a resource that merely hit a transient WAF/rate-limit
+    block, a silent and permanent data-loss regression worse than the
+    redundant-HEAD-request problem this cache fixes."""
+    config = {
+        "strategy": "sequential",
+        "templates": ["http://example.com/Files/D{num}.pdf"],
+        "start": 1,
+        "end": 1,
+        "head_check": True,
+    }
+
+    with patch("leizilla.discovery._head_check_status", return_value=None):
+        resources = SequentialDiscovery(config, "ro", "casacivil").run(temp_db)
+
+    assert resources == []
+    row = (
+        temp_db.connect()
+        .execute(
+            "SELECT status FROM discovered_resources WHERE url = ?",
+            ["http://example.com/Files/D1.pdf"],
+        )
+        .fetchone()
+    )
+    assert row is None
 
 
 def test_run_discovery_second_run_skips_head_checks_for_known_urls(temp_db):
@@ -302,7 +399,7 @@ def test_run_discovery_second_run_skips_head_checks_for_known_urls(temp_db):
             "leizilla.discovery.load_manifest",
             return_value={"ente": "ro", "fontes": manifest_fontes},
         ),
-        patch("leizilla.discovery._head_exists", side_effect=fake_head),
+        patch("leizilla.discovery._head_check_status", side_effect=fake_head),
     ):
         first_total = run_discovery("ro", temp_db)
         assert first_total == 3

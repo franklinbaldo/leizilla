@@ -152,6 +152,40 @@ def test_update_resource_status(temp_db):
     )  # wayback_snapshot
 
 
+def test_get_pending_resources_prioritizes_never_tried_over_retried(temp_db):
+    """Achado de produção (issue #297): `get_pending_resources` sem ORDER BY
+    sempre reselecionava os MESMOS itens no topo do scan — se esses itens
+    falham persistentemente e ficam 'pending' pra sempre (#121), um `limit`
+    pequeno nunca alcança candidatos descobertos depois deles, mesmo que
+    esses nunca tenham sido sequer tentados uma vez. Um recurso nunca
+    tentado (`ultima_tentativa IS NULL`) deve vir antes de um já retentado,
+    mesmo tendo sido descoberto/inserido depois."""
+    stuck = {
+        "url": "http://example.com/stuck.pdf",
+        "ente": "federal",
+        "fonte": "planalto",
+        "tipo_documento": "mpv",
+        "chave": "mpv-00001",
+    }
+    temp_db.insert_resource(stuck)
+    # Simula uma tentativa que falhou mas não é permanente (#121): status
+    # continua 'pending', só ultima_tentativa avança.
+    temp_db.update_resource_status(stuck["url"], "pending")
+
+    fresh = {
+        "url": "http://example.com/fresh.pdf",
+        "ente": "federal",
+        "fonte": "planalto",
+        "tipo_documento": "mpv",
+        "chave": "mpv-00002",
+    }
+    temp_db.insert_resource(fresh)
+
+    pending = temp_db.get_pending_resources(limit=1, ente="federal", tipo="mpv")
+    assert len(pending) == 1
+    assert pending[0]["url"] == fresh["url"]
+
+
 def test_get_downloaded_resources(temp_db):
     res_data = {
         "url": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/L5120.pdf",

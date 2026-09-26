@@ -113,8 +113,18 @@ class DuckDBStorage:
             params.append(tipo)
         where = " AND ".join(conditions)
         params.append(limit)
+        # Never-tried resources first (ultima_tentativa IS NULL), then
+        # least-recently-retried — sem isto, um LIMIT pequeno sempre
+        # reseleciona os MESMOS itens no topo do scan (ex.: os N primeiros
+        # 'pending' de um tipo/fonte que falha persistentemente), travando
+        # candidatos novos descobertos depois deles fora de todo batch
+        # (achado de produção: discover-harvest-federal/mpv falhando os
+        # mesmos 10 itens em toda rodada, issue #297) — não resolve uma
+        # falha persistente em si, mas garante que ela não monopolize
+        # `limit` para sempre em detrimento de recursos nunca tentados.
         results = conn.execute(
-            f"SELECT * FROM discovered_resources WHERE {where} LIMIT ?",
+            f"SELECT * FROM discovered_resources WHERE {where} "
+            "ORDER BY ultima_tentativa ASC NULLS FIRST LIMIT ?",
             params,
         ).fetchall()
         columns = [desc[0] for desc in (conn.description or [])]
