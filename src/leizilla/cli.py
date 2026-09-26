@@ -146,6 +146,24 @@ def cmd_harvest(
         echo(f"  Sucesso: {stats['success']}")
         echo(f"  Falhas: {stats['failed']}")
         echo(f"  Robots bloqueado: {stats['robots-blocked']}")
+        if stats["failed"]:
+            # Issue #297: per-item print()/logger.warning() calls inside the
+            # harvest loop itself produced zero output in a live CI run, for
+            # reasons not yet root-caused. stats["items"] is already built by
+            # harvest_pending_resources regardless — printing its failure
+            # reasons here, once, after the loop fully completes (the same
+            # point where "Sucesso"/"Falhas" above ARE proven to show up
+            # reliably in CI), gives visibility that doesn't depend on
+            # per-iteration output surviving.
+            from collections import Counter
+
+            reasons = Counter(
+                item.get("reason", "?")
+                for item in stats["items"]
+                if item.get("status") == "failed"
+            )
+            for reason, count in reasons.most_common():
+                echo(f"    - {reason}: {count}")
     except Exception as e:
         echo(f"Erro: {e}")
         raise typer.Exit(1)
