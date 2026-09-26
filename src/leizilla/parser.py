@@ -96,7 +96,7 @@ Required fields:
   nº 26" names a *different* law being amended; this document's own numero
   is the one in its own header, not 26). If the document's own number is
   illegible or absent from the OCR, do NOT guess a placeholder like "0" —
-  set "confidence" below 0.5 and explain in "error" instead.
+  set "confidence" below 0.5 and explain in "error" instead.{numero_hint_line}
 - "ano": year as integer
 - "urn_lex": URN LEX string (see URN rules); null only if the text has no date at all
 
@@ -517,8 +517,30 @@ def parse_law(
 
     today = date.today().isoformat()
     ente_name = _ENTE_URN.get(ente, ente)
+    # Issue #278/#273 (casacivil-lei-00017): a log-only post-hoc comparison
+    # caught the mismatch too late to prevent it — the LLM independently
+    # misread the same handwritten "17" as "7" twice. Feeding the raw
+    # discovery chave's own numero into the prompt itself gives the model a
+    # concrete prior to check its reading against *before* it emits a value,
+    # which a purely advisory after-the-fact warning cannot do.
+    raw_numero_hint = _raw_numero_hint(ia_id)
+    numero_hint_line = (
+        f"\n  Discovery hint: this raw item's own catalog chave indicates its "
+        f"number is likely {raw_numero_hint}. Treat this as a strong prior — "
+        f"if your own reading disagrees, first re-check for a misread "
+        f'handwritten leading digit (e.g. "7" vs "17") or for citing a '
+        f"DIFFERENT law's number from the body text; only override this hint "
+        f"if the document's own header/enacting clause unambiguously states "
+        f"a different number."
+        if raw_numero_hint is not None
+        else ""
+    )
     system = _SYSTEM.format(
-        input_intro=input_intro, today=today, ia_id=ia_id, ente_name=ente_name
+        input_intro=input_intro,
+        today=today,
+        ia_id=ia_id,
+        ente_name=ente_name,
+        numero_hint_line=numero_hint_line,
     )
 
     # Import lazy: litellm é pesado e não deve atrasar comandos que não parseiam.
@@ -668,14 +690,10 @@ def parse_law(
     )
     ia_id_parsed = f"leizilla-{ente}-{tipo}-{numero_id}-{ano}"
 
-    # Advisory only (issue #278): the LLM reads "numero" from document text,
-    # which can be a different value than the raw item's own chave (OCR
-    # ambiguity, wrong article number quoted in the text, ...). This never
-    # blocked #273's silent overwrite by itself (that needs two DIFFERENT raw
-    # ids agreeing on the same wrong numero) but it's the earliest point a
-    # single mis-extraction like #278's 4 mismatches could have been flagged
-    # instead of only found later by a manual corpus scan. Never blocks.
-    raw_numero_hint = _raw_numero_hint(ia_id)
+    # Advisory only (issue #278): the LLM was already told raw_numero_hint as
+    # a prior above, but may still override it (deliberately, or by repeating
+    # the same misread) — this is the after-the-fact check for whichever
+    # cases the prompt hint alone doesn't prevent. Never blocks.
     if raw_numero_hint is not None and raw_numero_hint != int(numero_digits):
         logger.warning(
             "%s: numero extraído pelo LLM (%s) diverge do sugerido pela chave "

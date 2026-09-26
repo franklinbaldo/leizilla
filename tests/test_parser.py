@@ -783,6 +783,29 @@ class TestParseLaw:
         assert "referencing ANOTHER law" in parser._SYSTEM
         assert 'NOT guess a placeholder like "0"' in parser._SYSTEM
 
+    def test_system_prompt_includes_raw_numero_hint_when_available(self):
+        # Issue #273 (casacivil-lei-00017): the LLM independently misread a
+        # handwritten "17" as "7" twice, and the after-the-fact log-only
+        # warning caught it too late to prevent the identity collision. The
+        # raw discovery chave's own numero (here 9999, from _IA_ID) must now
+        # reach the model as an actual prompt input, not just a post-hoc diff.
+        with _llm(_LLM_OK) as m:
+            parser.parse_law("ocr text", _IA_ID, "ro")
+
+        system_text = m.call_args.kwargs["messages"][0]["content"][0]["text"]
+        assert "Discovery hint" in system_text
+        assert "9999" in system_text
+
+    def test_system_prompt_has_no_numero_hint_without_a_trailing_number(self):
+        # An ia_id whose chave doesn't end in digits (shouldn't normally
+        # happen for a range-discovered raw item, but _raw_numero_hint is
+        # advisory/best-effort) must not inject a bogus hint.
+        with _llm(_LLM_OK) as m:
+            parser.parse_law("ocr text", "leizilla-raw-ro-assembleia-foo", "ro")
+
+        system_text = m.call_args.kwargs["messages"][0]["content"][0]["text"]
+        assert "Discovery hint" not in system_text
+
     def test_accepts_numero_with_letter_suffix(self):
         # Issue #127: "Lei 72-A" (split/renumbered law) must not be dropped
         # by a blanket isdigit() gate, and must not collide with "Lei 72".
