@@ -90,6 +90,13 @@ Required fields:
   suffix when the law was split/renumbered after promulgation (e.g. "9999"
   or "72-a"). Use the letter EXACTLY as printed in the source but lowercase
   it here; do NOT drop the suffix — "72-a" and "72" are different laws.
+  Read it from THIS document's own title/header (e.g. "LEI Nº 33") or its
+  own enacting clause — never from a number this law cites while amending
+  or referencing ANOTHER law in its body text (e.g. "o artigo 19 da Lei
+  nº 26" names a *different* law being amended; this document's own numero
+  is the one in its own header, not 26). If the document's own number is
+  illegible or absent from the OCR, do NOT guess a placeholder like "0" —
+  set "confidence" below 0.5 and explain in "error" instead.
 - "ano": year as integer
 - "urn_lex": URN LEX string (see URN rules); null only if the text has no date at all
 

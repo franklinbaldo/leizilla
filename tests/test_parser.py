@@ -774,6 +774,15 @@ class TestParseLaw:
         assert result.ia_id_parsed == "leizilla-ro-lei-00042-1999"
         assert any("numero extraído pelo LLM" in r.message for r in caplog.records)
 
+    def test_system_prompt_warns_against_citing_a_different_law(self):
+        # Issue #278's clearest case: casacivil-lei-00033 (header "LEI Nº 33")
+        # was parsed as numero=26 because its body amends "o artigo 19 da Lei
+        # nº 26" — the LLM read the AMENDED law's number instead of its own.
+        # The prompt must tell it to prefer the document's own header/enacting
+        # clause and never guess a placeholder numero when illegible.
+        assert "referencing ANOTHER law" in parser._SYSTEM
+        assert 'NOT guess a placeholder like "0"' in parser._SYSTEM
+
     def test_accepts_numero_with_letter_suffix(self):
         # Issue #127: "Lei 72-A" (split/renumbered law) must not be dropped
         # by a blanket isdigit() gate, and must not collide with "Lei 72".
