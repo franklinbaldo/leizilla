@@ -633,6 +633,23 @@ def fetch_parsed_xml(ia_id: str, output_path: Path) -> bool:
         return False
 
 
+def get_parsed_superseded_by(ia_id_parsed: str) -> Optional[str]:
+    """Retorna o ia_id que substitui ``ia_id_parsed``, se este foi marcado
+    como superseded (``InternetArchivePublisher.mark_parsed_superseded``,
+    issue #308), ou ``None`` se não está marcado.
+
+    Fail-open: qualquer falha de rede/leitura também retorna ``None`` — uma
+    checagem que não pôde ser feita nunca deve impedir um fetch legítimo,
+    mesmo item de outra forma esteja de fato marcado (será pego numa
+    tentativa futura, não é perda de dado, só um duplicado temporário).
+    """
+    meta = _fetch_existing_parsed_meta(ia_id_parsed)
+    if meta is None:
+        return None
+    superseded_by = meta.get("superseded_by")
+    return str(superseded_by) if superseded_by else None
+
+
 def fetch_item_filenames(item_id: str) -> Optional[Set[str]]:
     """Nomes de todos os arquivos (originais + derivados, ex. ``*_djvu.txt``) de
     um item IA, via ``archive.org/metadata`` (uma requisição por item, não por
@@ -1517,6 +1534,62 @@ class InternetArchivePublisher:
                 }
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id_parsed}
+
+    def mark_parsed_superseded(
+        self, ia_id_old: str, ia_id_new: str, reason: str = ""
+    ) -> Dict[str, Any]:
+        """Marca um item parsed antigo como substituído por um novo identifier.
+
+        Issue #308: uma reparse corrigida (ex.: numero certo desta vez) pode
+        migrar para um ia_id_parsed DIFERENTE do anterior, deixando o item
+        antigo órfão — sem nenhum raw item competindo pelo identifier antigo,
+        o guard de colisão de ``upload_parsed`` nunca dispara para ele, e ele
+        continua publicado ao lado do novo, duplicando o documento no Parquet
+        consolidado sob dois lei_ids diferentes.
+
+        Em vez de apagar ou sobrescrever o item antigo no IA (irreversível e
+        desencorajado pelo próprio Internet Archive), grava um marcador
+        ``superseded_by`` no seu ``parsed_meta.json`` existente — preserva o
+        item no arquivo, mas ``fetch-all-parsed``/``get_parsed_superseded_by``
+        aprendem a pulá-lo, tirando-o do dataset publicado.
+
+        Fail-closed: recusa se o item antigo não existir ou seu
+        parsed_meta.json não puder ser lido (nada a marcar).
+        Idempotente: marcar novamente com o mesmo ``ia_id_new`` é um no-op.
+        """
+        if not self.access_key or not self.secret_key:
+            return {"success": False, "error": "IA credentials not configured"}
+
+        existing_meta = _fetch_existing_parsed_meta(ia_id_old)
+        if existing_meta is None:
+            return {
+                "success": False,
+                "error": f"{ia_id_old}: parsed_meta.json não encontrado ou ilegível",
+                "ia_id": ia_id_old,
+            }
+        if existing_meta.get("superseded_by") == ia_id_new:
+            return {"success": True, "ia_id": ia_id_old, "already_marked": True}
+
+        existing_meta["superseded_by"] = ia_id_new
+        existing_meta["superseded_at"] = datetime.now(timezone.utc).isoformat()
+        if reason:
+            existing_meta["superseded_reason"] = reason
+
+        with tempfile.TemporaryDirectory() as tmp:
+            meta_path = Path(tmp) / "parsed_meta.json"
+            meta_path.write_text(
+                json.dumps(existing_meta, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            try:
+                self._run_ia_upload(["ia", "upload", ia_id_old, str(meta_path)])
+                return {
+                    "success": True,
+                    "ia_id": ia_id_old,
+                    "superseded_by": ia_id_new,
+                }
+            except subprocess.CalledProcessError as e:
+                return {"success": False, "error": e.stderr, "ia_id": ia_id_old}
 
     def upload_dataset(
         self,

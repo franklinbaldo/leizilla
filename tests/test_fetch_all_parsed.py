@@ -4,12 +4,24 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from leizilla.cli import app
 from leizilla.publisher import fetch_parsed_xml, list_parsed_ia_ids
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _not_superseded_by_default():
+    """Issue #308's superseded-check adds one network call per candidate id
+    in cmd_fetch_all_parsed; default it to "not superseded" (fail-open value)
+    so every pre-existing test in this file stays offline/deterministic
+    without having to know about it. Tests that actually exercise the
+    superseded-skip path override this explicitly."""
+    with patch("leizilla.publisher.get_parsed_superseded_by", return_value=None):
+        yield
 
 
 def _scrape_response(identifiers: list[str], cursor: str | None = None) -> bytes:
@@ -136,7 +148,10 @@ class TestCmdFetchAllParsed:
 
         assert result.exit_code == 0
         assert "Encontrados 2 itens" in result.output
-        assert "Baixados: 2, Pulados (já existiam): 0, Erros: 0" in result.output
+        assert (
+            "Baixados: 2, Pulados (já existiam): 0, "
+            "Substituídos (superseded): 0, Erros: 0" in result.output
+        )
         assert mock_fetch.call_count == 2
 
     def test_skips_already_existing_files(self, tmp_path: Path):
@@ -156,7 +171,10 @@ class TestCmdFetchAllParsed:
             )
 
         assert result.exit_code == 0
-        assert "Baixados: 0, Pulados (já existiam): 1, Erros: 0" in result.output
+        assert (
+            "Baixados: 0, Pulados (já existiam): 1, "
+            "Substituídos (superseded): 0, Erros: 0" in result.output
+        )
         mock_fetch.assert_not_called()
 
     def test_counts_errors_per_item(self, tmp_path: Path):
@@ -175,7 +193,10 @@ class TestCmdFetchAllParsed:
             )
 
         assert result.exit_code == 0
-        assert "Baixados: 1, Pulados (já existiam): 0, Erros: 1" in result.output
+        assert (
+            "Baixados: 1, Pulados (já existiam): 0, "
+            "Substituídos (superseded): 0, Erros: 1" in result.output
+        )
 
     def test_no_items_found_exits_cleanly(self, tmp_path: Path):
         with patch("leizilla.publisher.list_parsed_ia_ids", return_value=[]):
@@ -201,6 +222,96 @@ class TestCmdFetchAllParsed:
 
         assert result.exit_code == 0
         assert new_dir.exists()
+
+    def test_skips_items_marked_superseded(self, tmp_path: Path):
+        """Issue #308: an item marked superseded_by another id must be
+        excluded from the download (and therefore from consolidate's
+        Parquet) instead of being fetched and double-counted."""
+        ids = ["leizilla-ro-lei-00000-1984", "leizilla-ro-lei-00025-1984"]
+
+        def superseded_side(ia_id: str):
+            return (
+                "leizilla-ro-lei-00025-1984"
+                if ia_id == "leizilla-ro-lei-00000-1984"
+                else None
+            )
+
+        with (
+            patch("leizilla.publisher.list_parsed_ia_ids", return_value=ids),
+            patch(
+                "leizilla.publisher.get_parsed_superseded_by",
+                side_effect=superseded_side,
+            ),
+            patch(
+                "leizilla.publisher.fetch_parsed_xml", return_value=True
+            ) as mock_fetch,
+        ):
+            result = runner.invoke(
+                app,
+                ["fetch-all-parsed", "--ente", "ro", "--output-dir", str(tmp_path)],
+            )
+
+        assert result.exit_code == 0
+        assert (
+            "Baixados: 1, Pulados (já existiam): 0, "
+            "Substituídos (superseded): 1, Erros: 0" in result.output
+        )
+        assert "[SUPERSEDED] leizilla-ro-lei-00000-1984" in result.output
+        mock_fetch.assert_called_once_with(
+            "leizilla-ro-lei-00025-1984",
+            tmp_path / "leizilla-ro-lei-00025-1984.xml",
+        )
+
+
+class TestCmdRetractParsed:
+    def test_marks_old_item_superseded(self):
+        with patch(
+            "leizilla.publisher.InternetArchivePublisher.mark_parsed_superseded",
+            return_value={
+                "success": True,
+                "ia_id": "leizilla-ro-lei-00000-1984",
+                "superseded_by": "leizilla-ro-lei-00025-1984",
+            },
+        ) as mock_mark:
+            result = runner.invoke(
+                app,
+                [
+                    "retract-parsed",
+                    "--ia-id-old",
+                    "leizilla-ro-lei-00000-1984",
+                    "--ia-id-new",
+                    "leizilla-ro-lei-00025-1984",
+                    "--reason",
+                    "numero corrigido, ver #308",
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert "OK" in result.output
+        mock_mark.assert_called_once_with(
+            "leizilla-ro-lei-00000-1984",
+            "leizilla-ro-lei-00025-1984",
+            reason="numero corrigido, ver #308",
+        )
+
+    def test_exits_nonzero_on_failure(self):
+        with patch(
+            "leizilla.publisher.InternetArchivePublisher.mark_parsed_superseded",
+            return_value={"success": False, "error": "boom"},
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "retract-parsed",
+                    "--ia-id-old",
+                    "leizilla-ro-lei-00000-1984",
+                    "--ia-id-new",
+                    "leizilla-ro-lei-00025-1984",
+                ],
+            )
+
+        assert result.exit_code == 1
+        assert "boom" in result.output
 
 
 class TestCmdFetchAllParsedExtraIdsFile:
