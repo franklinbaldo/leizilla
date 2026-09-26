@@ -528,6 +528,34 @@ class TestHarvestPendingResources:
         assert row is not None
         assert row[0] == "pending"
 
+    def test_html_dispatch_prints_result_at_call_site(
+        self, temp_db: DuckDBStorage, capsys: Any
+    ) -> None:
+        """Issue #297: scrape_one_html's own internal diagnostics (PR #290/#300)
+        produced zero output in a live CI run despite logging being configured
+        and the print/log calls being present in the executed commit. This
+        call-site dump sits in the same loop position as the PDF path's
+        already-proven-reliable prints, to test whether the HTML branch is
+        even being reached — independent of anything inside scrape_one_html."""
+        from leizilla.scraper import harvest_pending_resources
+
+        url = "https://www.planalto.gov.br/ccivil_03/leis/L1.htm"
+        temp_db.insert_resource(
+            _make_resource(url=url, ente="federal", fonte="planalto")
+        )
+        pub = MagicMock()
+
+        with patch(
+            "leizilla.scraper.scrape_one_html",
+            return_value={"success": False, "reason": "fetch-failed"},
+        ):
+            harvest_pending_resources(temp_db, pub, limit=10)
+
+        stderr = capsys.readouterr().err
+        assert "[DEBUG] html_result for" in stderr
+        assert url in stderr
+        assert "fetch-failed" in stderr
+
     def test_pdf_tipo_ingestion_unaffected_by_html_dispatch(
         self, temp_db: DuckDBStorage
     ) -> None:
