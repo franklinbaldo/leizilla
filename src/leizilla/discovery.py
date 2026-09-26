@@ -197,8 +197,18 @@ class WaybackCdxDiscovery:
 _HEAD_RATE_LIMIT_S = 0.5
 
 
-def _head_exists(url: str, timeout: float = 10.0) -> bool:
-    """Retorna True se HEAD request retornar 200 ou 302 (arquivo existe no servidor)."""
+def _head_check_status(url: str, timeout: float = 10.0) -> Optional[bool]:
+    """Checagem HEAD de 3 estados: True (existe), False (404 confirmado), None (ambíguo).
+
+    Distinto de um booleano simples porque só um 404 CONFIRMADO é seguro para
+    cache permanente (ver `SequentialDiscovery.run`'s marcação de
+    "checked_not_found") — um 403/429/500/503 ou uma exceção de rede (timeout,
+    WAF derrubando a conexão) é o mesmo sinal de infraestrutura transiente de
+    sempre, não uma prova de que o recurso não existe. Cachear isso como
+    "não existe" seria uma perda de dados silenciosa e *permanente*, pior que
+    o problema que a cache resolve (issue #319: sem cache, cada rodada
+    refazia HEAD request para toda a faixa numérica desde sempre).
+    """
     try:
         req = urllib.request.Request(
             url,
@@ -206,7 +216,9 @@ def _head_exists(url: str, timeout: float = 10.0) -> bool:
             headers={"User-Agent": "leizilla-crawler/0.1"},
         )
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status in (200, 302)
+            if r.status in (200, 302):
+                return True
+            return None
     except urllib.error.HTTPError as exc:
         # 404 é resposta normal — a URL candidata simplesmente não existe.
         # Qualquer OUTRO código de erro (403, 429, 500, 503, ...) chega aqui
@@ -216,9 +228,10 @@ def _head_exists(url: str, timeout: float = 10.0) -> bool:
         # abaixo já trata com um warning — sem isto, um bloqueio via HTTP
         # (em vez de conexão recusada/timeout) ficava tão silencioso quanto
         # a ambiguidade original do issue #262.
-        if exc.code not in (200, 302, 404):
-            logger.warning(f"HEAD check retornou {exc.code} (não 404) para {url}")
-        return exc.code in (200, 302)
+        if exc.code == 404:
+            return False
+        logger.warning(f"HEAD check retornou {exc.code} (não 404) para {url}")
+        return None
     except Exception as exc:
         # Qualquer coisa além de um HTTPError normal (conexão recusada,
         # timeout, TLS/WAF derrubando a conexão) é indistinguível de um 404
@@ -227,7 +240,12 @@ def _head_exists(url: str, timeout: float = 10.0) -> bool:
         # "recurso não existe" que um 404 real, tornando uma perda
         # sistemática de descoberta indistinguível de "não há nada aqui".
         logger.warning(f"HEAD check falhou (não é 404) para {url}: {exc!r}")
-        return False
+        return None
+
+
+def _head_exists(url: str, timeout: float = 10.0) -> bool:
+    """Retorna True se HEAD request retornar 200 ou 302 (arquivo existe no servidor)."""
+    return bool(_head_check_status(url, timeout=timeout))
 
 
 def _wayback_snapshot_if_exists(url: str) -> Optional[str]:
@@ -254,6 +272,47 @@ def _wayback_snapshot_if_exists(url: str) -> Optional[str]:
         logger.warning(f"Wayback existence check falhou para {url}: {exc!r}")
         return None
     return found[0] if found is not None else None
+
+
+#: Status persistido para uma URL candidata com 404 CONFIRMADO (não um erro
+#: ambíguo) — distinto de `status='pending'`/`'downloaded'` para que
+#: `get_pending_resources`/`get_downloaded_resources` (filtrados por status
+#: exato) nunca a enxerguem como um recurso a processar.
+_STATUS_CHECKED_NOT_FOUND = "checked_not_found"
+
+
+def _mark_checked_not_found(
+    storage: Optional[DuckDBStorage], url: str, ente: str, fonte: str
+) -> None:
+    """Persiste um 404 confirmado para que rodadas futuras pulem o HEAD request.
+
+    `SequentialDiscovery`'s range cresce (`end`) e sua faixa geralmente tem
+    lacunas permanentes (números retratados/nunca emitidos) — sem isto, cada
+    rodada agendada refazia HEAD request, com rate-limit (~1 req/s, ADR-0008),
+    para TODA a faixa desde `start`, não só os candidatos novos desde a
+    última rodada, inflando o Discover step para horas e crescendo a cada
+    semana (issue #319/#149). Só chamar com um 404 confirmado
+    (`_head_check_status(url) is False`) — nunca com um erro ambíguo, o que
+    cachearia permanentemente um bloqueio transiente (WAF/rate-limit) como
+    "não existe", uma perda de dados silenciosa pior que o problema original.
+    """
+    if storage is None:
+        return
+    try:
+        storage.insert_resource(
+            {
+                "url": url,
+                "ente": ente,
+                "fonte": fonte,
+                "tipo_documento": None,
+                "chave": None,
+                "status": _STATUS_CHECKED_NOT_FOUND,
+            }
+        )
+    except Exception as exc:
+        logger.warning(
+            f"Erro ao persistir marcador checked_not_found para {url}: {exc!r}"
+        )
 
 
 #: Fallback quando "end": "cdx-auto" não consegue resolver um limite (CDX vazia,
@@ -347,10 +406,14 @@ class SequentialDiscovery:
                     elapsed = time.monotonic() - last_head_time
                     if elapsed < _HEAD_RATE_LIMIT_S:
                         time.sleep(_HEAD_RATE_LIMIT_S - elapsed)
-                    exists = _head_exists(url)
+                    head_status = _head_check_status(url)
                     last_head_time = time.monotonic()
-                    if not exists:
+                    if head_status is not True:
                         logger.debug(f"HEAD 404/error — skipping {url}")
+                        if head_status is False:
+                            # 404 confirmado (não um erro ambíguo): seguro
+                            # cachear para nunca mais refazer este HEAD.
+                            _mark_checked_not_found(storage, url, self.ente, self.fonte)
                         continue
 
                 filename = url.split("/")[-1]
