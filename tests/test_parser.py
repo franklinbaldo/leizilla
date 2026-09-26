@@ -435,6 +435,33 @@ class TestTruncatePartialDateUrnLex:
         assert result == '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1999;72-a">'
 
 
+class TestTruncateInvalidDayUrnLex:
+    def test_collapses_00_day_to_year_only(self):
+        # issue #306: casacivil-lei-00025 emitted a full-shaped but invalid
+        # date ("...;1984-04-00;25") instead of degrading to year-only.
+        xml = '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1984-04-00;25">'
+        result = parser._truncate_invalid_day_urn_lex(xml)
+        assert result == '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1984;25">'
+
+    def test_collapses_when_numero_is_absent(self):
+        xml = '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1983-12-00">'
+        result = parser._truncate_invalid_day_urn_lex(xml)
+        assert result == '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1983">'
+
+    def test_leaves_a_valid_full_date_untouched(self):
+        xml = _VALID_XML
+        assert parser._truncate_invalid_day_urn_lex(xml) == xml
+
+    def test_leaves_a_year_only_date_untouched(self):
+        xml = '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1984;33">'
+        assert parser._truncate_invalid_day_urn_lex(xml) == xml
+
+    def test_handles_numero_with_letter_suffix(self):
+        xml = '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1999-06-00;72-a">'
+        result = parser._truncate_invalid_day_urn_lex(xml)
+        assert result == '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1999;72-a">'
+
+
 class TestParseLaw:
     def test_returns_result_on_valid_response(self):
         with _llm(_LLM_OK):
@@ -508,6 +535,31 @@ class TestParseLaw:
                 "numero": "9999",
                 "ano": 1999,
                 "urn_lex": "urn:lex:br;rondonia:estadual:lei:1999-06;9999",
+            }
+        )
+        with _llm(response):
+            result = parser.parse_law("ocr text", _IA_ID, "ro")
+
+        assert result is not None
+        assert 'urn-lex="urn:lex:br;rondonia:estadual:lei:1999;9999"' in result.xml
+
+    def test_truncates_invalid_day_urn_lex_in_llm_output(self):
+        # End-to-end (issue #306): a model that knows the month but not the
+        # exact day sometimes writes "00" as a placeholder day instead of
+        # degrading to year-only — this document should still publish under
+        # a year-only urn-lex rather than an invalid full-shaped date.
+        xml_with_invalid_day = _VALID_XML.replace(
+            ' urn-lex="urn:lex:br;rondonia:estadual:lei:1999-06-15;9999"',
+            ' urn-lex="urn:lex:br;rondonia:estadual:lei:1999-06-00;9999"',
+        )
+        response = json.dumps(
+            {
+                "xml": xml_with_invalid_day,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "9999",
+                "ano": 1999,
+                "urn_lex": "urn:lex:br;rondonia:estadual:lei:1999-06-00;9999",
             }
         )
         with _llm(response):
