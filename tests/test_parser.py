@@ -750,6 +750,30 @@ class TestParseLaw:
         assert result is not None
         assert result.ia_id_parsed == "leizilla-ro-lei-00042-1990"
 
+    def test_warns_but_does_not_block_on_numero_mismatch(self, caplog):
+        # Issue #278: 4 published items had an LLM-extracted numero that
+        # disagreed with the raw item's own chave (e.g. casacivil-lei-00025
+        # parsed as numero=0) — found only by a manual corpus scan after the
+        # fact. _IA_ID's chave hints numero=9999; extracting a different
+        # value must log a WARNING but still return a result (advisory only,
+        # distinct from #273's identity-collision guard which blocks).
+        mismatched = json.dumps(
+            {
+                "xml": _VALID_XML,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "42",
+                "ano": 1999,
+            }
+        )
+        with _llm(mismatched):
+            with caplog.at_level("WARNING"):
+                result = parser.parse_law("ocr text", _IA_ID, "ro")
+
+        assert result is not None
+        assert result.ia_id_parsed == "leizilla-ro-lei-00042-1999"
+        assert any("numero extraído pelo LLM" in r.message for r in caplog.records)
+
     def test_accepts_numero_with_letter_suffix(self):
         # Issue #127: "Lei 72-A" (split/renumbered law) must not be dropped
         # by a blanket isdigit() gate, and must not collide with "Lei 72".
