@@ -170,7 +170,9 @@ URN rules — the urn-lex on <lei> and the "urn_lex" field must be identical:
   date are missing. Only two grains exist — full YYYY-MM-DD or bare YYYY —
   never a year-month value like "1984-11": if you know the month but the day
   is illegible or missing, drop the month too and use year-only, the same as
-  if neither were known. Do NOT substitute today's date into the URN.
+  if neither were known. Never write "00" (or any other placeholder) as the
+  day or month — that produces an invalid date; degrade to year-only
+  instead. Do NOT substitute today's date into the URN.
 - NUMERO is the same value as the "numero" field: digits, optionally with a
   lowercase "-x" suffix (e.g. "9999" or "72-a"). Never strip the suffix.
 - If "urn_lex" is null (no date found at all), OMIT the urn-lex attribute
@@ -446,6 +448,24 @@ def _truncate_partial_date_urn_lex(xml: str) -> str:
     return _PARTIAL_DATE_URN_LEX_RE.sub(r"\1\2", xml)
 
 
+_INVALID_DAY_URN_LEX_RE = re.compile(r'(urn-lex="[^"]*:)(\d{4})-\d{2}-00(?=[;"])')
+
+
+def _truncate_invalid_day_urn_lex(xml: str) -> str:
+    """Collapse a urn-lex date with an invalid "00" day down to year-only.
+
+    Issue #306's casacivil-lei-00025 recovery: the model knew the year and
+    month but not the day, and — instead of degrading to year-only as
+    instructed — emitted a syntactically full-looking but semantically
+    invalid date ("...;1984-04-00;25"). The XSD's date pattern only checks
+    digit counts, not calendar validity, so "00" as a day slips past it
+    where `_truncate_partial_date_urn_lex` (which only catches a date with
+    no day segment at all) does not. Same defense-in-depth pattern as that
+    function and `_strip_null_urn_lex`.
+    """
+    return _INVALID_DAY_URN_LEX_RE.sub(r"\1\2", xml)
+
+
 def _strip_null_urn_lex(xml: str) -> str:
     """Drop a literal `urn-lex="null"` attribute (issue #201: item 13's
     reparse) rather than shipping it.
@@ -665,6 +685,7 @@ def parse_law(
     xml = _normalize_roman_numeral_paths(xml)
     xml = _strip_null_urn_lex(xml)
     xml = _truncate_partial_date_urn_lex(xml)
+    xml = _truncate_invalid_day_urn_lex(xml)
 
     provenance_error = _find_provenance_mismatch(ET.fromstring(xml), ia_id)
     if provenance_error:
