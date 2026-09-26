@@ -117,6 +117,7 @@ def scrape_one_html(
     publisher: InternetArchivePublisher,
     rate_limiter: Optional[Callable[[str], None]] = None,
     index_cache: Optional[Dict[str, str]] = None,
+    wayback_snapshot: Optional[str] = None,
 ) -> dict:
     """Scrape de uma página HTML: robots → wayback save → fetch → upload_raw_html.
 
@@ -124,6 +125,11 @@ def scrape_one_html(
     Retorna dict com 'success' + ('ia_id', 'ia_url') ou ('reason') em falha.
     Robots bloqueado é permanente — caller NÃO deve re-tentar a mesma URL.
     ``index_cache`` (acumulador por item do lote) repassa-se ao ``upload_raw_html``.
+    ``wayback_snapshot`` é um snapshot pré-descoberto (ex.: PlanaltoDiscovery via
+    ``closest_snapshot``, sem limite de idade) usado preferencialmente — sem ele,
+    esta função caía em ``check_available`` (exige captura < 24h), quase sempre
+    ``None`` para páginas arquivadas há mais tempo, forçando um fallback direto
+    a hosts que bloqueiam requisições de runners do GitHub Actions (issue #262).
     """
     if not robots.is_allowed(fonte_url):
         return {"success": False, "reason": "robots-blocked", "url": fonte_url}
@@ -133,8 +139,9 @@ def scrape_one_html(
     except Exception:
         pass
 
-    # Tenta primeiro Wayback (snapshot recente)
-    wb_url = wayback.check_available(fonte_url)
+    # Snapshot pré-descoberto (qualquer idade) tem prioridade; senão, tenta um
+    # snapshot recente via check_available (exige < 24h).
+    wb_url = wayback_snapshot or wayback.check_available(fonte_url)
     fetched_from: str
     html_content: Optional[str]
 
@@ -249,6 +256,7 @@ def harvest_pending_resources(
                 publisher,
                 rate_limiter=rate_limiter,
                 index_cache=index_cache,
+                wayback_snapshot=wb_url,
             )
             if not html_result.get("success"):
                 reason = html_result.get("reason", "fetch-failed")
