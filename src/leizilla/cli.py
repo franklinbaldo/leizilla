@@ -1146,6 +1146,16 @@ def cmd_parse(
         "--input-type",
         help="Tipo de entrada do raw item: ocr (PDF via IA) ou html (HTML armazenado no IA)",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help=(
+            "Sobrescrever mesmo se o identifier já existir com um ia_id_raw "
+            "diferente (identity collision). Uso deliberado de recuperação "
+            "por um operador que já confirmou qual raw id é o dono legítimo "
+            "— nunca o default (issue #273)."
+        ),
+    ),
 ) -> None:
     """Parsear raw IA item → Leizilla XML via LLM (Etapa 2).
 
@@ -1207,7 +1217,7 @@ def cmd_parse(
 
             pub = InternetArchivePublisher()
             upload_result = pub.upload_parsed(
-                result.ia_id_parsed, result.xml, result.parsed_meta
+                result.ia_id_parsed, result.xml, result.parsed_meta, force=force
             )
             if upload_result["success"]:
                 echo(f"Uploaded: {upload_result['ia_url']}")
@@ -1280,6 +1290,16 @@ def cmd_parse_all(
             "`fetch-all-parsed --extra-ids-file`, fechando o lag de indexação "
             "do IA logo após o upload na mesma execução do workflow "
             "(issue #233). Aditivo: sem esta flag, comportamento inalterado."
+        ),
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help=(
+            "Sobrescrever mesmo se um identifier do range já existir com um "
+            "ia_id_raw diferente (identity collision). Uso deliberado de "
+            "recuperação por um operador que já confirmou qual raw id é o "
+            "dono legítimo — nunca o default (issue #273)."
         ),
     ),
 ) -> None:
@@ -1433,7 +1453,10 @@ def cmd_parse_all(
                     upload_fail += 1
                 else:
                     upload_result = pub.upload_parsed(
-                        result.ia_id_parsed, result.xml, result.parsed_meta
+                        result.ia_id_parsed,
+                        result.xml,
+                        result.parsed_meta,
+                        force=force,
                     )
                     if upload_result["success"]:
                         echo(f"  ↑ {upload_result['ia_url']}")
