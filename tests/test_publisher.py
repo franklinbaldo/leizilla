@@ -185,7 +185,10 @@ class TestUploadParsed:
 
     def test_returns_success_on_valid_upload(self):
         pub = self._publisher()
-        with patch("subprocess.run") as mock_run:
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("leizilla.publisher._fetch_existing_parsed_meta", return_value=None),
+        ):
             mock_run.return_value = MagicMock(returncode=0)
             result = pub.upload_parsed(
                 "leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META
@@ -198,7 +201,10 @@ class TestUploadParsed:
 
     def test_uploads_law_xml_and_parsed_meta(self):
         pub = self._publisher()
-        with patch("subprocess.run") as mock_run:
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("leizilla.publisher._fetch_existing_parsed_meta", return_value=None),
+        ):
             mock_run.return_value = MagicMock(returncode=0)
             pub.upload_parsed("leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META)
 
@@ -221,7 +227,10 @@ class TestUploadParsed:
                     captured_files.append(Path(arg).read_text(encoding="utf-8"))
             return MagicMock(returncode=0)
 
-        with patch("subprocess.run", side_effect=capture_run):
+        with (
+            patch("subprocess.run", side_effect=capture_run),
+            patch("leizilla.publisher._fetch_existing_parsed_meta", return_value=None),
+        ):
             pub.upload_parsed("leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META)
 
         assert len(captured_files) == 1
@@ -239,7 +248,10 @@ class TestUploadParsed:
                     )
             return MagicMock(returncode=0)
 
-        with patch("subprocess.run", side_effect=capture_run):
+        with (
+            patch("subprocess.run", side_effect=capture_run),
+            patch("leizilla.publisher._fetch_existing_parsed_meta", return_value=None),
+        ):
             pub.upload_parsed("leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META)
 
         assert len(captured_metas) == 1
@@ -260,12 +272,70 @@ class TestUploadParsed:
 
         pub = self._publisher()
         err = subprocess.CalledProcessError(1, "ia", stderr="upload failed")
-        with patch("subprocess.run", side_effect=err):
+        with (
+            patch("subprocess.run", side_effect=err),
+            patch("leizilla.publisher._fetch_existing_parsed_meta", return_value=None),
+        ):
             result = pub.upload_parsed(
                 "leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META
             )
         assert result["success"] is False
         assert "upload failed" in result["error"]
+
+    def test_refuses_upload_on_identity_collision(self):
+        """Production incident: two different raw documents (casacivil-lei-00007
+        and casacivil-lei-00017) both computed ia_id_parsed
+        leizilla-ro-lei-00007-1983 — the second upload silently overwrote the
+        first's law.xml, permanently losing its content. Detect and refuse
+        instead of overwriting."""
+        pub = self._publisher()
+        existing = dict(_PARSED_META, ia_id_raw="leizilla-raw-ro-casacivil-lei-00007")
+        new_meta = dict(_PARSED_META, ia_id_raw="leizilla-raw-ro-casacivil-lei-00017")
+        with (
+            patch("subprocess.run") as mock_run,
+            patch(
+                "leizilla.publisher._fetch_existing_parsed_meta",
+                return_value=existing,
+            ),
+        ):
+            result = pub.upload_parsed(
+                "leizilla-ro-lei-00007-1983", _XML_CONTENT, new_meta
+            )
+        assert result["success"] is False
+        assert result["reason"] == "identity-collision"
+        mock_run.assert_not_called()
+
+    def test_allows_upload_when_existing_meta_matches_same_raw_id(self):
+        """Re-parsing the SAME raw item (e.g. a fix/reparse) is not a collision."""
+        pub = self._publisher()
+        existing = dict(_PARSED_META)
+        with (
+            patch("subprocess.run") as mock_run,
+            patch(
+                "leizilla.publisher._fetch_existing_parsed_meta",
+                return_value=existing,
+            ),
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
+            result = pub.upload_parsed(
+                "leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META
+            )
+        assert result["success"] is True
+        mock_run.assert_called_once()
+
+    def test_allows_upload_when_existing_meta_fetch_fails(self):
+        """Fail-open: a network error reading the existing parsed_meta.json
+        must never block a legitimate upload."""
+        pub = self._publisher()
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("leizilla.publisher._fetch_existing_parsed_meta", return_value=None),
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
+            result = pub.upload_parsed(
+                "leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META
+            )
+        assert result["success"] is True
 
 
 class TestRunIaUploadRetry:

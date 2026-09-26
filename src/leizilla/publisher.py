@@ -662,6 +662,25 @@ class IndexFetchError(Exception):
     """
 
 
+def _fetch_existing_parsed_meta(ia_id_parsed: str) -> Optional[Dict[str, Any]]:
+    """Baixa o ``parsed_meta.json`` existente de um item IA parsed, se houver.
+
+    ``None`` se o item/arquivo não existe, não é JSON válido, ou em qualquer
+    falha de rede (fail-open) — usado só como checagem best-effort de colisão
+    de identidade antes de um upload (ver ``upload_parsed``), nunca como
+    bloqueio incondicional: uma leitura que falhou não deve impedir um upload
+    legítimo.
+    """
+    url = download_url(ia_id_parsed, "parsed_meta.json")
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
 def _fetch_existing_index(item_id: str) -> Optional[str]:
     """Baixa o index.csv corrente de um item de range do IA.
 
@@ -1395,11 +1414,43 @@ class InternetArchivePublisher:
     ) -> Dict[str, Any]:
         """Upload law.xml + parsed_meta.json para IA parsed item.
 
-        Identifier: leizilla-{ente}-{tipo}-{numero:05d}-{ano} (SCHEMA.md §1.3).
+        Identifier: leizilla-{ente}-{tipo}-{numero:05d}-{ano} (SCHEMA.md §1.3) —
+        derivado do (tipo, numero, ano) que o próprio LLM extraiu do documento,
+        não da chave/ia-id de descoberta. Isso significa que dois raw items
+        DIFERENTES podem colidir no mesmo ia_id_parsed se o LLM (mis)ler o
+        mesmo número em ambos (ex.: OCR ambíguo, ou dois documentos distintos
+        que se auto-referenciam com o mesmo número) — sem uma checagem, o
+        segundo upload sobrescreveria silenciosamente o law.xml do primeiro,
+        destruindo seu conteúdo (achado em produção: leizilla-ro-lei-00007-1983
+        acabou contendo o texto de casacivil-lei-00017, perdendo o texto
+        original de casacivil-lei-00007). Antes de subir, comparamos o
+        ia_id_raw já publicado (se houver) com o desta chamada e recusamos
+        (fail-closed) em caso de divergência — mesmo padrão de
+        _find_provenance_mismatch em parser.py. Best-effort: qualquer falha de
+        rede ao ler o parsed_meta.json existente é fail-open (não bloqueia o
+        upload por uma checagem que não pôde ser feita).
+
         Retorna dict com 'success', 'ia_id', 'ia_url'.
         """
         if not self.access_key or not self.secret_key:
             return {"success": False, "error": "IA credentials not configured"}
+
+        existing_meta = _fetch_existing_parsed_meta(ia_id_parsed)
+        if existing_meta is not None:
+            existing_raw = existing_meta.get("ia_id_raw")
+            new_raw = parsed_meta.get("ia_id_raw")
+            if existing_raw and new_raw and existing_raw != new_raw:
+                return {
+                    "success": False,
+                    "reason": "identity-collision",
+                    "ia_id": ia_id_parsed,
+                    "error": (
+                        f"{ia_id_parsed} já existe com ia_id_raw={existing_raw!r}, "
+                        f"divergente de {new_raw!r} desta chamada — upload "
+                        "abortado para não sobrescrever um documento diferente "
+                        "(identity collision; ver leizilla-ro-lei-00007-1983)."
+                    ),
+                }
 
         ente = str(parsed_meta.get("ente", "unknown"))
         tipo = str(parsed_meta.get("tipo", "lei"))
