@@ -168,6 +168,19 @@ def scrape_one_html(
         # Diagnóstico (issue #262): distingue "sem snapshot Wayback disponível"
         # de "snapshot existia mas fetch_html falhou" — ambos acabam em
         # fetch-failed, mas só o log revela qual ramo foi de fato tentado.
+        # Issue #297: um run real de CI produziu Falhas=10 sem NENHUMA destas
+        # linhas aparecer no job log, apesar de basicConfig estar configurado
+        # (confirmado) e a chamada logger.warning estar presente no commit
+        # executado (confirmado) — não reproduzido localmente. print(...,
+        # file=sys.stderr) já é o padrão comprovado nesta base para o caminho
+        # PDF (scrape_one, harvest_pending_resources) e aparece de forma
+        # confiável nesses mesmos runs de CI; duplicar aqui como
+        # belt-and-suspenders em vez de confiar só no logging.
+        msg = (
+            f"[WARN] scrape_one_html: fetch-failed para {fonte_url} "
+            f"(wayback_attempted={wayback_attempted})"
+        )
+        print(msg, file=sys.stderr)
         logger.warning(
             "scrape_one_html: fetch-failed para %s (wayback_attempted=%s)",
             fonte_url,
@@ -184,6 +197,10 @@ def scrape_one_html(
             index_cache=index_cache,
         )
     except Exception as exc:
+        print(
+            f"[WARN] scrape_one_html: upload-failed para {fonte_url}: {exc}",
+            file=sys.stderr,
+        )
         logger.warning("scrape_one_html: upload-failed para %s: %s", fonte_url, exc)
         return {"success": False, "reason": "upload-failed", "error": str(exc)}
 
