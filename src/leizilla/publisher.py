@@ -701,10 +701,19 @@ def _fetch_existing_parsed_meta(ia_id_parsed: str) -> Optional[Dict[str, Any]]:
 def _fetch_existing_index(item_id: str) -> Optional[str]:
     """Baixa o index.csv corrente de um item de range do IA.
 
-    Retorna o CSV se existir, ``None`` se for um 404 confirmado (item/índice ainda
-    não publicado — seguro começar vazio), e levanta ``IndexFetchError`` em falhas
-    transitórias (timeout, 5xx, rede) para que o chamador não sobrescreva o
-    histórico existente com um índice vazio.
+    Retorna o CSV se existir, ``None`` se for um 404/403 confirmado ou se o
+    ``archive.org/metadata`` do item confirmar que ele não tem ``index.csv``
+    (seguro começar vazio), e levanta ``IndexFetchError`` em falhas realmente
+    transitórias (timeout, rede, ou um 5xx num item que o metadata confirma ter
+    ``index.csv``) para que o chamador não sobrescreva o histórico existente com
+    um índice vazio.
+
+    Item nunca criado (primeiro upload de um range bucket, ex. expansão para uma
+    nova fonte/tipo): o endpoint de download do IA responde ``503`` — não
+    ``403``/``404`` como para um arquivo ausente dentro de um item existente
+    (confirmado empiricamente, issue #297/#262). Sem a checagem via metadata
+    abaixo, TODO primeiro upload a um item novo seria mal-classificado como falha
+    transitória e abortado indefinidamente.
     """
     url = download_url(item_id, INDEX_FILENAME)
     req = urllib.request.Request(url)
@@ -715,6 +724,12 @@ def _fetch_existing_index(item_id: str) -> Optional[str]:
     except urllib.error.HTTPError as e:
         if e.code in (403, 404):
             # IA serve 403/404 para itens/arquivos inexistentes — índice ausente.
+            return None
+        filenames = fetch_item_filenames(item_id)
+        if filenames is not None and INDEX_FILENAME not in filenames:
+            # metadata confirma (não é so uma leitura que falhou): o item não tem
+            # index.csv — seguro começar vazio, mesmo o download tendo respondido
+            # um status inesperado (ex. 503 num item nunca criado).
             return None
         raise IndexFetchError(f"HTTP {e.code} ao buscar index.csv") from e
     except (urllib.error.URLError, OSError) as e:
