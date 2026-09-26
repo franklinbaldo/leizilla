@@ -5,6 +5,7 @@ Princípio #10: robots.txt é permanente (sem retry em URL bloqueada); rate-limi
                em fallback direto, por host (não global).
 """
 
+import logging
 import sys
 import tempfile
 from pathlib import Path
@@ -16,6 +17,8 @@ from leizilla.parser import fetch_html
 from leizilla.publisher import InternetArchivePublisher
 from leizilla.ratelimit import make_rate_limiter
 from leizilla.storage import DuckDBStorage
+
+logger = logging.getLogger(__name__)
 
 
 def scrape_one(
@@ -142,6 +145,7 @@ def scrape_one_html(
     # Snapshot pré-descoberto (qualquer idade) tem prioridade; senão, tenta um
     # snapshot recente via check_available (exige < 24h).
     wb_url = wayback_snapshot or wayback.check_available(fonte_url)
+    wayback_attempted = wb_url is not None
     fetched_from: str
     html_content: Optional[str]
 
@@ -161,6 +165,14 @@ def scrape_one_html(
         wb_url = None
 
     if html_content is None:
+        # Diagnóstico (issue #262): distingue "sem snapshot Wayback disponível"
+        # de "snapshot existia mas fetch_html falhou" — ambos acabam em
+        # fetch-failed, mas só o log revela qual ramo foi de fato tentado.
+        logger.warning(
+            "scrape_one_html: fetch-failed para %s (wayback_attempted=%s)",
+            fonte_url,
+            wayback_attempted,
+        )
         return {"success": False, "reason": "fetch-failed", "url": fonte_url}
 
     try:
@@ -172,6 +184,7 @@ def scrape_one_html(
             index_cache=index_cache,
         )
     except Exception as exc:
+        logger.warning("scrape_one_html: upload-failed para %s: %s", fonte_url, exc)
         return {"success": False, "reason": "upload-failed", "error": str(exc)}
 
 

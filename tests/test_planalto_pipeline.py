@@ -478,6 +478,40 @@ class TestScrapeOneHtml:
         assert result["success"] is False
         assert result["reason"] == "fetch-failed"
 
+    def test_fetch_failed_logs_whether_wayback_was_attempted(self, caplog: Any) -> None:
+        """Issue #262: a bare fetch-failed result doesn't say whether a Wayback
+        snapshot existed but its own fetch failed, or no snapshot was found at
+        all — the harvest job log needs this to diagnose a 0-success run."""
+        from leizilla.scraper import scrape_one_html
+
+        pub = _publisher()
+        with (
+            patch("leizilla.robots.is_allowed", return_value=True),
+            patch("leizilla.wayback.save_page"),
+            patch("leizilla.wayback.check_available", return_value=None),
+            patch("leizilla.scraper.fetch_html", return_value=None),
+            caplog.at_level("WARNING", logger="leizilla.scraper"),
+        ):
+            scrape_one_html(self._url(), _lei_data_html(), pub)
+        assert self._url() in caplog.text
+        assert "wayback_attempted=False" in caplog.text
+
+        caplog.clear()
+        with (
+            patch("leizilla.robots.is_allowed", return_value=True),
+            patch("leizilla.wayback.save_page"),
+            patch("leizilla.wayback.fetch_bytes", return_value=None),
+            patch("leizilla.scraper.fetch_html", return_value=None),
+            caplog.at_level("WARNING", logger="leizilla.scraper"),
+        ):
+            scrape_one_html(
+                self._url(),
+                _lei_data_html(),
+                pub,
+                wayback_snapshot="https://web.archive.org/web/snap/url",
+            )
+        assert "wayback_attempted=True" in caplog.text
+
     def test_wayback_primary_success(self) -> None:
         from leizilla.scraper import scrape_one_html
 
