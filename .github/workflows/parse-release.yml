@@ -54,6 +54,9 @@ on:
       retract_reason:
         description: "Motivo da retratação, opcional (ex.: 'numero corrigido, ver #308')"
         default: ""
+      dataset_allow_lower_count:
+        description: "Se 'true', publica mesmo com contagem de linhas abaixo do piso (issue #118) — só para uma queda esperada e já verificada (ex.: issue #308 retraction), NUNCA usar em runs de rotina"
+        default: "false"
 
 permissions:
   contents: read
@@ -389,10 +392,14 @@ jobs:
             echo "Parquet não gerado — skip release."
             exit 0
           fi
+          ALLOW_LOWER="${{ inputs.dataset_allow_lower_count || 'false' }}"
+          ALLOW_LOWER_FLAG=""
+          if [ "${ALLOW_LOWER,,}" = "true" ]; then ALLOW_LOWER_FLAG="--allow-lower-count"; fi
           uv run leizilla release-dataset \
             /tmp/leizilla-dataset.parquet \
             --ente "${{ inputs.ente || 'ro' }}" \
-            --version "${{ inputs.dataset_version || '0' }}"
+            --version "${{ inputs.dataset_version || '0' }}" \
+            $ALLOW_LOWER_FLAG
 
       - name: Dry-run stats (sem upload)
         if: "${{ inputs.dry_run == 'true' }}"

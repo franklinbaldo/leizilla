@@ -141,6 +141,33 @@ def test_cli_rejects_candidate_below_published_floor(tmp_path: Path) -> None:
     upload.assert_not_called()
 
 
+def test_cli_allow_lower_count_bypasses_gate(tmp_path: Path) -> None:
+    """Issue #308: retracting a superseded duplicate legitimately shrinks the
+    consolidated row count below the published floor — --allow-lower-count is
+    the deliberate, never-default escape hatch for that verified case."""
+    p = _parquet(tmp_path)
+    with (
+        patch("leizilla.publisher.fetch_published_dataset_row_count", return_value=2),
+        patch(
+            "leizilla.publisher.InternetArchivePublisher.upload_dataset",
+            return_value={"success": True, "ia_id": "x", "ia_url": "https://x"},
+        ) as upload,
+    ):
+        result = _runner.invoke(
+            app,
+            [
+                "release-dataset",
+                str(p),
+                "--version",
+                "0",
+                "--allow-lower-count",
+            ],
+        )
+    assert result.exit_code == 0
+    assert "Gate de release ignorado (--allow-lower-count)" in result.output
+    upload.assert_called_once()
+
+
 def test_cli_floor_lookup_failure_aborts_before_upload(tmp_path: Path) -> None:
     p = _parquet(tmp_path)
     with (

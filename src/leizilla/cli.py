@@ -677,6 +677,17 @@ def cmd_release_dataset(
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Reporta stats sem fazer upload"
     ),
+    allow_lower_count: bool = typer.Option(
+        False,
+        "--allow-lower-count",
+        help=(
+            "Ignora o piso de contagem de linhas (issue #118) quando a queda é "
+            "esperada e já verificada — ex.: issue #308's supersession markers "
+            "tirando duplicatas conhecidas do Parquet consolidado. NUNCA default: "
+            "sem esta flag, uma queda continua recusada fail-closed como proteção "
+            "contra perda de dado não intencional."
+        ),
+    ),
 ) -> None:
     """Publicar Parquet no IA (M4 restante; releases imutáveis, issue #175).
 
@@ -753,11 +764,17 @@ def cmd_release_dataset(
         echo(f"Gate de release falhou: não foi possível verificar o piso atual ({e})")
         raise typer.Exit(1)
     if published_row_count is not None and row_count < published_row_count:
+        if not allow_lower_count:
+            echo(
+                "Gate de release falhou: dataset candidato tem "
+                f"{row_count} linhas, abaixo do piso publicado de {published_row_count}."
+            )
+            raise typer.Exit(1)
         echo(
-            "Gate de release falhou: dataset candidato tem "
-            f"{row_count} linhas, abaixo do piso publicado de {published_row_count}."
+            "Gate de release ignorado (--allow-lower-count): dataset candidato tem "
+            f"{row_count} linhas, abaixo do piso publicado de {published_row_count} "
+            "— queda aceita como esperada e verificada."
         )
-        raise typer.Exit(1)
 
     git_sha = None
     try:
