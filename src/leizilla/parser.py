@@ -167,7 +167,10 @@ URN rules — the urn-lex on <lei> and the "urn_lex" field must be identical:
   that is the publication date, and using it here would produce a different
   URN for the same norm depending on which notice the source happens to
   carry. Use a year-only date (just YYYY) when the day/month of the act's own
-  date are missing. Do NOT substitute today's date into the URN.
+  date are missing. Only two grains exist — full YYYY-MM-DD or bare YYYY —
+  never a year-month value like "1984-11": if you know the month but the day
+  is illegible or missing, drop the month too and use year-only, the same as
+  if neither were known. Do NOT substitute today's date into the URN.
 - NUMERO is the same value as the "numero" field: digits, optionally with a
   lowercase "-x" suffix (e.g. "9999" or "72-a"). Never strip the suffix.
 - If "urn_lex" is null (no date found at all), OMIT the urn-lex attribute
@@ -423,6 +426,26 @@ def _normalize_roman_numeral_paths(xml: str) -> str:
 _NULL_URN_LEX_RE = re.compile(r'\burn-lex\s*=\s*(["\'])null\1', re.IGNORECASE)
 
 
+_PARTIAL_DATE_URN_LEX_RE = re.compile(r'(urn-lex="[^"]*:)(\d{4})-\d{2}(?=[;"])')
+
+
+def _truncate_partial_date_urn_lex(xml: str) -> str:
+    """Collapse a year-month-only date segment in urn-lex down to year-only.
+
+    Issue #303: the prompt only sanctions two date grains for urn-lex — full
+    `YYYY-MM-DD` or bare `YYYY` (SCHEMA.md §5.6's "Reduzida" form; also the
+    only two shapes `etl.py`'s `_RE_URN_LEX` accepts) — but a model that
+    genuinely knows the month yet can't read the day sometimes keeps the
+    month instead of discarding it, emitting e.g. "...;1984-11;33" instead of
+    "...;1984;33". That value fails the release-boundary XSD gate outright,
+    permanently losing an otherwise-correct parse (three independent items
+    hit this in one session: casacivil-lei-00017/00033/00019). Same
+    defense-in-depth pattern as `_strip_null_urn_lex`: the schema decision
+    was already made, the model just doesn't reliably follow it.
+    """
+    return _PARTIAL_DATE_URN_LEX_RE.sub(r"\1\2", xml)
+
+
 def _strip_null_urn_lex(xml: str) -> str:
     """Drop a literal `urn-lex="null"` attribute (issue #201: item 13's
     reparse) rather than shipping it.
@@ -641,6 +664,7 @@ def parse_law(
 
     xml = _normalize_roman_numeral_paths(xml)
     xml = _strip_null_urn_lex(xml)
+    xml = _truncate_partial_date_urn_lex(xml)
 
     provenance_error = _find_provenance_mismatch(ET.fromstring(xml), ia_id)
     if provenance_error:
