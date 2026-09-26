@@ -288,6 +288,19 @@ def harvest_pending_resources(
                 index_cache=index_cache,
                 wayback_snapshot=wb_url,
             )
+            # Issue #297: scrape_one_html's OWN internal prints/logs (PR #290/#300)
+            # produced zero output in a live CI run for 10/10 failures, even after
+            # duplicating logger.warning through an unconditional stderr print —
+            # ruling out both "no handler configured" and "no print call present".
+            # This call-site dump is the issue's own next suggested step: it sits
+            # in the exact same loop position as the PDF path's prints (line 382
+            # below), which ARE proven to show up reliably in these same CI runs —
+            # if this line is also silent, the HTML branch itself isn't being
+            # reached the way the code above assumes.
+            print(
+                f"[DEBUG] html_result for {chave} ({url}): {html_result!r}",
+                file=sys.stderr,
+            )
             if not html_result.get("success"):
                 reason = html_result.get("reason", "fetch-failed")
                 if reason == "robots-blocked":

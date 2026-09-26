@@ -1540,7 +1540,11 @@ def cmd_fetch_all_parsed(
     no IA para que consolidate possa gerar um Parquet full-histórico acumulado
     (não apenas os itens parsed na execução corrente).
     """
-    from leizilla.publisher import fetch_parsed_xml, list_parsed_ia_ids
+    from leizilla.publisher import (
+        fetch_parsed_xml,
+        get_parsed_superseded_by,
+        list_parsed_ia_ids,
+    )
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1581,10 +1585,21 @@ def cmd_fetch_all_parsed(
     ok = 0
     skipped = 0
     fail = 0
+    superseded = 0
     for ia_id in merged_ids:
         dest = output_dir / f"{ia_id}.xml"
         if dest.exists():
             skipped += 1
+            continue
+        # Issue #308: um item parsed pode ter sido explicitamente marcado
+        # como substituído por um identifier correto mais recente (ver
+        # `mark_parsed_superseded`/`retract-parsed`) — sem pular aqui, o
+        # mesmo documento entraria duas vezes no Parquet consolidado, uma
+        # sob o lei_id errado.
+        superseded_by = get_parsed_superseded_by(ia_id)
+        if superseded_by:
+            echo(f"  [SUPERSEDED] {ia_id} → {superseded_by}, pulando (issue #308)")
+            superseded += 1
             continue
         if fetch_parsed_xml(ia_id, dest):
             ok += 1
@@ -1592,7 +1607,51 @@ def cmd_fetch_all_parsed(
             echo(f"  [ERRO] {ia_id} — law.xml não disponível, pulando")
             fail += 1
 
-    echo(f"Baixados: {ok}, Pulados (já existiam): {skipped}, Erros: {fail}")
+    echo(
+        f"Baixados: {ok}, Pulados (já existiam): {skipped}, "
+        f"Substituídos (superseded): {superseded}, Erros: {fail}"
+    )
+
+
+@app.command("retract-parsed")
+def cmd_retract_parsed(
+    ia_id_old: str = typer.Option(
+        ..., "--ia-id-old", help="Identifier IA do item parsed a marcar como órfão"
+    ),
+    ia_id_new: str = typer.Option(
+        ...,
+        "--ia-id-new",
+        help="Identifier IA correto que substitui ia_id_old",
+    ),
+    reason: str = typer.Option(
+        "", "--reason", help="Nota curta do motivo (ex.: 'numero corrigido, ver #308')"
+    ),
+) -> None:
+    """Marca um item parsed antigo como substituído por um identifier correto.
+
+    Issue #308: uma reparse corrigida (numero certo desta vez) pode publicar
+    sob um ia_id_parsed DIFERENTE do anterior, deixando o item antigo órfão —
+    ninguém mais reivindica esse identifier, então o guard de colisão de
+    `upload_parsed` nunca dispara, e o documento fica duplicado no dataset
+    (uma vez sob o lei_id errado, outra sob o correto).
+
+    NÃO apaga nem sobrescreve o conteúdo do item antigo no IA — apenas grava
+    um marcador `superseded_by` no seu parsed_meta.json existente, que
+    `fetch-all-parsed` aprende a pular. Operação deliberada: o operador já
+    confirmou (fora desta função) que ia_id_new é o dono correto do documento.
+    """
+    from leizilla.publisher import InternetArchivePublisher
+
+    publisher = InternetArchivePublisher()
+    result = publisher.mark_parsed_superseded(ia_id_old, ia_id_new, reason=reason)
+    if result.get("success"):
+        if result.get("already_marked"):
+            echo(f"{ia_id_old} já estava marcado superseded_by={ia_id_new} (no-op)")
+        else:
+            echo(f"OK: {ia_id_old} marcado superseded_by={ia_id_new}")
+    else:
+        echo(f"Erro: {result.get('error')}")
+        raise typer.Exit(code=1)
 
 
 @app.command("pipeline")

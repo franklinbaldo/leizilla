@@ -15,6 +15,7 @@ from leizilla.publisher import (
     _ia_subprocess_env,
     build_raw_meta,
     count_ia_items,
+    get_parsed_superseded_by,
     list_parsed_raw_ids,
     list_raw_ids,
     InternetArchivePublisher,
@@ -358,6 +359,118 @@ class TestUploadParsed:
                 "leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META
             )
         assert result["success"] is True
+
+
+class TestMarkParsedSuperseded:
+    """Issue #308: a corrected reparse can migrate to a DIFFERENT
+    ia_id_parsed, leaving the old one an orphan with no competing raw item
+    — upload_parsed's identity-collision guard never fires for it, so the
+    document ends up published twice under two different lei_ids.
+    mark_parsed_superseded records a non-destructive marker instead of
+    deleting/overwriting the old IA item."""
+
+    def _publisher(self) -> InternetArchivePublisher:
+        pub = InternetArchivePublisher()
+        pub.access_key = "test-key"
+        pub.secret_key = "test-secret"
+        return pub
+
+    def test_returns_failure_without_credentials(self):
+        pub = InternetArchivePublisher()
+        pub.access_key = None
+        pub.secret_key = None
+        result = pub.mark_parsed_superseded(
+            "leizilla-ro-lei-00000-1984", "leizilla-ro-lei-00025-1984"
+        )
+        assert result["success"] is False
+        assert "credentials" in result["error"]
+
+    def test_fails_closed_when_old_item_meta_unreadable(self):
+        pub = self._publisher()
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("leizilla.publisher._fetch_existing_parsed_meta", return_value=None),
+        ):
+            result = pub.mark_parsed_superseded(
+                "leizilla-ro-lei-00000-1984", "leizilla-ro-lei-00025-1984"
+            )
+        assert result["success"] is False
+        mock_run.assert_not_called()
+
+    def test_uploads_meta_with_superseded_by_marker(self):
+        pub = self._publisher()
+        existing = dict(_PARSED_META, ia_id_parsed="leizilla-ro-lei-00000-1984")
+        captured_metas: list[dict] = []
+
+        def capture_run(cmd, **kwargs):
+            for arg in cmd:
+                if arg.endswith("parsed_meta.json"):
+                    captured_metas.append(
+                        json.loads(Path(arg).read_text(encoding="utf-8"))
+                    )
+            return MagicMock(returncode=0)
+
+        with (
+            patch("subprocess.run", side_effect=capture_run),
+            patch(
+                "leizilla.publisher._fetch_existing_parsed_meta",
+                return_value=existing,
+            ),
+        ):
+            result = pub.mark_parsed_superseded(
+                "leizilla-ro-lei-00000-1984",
+                "leizilla-ro-lei-00025-1984",
+                reason="numero corrigido, ver #308",
+            )
+
+        assert result["success"] is True
+        assert result["superseded_by"] == "leizilla-ro-lei-00025-1984"
+        assert len(captured_metas) == 1
+        assert captured_metas[0]["superseded_by"] == "leizilla-ro-lei-00025-1984"
+        assert captured_metas[0]["superseded_reason"] == "numero corrigido, ver #308"
+        assert "superseded_at" in captured_metas[0]
+        # Original fields preserved — this is a metadata patch, not a rewrite.
+        assert captured_metas[0]["ia_id_raw"] == _PARSED_META["ia_id_raw"]
+
+    def test_already_marked_is_idempotent_noop(self):
+        pub = self._publisher()
+        existing = dict(_PARSED_META, superseded_by="leizilla-ro-lei-00025-1984")
+        with (
+            patch("subprocess.run") as mock_run,
+            patch(
+                "leizilla.publisher._fetch_existing_parsed_meta",
+                return_value=existing,
+            ),
+        ):
+            result = pub.mark_parsed_superseded(
+                "leizilla-ro-lei-00000-1984", "leizilla-ro-lei-00025-1984"
+            )
+        assert result["success"] is True
+        assert result["already_marked"] is True
+        mock_run.assert_not_called()
+
+
+class TestGetParsedSupersededBy:
+    def test_returns_none_when_not_marked(self):
+        with patch(
+            "leizilla.publisher._fetch_existing_parsed_meta",
+            return_value=dict(_PARSED_META),
+        ):
+            assert get_parsed_superseded_by("leizilla-ro-lei-00042-1990") is None
+
+    def test_returns_new_id_when_marked(self):
+        marked = dict(_PARSED_META, superseded_by="leizilla-ro-lei-00025-1984")
+        with patch(
+            "leizilla.publisher._fetch_existing_parsed_meta", return_value=marked
+        ):
+            assert (
+                get_parsed_superseded_by("leizilla-ro-lei-00000-1984")
+                == "leizilla-ro-lei-00025-1984"
+            )
+
+    def test_fail_open_on_unreadable_meta(self):
+        with patch("leizilla.publisher._fetch_existing_parsed_meta", return_value=None):
+            assert get_parsed_superseded_by("leizilla-ro-lei-00000-1984") is None
 
 
 class TestRunIaUploadRetry:
