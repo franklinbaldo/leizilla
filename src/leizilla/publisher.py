@@ -1411,6 +1411,7 @@ class InternetArchivePublisher:
         ia_id_parsed: str,
         xml_content: str,
         parsed_meta: Dict[str, Any],
+        force: bool = False,
     ) -> Dict[str, Any]:
         """Upload law.xml + parsed_meta.json para IA parsed item.
 
@@ -1430,6 +1431,13 @@ class InternetArchivePublisher:
         rede ao ler o parsed_meta.json existente é fail-open (não bloqueia o
         upload por uma checagem que não pôde ser feita).
 
+        `force=True` ignora a checagem de colisão e sobrescreve mesmo assim —
+        via deliberada de recuperação para um operador que já confirmou (fora
+        desta função, ex.: pelo histórico de versões do próprio item no IA)
+        qual dos dois raw ids é o dono legítimo do identifier, e precisa
+        restaurá-lo depois que um upload anterior o usurpou. Nunca é o
+        default: sem esta flag o comportamento fail-closed é inalterado.
+
         Retorna dict com 'success', 'ia_id', 'ia_url'.
         """
         if not self.access_key or not self.secret_key:
@@ -1440,17 +1448,25 @@ class InternetArchivePublisher:
             existing_raw = existing_meta.get("ia_id_raw")
             new_raw = parsed_meta.get("ia_id_raw")
             if existing_raw and new_raw and existing_raw != new_raw:
-                return {
-                    "success": False,
-                    "reason": "identity-collision",
-                    "ia_id": ia_id_parsed,
-                    "error": (
-                        f"{ia_id_parsed} já existe com ia_id_raw={existing_raw!r}, "
-                        f"divergente de {new_raw!r} desta chamada — upload "
-                        "abortado para não sobrescrever um documento diferente "
-                        "(identity collision; ver leizilla-ro-lei-00007-1983)."
-                    ),
-                }
+                if not force:
+                    return {
+                        "success": False,
+                        "reason": "identity-collision",
+                        "ia_id": ia_id_parsed,
+                        "error": (
+                            f"{ia_id_parsed} já existe com ia_id_raw={existing_raw!r}, "
+                            f"divergente de {new_raw!r} desta chamada — upload "
+                            "abortado para não sobrescrever um documento diferente "
+                            "(identity collision; ver leizilla-ro-lei-00007-1983)."
+                        ),
+                    }
+                logger.warning(
+                    "Upload forçado sobre identity collision: %s tinha "
+                    "ia_id_raw=%r, sobrescrevendo com %r (force=True)",
+                    ia_id_parsed,
+                    existing_raw,
+                    new_raw,
+                )
 
         ente = str(parsed_meta.get("ente", "unknown"))
         tipo = str(parsed_meta.get("tipo", "lei"))

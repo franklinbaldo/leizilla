@@ -323,6 +323,28 @@ class TestUploadParsed:
         assert result["success"] is True
         mock_run.assert_called_once()
 
+    def test_force_bypasses_identity_collision(self):
+        """Deliberate recovery: an operator who already confirmed (out of band,
+        e.g. via the IA item's own version history) which raw id is the
+        rightful owner of the identifier can override the fail-closed guard
+        to restore it. force=True must never be the default (issue #273)."""
+        pub = self._publisher()
+        existing = dict(_PARSED_META, ia_id_raw="leizilla-raw-ro-casacivil-lei-00017")
+        new_meta = dict(_PARSED_META, ia_id_raw="leizilla-raw-ro-casacivil-lei-00007")
+        with (
+            patch("subprocess.run") as mock_run,
+            patch(
+                "leizilla.publisher._fetch_existing_parsed_meta",
+                return_value=existing,
+            ),
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
+            result = pub.upload_parsed(
+                "leizilla-ro-lei-00007-1983", _XML_CONTENT, new_meta, force=True
+            )
+        assert result["success"] is True
+        mock_run.assert_called_once()
+
     def test_allows_upload_when_existing_meta_fetch_fails(self):
         """Fail-open: a network error reading the existing parsed_meta.json
         must never block a legitimate upload."""

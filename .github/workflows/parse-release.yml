@@ -42,6 +42,9 @@ on:
       skip_existing:
         description: "Se 'true', pula itens já parseados em IA (incremental)"
         default: "true"
+      force:
+        description: "Se 'true', sobrescreve um identifier já publicado mesmo com ia_id_raw divergente (recuperação deliberada de identity collision, issue #273) — NUNCA usar em runs de rotina"
+        default: "false"
 
 permissions:
   contents: read
@@ -227,8 +230,11 @@ jobs:
         run: |
           DRY_RUN="${{ inputs.dry_run || 'false' }}"
           SKIP="${{ inputs.skip_existing || 'true' }}"
+          FORCE="${{ inputs.force || 'false' }}"
           if [ "${DRY_RUN,,}" = "true" ]; then UPLOAD_FLAG="--no-upload"; else UPLOAD_FLAG="--upload"; fi
           if [ "${SKIP,,}" = "true" ]; then SKIP_FLAG="--skip-existing"; else SKIP_FLAG="--no-skip-existing"; fi
+          FORCE_FLAG=""
+          if [ "${FORCE,,}" = "true" ]; then FORCE_FLAG="--force"; fi
           uv run leizilla parse-all \
             --ente "${{ inputs.ente || 'ro' }}" \
             --fonte "${{ inputs.fonte || 'casacivil' }}" \
@@ -241,7 +247,8 @@ jobs:
             --error-threshold 20 \
             --uploaded-ids-out /tmp/uploaded-ids-dispatch.txt \
             $SKIP_FLAG \
-            $UPLOAD_FLAG
+            $UPLOAD_FLAG \
+            $FORCE_FLAG
 
       # Hand-off para o job `etl` — ver comentário equivalente no job
       # parse-assembleia (issue #233).

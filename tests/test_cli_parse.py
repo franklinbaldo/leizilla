@@ -139,6 +139,50 @@ class TestCmdParseUpload:
         assert result.exit_code == 1
         assert "Upload falhou" in result.output
 
+    def test_force_flag_passed_to_upload_parsed(self):
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ) as mock_upload,
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse",
+                    "--raw-id",
+                    "leizilla-raw-ro-assembleia-coddoc-00042",
+                    "--upload",
+                    "--force",
+                ],
+            )
+        assert result.exit_code == 0
+        assert mock_upload.call_args.kwargs["force"] is True
+
+    def test_force_defaults_to_false(self):
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ) as mock_upload,
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
+            runner.invoke(
+                app,
+                [
+                    "parse",
+                    "--raw-id",
+                    "leizilla-raw-ro-assembleia-coddoc-00042",
+                    "--upload",
+                ],
+            )
+        assert mock_upload.call_args.kwargs["force"] is False
+
     def test_no_upload_without_flag(self):
         with (
             patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
@@ -286,6 +330,36 @@ class TestCmdParseAll:
             )
         assert result.exit_code == 0
         assert "parseados" in result.output
+
+    def test_force_flag_passed_to_upload_parsed(self):
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ) as mock_upload,
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
+            result = runner.invoke(
+                app,
+                ["parse-all", "--start", "1", "--end", "1", "--force"],
+            )
+        assert result.exit_code == 0
+        assert mock_upload.call_args.kwargs["force"] is True
+
+    def test_force_defaults_to_false(self):
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=_UPLOAD_OK,
+            ) as mock_upload,
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
+            runner.invoke(app, ["parse-all", "--start", "1", "--end", "1"])
+        assert mock_upload.call_args.kwargs["force"] is False
 
     def test_model_flag_is_passed_to_parse_law(self):
         """--model explícito chega ao parse_law em cada item do batch (RFC-0006)."""
