@@ -407,6 +407,34 @@ class TestStripNullUrnLex:
         assert parser._strip_null_urn_lex(xml) == xml
 
 
+class TestTruncatePartialDateUrnLex:
+    def test_collapses_year_month_to_year_only(self):
+        # issue #303: casacivil-lei-00033/00019 both emitted a year-month-only
+        # urn-lex ("...;1984-11;33") that the XSD's date pattern (full date
+        # or bare year, nothing in between) correctly rejects.
+        xml = '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1984-11;33">'
+        result = parser._truncate_partial_date_urn_lex(xml)
+        assert result == '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1984;33">'
+
+    def test_collapses_when_numero_is_absent(self):
+        xml = '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1983-12">'
+        result = parser._truncate_partial_date_urn_lex(xml)
+        assert result == '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1983">'
+
+    def test_leaves_a_full_date_untouched(self):
+        xml = _VALID_XML
+        assert parser._truncate_partial_date_urn_lex(xml) == xml
+
+    def test_leaves_a_year_only_date_untouched(self):
+        xml = '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1984;33">'
+        assert parser._truncate_partial_date_urn_lex(xml) == xml
+
+    def test_handles_numero_with_letter_suffix(self):
+        xml = '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1999-06;72-a">'
+        result = parser._truncate_partial_date_urn_lex(xml)
+        assert result == '<lei urn-lex="urn:lex:br;rondonia:estadual:lei:1999;72-a">'
+
+
 class TestParseLaw:
     def test_returns_result_on_valid_response(self):
         with _llm(_LLM_OK):
@@ -462,6 +490,31 @@ class TestParseLaw:
 
         assert result is not None
         assert "urn-lex" not in result.xml
+
+    def test_truncates_partial_date_urn_lex_in_llm_output(self):
+        # End-to-end (issue #303): a model that knows the month but not the
+        # exact day sometimes keeps the month instead of degrading to
+        # year-only as the prompt asks — this document should still publish
+        # under a year-only urn-lex rather than being rejected by the XSD.
+        xml_with_partial_date = _VALID_XML.replace(
+            ' urn-lex="urn:lex:br;rondonia:estadual:lei:1999-06-15;9999"',
+            ' urn-lex="urn:lex:br;rondonia:estadual:lei:1999-06;9999"',
+        )
+        response = json.dumps(
+            {
+                "xml": xml_with_partial_date,
+                "confidence": 0.9,
+                "tipo": "lei",
+                "numero": "9999",
+                "ano": 1999,
+                "urn_lex": "urn:lex:br;rondonia:estadual:lei:1999-06;9999",
+            }
+        )
+        with _llm(response):
+            result = parser.parse_law("ocr text", _IA_ID, "ro")
+
+        assert result is not None
+        assert 'urn-lex="urn:lex:br;rondonia:estadual:lei:1999;9999"' in result.xml
 
     def test_parsed_meta_structure(self):
         with _llm(_LLM_OK):
