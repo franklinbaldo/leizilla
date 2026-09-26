@@ -454,6 +454,21 @@ def _find_provenance_mismatch(root: ET.Element, ia_id: str) -> Optional[str]:
     return None
 
 
+_RE_RAW_NUMERO_HINT = re.compile(r"-(\d+)$")
+
+
+def _raw_numero_hint(ia_id_raw: str) -> Optional[int]:
+    """Best-effort numero embedded in a raw id's own chave (e.g. ``...-lei-00017`` → 17).
+
+    Not a validation of ``ia_id_raw`` (that already happened at discovery
+    time) — just a comparison point for the LLM's own numero extraction.
+    Returns None if the id doesn't end in digits (should not happen for a
+    range-discovered chave, but this is advisory, not authoritative).
+    """
+    m = _RE_RAW_NUMERO_HINT.search(ia_id_raw)
+    return int(m.group(1)) if m else None
+
+
 def parse_law(
     ocr_text: str,
     ia_id: str,
@@ -645,6 +660,25 @@ def parse_law(
         f"-{numero_suffix.lower()}" if numero_suffix else ""
     )
     ia_id_parsed = f"leizilla-{ente}-{tipo}-{numero_id}-{ano}"
+
+    # Advisory only (issue #278): the LLM reads "numero" from document text,
+    # which can be a different value than the raw item's own chave (OCR
+    # ambiguity, wrong article number quoted in the text, ...). This never
+    # blocked #273's silent overwrite by itself (that needs two DIFFERENT raw
+    # ids agreeing on the same wrong numero) but it's the earliest point a
+    # single mis-extraction like #278's 4 mismatches could have been flagged
+    # instead of only found later by a manual corpus scan. Never blocks.
+    raw_numero_hint = _raw_numero_hint(ia_id)
+    if raw_numero_hint is not None and raw_numero_hint != int(numero_digits):
+        logger.warning(
+            "%s: numero extraído pelo LLM (%s) diverge do sugerido pela chave "
+            "de descoberta (%d) — não bloqueante, revisar manualmente "
+            "(ia_id_parsed=%s)",
+            ia_id,
+            numero_digits,
+            raw_numero_hint,
+            ia_id_parsed,
+        )
 
     usage = getattr(response, "usage", None)
     input_tokens = getattr(usage, "prompt_tokens", 0) or 0
