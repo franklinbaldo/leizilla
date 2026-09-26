@@ -44,20 +44,15 @@ def main() -> int:
 
     root = Path(__file__).resolve().parent.parent
     bundle = load_bundle(root)
-    frame = (
-        bundle.concepts.filter(bundle.concepts.path == MAP_PATH)
-        .select("path", "concept_type", "frontmatter_json")
-        .execute()
-    )
-    rows = frame.to_dict(orient="records")
-    if len(rows) != 1:
-        raise SystemExit(f"expected one canonical project DAG, found {len(rows)}")
+    matches = [c for c in bundle.concepts if c.path == MAP_PATH]
+    if len(matches) != 1:
+        raise SystemExit(f"expected one canonical project DAG, found {len(matches)}")
 
-    row = rows[0]
-    if row["concept_type"] != "Project Map":
+    concept = matches[0]
+    if concept.concept_type != "Project Map":
         raise SystemExit(f"{MAP_PATH} must remain a Project Map")
 
-    fm = json.loads(row["frontmatter_json"])
+    fm = json.loads(concept.frontmatter_json)
     fronts = fm.get("fronts")
     if not isinstance(fronts, list) or not fronts:
         raise SystemExit("project DAG has no fronts")
