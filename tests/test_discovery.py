@@ -138,6 +138,31 @@ def test_head_exists_warns_on_non_http_error(caplog):
     assert caplog.text == ""
 
 
+def test_head_exists_warns_on_non_404_http_error(caplog):
+    """A non-404 HTTPError (403/429/500/503/...) reaches the SAME except
+    branch as a real 404 (urllib raises HTTPError for any non-2xx/3xx
+    response), but is not "doesn't exist" — it's the same infra signal
+    (WAF, rate-limit, server down) the bare-exception branch above already
+    warns on. Before this fix, an HTTP-level block (as opposed to a
+    connection reset/timeout) was silently indistinguishable from a real
+    404, reproducing issue #262's exact ambiguity for a different failure
+    shape."""
+    import urllib.error
+
+    from leizilla.discovery import _head_exists
+
+    with patch(
+        "urllib.request.urlopen",
+        side_effect=urllib.error.HTTPError(
+            "http://example.com/blocked.pdf", 403, "Forbidden", {}, None
+        ),
+    ):
+        with caplog.at_level("WARNING", logger="leizilla.discovery"):
+            assert _head_exists("http://example.com/blocked.pdf") is False
+    assert "example.com/blocked.pdf" in caplog.text
+    assert "403" in caplog.text
+
+
 def test_wayback_snapshot_if_exists_uses_closest_snapshot():
     """`_wayback_snapshot_if_exists` (PlanaltoDiscovery's existence check, issue
     #262) delegates to `wayback.closest_snapshot` — the Internet Archive's own

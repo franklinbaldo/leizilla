@@ -208,8 +208,16 @@ def _head_exists(url: str, timeout: float = 10.0) -> bool:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status in (200, 302)
     except urllib.error.HTTPError as exc:
-        # 404/etc. é resposta normal — a URL candidata simplesmente não
-        # existe, não indica falha de infraestrutura.
+        # 404 é resposta normal — a URL candidata simplesmente não existe.
+        # Qualquer OUTRO código de erro (403, 429, 500, 503, ...) chega aqui
+        # também (urllib levanta HTTPError para toda resposta não-2xx/3xx),
+        # mas não é "não existe": é o mesmo sinal de infraestrutura (WAF,
+        # rate-limit, servidor fora do ar) que o ramo `except Exception`
+        # abaixo já trata com um warning — sem isto, um bloqueio via HTTP
+        # (em vez de conexão recusada/timeout) ficava tão silencioso quanto
+        # a ambiguidade original do issue #262.
+        if exc.code not in (200, 302, 404):
+            logger.warning(f"HEAD check retornou {exc.code} (não 404) para {url}")
         return exc.code in (200, 302)
     except Exception as exc:
         # Qualquer coisa além de um HTTPError normal (conexão recusada,
