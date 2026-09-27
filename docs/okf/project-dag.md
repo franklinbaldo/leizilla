@@ -89,6 +89,15 @@ fronts:
     evidence_prs: [173, 179]
     next_action: "RFC-0003 Fase 1 is done (#176 implemented cdx-auto in discovery, merged via PR #179). #136/#140 (rondonia_crawler.yml timing out on high-volume Playwright range-scans) now give a concrete forcing function to plan the workflow redirection; still defer actually deprecating rondonia_crawler.yml until discover-harvest.yml has two clean weekly cycles as originally planned. Issue #95 (broader PRD: CaptureRef model, sources/ restructuring, LLM/compiler split) proposes a materially larger refactor than RFC-0003's scrape→harvest convergence — triaged 2026-09-25 and kept open as long-horizon reference, not folded into this workstream's Fase 2/3; fork a dedicated node from here if/when that broader refactor actually starts."
 
+  - id: "long-document-parse-resilience"
+    kind: workstream
+    status: active
+    parents: [ro-coverage-q4-2026]
+    objective: "Ensure long legal documents can reach structured S4 without one-shot LLM output limits becoming a permanent parse failure, while preserving schema, identity and provenance gates."
+    origin: "Scheduled parse-release run 36315763990 (2026-09-27): casacivil LC 00001 returned finish_reason=length with a 46,281-character truncated structured response under the existing 16k output-token budget; issue #325 was opened automatically."
+    issues: [325]
+    next_action: "Implement and verify a bounded long-document parsing path for casacivil LC 00001 (for example chunked/incremental parsing or an equivalent deterministic fallback) without weakening XSD, identity, provenance or release gates. Acceptance: the previously truncated LC item parses to valid structured output, output-length truncation is handled explicitly, OCR-unavailable items remain distinguishable from parser failures, and a re-run of the casacivil-lc parse job no longer fails because finish_reason=length."
+
   - id: "dataset-release-integrity"
     kind: workstream
     status: active
