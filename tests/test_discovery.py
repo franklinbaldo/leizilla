@@ -538,6 +538,39 @@ def test_sequential_storage_none_ignores_operational_budget_and_order():
     assert [r["url"] for r in resources] == calls
 
 
+def test_sequential_time_budget_stops_before_next_head(temp_db):
+    config = {
+        "strategy": "sequential",
+        "templates": ["http://example.com/Files/D{num}.pdf"],
+        "start": 1,
+        "end": 3,
+        "head_check": True,
+        "max_head_checks": 10,
+        "max_scan_seconds": 1,
+        "scan_order": "descending",
+        "max_ambiguous_retries": 0,
+    }
+    calls: list[str] = []
+    clock_values = iter([0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0])
+
+    def clock() -> float:
+        return next(clock_values, 2.0)
+
+    def exists(url: str, timeout: float = 10.0) -> bool:
+        calls.append(url)
+        return True
+
+    with (
+        patch("time.monotonic", side_effect=clock),
+        patch("leizilla.discovery._HEAD_RATE_LIMIT_S", 0),
+        patch("leizilla.discovery._head_check_status", side_effect=exists),
+    ):
+        resources = SequentialDiscovery(config, "ro", "casacivil").run(temp_db)
+
+    assert calls == ["http://example.com/Files/D3.pdf"]
+    assert [r["url"] for r in resources] == ["http://example.com/Files/D3.pdf"]
+
+
 def test_sequential_ambiguous_retry_quota_must_leave_fresh_budget():
     config = {
         "strategy": "sequential",
