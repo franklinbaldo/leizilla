@@ -451,8 +451,10 @@ def list_parsed_raw_ids(ente: str, fonte: str) -> Set[str]:
 
     Follows IA scrape API cursor for full pagination — never truncates at
     one page even for large collections (e.g. federal).
-    Fail-open: returns empty set on any network error so parse-all never
-    silently skips items due to connectivity issues.
+
+    This is the legacy/best-effort fail-open view. It must not authorize a
+    mutable `--skip-existing` decision: a partial view could turn unknown
+    external state into a destructive reparse/overwrite (issue #327).
     """
     q = (
         f"identifier:leizilla-{ente}-* "
@@ -505,11 +507,12 @@ def list_parsed_raw_ids_strict(ente: str, fonte: str) -> Optional[Set[str]]:
     itens parsed OU a leitura de **qualquer** ``parsed_meta.json`` falhar, em vez
     de tratar silenciosamente esse item como "não existe".
 
-    ``list_parsed_raw_ids`` é fail-open por design para ``parse-all
-    --skip-existing`` (uma falha pontual não pode travar o pipeline). Para
-    ``coverage.py`` essa mesma tolerância viraria um S4 subcontado sem aviso — o
-    critério de aceite da issue #174 exige que ausência de dado nunca vire zero
-    silencioso, então aqui uma falha parcial invalida o lote inteiro.
+    Use esta variante quando uma visão parcial puder ser confundida com
+    ausência: tanto ``coverage.py`` (evita S4 subcontado) quanto
+    ``parse-all --skip-existing`` (evita reparse/overwrite por falso negativo,
+    issue #327). Ela garante consistência das páginas/items que a busca retornou;
+    não prova que o índice global do IA já convergiu. Por isso o boundary de
+    upload também verifica diretamente o target exato antes de mutar.
     """
     q = (
         f"identifier:leizilla-{ente}-* "
