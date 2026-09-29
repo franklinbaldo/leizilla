@@ -310,6 +310,7 @@ def _wayback_snapshot_if_exists(url: str) -> Optional[str]:
 #: `get_pending_resources`/`get_downloaded_resources` (filtrados por status
 #: exato) nunca a enxerguem como um recurso a processar.
 _STATUS_CHECKED_NOT_FOUND = "checked_not_found"
+_STATUS_HEAD_AMBIGUOUS = "head_ambiguous"
 
 
 def _mark_checked_not_found(
@@ -340,10 +341,47 @@ def _mark_checked_not_found(
                 "status": _STATUS_CHECKED_NOT_FOUND,
             }
         )
+        # INSERT OR IGNORE não muda uma linha head_ambiguous já existente.
+        storage.update_resource_status(url, _STATUS_CHECKED_NOT_FOUND)
     except Exception as exc:
         logger.warning(
             f"Erro ao persistir marcador checked_not_found para {url}: {exc!r}"
         )
+
+
+def _mark_head_ambiguous(
+    storage: Optional[DuckDBStorage], url: str, ente: str, fonte: str
+) -> None:
+    """Persiste uma falha HEAD ambígua para retry rotativo em rodadas futuras."""
+    if storage is None:
+        return
+    try:
+        storage.insert_resource(
+            {
+                "url": url,
+                "ente": ente,
+                "fonte": fonte,
+                "tipo_documento": None,
+                "chave": None,
+                "status": _STATUS_HEAD_AMBIGUOUS,
+            }
+        )
+        storage.update_resource_status(url, _STATUS_HEAD_AMBIGUOUS)
+    except Exception as exc:
+        logger.warning(
+            f"Erro ao persistir marcador head_ambiguous para {url}: {exc!r}"
+        )
+
+
+def _promote_head_ambiguous(
+    storage: DuckDBStorage, url: str, tipo: str, chave: str
+) -> None:
+    """Promove um retry ambíguo que agora existe para o fluxo normal de harvest."""
+    storage.update_resource_status(url, "pending")
+    storage.connect().execute(
+        "UPDATE discovered_resources SET tipo_documento = ?, chave = ? WHERE url = ?",
+        [tipo, chave, url],
+    )
 
 
 #: Fallback quando "end": "cdx-auto" não consegue resolver um limite (CDX vazia,
@@ -388,6 +426,68 @@ class SequentialDiscovery:
         self.fonte = fonte
         self.head_check: bool = bool(config.get("head_check", False))
 
+        self.max_head_checks: Optional[int] = None
+        if config.get("max_head_checks") is not None:
+            self.max_head_checks = int(config["max_head_checks"])
+            if self.max_head_checks <= 0:
+                raise ValueError("max_head_checks deve ser > 0")
+
+        self.max_scan_seconds: Optional[float] = None
+        if config.get("max_scan_seconds") is not None:
+            self.max_scan_seconds = float(config["max_scan_seconds"])
+            if self.max_scan_seconds <= 0:
+                raise ValueError("max_scan_seconds deve ser > 0")
+
+        self.scan_order = str(config.get("scan_order", "ascending"))
+        if self.scan_order not in {"ascending", "descending"}:
+            raise ValueError("scan_order deve ser 'ascending' ou 'descending'")
+
+        self.max_ambiguous_retries: Optional[int] = None
+        if config.get("max_ambiguous_retries") is not None:
+            self.max_ambiguous_retries = int(config["max_ambiguous_retries"])
+            if self.max_ambiguous_retries < 0:
+                raise ValueError("max_ambiguous_retries deve ser >= 0")
+            if self.max_head_checks is None:
+                raise ValueError(
+                    "max_ambiguous_retries exige max_head_checks para reservar "
+                    "budget a candidatos nunca tentados"
+                )
+            if self.max_ambiguous_retries >= self.max_head_checks:
+                raise ValueError(
+                    "max_ambiguous_retries deve ser menor que max_head_checks"
+                )
+
+    def _url_belongs_to_strategy(self, url: str, end: int) -> bool:
+        for tmpl in self.templates:
+            if "{num}" not in tmpl:
+                continue
+            before, after = tmpl.split("{num}", 1)
+            if not url.startswith(before) or (after and not url.endswith(after)):
+                continue
+            tail_end = -len(after) if after else None
+            number = url[len(before) : tail_end]
+            if number.isdigit() and self.start <= int(number) <= end:
+                return True
+        return False
+
+    def _ambiguous_retry_urls(
+        self, storage: DuckDBStorage, end: int
+    ) -> List[str]:
+        if not self.max_ambiguous_retries:
+            return []
+        rows = storage.connect().execute(
+            "SELECT url FROM discovered_resources "
+            "WHERE ente = ? AND fonte = ? AND status = ? "
+            "ORDER BY ultima_tentativa ASC NULLS FIRST",
+            [self.ente, self.fonte, _STATUS_HEAD_AMBIGUOUS],
+        ).fetchall()
+        retries = [
+            str(row[0])
+            for row in rows
+            if self._url_belongs_to_strategy(str(row[0]), end)
+        ]
+        return retries[: self.max_ambiguous_retries]
+
     def _resolve_end(self) -> int:
         """Retorna o limite superior do range, resolvendo 'cdx-auto' se preciso."""
         if not self.cdx_auto:
@@ -413,65 +513,140 @@ class SequentialDiscovery:
 
     def run(self, storage: Optional[DuckDBStorage] = None) -> List[Dict[str, Any]]:
         end = self._resolve_end()
+        operational = storage is not None
+
+        # Reconciliation deliberately uses storage=None: it must re-derive the
+        # complete range under current extractors, independent of operational
+        # budgets or newest-first ordering.
+        if operational and self.scan_order == "descending":
+            numbers = range(end, self.start - 1, -1)
+        else:
+            numbers = range(self.start, end + 1)
+
         logger.info(
             f"Rodando Sequential Discovery para {self.ente}/{self.fonte} "
-            f"(de {self.start} a {end}, head_check={self.head_check})..."
+            f"(de {self.start} a {end}, head_check={self.head_check}, "
+            f"order={self.scan_order if operational else 'ascending-full'}, "
+            f"max_head_checks={self.max_head_checks if operational else None}, "
+            f"max_scan_seconds={self.max_scan_seconds if operational else None})..."
         )
         import time
 
-        resources = []
+        resources: List[Dict[str, Any]] = []
         last_head_time = 0.0
-        for num in range(self.start, end + 1):
-            for tmpl in self.templates:
-                url = tmpl.format(num=num)
+        head_checks = 0
+        started_at = time.monotonic()
+        stopped_by_budget = False
 
-                if storage:
-                    try:
-                        conn = storage.connect()
-                        res = conn.execute(
-                            "SELECT 1 FROM discovered_resources WHERE url = ?", [url]
-                        ).fetchone()
-                        if res:
-                            continue
-                    except Exception as e:
-                        logger.warning(f"Error checking DB for URL {url}: {e}")
+        def _budget_exhausted() -> bool:
+            if not operational:
+                return False
+            if self.max_head_checks is not None and head_checks >= self.max_head_checks:
+                return True
+            return (
+                self.max_scan_seconds is not None
+                and time.monotonic() - started_at >= self.max_scan_seconds
+            )
 
-                if self.head_check:
-                    # Rate-limit HEAD requests to avoid hammering the server
-                    elapsed = time.monotonic() - last_head_time
-                    if elapsed < _HEAD_RATE_LIMIT_S:
-                        time.sleep(_HEAD_RATE_LIMIT_S - elapsed)
-                    head_status = _head_check_status(url)
-                    last_head_time = time.monotonic()
-                    if head_status is not True:
-                        logger.debug(f"HEAD 404/error — skipping {url}")
-                        if head_status is False:
-                            # 404 confirmado (não um erro ambíguo): seguro
-                            # cachear para nunca mais refazer este HEAD.
-                            _mark_checked_not_found(storage, url, self.ente, self.fonte)
-                        continue
+        def _resource_from_url(url: str) -> Dict[str, Any]:
+            filename = url.split("/")[-1]
+            tipo, chave = parse_filename(filename)
+            if not tipo or not chave:
+                tipo, chave = "", f"documento-{filename.rsplit('.', 1)[0]}"
+            return {
+                "url": url,
+                "ente": self.ente,
+                "fonte": self.fonte,
+                "tipo_documento": tipo,
+                "chave": chave,
+                "status": "pending",
+                "wayback_snapshot": None,
+            }
 
-                filename = url.split("/")[-1]
-                tipo, chave = parse_filename(filename)
-                if not tipo or not chave:
-                    # Captura mesmo sem identidade (ADR-0011 §1): vai à área de
-                    # espera _unidentified. Prefixo NÃO-identificante "documento-"
-                    # garante parse_identity → None mesmo para stems "{palavra}-{díg}".
-                    tipo, chave = "", f"documento-{filename.rsplit('.', 1)[0]}"
-                resources.append(
-                    {
-                        "url": url,
-                        "ente": self.ente,
-                        "fonte": self.fonte,
-                        "tipo_documento": tipo,
-                        "chave": chave,
-                        "status": "pending",
-                        "wayback_snapshot": None,
-                    }
+        def _check_url(
+            url: str, *, retrying_ambiguous: bool
+        ) -> tuple[Optional[Dict[str, Any]], bool]:
+            nonlocal last_head_time, head_checks
+
+            if self.head_check:
+                if _budget_exhausted():
+                    return None, True
+
+                elapsed = time.monotonic() - last_head_time
+                if elapsed < _HEAD_RATE_LIMIT_S:
+                    time.sleep(_HEAD_RATE_LIMIT_S - elapsed)
+                if _budget_exhausted():
+                    return None, True
+
+                head_status = _head_check_status(url)
+                head_checks += 1
+                last_head_time = time.monotonic()
+
+                if head_status is False:
+                    _mark_checked_not_found(storage, url, self.ente, self.fonte)
+                    return None, False
+                if head_status is None:
+                    if operational and self.max_ambiguous_retries is not None:
+                        _mark_head_ambiguous(storage, url, self.ente, self.fonte)
+                    return None, False
+
+            resource = _resource_from_url(url)
+            if retrying_ambiguous and storage is not None:
+                _promote_head_ambiguous(
+                    storage,
+                    url,
+                    str(resource["tipo_documento"]),
+                    str(resource["chave"]),
                 )
+            return resource, False
+
+        # Retry only a bounded, oldest-first slice of ambiguous HEADs. Updating
+        # ultima_tentativa rotates persistent WAF/429/5xx failures instead of
+        # letting the same high-number candidates monopolize every run.
+        if operational and storage is not None:
+            for url in self._ambiguous_retry_urls(storage, end):
+                resource, stop = _check_url(url, retrying_ambiguous=True)
+                if resource is not None:
+                    resources.append(resource)
+                if stop:
+                    stopped_by_budget = True
+                    break
+
+        if not stopped_by_budget:
+            for num in numbers:
+                for tmpl in self.templates:
+                    url = tmpl.format(num=num)
+
+                    if storage:
+                        try:
+                            row = storage.connect().execute(
+                                "SELECT status FROM discovered_resources WHERE url = ?",
+                                [url],
+                            ).fetchone()
+                            if row:
+                                # Ambiguous retries are handled above; every
+                                # known status is skipped in the fresh scan.
+                                continue
+                        except Exception as exc:
+                            logger.warning(f"Error checking DB for URL {url}: {exc}")
+
+                    resource, stop = _check_url(url, retrying_ambiguous=False)
+                    if resource is not None:
+                        resources.append(resource)
+                    if stop:
+                        stopped_by_budget = True
+                        break
+                if stopped_by_budget:
+                    break
+
+        if stopped_by_budget:
+            logger.info(
+                "Sequential Discovery encerrou voluntariamente pelo budget "
+                f"(head_checks={head_checks}, elapsed={time.monotonic() - started_at:.1f}s)"
+            )
         logger.info(
             f"Sequential Discovery concluído: {len(resources)} recursos encontrados "
-            f"(head_check={self.head_check})"
+            f"(head_check={self.head_check}, head_checks={head_checks})"
         )
         return resources
 
