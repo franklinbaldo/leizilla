@@ -443,10 +443,14 @@ def test_sequential_ambiguous_retry_quota_leaves_budget_for_new_candidates(temp_
         "http://example.com/Files/D5.pdf",
         "http://example.com/Files/D4.pdf",
     ]
-    row = temp_db.connect().execute(
-        "SELECT status FROM discovered_resources WHERE url = ?",
-        ["http://example.com/Files/D6.pdf"],
-    ).fetchone()
+    row = (
+        temp_db.connect()
+        .execute(
+            "SELECT status FROM discovered_resources WHERE url = ?",
+            ["http://example.com/Files/D6.pdf"],
+        )
+        .fetchone()
+    )
     assert row == ("head_ambiguous",)
 
     second_calls: list[str] = []
@@ -498,11 +502,15 @@ def test_sequential_ambiguous_retry_can_promote_to_pending(temp_db):
         resources = SequentialDiscovery(config, "ro", "casacivil").run(temp_db)
 
     assert [r["url"] for r in resources] == ["http://example.com/Files/D1.pdf"]
-    row = temp_db.connect().execute(
-        "SELECT status, tipo_documento, chave "
-        "FROM discovered_resources WHERE url = ?",
-        ["http://example.com/Files/D1.pdf"],
-    ).fetchone()
+    row = (
+        temp_db.connect()
+        .execute(
+            "SELECT status, tipo_documento, chave "
+            "FROM discovered_resources WHERE url = ?",
+            ["http://example.com/Files/D1.pdf"],
+        )
+        .fetchone()
+    )
     assert row == ("pending", "decreto", "decreto-00001")
 
 
