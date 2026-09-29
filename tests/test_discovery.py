@@ -371,6 +371,243 @@ def test_sequential_discovery_does_not_cache_ambiguous_head_errors(temp_db):
     assert row is None
 
 
+def test_sequential_bounded_descending_progresses_across_runs(temp_db):
+    config = {
+        "strategy": "sequential",
+        "templates": ["http://example.com/Files/D{num}.pdf"],
+        "start": 1,
+        "end": 6,
+        "head_check": True,
+        "max_head_checks": 2,
+        "max_scan_seconds": 3600,
+        "scan_order": "descending",
+        "max_ambiguous_retries": 0,
+    }
+    calls: list[str] = []
+
+    def missing(url: str, timeout: float = 10.0) -> bool:
+        calls.append(url)
+        return False
+
+    with (
+        patch("leizilla.discovery._HEAD_RATE_LIMIT_S", 0),
+        patch("leizilla.discovery._head_check_status", side_effect=missing),
+    ):
+        assert SequentialDiscovery(config, "ro", "casacivil").run(temp_db) == []
+    assert calls == [
+        "http://example.com/Files/D6.pdf",
+        "http://example.com/Files/D5.pdf",
+    ]
+
+    calls.clear()
+    with (
+        patch("leizilla.discovery._HEAD_RATE_LIMIT_S", 0),
+        patch("leizilla.discovery._head_check_status", side_effect=missing),
+    ):
+        assert SequentialDiscovery(config, "ro", "casacivil").run(temp_db) == []
+    assert calls == [
+        "http://example.com/Files/D4.pdf",
+        "http://example.com/Files/D3.pdf",
+    ]
+
+
+def test_sequential_ambiguous_retry_quota_leaves_budget_for_new_candidates(temp_db):
+    config = {
+        "strategy": "sequential",
+        "templates": ["http://example.com/Files/D{num}.pdf"],
+        "start": 1,
+        "end": 6,
+        "head_check": True,
+        "max_head_checks": 3,
+        "max_scan_seconds": 3600,
+        "scan_order": "descending",
+        "max_ambiguous_retries": 1,
+    }
+
+    first_calls: list[str] = []
+
+    def first_head(url: str, timeout: float = 10.0) -> bool | None:
+        first_calls.append(url)
+        if url.endswith("/D6.pdf"):
+            return None
+        return False
+
+    with (
+        patch("leizilla.discovery._HEAD_RATE_LIMIT_S", 0),
+        patch("leizilla.discovery._head_check_status", side_effect=first_head),
+    ):
+        SequentialDiscovery(config, "ro", "casacivil").run(temp_db)
+
+    assert first_calls == [
+        "http://example.com/Files/D6.pdf",
+        "http://example.com/Files/D5.pdf",
+        "http://example.com/Files/D4.pdf",
+    ]
+    row = (
+        temp_db.connect()
+        .execute(
+            "SELECT status FROM discovered_resources WHERE url = ?",
+            ["http://example.com/Files/D6.pdf"],
+        )
+        .fetchone()
+    )
+    assert row == ("head_ambiguous",)
+
+    second_calls: list[str] = []
+
+    def second_head(url: str, timeout: float = 10.0) -> bool | None:
+        second_calls.append(url)
+        if url.endswith("/D6.pdf"):
+            return None
+        return False
+
+    with (
+        patch("leizilla.discovery._HEAD_RATE_LIMIT_S", 0),
+        patch("leizilla.discovery._head_check_status", side_effect=second_head),
+    ):
+        SequentialDiscovery(config, "ro", "casacivil").run(temp_db)
+
+    # Um retry ambíguo consome só 1/3 do budget; os dois HEADs restantes
+    # avançam para candidatos nunca tentados.
+    assert second_calls == [
+        "http://example.com/Files/D6.pdf",
+        "http://example.com/Files/D3.pdf",
+        "http://example.com/Files/D2.pdf",
+    ]
+
+
+def test_sequential_ambiguous_retry_can_promote_to_pending(temp_db):
+    config = {
+        "strategy": "sequential",
+        "templates": ["http://example.com/Files/D{num}.pdf"],
+        "start": 1,
+        "end": 1,
+        "head_check": True,
+        "max_head_checks": 2,
+        "max_scan_seconds": 3600,
+        "scan_order": "descending",
+        "max_ambiguous_retries": 1,
+    }
+
+    with (
+        patch("leizilla.discovery._HEAD_RATE_LIMIT_S", 0),
+        patch("leizilla.discovery._head_check_status", return_value=None),
+    ):
+        assert SequentialDiscovery(config, "ro", "casacivil").run(temp_db) == []
+
+    with (
+        patch("leizilla.discovery._HEAD_RATE_LIMIT_S", 0),
+        patch("leizilla.discovery._head_check_status", return_value=True),
+    ):
+        resources = SequentialDiscovery(config, "ro", "casacivil").run(temp_db)
+
+    assert [r["url"] for r in resources] == ["http://example.com/Files/D1.pdf"]
+    row = (
+        temp_db.connect()
+        .execute(
+            "SELECT status, tipo_documento, chave "
+            "FROM discovered_resources WHERE url = ?",
+            ["http://example.com/Files/D1.pdf"],
+        )
+        .fetchone()
+    )
+    assert row == ("pending", "decreto", "decreto-00001")
+
+
+def test_sequential_storage_none_ignores_operational_budget_and_order():
+    config = {
+        "strategy": "sequential",
+        "templates": ["http://example.com/Files/D{num}.pdf"],
+        "start": 1,
+        "end": 3,
+        "head_check": True,
+        "max_head_checks": 1,
+        "max_scan_seconds": 1,
+        "scan_order": "descending",
+        "max_ambiguous_retries": 0,
+    }
+    calls: list[str] = []
+
+    def exists(url: str, timeout: float = 10.0) -> bool:
+        calls.append(url)
+        return True
+
+    with (
+        patch("leizilla.discovery._HEAD_RATE_LIMIT_S", 0),
+        patch("leizilla.discovery._head_check_status", side_effect=exists),
+    ):
+        resources = SequentialDiscovery(config, "ro", "casacivil").run(None)
+
+    assert calls == [
+        "http://example.com/Files/D1.pdf",
+        "http://example.com/Files/D2.pdf",
+        "http://example.com/Files/D3.pdf",
+    ]
+    assert [r["url"] for r in resources] == calls
+
+
+def test_sequential_time_budget_stops_before_next_head(temp_db):
+    config = {
+        "strategy": "sequential",
+        "templates": ["http://example.com/Files/D{num}.pdf"],
+        "start": 1,
+        "end": 3,
+        "head_check": True,
+        "max_head_checks": 10,
+        "max_scan_seconds": 1,
+        "scan_order": "descending",
+        "max_ambiguous_retries": 0,
+    }
+    calls: list[str] = []
+    clock_values = iter([0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0])
+
+    def clock() -> float:
+        return next(clock_values, 2.0)
+
+    def exists(url: str, timeout: float = 10.0) -> bool:
+        calls.append(url)
+        return True
+
+    with (
+        patch("time.monotonic", side_effect=clock),
+        patch("leizilla.discovery._HEAD_RATE_LIMIT_S", 0),
+        patch("leizilla.discovery._head_check_status", side_effect=exists),
+    ):
+        resources = SequentialDiscovery(config, "ro", "casacivil").run(temp_db)
+
+    assert calls == ["http://example.com/Files/D3.pdf"]
+    assert [r["url"] for r in resources] == ["http://example.com/Files/D3.pdf"]
+
+
+def test_sequential_ambiguous_retry_quota_must_leave_fresh_budget():
+    config = {
+        "strategy": "sequential",
+        "templates": ["http://example.com/Files/D{num}.pdf"],
+        "start": 1,
+        "end": 3,
+        "head_check": True,
+        "max_head_checks": 2,
+        "max_ambiguous_retries": 2,
+    }
+    with pytest.raises(ValueError, match="menor que max_head_checks"):
+        SequentialDiscovery(config, "ro", "casacivil")
+
+
+def test_ro_live_head_strategies_are_bounded_and_newest_first():
+    manifest = load_manifest("ro")
+    configs = [
+        cfg
+        for cfg in manifest["fontes"]["casacivil"]["discovery"]
+        if cfg.get("strategy") == "sequential" and cfg.get("head_check") is True
+    ]
+    assert len(configs) == 6
+    for cfg in configs:
+        assert cfg["max_head_checks"] == 2000
+        assert cfg["max_scan_seconds"] == 3600
+        assert cfg["scan_order"] == "descending"
+        assert 0 <= cfg["max_ambiguous_retries"] < cfg["max_head_checks"]
+
+
 def test_run_discovery_second_run_skips_head_checks_for_known_urls(temp_db):
     """Fim a fim via `run_discovery` (o que `leizilla discover` realmente chama):
     uma segunda rodada não deve refazer HEAD request para URLs que a primeira

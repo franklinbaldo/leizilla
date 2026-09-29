@@ -32,6 +32,17 @@ Gera URLs numericamente: `L1.pdf`, `L2.pdf`, … até o limite.
 
 Pula URLs já presentes na tabela `discovered_resources` (verificação no DuckDB).
 
+Para famílias com `head_check: true`, o caminho operacional pode declarar
+`max_head_checks`, `max_scan_seconds` e `scan_order: "descending"`: o
+discover termina **voluntariamente** quando o budget acaba, em vez de depender
+do timeout de 360 min do runner. 404 confirmado vira
+`checked_not_found` e não consome HEAD em rodadas futuras. Erros ambíguos
+(403/429/5xx/timeout) podem usar `max_ambiguous_retries`: só uma quota
+oldest-first é rechecada por rodada e `ultima_tentativa` rotaciona a fila,
+reservando o restante do budget para candidatos nunca tentados. Esses limites
+só se aplicam quando há `storage` operacional; a re-derivação de
+reconciliação com `storage=None` continua full-scan ascendente.
+
 `end` aceita um inteiro fixo **ou** a string `"cdx-auto"` (RFC-0003 Fase 1). Com
 `"cdx-auto"`, o limite é resolvido em `run()`: consulta a CDX API uma única vez
 para o diretório do primeiro `template` e toma o maior número já arquivado para
