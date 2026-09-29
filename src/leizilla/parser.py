@@ -614,37 +614,65 @@ def parse_law(
         # freeing the whole budget for the actual JSON/XML response.
         completion_kwargs["reasoning_effort"] = "disable"
 
-    response = litellm.completion(
-        model=model,
-        # Raised alongside _OCR_CHAR_LIMIT (24000 chars, ~6-8k tokens of
-        # input): the previous 4096-token output budget was sized for the
-        # old 8000-char input ceiling. A larger input with the same output
-        # cap would just move the truncation from the input side to the
-        # output side instead of fixing it.
-        max_tokens=16000,
-        **completion_kwargs,
-        messages=[
-            {
-                "role": "system",
-                "content": [system_block],
-            },
-            {
-                "role": "user",
-                "content": f"{user_prefix}:\n\n{ocr_text[:char_limit]}",
-            },
-        ],
-    )
+    messages = [
+        {
+            "role": "system",
+            "content": [system_block],
+        },
+        {
+            "role": "user",
+            "content": f"{user_prefix}:\n\n{ocr_text[:char_limit]}",
+        },
+    ]
+
+    def _complete(max_tokens: int) -> Any:
+        return litellm.completion(
+            model=model,
+            max_tokens=max_tokens,
+            **completion_kwargs,
+            messages=messages,
+        )
+
+    def _finish_reason(resp: Any) -> Optional[str]:
+        if not getattr(resp, "choices", None):
+            return None
+        return getattr(resp.choices[0], "finish_reason", None)
+
+    responses = [_complete(16000)]
+    response = responses[-1]
+    finish_reason = _finish_reason(response)
+
+    # Issue #325: LC 00001 repeatedly reaches Gemini's application-level
+    # 16k output cap before closing the JSON/XML response. Retry exactly once
+    # with a larger but still bounded budget. The first truncated output is
+    # discarded even if it happens to contain extractable JSON: the provider's
+    # explicit finish_reason="length" means the response is incomplete.
+    if model.startswith("gemini/") and finish_reason == "length":
+        logger.warning(
+            "%s: Gemini response truncated at 16000 output tokens; retrying once "
+            "with max_tokens=32768",
+            ia_id,
+        )
+        responses.append(_complete(32768))
+        response = responses[-1]
+        finish_reason = _finish_reason(response)
+        if finish_reason == "length":
+            raw = (
+                (response.choices[0].message.content or "") if response.choices else ""
+            )
+            logger.warning(
+                "%s: Gemini response still truncated after bounded retry "
+                "(len=%d); failing closed",
+                ia_id,
+                len(raw),
+            )
+            return None
 
     raw = (response.choices[0].message.content or "") if response.choices else ""
     result = _extract_json(raw)
     if result is None:
-        finish_reason = (
-            getattr(response.choices[0], "finish_reason", None)
-            if response.choices
-            else None
-        )
         # Logs both ends of the response (not just the head) since a
-        # max_tokens truncation — the response hitting the 4096-token cap
+        # max_tokens truncation — the response hitting the output cap
         # mid-XML, never closing its JSON string/object — only shows up at
         # the tail, and finish_reason == "length" confirms it outright.
         logger.warning(
@@ -750,9 +778,14 @@ def parse_law(
             ia_id_parsed,
         )
 
-    usage = getattr(response, "usage", None)
-    input_tokens = getattr(usage, "prompt_tokens", 0) or 0
-    output_tokens = getattr(usage, "completion_tokens", 0) or 0
+    input_tokens = sum(
+        (getattr(getattr(resp, "usage", None), "prompt_tokens", 0) or 0)
+        for resp in responses
+    )
+    output_tokens = sum(
+        (getattr(getattr(resp, "usage", None), "completion_tokens", 0) or 0)
+        for resp in responses
+    )
 
     texto_truncado = len(ocr_text) > char_limit
 

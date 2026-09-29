@@ -42,16 +42,23 @@ _LLM_OK = json.dumps(
 )
 
 
-def _make_llm_response(response_text: str) -> MagicMock:
+def _make_llm_response(
+    response_text: str,
+    *,
+    finish_reason: str = "stop",
+    prompt_tokens: int = 100,
+    completion_tokens: int = 200,
+) -> MagicMock:
     """Resposta fake no formato OpenAI que o litellm.completion retorna."""
     message = MagicMock()
     message.content = response_text
     choice = MagicMock()
     choice.message = message
+    choice.finish_reason = finish_reason
     response = MagicMock()
     response.choices = [choice]
-    response.usage.prompt_tokens = 100
-    response.usage.completion_tokens = 200
+    response.usage.prompt_tokens = prompt_tokens
+    response.usage.completion_tokens = completion_tokens
     return response
 
 
@@ -592,6 +599,91 @@ class TestParseLaw:
         assert result is not None
         assert result.input_tokens == 100
         assert result.output_tokens == 200
+
+    def test_gemini_retries_once_on_length_and_accumulates_usage(self):
+        first = _make_llm_response(
+            _LLM_OK,
+            finish_reason="length",
+            prompt_tokens=100,
+            completion_tokens=16000,
+        )
+        second = _make_llm_response(
+            _LLM_OK,
+            finish_reason="stop",
+            prompt_tokens=110,
+            completion_tokens=300,
+        )
+        with (
+            patch("litellm.completion", side_effect=[first, second]) as completion,
+            patch.multiple(
+                parser.config,
+                GEMINI_API_KEY="test-key",
+                ANTHROPIC_API_KEY=None,
+                LLM_MODEL=None,
+            ),
+        ):
+            result = parser.parse_law(
+                "ocr text",
+                _IA_ID,
+                "ro",
+                model="gemini/gemini-2.5-flash",
+            )
+
+        assert result is not None
+        assert result.input_tokens == 210
+        assert result.output_tokens == 16300
+        assert completion.call_count == 2
+        assert completion.call_args_list[0].kwargs["max_tokens"] == 16000
+        assert completion.call_args_list[1].kwargs["max_tokens"] == 32768
+        assert (
+            completion.call_args_list[0].kwargs["messages"]
+            == completion.call_args_list[1].kwargs["messages"]
+        )
+        assert completion.call_args_list[0].kwargs["reasoning_effort"] == "disable"
+        assert completion.call_args_list[1].kwargs["reasoning_effort"] == "disable"
+
+    def test_gemini_second_length_truncation_fails_closed(self):
+        first = _make_llm_response(_LLM_OK, finish_reason="length")
+        second = _make_llm_response(_LLM_OK, finish_reason="length")
+        with (
+            patch("litellm.completion", side_effect=[first, second]) as completion,
+            patch.multiple(
+                parser.config,
+                GEMINI_API_KEY="test-key",
+                ANTHROPIC_API_KEY=None,
+                LLM_MODEL=None,
+            ),
+        ):
+            result = parser.parse_law(
+                "ocr text",
+                _IA_ID,
+                "ro",
+                model="gemini/gemini-2.5-flash",
+            )
+
+        assert result is None
+        assert completion.call_count == 2
+
+    def test_gemini_non_length_malformed_response_is_not_retried(self):
+        response = _make_llm_response("not-json", finish_reason="stop")
+        with (
+            patch("litellm.completion", return_value=response) as completion,
+            patch.multiple(
+                parser.config,
+                GEMINI_API_KEY="test-key",
+                ANTHROPIC_API_KEY=None,
+                LLM_MODEL=None,
+            ),
+        ):
+            result = parser.parse_law(
+                "ocr text",
+                _IA_ID,
+                "ro",
+                model="gemini/gemini-2.5-flash",
+            )
+
+        assert result is None
+        assert completion.call_count == 1
 
     def test_returns_none_when_confidence_below_threshold(self):
         low = json.dumps({"confidence": 0.3, "error": "bad OCR"})
