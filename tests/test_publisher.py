@@ -199,7 +199,9 @@ class TestFetchExistingParsedMeta:
             patch("leizilla.publisher.fetch_item_filenames") as metadata,
         ):
             assert (
-                _fetch_existing_parsed_meta("leizilla-ro-lei-00042-1990", fail_closed=True)
+                _fetch_existing_parsed_meta(
+                    "leizilla-ro-lei-00042-1990", fail_closed=True
+                )
                 is None
             )
         metadata.assert_not_called()
@@ -235,7 +237,9 @@ class TestFetchExistingParsedMeta:
             ),
         ):
             assert (
-                _fetch_existing_parsed_meta("leizilla-ro-lei-00042-1990", fail_closed=True)
+                _fetch_existing_parsed_meta(
+                    "leizilla-ro-lei-00042-1990", fail_closed=True
+                )
                 is None
             )
 
