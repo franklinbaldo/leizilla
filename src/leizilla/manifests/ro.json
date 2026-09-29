@@ -37,7 +37,11 @@
           ],
           "start": 1,
           "end": "cdx-auto",
-          "head_check": true
+          "head_check": true,
+          "max_head_checks": 2000,
+          "max_scan_seconds": 3600,
+          "scan_order": "descending",
+          "max_ambiguous_retries": 200
         },
         {
           "strategy": "sequential",
@@ -46,7 +50,11 @@
           ],
           "start": 1,
           "end": "cdx-auto",
-          "head_check": true
+          "head_check": true,
+          "max_head_checks": 2000,
+          "max_scan_seconds": 3600,
+          "scan_order": "descending",
+          "max_ambiguous_retries": 200
         },
         {
           "strategy": "sequential",
@@ -55,7 +63,11 @@
           ],
           "start": 1,
           "end": "cdx-auto",
-          "head_check": true
+          "head_check": true,
+          "max_head_checks": 2000,
+          "max_scan_seconds": 3600,
+          "scan_order": "descending",
+          "max_ambiguous_retries": 200
         },
         {
           "strategy": "sequential",
@@ -64,7 +76,11 @@
           ],
           "start": 1,
           "end": "cdx-auto",
-          "head_check": true
+          "head_check": true,
+          "max_head_checks": 2000,
+          "max_scan_seconds": 3600,
+          "scan_order": "descending",
+          "max_ambiguous_retries": 200
         },
         {
           "strategy": "sequential",
@@ -73,7 +89,11 @@
           ],
           "start": 1,
           "end": "cdx-auto",
-          "head_check": true
+          "head_check": true,
+          "max_head_checks": 2000,
+          "max_scan_seconds": 3600,
+          "scan_order": "descending",
+          "max_ambiguous_retries": 200
         },
         {
           "strategy": "sequential",
@@ -82,7 +102,11 @@
           ],
           "start": 1,
           "end": "cdx-auto",
-          "head_check": true
+          "head_check": true,
+          "max_head_checks": 2000,
+          "max_scan_seconds": 3600,
+          "scan_order": "descending",
+          "max_ambiguous_retries": 200
         }
       ],
       "probe": [
