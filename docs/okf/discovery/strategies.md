@@ -35,8 +35,10 @@ Pula URLs já presentes na tabela `discovered_resources` (verificação no DuckD
 `end` aceita um inteiro fixo **ou** a string `"cdx-auto"` (RFC-0003 Fase 1). Com
 `"cdx-auto"`, o limite é resolvido em `run()`: consulta a CDX API uma única vez
 para o diretório do primeiro `template` e toma o maior número já arquivado para
-o `tipo_documento` desse template (`resolve_cdx_max_by_tipo`, a mesma função que
-`WaybackCdxDiscovery` usa internamente). Fail-safe: resposta vazia, erro de rede
+a **família exata de filename** desse template (`resolve_cdx_max_for_template`).
+Isso evita que famílias distintas que canonicalizam para o mesmo tipo — por
+exemplo `D{num}.pdf` e `DEC{num}.pdf`, ambas `decreto` — compartilhem high-water.
+Fail-safe: resposta vazia, erro de rede
 ou timeout na CDX não abortam o discover — caem no `end_fallback` (default `10`,
 configurável por estratégia no manifesto).
 
