@@ -924,11 +924,8 @@ class TestSequentialDiscoveryCdxAuto:
         assert len(resources) == 7
         assert resources[-1]["url"] == "http://example.com/Files/L7.pdf"
 
-
     def test_cdx_auto_does_not_inherit_high_water_from_dec_family(self):
-        config = self._config(
-            templates=["http://example.com/Files/D{num}.pdf"]
-        )
+        config = self._config(templates=["http://example.com/Files/D{num}.pdf"])
         rows = [
             [
                 "com,example)/files/d3.pdf",
