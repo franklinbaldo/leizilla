@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import stat
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch, MagicMock
