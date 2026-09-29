@@ -1026,7 +1026,9 @@ class TestCmdParseAllSkipExisting:
             "leizilla-raw-ro-assembleia-lei-00002",
         }
         with (
-            patch("leizilla.publisher.list_parsed_raw_ids_strict", return_value=raw_ids),
+            patch(
+                "leizilla.publisher.list_parsed_raw_ids_strict", return_value=raw_ids
+            ),
             patch("leizilla.parser.fetch_ocr", return_value=None),
         ):
             result = runner.invoke(
@@ -1110,7 +1112,8 @@ class TestCmdParseAllSkipExisting:
 
         with (
             patch(
-                "leizilla.publisher.list_parsed_raw_ids_strict", return_value=already_parsed
+                "leizilla.publisher.list_parsed_raw_ids_strict",
+                return_value=already_parsed,
             ),
             patch("leizilla.parser.fetch_ocr", side_effect=track_ocr),
         ):
