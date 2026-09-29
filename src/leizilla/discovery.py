@@ -145,6 +145,37 @@ def resolve_cdx_max_by_tipo(prefix: str) -> Dict[str, int]:
     return cdx_max
 
 
+def resolve_cdx_max_for_template(prefix: str, template: str) -> int:
+    """Maior número CDX pertencente à família exata de ``template``.
+
+    ``tipo_documento`` não é uma chave suficientemente específica para o teto
+    de uma estratégia sequential: ``D{num}.pdf`` e ``DEC{num}.pdf`` são famílias
+    de filename distintas, mas ambas canonicalizam para ``decreto``. Usar o
+    máximo agregado por tipo faz uma família herdar o high-water da outra e
+    transforma um scan pequeno em dezenas de milhares de HEADs (issue #319).
+
+    A família é definida pelo nome do arquivo do template, com ``{num}`` como
+    único trecho numérico variável. A comparação é case-insensitive porque o
+    corpus/CDX contém variações históricas de caixa.
+    """
+    template_filename = template.rsplit("/", 1)[-1]
+    if "{num}" not in template_filename:
+        raise ValueError(f"template sequential sem {{num}}: {template!r}")
+
+    before, after = template_filename.split("{num}", 1)
+    family = re.compile(
+        rf"^{re.escape(before)}(?P<num>\d+){re.escape(after)}$", re.IGNORECASE
+    )
+
+    resolved = 0
+    for record in _fetch_cdx_pdf_records(prefix):
+        filename = record["orig_url"].rsplit("/", 1)[-1]
+        match = family.fullmatch(filename)
+        if match:
+            resolved = max(resolved, int(match.group("num")))
+    return resolved
+
+
 class WaybackCdxDiscovery:
     """Estratégia de descobrimento que consulta a API CDX da Wayback Machine."""
 
@@ -367,7 +398,10 @@ class SequentialDiscovery:
         sample_filename = tmpl.format(num=1).split("/")[-1]
         tipo, _ = parse_filename(sample_filename)
 
-        resolved = resolve_cdx_max_by_tipo(cdx_prefix).get(tipo, 0) if tipo else 0
+        # O teto pertence à família exata do template, não ao tipo canônico.
+        # Ex.: D{num}.pdf e DEC{num}.pdf são ambos ``decreto``, mas não podem
+        # compartilhar high-water (issue #319).
+        resolved = resolve_cdx_max_for_template(cdx_prefix, tmpl)
         if resolved <= 0:
             logger.warning(
                 f"cdx-auto: não foi possível resolver o limite via CDX para "
