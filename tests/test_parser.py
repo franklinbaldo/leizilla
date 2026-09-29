@@ -600,7 +600,6 @@ class TestParseLaw:
         assert result.input_tokens == 100
         assert result.output_tokens == 200
 
-
     def test_gemini_retries_once_on_length_and_accumulates_usage(self):
         first = _make_llm_response(
             _LLM_OK,
@@ -636,7 +635,10 @@ class TestParseLaw:
         assert completion.call_count == 2
         assert completion.call_args_list[0].kwargs["max_tokens"] == 16000
         assert completion.call_args_list[1].kwargs["max_tokens"] == 32768
-        assert completion.call_args_list[0].kwargs["messages"] == completion.call_args_list[1].kwargs["messages"]
+        assert (
+            completion.call_args_list[0].kwargs["messages"]
+            == completion.call_args_list[1].kwargs["messages"]
+        )
         assert completion.call_args_list[0].kwargs["reasoning_effort"] == "disable"
         assert completion.call_args_list[1].kwargs["reasoning_effort"] == "disable"
 
