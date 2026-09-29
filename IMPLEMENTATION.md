@@ -365,9 +365,11 @@ range, identificada ou não — a área `_unidentified` conta aqui, ADR-0011 §1
 (HTML nativo conta na hora; PDF precisa do derivado `_djvu.txt` — checado via
 `archive.org/metadata/{item}`, uma requisição por item de range, não por
 arquivo); **S4 estruturado** (`list_parsed_raw_ids_strict`, variante
-all-or-nothing de `list_parsed_raw_ids` pensada só pra isso — a versão
-original é fail-open-pra-vazio de propósito, o que serve `parse-all
---skip-existing` mas viraria um S4 subcontado sem aviso aqui).
+all-or-nothing de `list_parsed_raw_ids`). A variante strict também protege
+`parse-all --skip-existing`: uma enumeração parcial não pode ser interpretada
+como ausência antes de reparse/upload (#327). A busca global do IA ainda pode
+estar temporariamente incompleta mesmo quando responde sem erro, então o upload
+mantém uma segunda defesa por identifier exato antes de qualquer overwrite.
 
 **Decisão de design revisada em meio à sessão**: a primeira versão fazia S1-S3
 e S4 all-or-nothing *juntos* por fonte (um erro em qualquer um derrubava os

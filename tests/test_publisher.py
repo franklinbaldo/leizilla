@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import stat
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -12,6 +13,7 @@ from unittest.mock import patch, MagicMock
 from leizilla.publisher import (
     _raw_identifier,
     _bundle_identifier,
+    _fetch_existing_parsed_meta,
     _ia_subprocess_env,
     build_raw_meta,
     count_ia_items,
@@ -19,6 +21,7 @@ from leizilla.publisher import (
     list_parsed_raw_ids,
     list_raw_ids,
     InternetArchivePublisher,
+    ParsedMetaFetchError,
 )
 
 
@@ -177,6 +180,70 @@ _XML_CONTENT = (
 )
 
 
+class TestFetchExistingParsedMeta:
+    def _http_error(self, code: int) -> urllib.error.HTTPError:
+        return urllib.error.HTTPError(
+            "https://archive.org/download/item/parsed_meta.json",
+            code,
+            "error",
+            hdrs=None,
+            fp=None,
+        )
+
+    def test_404_is_confirmed_absent_in_fail_closed_mode(self):
+        with (
+            patch(
+                "urllib.request.urlopen",
+                side_effect=self._http_error(404),
+            ),
+            patch("leizilla.publisher.fetch_item_filenames") as metadata,
+        ):
+            assert (
+                _fetch_existing_parsed_meta(
+                    "leizilla-ro-lei-00042-1990", fail_closed=True
+                )
+                is None
+            )
+        metadata.assert_not_called()
+
+    def test_403_without_metadata_confirmation_is_unknown(self):
+        with (
+            patch(
+                "urllib.request.urlopen",
+                side_effect=self._http_error(403),
+            ),
+            patch(
+                "leizilla.publisher.fetch_item_filenames",
+                return_value=None,
+            ),
+        ):
+            try:
+                _fetch_existing_parsed_meta(
+                    "leizilla-ro-lei-00042-1990", fail_closed=True
+                )
+                raise AssertionError("expected ParsedMetaFetchError")
+            except ParsedMetaFetchError:
+                pass
+
+    def test_5xx_with_metadata_confirming_no_sidecar_is_absent(self):
+        with (
+            patch(
+                "urllib.request.urlopen",
+                side_effect=self._http_error(503),
+            ),
+            patch(
+                "leizilla.publisher.fetch_item_filenames",
+                return_value={"law.xml"},
+            ),
+        ):
+            assert (
+                _fetch_existing_parsed_meta(
+                    "leizilla-ro-lei-00042-1990", fail_closed=True
+                )
+                is None
+            )
+
+
 class TestUploadParsed:
     def _publisher(self) -> InternetArchivePublisher:
         pub = InternetArchivePublisher()
@@ -324,6 +391,28 @@ class TestUploadParsed:
         assert result["success"] is True
         mock_run.assert_called_once()
 
+    def test_skip_existing_same_raw_is_idempotent_noop(self):
+        """Search lag must not turn the same raw into a destructive overwrite."""
+        pub = self._publisher()
+        existing = dict(_PARSED_META)
+        with (
+            patch("subprocess.run") as mock_run,
+            patch(
+                "leizilla.publisher._fetch_existing_parsed_meta",
+                return_value=existing,
+            ),
+        ):
+            result = pub.upload_parsed(
+                "leizilla-ro-lei-00042-1990",
+                _XML_CONTENT,
+                _PARSED_META,
+                skip_existing=True,
+            )
+        assert result["success"] is True
+        assert result["already_exists"] is True
+        assert result["ia_id"] == "leizilla-ro-lei-00042-1990"
+        mock_run.assert_not_called()
+
     def test_force_bypasses_identity_collision(self):
         """Deliberate recovery: an operator who already confirmed (out of band,
         e.g. via the IA item's own version history) which raw id is the
@@ -346,9 +435,7 @@ class TestUploadParsed:
         assert result["success"] is True
         mock_run.assert_called_once()
 
-    def test_allows_upload_when_existing_meta_fetch_fails(self):
-        """Fail-open: a network error reading the existing parsed_meta.json
-        must never block a legitimate upload."""
+    def test_allows_upload_when_target_is_confirmed_absent(self):
         pub = self._publisher()
         with (
             patch("subprocess.run") as mock_run,
@@ -359,6 +446,22 @@ class TestUploadParsed:
                 "leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META
             )
         assert result["success"] is True
+
+    def test_refuses_upload_when_existing_state_is_unknown(self):
+        pub = self._publisher()
+        with (
+            patch("subprocess.run") as mock_run,
+            patch(
+                "leizilla.publisher._fetch_existing_parsed_meta",
+                side_effect=ParsedMetaFetchError("timeout"),
+            ),
+        ):
+            result = pub.upload_parsed(
+                "leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META
+            )
+        assert result["success"] is False
+        assert result["reason"] == "existing-state-unknown"
+        mock_run.assert_not_called()
 
 
 class TestMarkParsedSuperseded:

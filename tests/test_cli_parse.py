@@ -587,6 +587,43 @@ class TestCmdParseAll:
         lines = out_file.read_text(encoding="utf-8").splitlines()
         assert lines == ["leizilla-ro-lei-00042-1990", "leizilla-ro-lei-00042-1990"]
 
+    def test_skip_existing_exact_target_noop_still_handoffs_id(self, tmp_path: Path):
+        out_file = tmp_path / "uploaded-ids.txt"
+        noop = {
+            "success": True,
+            "already_exists": True,
+            "ia_id": "leizilla-ro-lei-00042-1990",
+            "ia_url": "https://archive.org/details/leizilla-ro-lei-00042-1990",
+        }
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=noop,
+            ) as mock_upload,
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start",
+                    "1",
+                    "--end",
+                    "1",
+                    "--uploaded-ids-out",
+                    str(out_file),
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert "no-op idempotente" in result.output
+        assert out_file.read_text(encoding="utf-8").splitlines() == [
+            "leizilla-ro-lei-00042-1990"
+        ]
+        assert mock_upload.call_args.kwargs["skip_existing"] is True
+
     def test_uploaded_ids_out_writes_empty_file_when_nothing_uploaded(
         self, tmp_path: Path
     ):
@@ -960,7 +997,7 @@ class TestCmdParseAllSkipExisting:
         raw_id = "leizilla-raw-ro-assembleia-lei-00001"
         with (
             patch(
-                "leizilla.publisher.list_parsed_raw_ids",
+                "leizilla.publisher.list_parsed_raw_ids_strict",
                 return_value={raw_id},
             ),
             patch("leizilla.parser.fetch_ocr") as mock_ocr,
@@ -989,7 +1026,9 @@ class TestCmdParseAllSkipExisting:
             "leizilla-raw-ro-assembleia-lei-00002",
         }
         with (
-            patch("leizilla.publisher.list_parsed_raw_ids", return_value=raw_ids),
+            patch(
+                "leizilla.publisher.list_parsed_raw_ids_strict", return_value=raw_ids
+            ),
             patch("leizilla.parser.fetch_ocr", return_value=None),
         ):
             result = runner.invoke(
@@ -1010,7 +1049,7 @@ class TestCmdParseAllSkipExisting:
     def test_no_skip_existing_processes_all_items(self):
         """Sem --skip-existing, list_parsed_raw_ids não é chamado."""
         with (
-            patch("leizilla.publisher.list_parsed_raw_ids") as mock_list,
+            patch("leizilla.publisher.list_parsed_raw_ids_strict") as mock_list,
             patch("leizilla.parser.fetch_ocr", return_value=None),
         ):
             result = runner.invoke(
@@ -1028,20 +1067,15 @@ class TestCmdParseAllSkipExisting:
         assert result.exit_code == 0
         mock_list.assert_not_called()
 
-    def test_skip_existing_network_error_falls_through(self):
-        """Falha de rede em list_parsed_raw_ids → empty set → nenhum skip."""
+    def test_skip_existing_inconclusive_listing_fails_closed(self):
+        """Visão parcial do IA não pode virar falso negativo antes de mutação."""
         with (
             patch(
-                "leizilla.publisher.list_parsed_raw_ids",
-                return_value=set(),
+                "leizilla.publisher.list_parsed_raw_ids_strict",
+                return_value=None,
             ),
-            patch("leizilla.parser.fetch_ocr", return_value="ocr"),
-            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
-            patch("leizilla.cli._xsd_gate", return_value=True),
-            patch(
-                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
-                return_value=_UPLOAD_OK,
-            ),
+            patch("leizilla.parser.fetch_ocr") as mock_ocr,
+            patch("leizilla.parser.parse_law") as mock_parse,
         ):
             result = runner.invoke(
                 app,
@@ -1054,8 +1088,10 @@ class TestCmdParseAllSkipExisting:
                     "--skip-existing",
                 ],
             )
-        assert result.exit_code == 0
-        assert "1 parseados" in result.output
+        assert result.exit_code == 1
+        assert "Estado dos items parsed no IA é inconclusivo" in result.output
+        mock_ocr.assert_not_called()
+        mock_parse.assert_not_called()
 
     def test_limit_counts_only_non_skipped_items(self):
         """--limit with --skip-existing counts items to process, not items in range.
@@ -1076,7 +1112,8 @@ class TestCmdParseAllSkipExisting:
 
         with (
             patch(
-                "leizilla.publisher.list_parsed_raw_ids", return_value=already_parsed
+                "leizilla.publisher.list_parsed_raw_ids_strict",
+                return_value=already_parsed,
             ),
             patch("leizilla.parser.fetch_ocr", side_effect=track_ocr),
         ):
