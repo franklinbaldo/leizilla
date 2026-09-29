@@ -12,6 +12,7 @@ from unittest.mock import patch, MagicMock
 from leizilla.publisher import (
     _raw_identifier,
     _bundle_identifier,
+    _fetch_existing_parsed_meta,
     _ia_subprocess_env,
     build_raw_meta,
     count_ia_items,
@@ -176,6 +177,66 @@ _XML_CONTENT = (
     "</dispositivo>"
     "</lei>"
 )
+
+
+class TestFetchExistingParsedMeta:
+    def _http_error(self, code: int) -> urllib.error.HTTPError:
+        return urllib.error.HTTPError(
+            "https://archive.org/download/item/parsed_meta.json",
+            code,
+            "error",
+            hdrs=None,
+            fp=None,
+        )
+
+    def test_404_is_confirmed_absent_in_fail_closed_mode(self):
+        with (
+            patch(
+                "urllib.request.urlopen",
+                side_effect=self._http_error(404),
+            ),
+            patch("leizilla.publisher.fetch_item_filenames") as metadata,
+        ):
+            assert (
+                _fetch_existing_parsed_meta("leizilla-ro-lei-00042-1990", fail_closed=True)
+                is None
+            )
+        metadata.assert_not_called()
+
+    def test_403_without_metadata_confirmation_is_unknown(self):
+        with (
+            patch(
+                "urllib.request.urlopen",
+                side_effect=self._http_error(403),
+            ),
+            patch(
+                "leizilla.publisher.fetch_item_filenames",
+                return_value=None,
+            ),
+        ):
+            try:
+                _fetch_existing_parsed_meta(
+                    "leizilla-ro-lei-00042-1990", fail_closed=True
+                )
+                raise AssertionError("expected ParsedMetaFetchError")
+            except ParsedMetaFetchError:
+                pass
+
+    def test_5xx_with_metadata_confirming_no_sidecar_is_absent(self):
+        with (
+            patch(
+                "urllib.request.urlopen",
+                side_effect=self._http_error(503),
+            ),
+            patch(
+                "leizilla.publisher.fetch_item_filenames",
+                return_value={"law.xml"},
+            ),
+        ):
+            assert (
+                _fetch_existing_parsed_meta("leizilla-ro-lei-00042-1990", fail_closed=True)
+                is None
+            )
 
 
 class TestUploadParsed:
