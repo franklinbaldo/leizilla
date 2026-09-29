@@ -679,23 +679,69 @@ class IndexFetchError(Exception):
     """
 
 
-def _fetch_existing_parsed_meta(ia_id_parsed: str) -> Optional[Dict[str, Any]]:
-    """Baixa o ``parsed_meta.json`` existente de um item IA parsed, se houver.
+class ParsedMetaFetchError(Exception):
+    """Estado do parsed target é indeterminado, não ausência confirmada."""
 
-    ``None`` se o item/arquivo não existe, não é JSON válido, ou em qualquer
-    falha de rede (fail-open) — usado só como checagem best-effort de colisão
-    de identidade antes de um upload (ver ``upload_parsed``), nunca como
-    bloqueio incondicional: uma leitura que falhou não deve impedir um upload
-    legítimo.
+
+def _fetch_existing_parsed_meta(
+    ia_id_parsed: str, *, fail_closed: bool = False
+) -> Optional[Dict[str, Any]]:
+    """Baixa o ``parsed_meta.json`` existente de um item IA parsed.
+
+    Retorna ``None`` somente para ausência confirmada quando
+    ``fail_closed=True``: HTTP 404 direto, ou metadata do item acessível
+    confirmando que ``parsed_meta.json`` não existe. Timeout, 403, 5xx,
+    resposta inválida ou metadata também indisponível levantam
+    :class:`ParsedMetaFetchError` nesse modo.
+
+    O default ``fail_closed=False`` preserva a semântica histórica fail-open
+    para leitores não-mutáveis que usam esta função como best-effort.
     """
+
+    def _metadata_confirms_absence() -> bool:
+        filenames = fetch_item_filenames(ia_id_parsed)
+        return filenames is not None and "parsed_meta.json" not in filenames
+
     url = download_url(ia_id_parsed, "parsed_meta.json")
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-            return data if isinstance(data, dict) else None
-    except Exception:
+            body = resp.read()
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        if _metadata_confirms_absence():
+            return None
+        if fail_closed:
+            raise ParsedMetaFetchError(
+                f"HTTP {exc.code} ao verificar parsed_meta.json de {ia_id_parsed}"
+            ) from exc
         return None
+    except (urllib.error.URLError, OSError) as exc:
+        if _metadata_confirms_absence():
+            return None
+        if fail_closed:
+            raise ParsedMetaFetchError(
+                f"falha de rede ao verificar parsed_meta.json de {ia_id_parsed}: {exc}"
+            ) from exc
+        return None
+
+    try:
+        data = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        if fail_closed:
+            raise ParsedMetaFetchError(
+                f"parsed_meta.json inválido em {ia_id_parsed}"
+            ) from exc
+        return None
+
+    if not isinstance(data, dict):
+        if fail_closed:
+            raise ParsedMetaFetchError(
+                f"parsed_meta.json não é objeto em {ia_id_parsed}"
+            )
+        return None
+    return data
 
 
 def _fetch_existing_index(item_id: str) -> Optional[str]:
@@ -1444,6 +1490,7 @@ class InternetArchivePublisher:
         xml_content: str,
         parsed_meta: Dict[str, Any],
         force: bool = False,
+        skip_existing: bool = False,
     ) -> Dict[str, Any]:
         """Upload law.xml + parsed_meta.json para IA parsed item.
 
@@ -1463,19 +1510,37 @@ class InternetArchivePublisher:
         rede ao ler o parsed_meta.json existente é fail-open (não bloqueia o
         upload por uma checagem que não pôde ser feita).
 
-        `force=True` ignora a checagem de colisão e sobrescreve mesmo assim —
-        via deliberada de recuperação para um operador que já confirmou (fora
-        desta função, ex.: pelo histórico de versões do próprio item no IA)
-        qual dos dois raw ids é o dono legítimo do identifier, e precisa
-        restaurá-lo depois que um upload anterior o usurpou. Nunca é o
-        default: sem esta flag o comportamento fail-closed é inalterado.
+        `skip_existing=True` torna o mesmo raw idempotente também no
+        boundary exato do target: se a busca global do IA estiver atrasada mas
+        este identifier já existir com o mesmo `ia_id_raw`, nenhum overwrite
+        é feito. O caller ainda recebe sucesso + `already_exists=True` para
+        poder hand-offar o identifier diretamente ao ETL.
+
+        `force=True` é o escape hatch deliberado: permite overwrite mesmo
+        quando a checagem do estado existente é inconclusiva ou há colisão,
+        para recuperação manual já confirmada fora desta função. Nunca é o
+        default.
 
         Retorna dict com 'success', 'ia_id', 'ia_url'.
         """
         if not self.access_key or not self.secret_key:
             return {"success": False, "error": "IA credentials not configured"}
 
-        existing_meta = _fetch_existing_parsed_meta(ia_id_parsed)
+        try:
+            existing_meta = _fetch_existing_parsed_meta(
+                ia_id_parsed, fail_closed=not force
+            )
+        except ParsedMetaFetchError as exc:
+            return {
+                "success": False,
+                "reason": "existing-state-unknown",
+                "ia_id": ia_id_parsed,
+                "error": (
+                    f"estado existente de {ia_id_parsed} é indeterminado; "
+                    f"upload abortado para não sobrescrever silenciosamente ({exc})"
+                ),
+            }
+
         if existing_meta is not None:
             existing_raw = existing_meta.get("ia_id_raw")
             new_raw = parsed_meta.get("ia_id_raw")
@@ -1499,6 +1564,13 @@ class InternetArchivePublisher:
                     existing_raw,
                     new_raw,
                 )
+            elif skip_existing and not force and existing_raw == new_raw:
+                return {
+                    "success": True,
+                    "already_exists": True,
+                    "ia_id": ia_id_parsed,
+                    "ia_url": f"https://archive.org/details/{ia_id_parsed}",
+                }
 
         ente = str(parsed_meta.get("ente", "unknown"))
         tipo = str(parsed_meta.get("tipo", "lei"))
