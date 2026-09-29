@@ -658,9 +658,7 @@ def parse_law(
         finish_reason = _finish_reason(response)
         if finish_reason == "length":
             raw = (
-                (response.choices[0].message.content or "")
-                if response.choices
-                else ""
+                (response.choices[0].message.content or "") if response.choices else ""
             )
             logger.warning(
                 "%s: Gemini response still truncated after bounded retry "
