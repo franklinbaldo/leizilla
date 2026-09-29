@@ -15,6 +15,7 @@ from leizilla.discovery import (
     load_manifest,
     parse_filename,
     resolve_cdx_max_by_tipo,
+    resolve_cdx_max_for_template,
     run_discovery,
 )
 from leizilla.ia_utils import parse_identity
@@ -851,6 +852,48 @@ class TestResolveCdxMaxByTipo:
         assert result == {}
 
 
+class TestResolveCdxMaxForTemplate:
+    """O teto de cdx-auto pertence à família exata do template."""
+
+    def test_does_not_mix_d_and_dec_decreto_families(self):
+        rows = [
+            [
+                "com,example)/files/d3.pdf",
+                "20220101000000",
+                "http://example.com/Files/D3.pdf",
+                "application/pdf",
+                "200",
+                "D1",
+                "1",
+            ],
+            [
+                "com,example)/files/dec32073.pdf",
+                "20220102000000",
+                "http://example.com/Files/DEC32073.pdf",
+                "application/pdf",
+                "200",
+                "D2",
+                "1",
+            ],
+        ]
+        with patch("urllib.request.urlopen", return_value=_cdx_mock_response(rows)):
+            assert (
+                resolve_cdx_max_for_template(
+                    "http://example.com/Files/",
+                    "http://example.com/Files/D{num}.pdf",
+                )
+                == 3
+            )
+        with patch("urllib.request.urlopen", return_value=_cdx_mock_response(rows)):
+            assert (
+                resolve_cdx_max_for_template(
+                    "http://example.com/Files/",
+                    "http://example.com/Files/DEC{num}.pdf",
+                )
+                == 32073
+            )
+
+
 class TestSequentialDiscoveryCdxAuto:
     """SequentialDiscovery com `"end": "cdx-auto"` (RFC-0003 Fase 1)."""
 
@@ -880,6 +923,36 @@ class TestSequentialDiscoveryCdxAuto:
             resources = SequentialDiscovery(self._config(), "ro", "casacivil").run()
         assert len(resources) == 7
         assert resources[-1]["url"] == "http://example.com/Files/L7.pdf"
+
+
+    def test_cdx_auto_does_not_inherit_high_water_from_dec_family(self):
+        config = self._config(
+            templates=["http://example.com/Files/D{num}.pdf"]
+        )
+        rows = [
+            [
+                "com,example)/files/d3.pdf",
+                "20220101000000",
+                "http://example.com/Files/D3.pdf",
+                "application/pdf",
+                "200",
+                "D1",
+                "1",
+            ],
+            [
+                "com,example)/files/dec32073.pdf",
+                "20220102000000",
+                "http://example.com/Files/DEC32073.pdf",
+                "application/pdf",
+                "200",
+                "D2",
+                "1",
+            ],
+        ]
+        with patch("urllib.request.urlopen", return_value=_cdx_mock_response(rows)):
+            resources = SequentialDiscovery(config, "ro", "casacivil").run()
+        assert len(resources) == 3
+        assert resources[-1]["url"] == "http://example.com/Files/D3.pdf"
 
     def test_empty_cdx_falls_back_to_default(self):
         with patch("urllib.request.urlopen", return_value=_cdx_mock_response([])):

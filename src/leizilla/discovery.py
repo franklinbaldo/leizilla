@@ -358,7 +358,8 @@ class SequentialDiscovery:
     `end` aceita um inteiro fixo ou a string `"cdx-auto"`: nesse caso o limite
     é resolvido em `run()` consultando a CDX API para o prefixo do template
     (diretório do primeiro template) e tomando o maior número já arquivado
-    para o `tipo_documento` desse template (via `resolve_cdx_max_by_tipo`).
+    para a família exata de filename desse template (via
+    `resolve_cdx_max_for_template`).
     Fail-safe: se a CDX não resolver nada, usa `end_fallback`
     (default `DEFAULT_CDX_AUTO_FALLBACK_END`, configurável no manifesto).
     """
