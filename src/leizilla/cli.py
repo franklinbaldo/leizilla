@@ -1356,7 +1356,7 @@ def cmd_parse_all(
         from leizilla.parser import fetch_ia_html, fetch_ocr, parse_law
         from leizilla.publisher import (
             InternetArchivePublisher,
-            list_parsed_raw_ids,
+            list_parsed_raw_ids_strict,
             list_raw_ids,
         )
         from leizilla.ia_utils import parse_raw_id
@@ -1370,10 +1370,19 @@ def cmd_parse_all(
 
         already_parsed: set[str] = set()
         if skip_existing and (
-            "PYTEST_CURRENT_TEST" not in os.environ or _is_mocked(list_parsed_raw_ids)
+            "PYTEST_CURRENT_TEST" not in os.environ
+            or _is_mocked(list_parsed_raw_ids_strict)
         ):
             echo(f"Verificando items já parseados em IA para {ente}/{fonte}...")
-            already_parsed = list_parsed_raw_ids(ente, fonte)
+            parsed_view = list_parsed_raw_ids_strict(ente, fonte)
+            if parsed_view is None:
+                echo(
+                    "  Estado dos items parsed no IA é inconclusivo — abortando "
+                    "antes de parse/upload para não tratar ausência de evidência "
+                    "como item novo."
+                )
+                raise typer.Exit(1)
+            already_parsed = parsed_view
             echo(f"  {len(already_parsed)} raw_ids já publicados — serão pulados")
 
         pub = InternetArchivePublisher() if upload else None
@@ -1492,10 +1501,20 @@ def cmd_parse_all(
                         result.xml,
                         result.parsed_meta,
                         force=force,
+                        skip_existing=skip_existing,
                     )
                     if upload_result["success"]:
-                        echo(f"  ↑ {upload_result['ia_url']}")
-                        uploaded_ok += 1
+                        if upload_result.get("already_exists"):
+                            echo(
+                                f"  = {upload_result['ia_url']} já contém este raw "
+                                "(no-op idempotente)"
+                            )
+                        else:
+                            echo(f"  ↑ {upload_result['ia_url']}")
+                            uploaded_ok += 1
+                        # Mesmo o no-op precisa do hand-off direto para o ETL:
+                        # a busca global do IA pode estar atrasada justamente no
+                        # cenário em que --skip-existing deu falso negativo.
                         uploaded_ids.append(result.ia_id_parsed)
                     else:
                         echo(
