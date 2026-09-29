@@ -368,9 +368,7 @@ def _mark_head_ambiguous(
         )
         storage.update_resource_status(url, _STATUS_HEAD_AMBIGUOUS)
     except Exception as exc:
-        logger.warning(
-            f"Erro ao persistir marcador head_ambiguous para {url}: {exc!r}"
-        )
+        logger.warning(f"Erro ao persistir marcador head_ambiguous para {url}: {exc!r}")
 
 
 def _promote_head_ambiguous(
@@ -470,17 +468,19 @@ class SequentialDiscovery:
                 return True
         return False
 
-    def _ambiguous_retry_urls(
-        self, storage: DuckDBStorage, end: int
-    ) -> List[str]:
+    def _ambiguous_retry_urls(self, storage: DuckDBStorage, end: int) -> List[str]:
         if not self.max_ambiguous_retries:
             return []
-        rows = storage.connect().execute(
-            "SELECT url FROM discovered_resources "
-            "WHERE ente = ? AND fonte = ? AND status = ? "
-            "ORDER BY ultima_tentativa ASC NULLS FIRST",
-            [self.ente, self.fonte, _STATUS_HEAD_AMBIGUOUS],
-        ).fetchall()
+        rows = (
+            storage.connect()
+            .execute(
+                "SELECT url FROM discovered_resources "
+                "WHERE ente = ? AND fonte = ? AND status = ? "
+                "ORDER BY ultima_tentativa ASC NULLS FIRST",
+                [self.ente, self.fonte, _STATUS_HEAD_AMBIGUOUS],
+            )
+            .fetchall()
+        )
         retries = [
             str(row[0])
             for row in rows
@@ -619,10 +619,14 @@ class SequentialDiscovery:
 
                     if storage:
                         try:
-                            row = storage.connect().execute(
-                                "SELECT status FROM discovered_resources WHERE url = ?",
-                                [url],
-                            ).fetchone()
+                            row = (
+                                storage.connect()
+                                .execute(
+                                    "SELECT status FROM discovered_resources WHERE url = ?",
+                                    [url],
+                                )
+                                .fetchone()
+                            )
                             if row:
                                 # Ambiguous retries are handled above; every
                                 # known status is skipped in the fresh scan.
