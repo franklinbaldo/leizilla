@@ -587,6 +587,43 @@ class TestCmdParseAll:
         lines = out_file.read_text(encoding="utf-8").splitlines()
         assert lines == ["leizilla-ro-lei-00042-1990", "leizilla-ro-lei-00042-1990"]
 
+    def test_skip_existing_exact_target_noop_still_handoffs_id(self, tmp_path: Path):
+        out_file = tmp_path / "uploaded-ids.txt"
+        noop = {
+            "success": True,
+            "already_exists": True,
+            "ia_id": "leizilla-ro-lei-00042-1990",
+            "ia_url": "https://archive.org/details/leizilla-ro-lei-00042-1990",
+        }
+        with (
+            patch("leizilla.parser.fetch_ocr", return_value="ocr text"),
+            patch("leizilla.parser.parse_law", return_value=_PARSE_RESULT),
+            patch(
+                "leizilla.publisher.InternetArchivePublisher.upload_parsed",
+                return_value=noop,
+            ) as mock_upload,
+            patch("leizilla.cli._xsd_gate", return_value=True),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "parse-all",
+                    "--start",
+                    "1",
+                    "--end",
+                    "1",
+                    "--uploaded-ids-out",
+                    str(out_file),
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert "no-op idempotente" in result.output
+        assert out_file.read_text(encoding="utf-8").splitlines() == [
+            "leizilla-ro-lei-00042-1990"
+        ]
+        assert mock_upload.call_args.kwargs["skip_existing"] is True
+
     def test_uploaded_ids_out_writes_empty_file_when_nothing_uploaded(
         self, tmp_path: Path
     ):
