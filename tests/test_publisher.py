@@ -19,6 +19,7 @@ from leizilla.publisher import (
     list_parsed_raw_ids,
     list_raw_ids,
     InternetArchivePublisher,
+    ParsedMetaFetchError,
 )
 
 
@@ -324,6 +325,28 @@ class TestUploadParsed:
         assert result["success"] is True
         mock_run.assert_called_once()
 
+    def test_skip_existing_same_raw_is_idempotent_noop(self):
+        """Search lag must not turn the same raw into a destructive overwrite."""
+        pub = self._publisher()
+        existing = dict(_PARSED_META)
+        with (
+            patch("subprocess.run") as mock_run,
+            patch(
+                "leizilla.publisher._fetch_existing_parsed_meta",
+                return_value=existing,
+            ),
+        ):
+            result = pub.upload_parsed(
+                "leizilla-ro-lei-00042-1990",
+                _XML_CONTENT,
+                _PARSED_META,
+                skip_existing=True,
+            )
+        assert result["success"] is True
+        assert result["already_exists"] is True
+        assert result["ia_id"] == "leizilla-ro-lei-00042-1990"
+        mock_run.assert_not_called()
+
     def test_force_bypasses_identity_collision(self):
         """Deliberate recovery: an operator who already confirmed (out of band,
         e.g. via the IA item's own version history) which raw id is the
@@ -346,9 +369,7 @@ class TestUploadParsed:
         assert result["success"] is True
         mock_run.assert_called_once()
 
-    def test_allows_upload_when_existing_meta_fetch_fails(self):
-        """Fail-open: a network error reading the existing parsed_meta.json
-        must never block a legitimate upload."""
+    def test_allows_upload_when_target_is_confirmed_absent(self):
         pub = self._publisher()
         with (
             patch("subprocess.run") as mock_run,
@@ -359,6 +380,22 @@ class TestUploadParsed:
                 "leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META
             )
         assert result["success"] is True
+
+    def test_refuses_upload_when_existing_state_is_unknown(self):
+        pub = self._publisher()
+        with (
+            patch("subprocess.run") as mock_run,
+            patch(
+                "leizilla.publisher._fetch_existing_parsed_meta",
+                side_effect=ParsedMetaFetchError("timeout"),
+            ),
+        ):
+            result = pub.upload_parsed(
+                "leizilla-ro-lei-00042-1990", _XML_CONTENT, _PARSED_META
+            )
+        assert result["success"] is False
+        assert result["reason"] == "existing-state-unknown"
+        mock_run.assert_not_called()
 
 
 class TestMarkParsedSuperseded:
