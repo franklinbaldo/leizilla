@@ -382,6 +382,18 @@ jobs:
             --output /tmp/leizilla-dataset.parquet \
             --ente "${{ inputs.ente || 'ro' }}"
 
+      # Preserve the rejected candidate when the row-count floor saves the
+      # release (issue #327). This is diagnostic only: it neither publishes
+      # the candidate nor relaxes any release gate.
+      - name: Preserve candidate Parquet for release diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dataset-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/leizilla-dataset.parquet
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Release dataset → IA
         if: "${{ inputs.dry_run != 'true' }}"
         env:
