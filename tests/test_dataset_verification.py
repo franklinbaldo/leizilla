@@ -113,3 +113,58 @@ def test_release_refusal_never_attempts_latest(tmp_path: Path) -> None:
     assert result["success"] is False
     upload.assert_called_once()
     verify.assert_not_called()
+
+
+@pytest.mark.parametrize("stage", ["release", "latest"])
+@pytest.mark.parametrize("stderr", [None, "", "  \n"])
+def test_stdout_refusal_is_preserved_without_credentials(
+    tmp_path: Path, stage: str, stderr: str | None
+) -> None:
+    path = tmp_path / "candidate.parquet"
+    path.write_bytes(b"candidate")
+    pub = InternetArchivePublisher()
+    pub.access_key, pub.secret_key = "private-access", "private/secret+value"
+    error = subprocess.CalledProcessError(
+        1,
+        "ia",
+        output=(
+            "accesskey_tasks_queued exceeds rationed amount "
+            "private-access private/secret+value private%2Fsecret%2Bvalue"
+        ),
+        stderr=stderr,
+    )
+    effects = [error] if stage == "release" else [MagicMock(returncode=0), error]
+    with (
+        patch.object(pub, "_run_ia_upload", side_effect=effects),
+        patch("leizilla.publisher._verify_dataset_files"),
+    ):
+        result = pub.upload_dataset(path, "ro", row_count=1, git_sha="test")
+    assert result["success"] is False
+    assert "accesskey_tasks_queued exceeds rationed amount" in result["error"]
+    assert "[REDACTED]" in result["error"]
+    assert "private" not in str(result)
+    if stage == "latest":
+        assert result["release_success"] is True
+        assert "accesskey_tasks_queued" in result["latest_pointer"]["error"]
+
+
+def test_error_prefers_stderr_and_bounds_redacted_output() -> None:
+    pub = InternetArchivePublisher()
+    pub.access_key, pub.secret_key = "private-access", "private-secret"
+    error = subprocess.CalledProcessError(
+        1,
+        ["ia", "command-not-for-diagnostics"],
+        output="stdout-not-selected",
+        stderr="x" * 1995 + "private-secret",
+    )
+    message = pub._upload_error(error)
+    assert len(message) == 2000
+    assert "private" not in message
+    assert "stdout-not-selected" not in message
+    assert "command-not-for-diagnostics" not in message
+
+
+def test_empty_error_output_has_explicit_fallback() -> None:
+    pub = InternetArchivePublisher()
+    error = subprocess.CalledProcessError(7, ["ia", "hidden-command"])
+    assert pub._upload_error(error) == "ia upload failed (exit 7); no diagnostic output"

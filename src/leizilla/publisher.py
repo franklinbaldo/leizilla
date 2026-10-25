@@ -956,6 +956,26 @@ class InternetArchivePublisher:
         self.secret_key = config.IA_SECRET_KEY
         self._upload_rate_limiter = make_rate_limiter(_IA_UPLOAD_MIN_INTERVAL_S)
 
+    def _upload_error(self, error: subprocess.CalledProcessError) -> str:
+        """Return a bounded diagnostic without command/env or active IA keys."""
+        message = (error.stderr or "").strip() or (error.stdout or "").strip()
+        if not message:
+            return f"ia upload failed (exit {error.returncode}); no diagnostic output"
+        # Redact before truncation so a credential crossing the limit cannot leak.
+        sensitive = {
+            variant
+            for value in (self.access_key, self.secret_key)
+            if value
+            for variant in (
+                value,
+                urllib.parse.quote(value, safe=""),
+                urllib.parse.quote_plus(value),
+            )
+        }
+        for value in sorted(sensitive, key=len, reverse=True):
+            message = message.replace(value, "[REDACTED]")
+        return str(message[:2000])
+
     def _run_ia_upload(self, args: list[str]) -> "subprocess.CompletedProcess[str]":
         """Roda ``ia upload ...`` com espaçamento + retry exponencial (ADR-0008).
 
@@ -994,7 +1014,7 @@ class InternetArchivePublisher:
                         attempt,
                         _IA_UPLOAD_MAX_ATTEMPTS,
                         delay,
-                        (e.stderr or "").strip()[:200],
+                        self._upload_error(e)[:200],
                     )
                     time.sleep(delay)
             raise AssertionError("unreachable — loop always returns or raises")
@@ -1124,7 +1144,11 @@ class InternetArchivePublisher:
                     "ia_id": ia_id,
                 }
             except subprocess.CalledProcessError as e:
-                return {"success": False, "error": e.stderr, "ia_id": ia_id}
+                return {
+                    "success": False,
+                    "error": self._upload_error(e),
+                    "ia_id": ia_id,
+                }
 
         # Upload OK: acumula o índice mesclado para o próximo upload do MESMO lote
         # ao mesmo item ver esta linha em vez de reler um índice obsoleto do IA.
@@ -1256,7 +1280,11 @@ class InternetArchivePublisher:
                     "ia_id": ia_id,
                 }
             except subprocess.CalledProcessError as e:
-                return {"success": False, "error": e.stderr, "ia_id": ia_id}
+                return {
+                    "success": False,
+                    "error": self._upload_error(e),
+                    "ia_id": ia_id,
+                }
 
         # Upload OK: acumula o índice mesclado para o próximo upload do mesmo lote.
         if index_cache is not None:
@@ -1645,7 +1673,11 @@ class InternetArchivePublisher:
                     "ia_url": f"https://archive.org/details/{ia_id_parsed}",
                 }
             except subprocess.CalledProcessError as e:
-                return {"success": False, "error": e.stderr, "ia_id": ia_id_parsed}
+                return {
+                    "success": False,
+                    "error": self._upload_error(e),
+                    "ia_id": ia_id_parsed,
+                }
 
     def mark_parsed_superseded(
         self, ia_id_old: str, ia_id_new: str, reason: str = ""
@@ -1701,7 +1733,11 @@ class InternetArchivePublisher:
                     "superseded_by": ia_id_new,
                 }
             except subprocess.CalledProcessError as e:
-                return {"success": False, "error": e.stderr, "ia_id": ia_id_old}
+                return {
+                    "success": False,
+                    "error": self._upload_error(e),
+                    "ia_id": ia_id_old,
+                }
 
     def upload_dataset(
         self,
@@ -1806,7 +1842,11 @@ class InternetArchivePublisher:
                     "ia_id": ia_id,
                 }
             except subprocess.CalledProcessError as e:
-                return {"success": False, "error": e.stderr, "ia_id": ia_id}
+                return {
+                    "success": False,
+                    "error": self._upload_error(e),
+                    "ia_id": ia_id,
+                }
 
             result: Dict[str, Any] = {
                 "success": True,
@@ -1908,7 +1948,11 @@ class InternetArchivePublisher:
                 "ia_id": latest_id,
             }
         except subprocess.CalledProcessError as e:
-            return {"success": False, "error": e.stderr, "ia_id": latest_id}
+            return {
+                "success": False,
+                "error": self._upload_error(e),
+                "ia_id": latest_id,
+            }
 
     def upload_coverage(
         self,
@@ -1951,7 +1995,11 @@ class InternetArchivePublisher:
                     "ia_id": ia_id,
                 }
             except subprocess.CalledProcessError as e:
-                return {"success": False, "error": e.stderr, "ia_id": ia_id}
+                return {
+                    "success": False,
+                    "error": self._upload_error(e),
+                    "ia_id": ia_id,
+                }
 
     def upload_to_archive(
         self,
@@ -2010,7 +2058,7 @@ class InternetArchivePublisher:
                     "error": "ia CLI não encontrado — instale 'internetarchive'",
                 }
             except subprocess.CalledProcessError as e:
-                return {"success": False, "error": e.stderr}
+                return {"success": False, "error": self._upload_error(e)}
 
     def export_dataset_parquet(
         self,
