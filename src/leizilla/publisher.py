@@ -893,25 +893,59 @@ def _ia_subprocess_env(
     return {**os.environ, "IA_CONFIG_FILE": tmp.name}
 
 
-# Padrões no stderr do `ia upload` que indicam falha transitória (retry pode ajudar).
-# Único achado real em produção até agora (2026-07-14, sessão de go-live): uma rajada
-# de ~15 uploads em ~10min levou o IA a recusar com "Please reduce your request
-# rate ... appears to be spam" — sem 429 numérico nem Retry-After no corpo. Por
-# design, tudo que NÃO casar aqui não é reentregue (credencial inválida, arquivo
-# rejeitado, conflito lógico — repetir não muda o resultado).
+# Refusals are not transient transport failures. The CLI exposes no reliable
+# Retry-After header: stop this invocation instead of guessing a short cooldown.
+_IA_REFUSAL_RE = re.compile(
+    r"reduce your request rate|appears to be spam|accesskey_tasks_queued"
+    r"|exceeds rationed amount|rate limit|slowdown|\b429\b",
+    re.IGNORECASE,
+)
 _RETRYABLE_IA_ERROR_RE = re.compile(
-    r"reduce your request rate"
-    r"|\b(429|500|502|503|504)\b"
-    r"|connection (reset|refused|aborted)"
-    r"|read timed out"
-    r"|\btimeout\b",
+    r"\b(500|502|503|504)\b"
+    r"|connection (reset|refused|aborted)|read timed out|\btimeout\b",
     re.IGNORECASE,
 )
 _IA_UPLOAD_MIN_INTERVAL_S = 2.0  # espaçamento mínimo entre uploads bem-sucedidos
-_IA_UPLOAD_MAX_ATTEMPTS = 5
-_IA_UPLOAD_BASE_DELAY_S = 2.0
+_IA_UPLOAD_MAX_ATTEMPTS = 3
+_IA_UPLOAD_BASE_DELAY_S = 30.0
 _IA_UPLOAD_MAX_DELAY_S = 60.0
 _IA_RATE_LIMIT_KEY = "https://archive.org/"  # host fixo p/ make_rate_limiter (ADR-0008)
+
+
+def _verify_dataset_files(item_id: str, paths: list[Path]) -> None:
+    """Confirm public bytes, allowing bounded IA visibility lag without reupload.
+
+    Unconfirmed is failure, not proof that the write did not happen. Never retry
+    a public access/rate refusal. Successful files are not downloaded again.
+    """
+    for path in paths:
+        expected = hashlib.sha256(path.read_bytes()).digest()
+        for attempt in range(3):
+            try:
+                request = urllib.request.Request(
+                    download_url(item_id, path.name),
+                    headers={"User-Agent": _USER_AGENT, "Cache-Control": "no-cache"},
+                )
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    digest = hashlib.sha256()
+                    while chunk := response.read(1024 * 1024):
+                        digest.update(chunk)
+                if digest.digest() == expected:
+                    break
+                reason = "public bytes differ from candidate"
+            except urllib.error.HTTPError as exc:
+                reason = f"HTTP {exc.code}"
+                if exc.code not in (404, 500, 502, 503, 504):
+                    raise ValueError(
+                        f"Publication unconfirmed: {item_id}/{path.name}: {reason}"
+                    ) from exc
+            except OSError as exc:
+                reason = str(exc)
+            if attempt == 2:
+                raise ValueError(
+                    f"Publication unconfirmed: {item_id}/{path.name}: {reason}"
+                )
+            time.sleep(30 * (2**attempt))
 
 
 class InternetArchivePublisher:
@@ -922,27 +956,33 @@ class InternetArchivePublisher:
         self.secret_key = config.IA_SECRET_KEY
         self._upload_rate_limiter = make_rate_limiter(_IA_UPLOAD_MIN_INTERVAL_S)
 
+    def _upload_error(self, error: subprocess.CalledProcessError) -> str:
+        """Return a bounded diagnostic without command/env or active IA keys."""
+        message = (error.stderr or "").strip() or (error.stdout or "").strip()
+        if not message:
+            return f"ia upload failed (exit {error.returncode}); no diagnostic output"
+        # Redact before truncation so a credential crossing the limit cannot leak.
+        sensitive = {
+            variant
+            for value in (self.access_key, self.secret_key)
+            if value
+            for variant in (
+                value,
+                urllib.parse.quote(value, safe=""),
+                urllib.parse.quote_plus(value),
+            )
+        }
+        for value in sorted(sensitive, key=len, reverse=True):
+            message = message.replace(value, "[REDACTED]")
+        return str(message[:2000])
+
     def _run_ia_upload(self, args: list[str]) -> "subprocess.CompletedProcess[str]":
         """Roda ``ia upload ...`` com espaçamento + retry exponencial (ADR-0008).
 
-        Duas defesas contra o throttle/spam-flag do IA visto em produção
-        (2026-07-14, ~15 uploads em ~10min): (1) espaça uploads sucessivos por
-        ``_IA_UPLOAD_MIN_INTERVAL_S`` via o rate limiter por host já usado no
-        scraper (``leizilla.ratelimit``); (2) em falha, tenta de novo só se o
-        stderr casar ``_RETRYABLE_IA_ERROR_RE`` — erro de credencial, arquivo
-        inválido ou conflito lógico propaga na primeira tentativa.
-
-        Nota de limitação: isto invoca o CLI ``ia`` via subprocess, não a
-        biblioteca ``internetarchive`` diretamente — só vemos o texto do
-        stderr, não os headers HTTP reais. Não há ``Retry-After`` para honrar
-        aqui (a mensagem de throttle observada também não embute um valor
-        numérico); o backoff é uma aproximação por tentativa, não um
-        Retry-After de protocolo.
-
-        O rate limiter só paceia contra a chamada ANTERIOR a ``_run_ia_upload``
-        (uma vez, antes do loop) — não a cada tentativa de retry interna, já
-        que o backoff exponencial já espaça as tentativas da MESMA chamada;
-        pacear os dois ao mesmo tempo só somaria esperas redundantes.
+        Recusas de quota/spam/429 encerram a chamada imediatamente. Só falhas
+        transitórias de transporte/5xx recebem até três tentativas, com backoff
+        e jitter. O CLI não expõe Retry-After; não inferimos um cooldown de quota.
+        stdout e stderr são inspecionados porque ambos podem conter a recusa.
 
         O ``ia.ini`` temporário (credenciais em texto plano) é removido no
         ``finally`` assim que esta chamada termina — não sobrevive além dela.
@@ -957,9 +997,11 @@ class InternetArchivePublisher:
                         args, capture_output=True, text=True, check=True, env=env
                     )
                 except subprocess.CalledProcessError as e:
+                    diagnostic = f"{e.stdout or ''}\n{e.stderr or ''}"
                     if (
-                        attempt == _IA_UPLOAD_MAX_ATTEMPTS
-                        or not _RETRYABLE_IA_ERROR_RE.search(e.stderr or "")
+                        _IA_REFUSAL_RE.search(diagnostic)
+                        or attempt == _IA_UPLOAD_MAX_ATTEMPTS
+                        or not _RETRYABLE_IA_ERROR_RE.search(diagnostic)
                     ):
                         raise
                     delay = min(
@@ -972,7 +1014,7 @@ class InternetArchivePublisher:
                         attempt,
                         _IA_UPLOAD_MAX_ATTEMPTS,
                         delay,
-                        (e.stderr or "").strip()[:200],
+                        self._upload_error(e)[:200],
                     )
                     time.sleep(delay)
             raise AssertionError("unreachable — loop always returns or raises")
@@ -1102,7 +1144,11 @@ class InternetArchivePublisher:
                     "ia_id": ia_id,
                 }
             except subprocess.CalledProcessError as e:
-                return {"success": False, "error": e.stderr, "ia_id": ia_id}
+                return {
+                    "success": False,
+                    "error": self._upload_error(e),
+                    "ia_id": ia_id,
+                }
 
         # Upload OK: acumula o índice mesclado para o próximo upload do MESMO lote
         # ao mesmo item ver esta linha em vez de reler um índice obsoleto do IA.
@@ -1234,7 +1280,11 @@ class InternetArchivePublisher:
                     "ia_id": ia_id,
                 }
             except subprocess.CalledProcessError as e:
-                return {"success": False, "error": e.stderr, "ia_id": ia_id}
+                return {
+                    "success": False,
+                    "error": self._upload_error(e),
+                    "ia_id": ia_id,
+                }
 
         # Upload OK: acumula o índice mesclado para o próximo upload do mesmo lote.
         if index_cache is not None:
@@ -1623,7 +1673,11 @@ class InternetArchivePublisher:
                     "ia_url": f"https://archive.org/details/{ia_id_parsed}",
                 }
             except subprocess.CalledProcessError as e:
-                return {"success": False, "error": e.stderr, "ia_id": ia_id_parsed}
+                return {
+                    "success": False,
+                    "error": self._upload_error(e),
+                    "ia_id": ia_id_parsed,
+                }
 
     def mark_parsed_superseded(
         self, ia_id_old: str, ia_id_new: str, reason: str = ""
@@ -1679,7 +1733,11 @@ class InternetArchivePublisher:
                     "superseded_by": ia_id_new,
                 }
             except subprocess.CalledProcessError as e:
-                return {"success": False, "error": e.stderr, "ia_id": ia_id_old}
+                return {
+                    "success": False,
+                    "error": self._upload_error(e),
+                    "ia_id": ia_id_old,
+                }
 
     def upload_dataset(
         self,
@@ -1774,6 +1832,9 @@ class InternetArchivePublisher:
                         f"description:{desc}",
                     ]
                 )
+                _verify_dataset_files(ia_id, [parquet_dst, meta_path])
+            except ValueError as e:
+                return {"success": False, "error": str(e), "ia_id": ia_id}
             except FileNotFoundError:
                 return {
                     "success": False,
@@ -1781,10 +1842,15 @@ class InternetArchivePublisher:
                     "ia_id": ia_id,
                 }
             except subprocess.CalledProcessError as e:
-                return {"success": False, "error": e.stderr, "ia_id": ia_id}
+                return {
+                    "success": False,
+                    "error": self._upload_error(e),
+                    "ia_id": ia_id,
+                }
 
             result: Dict[str, Any] = {
                 "success": True,
+                "release_success": True,
                 "ia_id": ia_id,
                 "ia_url": f"https://archive.org/details/{ia_id}",
                 "row_count": effective_row_count,
@@ -1795,6 +1861,12 @@ class InternetArchivePublisher:
                 result["latest_pointer"] = self._publish_latest_pointer(
                     parquet_dst, meta_path, dataset_meta, ente, version, ia_id
                 )
+                if not result["latest_pointer"]["success"]:
+                    result["success"] = False
+                    result["error"] = (
+                        "Release verified, but latest publication failed or is unconfirmed: "
+                        + str(result["latest_pointer"].get("error", "unknown error"))
+                    )
 
             return result
 
@@ -1811,9 +1883,8 @@ class InternetArchivePublisher:
 
         Item pequeno e deliberadamente MUTÁVEL — nunca citar por si só; existe só
         para consumidores descobrirem a release imutável corrente
-        (``release_ia_id``) sem hardcodar um identifier específico. Falha aqui é
-        fail-open: não derruba a publicação do release imutável, que já é o
-        artefato citável — o caller decide como reportar ``success=False`` aqui.
+        (``release_ia_id``) sem hardcodar um identifier específico. Falha aqui
+        preserva a release imutável, mas faz a publicação completa falhar.
         """
         latest_id = f"leizilla-dataset-{ente}-v{version}-{_DATASET_LATEST_SUFFIX}"
         latest_payload = {
@@ -1861,12 +1932,15 @@ class InternetArchivePublisher:
                     f"description:{desc}",
                 ]
             )
+            _verify_dataset_files(latest_id, [parquet_dst, meta_path, latest_json_path])
             return {
                 "success": True,
                 "ia_id": latest_id,
                 "ia_url": f"https://archive.org/details/{latest_id}",
                 "points_to": release_ia_id,
             }
+        except ValueError as e:
+            return {"success": False, "error": str(e), "ia_id": latest_id}
         except FileNotFoundError:
             return {
                 "success": False,
@@ -1874,7 +1948,11 @@ class InternetArchivePublisher:
                 "ia_id": latest_id,
             }
         except subprocess.CalledProcessError as e:
-            return {"success": False, "error": e.stderr, "ia_id": latest_id}
+            return {
+                "success": False,
+                "error": self._upload_error(e),
+                "ia_id": latest_id,
+            }
 
     def upload_coverage(
         self,
@@ -1917,7 +1995,11 @@ class InternetArchivePublisher:
                     "ia_id": ia_id,
                 }
             except subprocess.CalledProcessError as e:
-                return {"success": False, "error": e.stderr, "ia_id": ia_id}
+                return {
+                    "success": False,
+                    "error": self._upload_error(e),
+                    "ia_id": ia_id,
+                }
 
     def upload_to_archive(
         self,
@@ -1976,7 +2058,7 @@ class InternetArchivePublisher:
                     "error": "ia CLI não encontrado — instale 'internetarchive'",
                 }
             except subprocess.CalledProcessError as e:
-                return {"success": False, "error": e.stderr}
+                return {"success": False, "error": self._upload_error(e)}
 
     def export_dataset_parquet(
         self,

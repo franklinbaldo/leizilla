@@ -827,11 +827,14 @@ def cmd_release_dataset(
                 echo(f"Ponteiro latest atualizado: {latest_pointer['ia_url']}")
             else:
                 echo(
-                    "Aviso: ponteiro latest falhou "
+                    "Erro: ponteiro latest falhou "
                     f"({latest_pointer.get('error', 'erro desconhecido')}) — "
-                    "release imutável publicada normalmente."
+                    "release imutável preservada; publicação incompleta."
                 )
+                raise typer.Exit(1)
     else:
+        if result.get("release_success"):
+            echo(f"Release imutável verificada e preservada: {result['ia_url']}")
         echo(f"Upload falhou: {result.get('error', 'erro desconhecido')}")
         raise typer.Exit(1)
 

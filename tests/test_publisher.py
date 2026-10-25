@@ -1,5 +1,6 @@
 """Testes unitários para leizilla.publisher — funções puras sem IA."""
 
+import pytest
 import hashlib
 import json
 import os
@@ -597,27 +598,28 @@ class TestRunIaUploadRetry:
         assert mock_run.call_count == 1
         mock_sleep.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "503 Please reduce your request rate. appears to be spam",
+            "appears to be spam",
+            "429 Too Many Requests",
+            "503 accesskey_tasks_queued exceeds rationed amount",
+            "503 SlowDown",
+        ],
+    )
+    @pytest.mark.parametrize("stream", ["stderr", "output"])
     @patch("time.sleep")
-    def test_retries_on_rate_limit_error_then_succeeds(self, mock_sleep):
+    def test_stops_on_refusal(self, mock_sleep, message, stream):
         import subprocess
 
         pub = self._publisher()
-        rate_limit_error = subprocess.CalledProcessError(
-            1,
-            "ia",
-            stderr=(
-                "Please reduce your request rate. - Your upload of "
-                "leizilla-ro-lei-00290-1984 appears to be spam."
-            ),
-        )
-        success = MagicMock(returncode=0)
-        with patch(
-            "subprocess.run", side_effect=[rate_limit_error, rate_limit_error, success]
-        ) as mock_run:
-            result = pub._run_ia_upload(["ia", "upload", "some-id"])
-        assert result is success
-        assert mock_run.call_count == 3
-        assert mock_sleep.call_count == 2  # backoff before attempt 2 and attempt 3
+        error = subprocess.CalledProcessError(1, "ia", **{stream: message})
+        with patch("subprocess.run", side_effect=error) as run:
+            with pytest.raises(subprocess.CalledProcessError):
+                pub._run_ia_upload(["ia", "upload", "some-id"])
+        assert run.call_count == 1
+        mock_sleep.assert_not_called()
 
     @patch("time.sleep")
     def test_retries_on_5xx_and_timeout_errors(self, mock_sleep):
@@ -654,12 +656,12 @@ class TestRunIaUploadRetry:
         mock_sleep.assert_not_called()
 
     @patch("time.sleep")
-    def test_gives_up_after_max_attempts_on_persistent_rate_limit(self, mock_sleep):
+    def test_gives_up_after_max_attempts_on_persistent_5xx(self, mock_sleep):
         import subprocess
 
         pub = self._publisher()
         rate_limit_error = subprocess.CalledProcessError(
-            1, "ia", stderr="Please reduce your request rate."
+            1, "ia", stderr="503 Service Unavailable"
         )
         with patch("subprocess.run", side_effect=rate_limit_error) as mock_run:
             try:
@@ -667,7 +669,7 @@ class TestRunIaUploadRetry:
                 raise AssertionError("expected CalledProcessError to propagate")
             except subprocess.CalledProcessError:
                 pass
-        assert mock_run.call_count == 5  # _IA_UPLOAD_MAX_ATTEMPTS
+        assert mock_run.call_count == 3  # _IA_UPLOAD_MAX_ATTEMPTS
 
     @patch("time.sleep")
     def test_backoff_delay_grows_exponentially(self, mock_sleep):
@@ -684,7 +686,8 @@ class TestRunIaUploadRetry:
             pub._run_ia_upload(["ia", "upload", "some-id"])
         delays = [call.args[0] for call in mock_sleep.call_args_list]
         assert len(delays) == 2
-        assert delays[0] < delays[1]
+        assert 30 <= delays[0] <= 37.5
+        assert 60 <= delays[1] <= 75
 
     def test_paces_successive_uploads_via_shared_rate_limiter(self):
         pub = self._publisher()
@@ -725,9 +728,7 @@ class TestRunIaUploadRetry:
 
         pub = self._publisher()
         captured_env = {}
-        error = subprocess.CalledProcessError(
-            1, "ia", stderr="Please reduce your request rate."
-        )
+        error = subprocess.CalledProcessError(1, "ia", stderr="503 Service Unavailable")
 
         def _capture_env_then_fail(args, **kwargs):
             captured_env.update(kwargs.get("env") or {})

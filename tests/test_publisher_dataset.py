@@ -22,6 +22,14 @@ from leizilla.publisher import (
 _runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def mock_public_verification():
+    # Upload/CLI unit tests isolate the public-read boundary. Real verification
+    # behavior is exercised separately in test_dataset_verification.py.
+    with patch("leizilla.publisher._verify_dataset_files") as verify:
+        yield verify
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -369,8 +377,10 @@ class TestUploadDatasetLatestPointer:
         assert payload["row_count"] == 1
         assert payload["parquet_url"].endswith(f"/{result['ia_id']}/versoes.parquet")
 
-    def test_latest_pointer_failure_does_not_fail_release(self, tmp_path: Path) -> None:
-        """Falha no ponteiro é fail-open: a release imutável já publicou com sucesso."""
+    def test_latest_pointer_failure_fails_publication_preserving_release(
+        self, tmp_path: Path
+    ) -> None:
+        """A release existe, mas o resultado agregado precisa falhar."""
         p = _make_parquet(tmp_path)
         pub = _publisher()
         mock_cp = MagicMock(returncode=0, stdout="", stderr="")
@@ -380,7 +390,8 @@ class TestUploadDatasetLatestPointer:
             patch("subprocess.run", side_effect=[mock_cp, err]),
         ):
             result = pub.upload_dataset(p, "ro", 0, row_count=1, git_sha=None)
-        assert result["success"] is True
+        assert result["success"] is False
+        assert result["release_success"] is True
         assert result["latest_pointer"]["success"] is False
         assert "rate limited" in result["latest_pointer"]["error"]
 
@@ -493,7 +504,7 @@ class TestReleaseDatasetCli:
         assert "Ponteiro latest atualizado" in result.output
         assert "leizilla-dataset-ro-v0-latest" in result.output
 
-    def test_echoes_warning_when_latest_pointer_fails(self, tmp_path: Path) -> None:
+    def test_exits_nonzero_when_latest_pointer_fails(self, tmp_path: Path) -> None:
         p = _make_parquet(tmp_path)
         ok_result = {
             "success": True,
@@ -518,8 +529,8 @@ class TestReleaseDatasetCli:
             ),
         ):
             result = _runner.invoke(app, ["release-dataset", str(p), "--version", "0"])
-        assert result.exit_code == 0
-        assert "Aviso" in result.output
+        assert result.exit_code == 1
+        assert "Erro" in result.output
         assert "rate limited" in result.output
 
 
@@ -600,3 +611,27 @@ class TestReleaseDatasetBenchmark:
             result = _runner.invoke(app, ["release-dataset", str(p), "--dry-run"])
         assert "RFC sobre split" in result.output
         assert "2+" in result.output
+
+
+def test_cli_reports_preserved_release_on_partial_failure(tmp_path: Path) -> None:
+    p = _make_parquet(tmp_path)
+    partial_result = {
+        "success": False,
+        "release_success": True,
+        "ia_url": "https://archive.org/details/immutable-release",
+        "error": "latest publication unconfirmed",
+    }
+    with (
+        patch(
+            "leizilla.publisher.InternetArchivePublisher.upload_dataset",
+            return_value=partial_result,
+        ),
+        patch(
+            "leizilla.publisher.fetch_published_dataset_row_count", return_value=None
+        ),
+    ):
+        result = _runner.invoke(app, ["release-dataset", str(p)])
+    assert result.exit_code == 1
+    assert "immutable-release" in result.output
+    assert "latest publication unconfirmed" in result.output
+    assert "Ponteiro latest atualizado" not in result.output
