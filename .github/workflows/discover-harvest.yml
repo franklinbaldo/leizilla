@@ -10,7 +10,11 @@ on:
     # motivo — rajadas menores, throughput semanal total inalterado (o
     # backlog real por tipo/semana fica bem abaixo do limite de qualquer
     # forma; isto é headroom de segurança, não um corte de trabalho).
-    - cron: "0 2 * * 6"
+    # Diário enquanto durar o backfill de RO (2026-11-14): a colheita já pula o
+    # que o index.csv do IA mostra preservado, então cada execução gasta o limite
+    # só com capturas novas. Diário também mantém o cache do banco em uso — o
+    # GitHub descarta cache sem acesso há 7 dias, o intervalo exato do cron semanal.
+    - cron: "0 2 * * *"
   workflow_dispatch:
     inputs:
       ente:
@@ -78,13 +82,6 @@ jobs:
             --fonte "${{ inputs.fonte }}" \
             --tipo "${{ inputs.tipo }}"
 
-      - name: Save discovered-resources DB cache
-        if: ${{ !cancelled() }}
-        uses: actions/cache/save@v4
-        with:
-          path: data/leizilla.duckdb
-          key: discover-db-${{ inputs.tipo }}-${{ github.run_id }}
-
       - name: Harvest — ${{ inputs.tipo }}
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
@@ -94,6 +91,17 @@ jobs:
             --ente "${{ inputs.ente }}" \
             --tipo "${{ inputs.tipo }}" \
             --limit "${{ inputs.limit }}"
+
+      - name: Save discovered-resources DB cache
+        # Depois da colheita, e mesmo se ela falhar: o que a colheita marca
+        # (baixado, 404 confirmado, última tentativa) precisa sobreviver até a
+        # próxima execução. Salvo antes, tudo voltava a 'pending' toda semana e os
+        # mesmos PDFs eram reenviados ao IA (achado de 2026-11-14).
+        if: ${{ always() }}
+        uses: actions/cache/save@v4
+        with:
+          path: data/leizilla.duckdb
+          key: discover-db-${{ inputs.tipo }}-${{ github.run_id }}
 
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}
@@ -175,13 +183,6 @@ jobs:
             --fonte "${{ inputs.fonte || 'casacivil' }}" \
             --tipo "${{ matrix.tipo }}"
 
-      - name: Save discovered-resources DB cache
-        if: ${{ !cancelled() }}
-        uses: actions/cache/save@v4
-        with:
-          path: data/leizilla.duckdb
-          key: discover-db-${{ matrix.tipo }}-${{ github.run_id }}
-
       - name: Harvest — ${{ matrix.tipo }}
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
@@ -191,6 +192,17 @@ jobs:
             --ente "${{ inputs.ente || 'ro' }}" \
             --tipo "${{ matrix.tipo }}" \
             --limit "${{ inputs.limit || '200' }}"
+
+      - name: Save discovered-resources DB cache
+        # Depois da colheita, e mesmo se ela falhar: o que a colheita marca
+        # (baixado, 404 confirmado, última tentativa) precisa sobreviver até a
+        # próxima execução. Salvo antes, tudo voltava a 'pending' toda semana e os
+        # mesmos PDFs eram reenviados ao IA (achado de 2026-11-14).
+        if: ${{ always() }}
+        uses: actions/cache/save@v4
+        with:
+          path: data/leizilla.duckdb
+          key: discover-db-${{ matrix.tipo }}-${{ github.run_id }}
 
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}

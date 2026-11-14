@@ -146,6 +146,7 @@ def cmd_harvest(
         echo(f"  Sucesso: {stats['success']}")
         echo(f"  Falhas: {stats['failed']}")
         echo(f"  Robots bloqueado: {stats['robots-blocked']}")
+        echo(f"  Já preservados no IA (pulados): {stats.get('already-preserved', 0)}")
         if stats["failed"]:
             # Issue #297: per-item print()/logger.warning() calls inside the
             # harvest loop itself produced zero output in a live CI run, for
@@ -166,6 +167,21 @@ def cmd_harvest(
                 echo(f"    - {reason}: {count}")
     except Exception as e:
         echo(f"Erro: {e}")
+        raise typer.Exit(1)
+    # Uma colheita em que nada foi capturado e houve falha que não é "a fonte
+    # confirmou que o documento não existe" não é sucesso: sem isto o job fica
+    # verde por semanas sem preservar nada. Um 404 confirmado ("fetch-failed") é
+    # resultado esperado ao sondar a fronteira da numeração e não conta.
+    unexpected = [
+        item
+        for item in stats["items"]
+        if item.get("status") == "failed" and item.get("reason") != "fetch-failed"
+    ]
+    if unexpected and not stats["success"]:
+        echo(
+            f"Erro: nenhuma captura bem-sucedida e {len(unexpected)} falha(s) "
+            "inesperada(s) nesta colheita."
+        )
         raise typer.Exit(1)
 
 

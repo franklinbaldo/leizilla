@@ -9,10 +9,11 @@ import logging
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Iterator, Optional
 
 from leizilla import robots, wayback
 from leizilla.discovery import load_manifest
+from leizilla.ia_utils import parse_identity, range_item_identifier
 from leizilla.parser import fetch_html
 from leizilla.publisher import InternetArchivePublisher
 from leizilla.ratelimit import make_rate_limiter
@@ -233,6 +234,59 @@ def _resolve_tipo_ingestion(
 # (this module already imports InternetArchivePublisher from publisher.py).
 
 
+def _schemeless(url: str) -> str:
+    """URL sem esquema: http://… e https://… são a mesma origem de colheita."""
+    return url.split("://", 1)[-1]
+
+
+def _already_preserved(
+    publisher: InternetArchivePublisher,
+    ente: str,
+    fonte: str,
+    chave: str,
+    url: str,
+    cache: Dict[str, Optional[set[str]]],
+) -> bool:
+    """True se esta URL de origem já tem captura no item de range do IA.
+
+    O ``index.csv`` do item é a memória durável do que já foi capturado
+    (ADR-0010); o DuckDB local é efêmero em CI. Índice ilegível agora conta como
+    "não sei": o recurso segue o caminho normal (o próprio ``upload_raw`` aborta
+    se o índice continuar ilegível), nunca é presumido preservado.
+    """
+    identity = parse_identity(chave)
+    if identity is None:
+        return False
+    item_id = range_item_identifier(ente, fonte, identity[0], identity[1])
+    if item_id not in cache:
+        cache[item_id] = publisher.preserved_sources(item_id)
+    sources = cache[item_id]
+    return sources is not None and _schemeless(url) in sources
+
+
+def _iter_pending(
+    storage: DuckDBStorage, limit: int, ente: Optional[str], tipo: Optional[str]
+) -> Iterator[Dict[str, Any]]:
+    """Itera a fila de pendentes em páginas, sem repetir URL dentro da execução.
+
+    Recursos pulados por já estarem preservados deixam de ser 'pending', então a
+    página seguinte traz os próximos; uma falha transitória continua 'pending' e
+    é filtrada aqui para não ser reprocessada no mesmo lote.
+    """
+    seen: set[str] = set()
+    while True:
+        page = [
+            res
+            for res in storage.get_pending_resources(limit=limit, ente=ente, tipo=tipo)
+            if res["url"] not in seen
+        ]
+        if not page:
+            return
+        for res in page:
+            seen.add(res["url"])
+            yield res
+
+
 def harvest_pending_resources(
     storage: DuckDBStorage,
     publisher: InternetArchivePublisher,
@@ -247,13 +301,18 @@ def harvest_pending_resources(
     Se `ente` for fornecido, processa apenas recursos desse ente.
     Se `tipo` for fornecido, processa apenas recursos desse tipo de documento.
     """
-    pending = storage.get_pending_resources(limit=limit, ente=ente, tipo=tipo)
     stats: Dict[str, Any] = {
         "success": 0,
         "failed": 0,
         "robots-blocked": 0,
+        "already-preserved": 0,
         "items": [],
     }
+    # ``limit`` conta tentativas reais (rede/upload). Recurso que o index.csv do
+    # IA mostra já preservado é só marcado e não consome o limite — senão um
+    # banco local recém-criado gastaria a execução inteira revendo o que já existe.
+    attempts = 0
+    preserved_cache: Dict[str, Optional[set[str]]] = {}
     rate_limiter = make_rate_limiter()
     # Índice acumulado por item de range neste lote: vários recursos do mesmo
     # (ente, fonte, tipo) caem no mesmo item; sem isto cada upload releria do IA
@@ -261,13 +320,21 @@ def harvest_pending_resources(
     index_cache: Dict[str, str] = {}
     manifest_cache: Dict[str, Dict[str, Any]] = {}
 
-    for res in pending:
+    for res in _iter_pending(storage, limit, ente, tipo):
         url = res["url"]
         ente = res["ente"]
         fonte = res["fonte"]
         tipo = res["tipo_documento"]
         chave = res["chave"]
         wb_url = res["wayback_snapshot"]
+
+        if _already_preserved(publisher, ente, fonte, chave, url, preserved_cache):
+            storage.update_resource_status(url, "downloaded")
+            stats["already-preserved"] += 1
+            continue
+        if attempts >= limit:
+            break
+        attempts += 1
 
         # Fontes HTML (ex.: federal/planalto) não têm bytes %PDF para validar —
         # despacham para scrape_one_html em vez do caminho PDF abaixo (#248).
