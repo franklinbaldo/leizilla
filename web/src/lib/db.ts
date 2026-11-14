@@ -32,6 +32,11 @@ export function getDuckdbSourceUrl(): string {
   if (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_DUCKDB_SOURCE_URL) {
     return import.meta.env.PUBLIC_DUCKDB_SOURCE_URL as string;
   }
+  return mirrorUrl('versoes.parquet');
+}
+
+/** Caminho same-origin de um arquivo do espelho (`web/public/data/ro/`, ADR-0014). */
+function mirrorUrl(file: string): string {
   // BASE_URL's trailing slash isn't guaranteed (astro.config.mjs sets base without one) —
   // strip it and rejoin explicitly, same normalization web/src/lib/format.ts's withBase()
   // already uses, to avoid a `leizilladata/...` concatenation bug.
@@ -39,11 +44,27 @@ export function getDuckdbSourceUrl(): string {
     (typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL) ||
     '/'
   ).replace(/\/$/, '');
-  const relative = `${base}/data/ro/versoes.parquet`;
+  const relative = `${base}/data/ro/${file}`;
   if (typeof window !== 'undefined' && window.location) {
     return new URL(relative, window.location.href).toString();
   }
   return relative;
+}
+
+/**
+ * Camada de texto (ADR-0015): tabela `textos`, uma linha por norma com OCR, publicada em
+ * item próprio do IA. Mesmo desenho do dataset `versoes`: esta URL é a canônica (citação
+ * e download); o DuckDB-WASM lê o espelho same-origin de `getTextosSourceUrl()`.
+ */
+export const TEXTOS_PARQUET_URL: string =
+  (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_TEXTOS_PARQUET_URL) ||
+  'https://archive.org/download/leizilla-textos-ro-v0-latest/textos.parquet';
+
+export function getTextosSourceUrl(): string {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_TEXTOS_SOURCE_URL) {
+    return import.meta.env.PUBLIC_TEXTOS_SOURCE_URL as string;
+  }
+  return mirrorUrl('textos.parquet');
 }
 
 /**
@@ -368,22 +389,44 @@ async function runSql<T>(
   }
 }
 
-export async function searchLeisFiltered(query: string, opts: SearchOptions = {}): Promise<LeiRow[]> {
-  const { page = 0, pageSize = PAGE_SIZE } = opts;
-  const safeSize = Math.min(100, Math.max(1, Math.trunc(Number.isFinite(pageSize) ? pageSize : PAGE_SIZE)));
-  const offset = Math.max(0, Math.trunc(Number.isFinite(page) ? page : 0)) * safeSize;
-  const { where, params } = buildWhere(query, opts);
-  let sql: string;
-  if (query.trim()) {
-    sql = `SELECT * FROM versoes WHERE ${where} ORDER BY lei_id, dispositivo_path LIMIT ${safeSize} OFFSET ${offset}`;
-  } else {
-    sql = `SELECT * EXCLUDE (_rn) FROM (
+/** Uma linha-resumo por norma (sem termo): vigente primeiro, ementa primeiro. */
+function summarySql(where: string): string {
+  return `SELECT * EXCLUDE (_rn) FROM (
         SELECT *, ROW_NUMBER() OVER (
           PARTITION BY lei_id
           ORDER BY (ate IS NULL) DESC, (dispositivo_path = 'ementa') DESC, dispositivo_ordem, dispositivo_path
         ) AS _rn
         FROM versoes WHERE ${where}
-      ) WHERE _rn = 1
+      ) WHERE _rn = 1`;
+}
+
+/** Primeiro dispositivo que casou por norma, com a contagem de matches. */
+function groupedSql(where: string): string {
+  return `SELECT * EXCLUDE (_rn) FROM (
+      SELECT *,
+        COUNT(*) OVER (PARTITION BY lei_id)::INT AS match_count,
+        ROW_NUMBER() OVER (
+          PARTITION BY lei_id ORDER BY dispositivo_ordem, dispositivo_path
+        ) AS _rn
+      FROM versoes WHERE ${where}
+    ) WHERE _rn = 1`;
+}
+
+function pageWindow(opts: SearchOptions): { safeSize: number; offset: number } {
+  const { page = 0, pageSize = PAGE_SIZE } = opts;
+  const safeSize = Math.min(100, Math.max(1, Math.trunc(Number.isFinite(pageSize) ? pageSize : PAGE_SIZE)));
+  const offset = Math.max(0, Math.trunc(Number.isFinite(page) ? page : 0)) * safeSize;
+  return { safeSize, offset };
+}
+
+export async function searchLeisFiltered(query: string, opts: SearchOptions = {}): Promise<LeiRow[]> {
+  const { safeSize, offset } = pageWindow(opts);
+  const { where, params } = buildWhere(query, opts);
+  let sql: string;
+  if (query.trim()) {
+    sql = `SELECT * FROM versoes WHERE ${where} ORDER BY lei_id, dispositivo_path LIMIT ${safeSize} OFFSET ${offset}`;
+  } else {
+    sql = `${summarySql(where)}
       ORDER BY lei_id LIMIT ${safeSize} OFFSET ${offset}`;
   }
   return runSql(sql, params, toJson);
@@ -430,18 +473,9 @@ export async function searchGroupedByLei(
     const rows = await searchLeisFiltered(query, opts);
     return rows.map((r) => ({ ...r, match_count: 0 }));
   }
-  const { page = 0, pageSize = PAGE_SIZE } = opts;
-  const safeSize = Math.min(100, Math.max(1, Math.trunc(Number.isFinite(pageSize) ? pageSize : PAGE_SIZE)));
-  const offset = Math.max(0, Math.trunc(Number.isFinite(page) ? page : 0)) * safeSize;
+  const { safeSize, offset } = pageWindow(opts);
   const { where, params } = buildWhere(query, opts);
-  const sql = `SELECT * EXCLUDE (_rn) FROM (
-      SELECT *,
-        COUNT(*) OVER (PARTITION BY lei_id)::INT AS match_count,
-        ROW_NUMBER() OVER (
-          PARTITION BY lei_id ORDER BY dispositivo_ordem, dispositivo_path
-        ) AS _rn
-      FROM versoes WHERE ${where}
-    ) WHERE _rn = 1
+  const sql = `${groupedSql(where)}
     ORDER BY lei_id LIMIT ${safeSize} OFFSET ${offset}`;
   return runSql(sql, params, (r) => (r as { toJSON(): GroupedHit }).toJSON());
 }
@@ -556,4 +590,241 @@ export async function getRecentLeis(limit = 8): Promise<LeiRow[]> {
     ORDER BY data_ato DESC NULLS LAST, ano_lei DESC, lei_id DESC
     LIMIT ${safe}`;
   return runSql(sql, [], toJson);
+}
+
+// ---------------------------------------------------------------------------
+// Camada de texto (ADR-0015) — tabela `textos`, leitura sem PDF de normas em S3
+// ---------------------------------------------------------------------------
+
+/** Linha da tabela `textos` (docs/SCHEMA.md §3.5). */
+export interface TextoRow {
+  texto_id: string;
+  ente: string;
+  fonte: string;
+  tipo: string;
+  numero: number;
+  rendicao: string | null;
+  qualidade: string;
+  sha256_fonte: string;
+  capturado_em: string | null;
+  ia_item: string;
+  pdf_url: string;
+  texto_url: string | null;
+  ocr_motor: string | null;
+  ocr_modulo_versao: string | null;
+  ocr_parametros: string | null;
+  ocr_derivado_em: string | null;
+  sha1_texto_ia: string | null;
+  sha256_texto: string | null;
+  num_caracteres: number;
+  artigos_fecham: boolean;
+  artigos_total: number;
+  artigos_ultimo: number;
+  ancoras: string | null;
+  trecho: string | null;
+  texto: string;
+}
+
+/** Prefixo dos ids da camada de texto: o raw_id legado da norma. */
+export const TEXTO_ID_PREFIX = 'leizilla-raw-';
+
+export function isTextoId(id: string): boolean {
+  return id.startsWith(TEXTO_ID_PREFIX);
+}
+
+let _textosReady: Promise<boolean> | null = null;
+
+/**
+ * Registra as views da camada de texto, uma vez. `false` quando o espelho de
+ * `textos.parquet` não existe ou não pôde ser lido — o portal então segue só com
+ * `versoes`, sem erro (a camada de texto é aditiva). Falha do próprio DuckDB/dataset
+ * principal propaga normalmente e não fica em cache.
+ *
+ * `textos_so_texto` são as normas ainda sem versão estruturada: `texto_id` é o mesmo
+ * valor que `versoes.fontes[].ia_id` registra (extraído por regex para não depender da
+ * extensão JSON no WASM).
+ */
+export function textosAvailable(): Promise<boolean> {
+  if (!_textosReady) {
+    _textosReady = (async () => {
+      const db = await getDb();
+      const conn = await db.connect();
+      try {
+        await conn.query(
+          `CREATE OR REPLACE VIEW textos AS SELECT * FROM read_parquet('${getTextosSourceUrl()}');`,
+        );
+        await conn.query(
+          `CREATE OR REPLACE VIEW textos_so_texto AS
+             SELECT texto_id, ente, fonte, tipo, numero, trecho, ia_item, pdf_url, artigos_fecham
+             FROM textos
+             WHERE texto_id NOT IN (
+               SELECT DISTINCT unnest(regexp_extract_all(fontes, '"ia_id":\\s*"([^"]+)"', 1))
+               FROM versoes WHERE fontes IS NOT NULL
+             );`,
+        );
+        return true;
+      } catch {
+        return false;
+      } finally {
+        await conn.close();
+      }
+    })().catch((err) => {
+      _textosReady = null;
+      throw err;
+    });
+  }
+  return _textosReady;
+}
+
+/** Resultado de listagem: norma estruturada (S4) ou só com texto (S3). */
+export interface CatalogHit extends GroupedHit {
+  camada: 'estruturado' | 'texto';
+  ia_item: string | null;
+  pdf_url: string | null;
+}
+
+/**
+ * Número de norma contido num termo de busca ("lei 1.234" → 1234), ou null.
+ * A camada de texto não tem busca full-text (ADR-0015): com termo, uma norma
+ * só-texto casa apenas pelo número.
+ */
+export function numeroFromTerm(term: string): number | null {
+  const m = term.match(/\d[\d.]*/);
+  if (!m) return null;
+  const n = Number.parseInt(m[0].replace(/\./g, ''), 10);
+  return Number.isSafeInteger(n) && n > 0 && n < 2_000_000_000 ? n : null;
+}
+
+export function buildTextoWhere(query: string, opts: SearchOptions = {}) {
+  const { ente, tipoLei, year } = opts;
+  const clauses: string[] = [];
+  const params: Array<string | number> = [];
+  // Sem ano na identidade raw: um filtro de ano exclui as normas só-texto.
+  if (year != null && year > 0) clauses.push('FALSE');
+  if (query.trim()) {
+    const numero = numeroFromTerm(query);
+    if (numero == null) {
+      clauses.push('FALSE');
+    } else {
+      clauses.push('numero = ?');
+      params.push(numero);
+    }
+  }
+  if (ente) {
+    clauses.push('ente = ?');
+    params.push(ente);
+  }
+  if (tipoLei) {
+    const vals = (Array.isArray(tipoLei) ? tipoLei : [tipoLei]).filter(Boolean);
+    if (vals.length > 0) {
+      clauses.push(`tipo IN (${vals.map(() => '?').join(', ')})`);
+      params.push(...vals);
+    }
+  }
+  return { where: clauses.length ? clauses.join(' AND ') : 'TRUE', params };
+}
+
+/**
+ * Listagem unificada: normas estruturadas primeiro, depois as só-texto. Cada norma
+ * aparece uma vez (a só-texto é, por definição, a que não tem versão estruturada).
+ */
+export async function searchCatalog(query: string, opts: SearchOptions = {}): Promise<CatalogHit[]> {
+  if (!(await textosAvailable())) {
+    const rows = await searchGroupedByLei(query, opts);
+    return rows.map((r) => ({ ...r, camada: 'estruturado', ia_item: null, pdf_url: null }));
+  }
+  const { safeSize, offset } = pageWindow(opts);
+  const s = buildWhere(query, opts);
+  const t = buildTextoWhere(query, opts);
+  const structured = query.trim()
+    ? groupedSql(s.where)
+    : `SELECT *, 0::INT AS match_count FROM (${summarySql(s.where)})`;
+  const sql = `SELECT * FROM (
+      SELECT *, 'estruturado' AS camada FROM (${structured})
+      UNION ALL BY NAME
+      SELECT texto_id AS lei_id, ente, tipo AS tipo_lei, CAST(numero AS VARCHAR) AS numero_lei,
+             trecho AS texto, 'ementa' AS dispositivo_path, 0::INT AS match_count,
+             'texto' AS camada, ia_item, pdf_url
+      FROM textos_so_texto WHERE ${t.where}
+    )
+    ORDER BY camada, lei_id LIMIT ${safeSize} OFFSET ${offset}`;
+  return runSql(sql, [...s.params, ...t.params], (r) => (r as { toJSON(): CatalogHit }).toJSON());
+}
+
+export async function countCatalog(
+  query: string,
+  opts: Pick<SearchOptions, 'ente' | 'tipoLei' | 'year'> = {},
+): Promise<number> {
+  const structured = await countLeisGrouped(query, opts);
+  if (!(await textosAvailable())) return structured;
+  const { where, params } = buildTextoWhere(query, opts);
+  const rows = await runSql<{ cnt: bigint | number }>(
+    `SELECT COUNT(*)::BIGINT AS cnt FROM textos_so_texto WHERE ${where}`,
+    params,
+    (r) => (r as { toJSON(): { cnt: bigint | number } }).toJSON(),
+  );
+  return structured + Number(rows[0]?.cnt ?? 0);
+}
+
+/** Tipos de norma presentes em qualquer das duas camadas (para o filtro). */
+export async function listTiposCatalog(): Promise<string[]> {
+  const tipos = new Set(await listTiposLei());
+  if (await textosAvailable()) {
+    const rows = await runSql<{ tipo: string }>(
+      'SELECT DISTINCT tipo FROM textos_so_texto WHERE tipo IS NOT NULL',
+      [],
+      (r) => (r as { toJSON(): { tipo: string } }).toJSON(),
+    );
+    for (const r of rows) if (r.tipo) tipos.add(r.tipo);
+  }
+  return [...tipos].sort();
+}
+
+export interface TextLayerStats {
+  /** Normas com texto legível (linhas de `textos`). */
+  normas: number;
+  /** Dessas, as que ainda não têm versão estruturada. */
+  so_texto: number;
+  /** Normas cuja sequência de artigos fecha (navegação por artigo). */
+  artigos_fecham: number;
+}
+
+/** Contadores da camada de texto, ou null se ela não está publicada/legível. */
+export async function getTextLayerStats(): Promise<TextLayerStats | null> {
+  if (!(await textosAvailable())) return null;
+  const rows = await runSql<Record<string, unknown>>(
+    `SELECT COUNT(*)::BIGINT AS normas,
+            COUNT(*) FILTER (WHERE artigos_fecham)::BIGINT AS artigos_fecham,
+            (SELECT COUNT(*) FROM textos_so_texto)::BIGINT AS so_texto
+       FROM textos`,
+    [],
+    (r) => (r as { toJSON(): Record<string, unknown> }).toJSON(),
+  );
+  const r = rows[0] ?? {};
+  return {
+    normas: Number(r.normas ?? 0),
+    so_texto: Number(r.so_texto ?? 0),
+    artigos_fecham: Number(r.artigos_fecham ?? 0),
+  };
+}
+
+/** Texto não estruturado de uma norma, ou null (id desconhecido ou camada ausente). */
+export async function getTexto(textoId: string): Promise<TextoRow | null> {
+  if (!(await textosAvailable())) return null;
+  const rows = await runSql<TextoRow>(
+    'SELECT * FROM textos WHERE texto_id = ? LIMIT 1',
+    [textoId],
+    (r) => (r as { toJSON(): TextoRow }).toJSON(),
+  );
+  return rows[0] ?? null;
+}
+
+/** lei_id da versão estruturada que cita este raw_id como fonte, se houver. */
+export async function getStructuredLeiId(textoId: string): Promise<string | null> {
+  const rows = await runSql<{ lei_id: string }>(
+    "SELECT DISTINCT lei_id FROM versoes WHERE contains(fontes, ?) ORDER BY lei_id LIMIT 1",
+    [`"${textoId}"`],
+    (r) => (r as { toJSON(): { lei_id: string } }).toJSON(),
+  );
+  return rows[0]?.lei_id ?? null;
 }

@@ -29,7 +29,7 @@ Design choices that matter:
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional, Tuple, TypedDict
+from typing import Callable, Dict, List, Optional, Tuple, TypedDict
 
 
 class Span(TypedDict):
@@ -239,8 +239,12 @@ def _overlaps(a: Span, b: Span) -> bool:
 
 def evaluate_against_gold(
     docs: List[Tuple[str, List[Span]]],
+    predict: Optional[Callable[[str], List[Span]]] = None,
 ) -> Dict[str, CatScore]:
     """Score `segment()` over (text, gold_spans) pairs. Returns per-category counts.
+
+    `predict` swaps in another span predictor (same `Span` contract) so a different
+    reader can be scored against the same gold with the same arithmetic.
 
     `exact_tp` = predicted span equal to a gold span; `overlap_tp_*` = detection ignoring
     boundaries (counted separately on the pred and gold side, since one pred may overlap
@@ -261,7 +265,7 @@ def evaluate_against_gold(
         )
 
     for text, gold in docs:
-        pred = segment(text)
+        pred = (predict or segment)(text)
         by_cat_gold: Dict[str, List[Span]] = {}
         by_cat_pred: Dict[str, List[Span]] = {}
         for s in gold:

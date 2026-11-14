@@ -1,0 +1,290 @@
+name: Teacher Batch — rótulos estruturais por linha
+
+# Pipeline do professor (docs/teacher-batch.md): rotula as normas de RO pela
+# Message Batches API. Só manual — cada `submit` gasta crédito de API, então
+# não há cron. Três passos em execuções separadas, porque um batch pode levar
+# até 24h:
+#
+#   plan    → enumera e estima o custo por modelo (não envia nada pago)
+#   submit  → trava de custo (max_usd obrigatório) + cria o(s) batch(es)
+#   collect → busca os resultados, valida, funde e publica os rótulos
+#
+# Estado entre `submit` e `collect`: o manifesto (ids dos batches + mapa
+# custom_id → norma/pedaço) vai num ARTIFACT da execução de submit, com
+# retenção de 30 dias — os resultados de um batch ficam disponíveis por 29
+# dias, então o manifesto sobrevive a todo o período em que ainda serve. Não
+# usamos cache do Actions (despejado após 7 dias sem acesso e preso ao branch)
+# nem commit no repositório (o manifesto é estado transitório de execução, não
+# estado durável do projeto — ver CLAUDE.md, "Source of truth").
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: "Passo: plan (estima), submit (envia), collect (coleta)"
+        type: choice
+        options: [plan, submit, collect]
+        default: plan
+      model:
+        description: "Modelo (precisa ter preço em teacher_batch.MODELS)"
+        default: "claude-haiku-5-5"
+      effort:
+        description: "Esforço de raciocínio do modelo (low, medium, high, xhigh, max)"
+        default: "medium"
+      limit:
+        description: "Máx de normas (piloto) — vazio = todas"
+        default: ""
+      tipo:
+        description: "Filtrar por tipo(s), separados por vírgula (lei, lc, decreto) — vazio = todos"
+        default: ""
+      shuffle_seed:
+        description: "Semente para amostra reprodutível espalhada pelos itens (usada com limit) — vazio = ordem natural"
+        default: ""
+      max_usd:
+        description: "submit: teto de custo em US$ (obrigatório; sem padrão)"
+        default: ""
+      guard:
+        description: "submit: o que comparar com max_usd — ceiling (limite superior) ou estimate (estimativa conservadora)"
+        type: choice
+        options: [ceiling, estimate]
+        default: ceiling
+      manifest_run_id:
+        description: "collect: id da execução de submit cujo manifesto coletar. submit: (opcional) id de um collect anterior, para reenviar só as normas em failures.jsonl"
+        default: ""
+      wait_minutes:
+        description: "collect: quantos minutos esperar pelos batches antes de desistir"
+        default: "30"
+      upload_ia:
+        description: "collect: se 'true', publica os rótulos num item do Internet Archive"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write # notify-run-failure
+  actions: read # baixar o artifact do manifesto de outra execução
+
+# Singleton: dois submits simultâneos gastariam o mesmo crédito duas vezes.
+concurrency:
+  group: teacher-batch
+  cancel-in-progress: false
+
+env:
+  WORK_DIR: /tmp/teacher-batch
+
+jobs:
+  plan:
+    if: inputs.step == 'plan'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+
+      - name: Plan — enumerar e estimar custo
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IN_EFFORT: ${{ inputs.effort }}
+          IN_LIMIT: ${{ inputs.limit }}
+          IN_TIPO: ${{ inputs.tipo }}
+          IN_SEED: ${{ inputs.shuffle_seed }}
+        run: |
+          set -euo pipefail
+          args=(--effort "$IN_EFFORT" --out "$WORK_DIR/plan.json")
+          [ -n "$IN_LIMIT" ] && args+=(--limit "$IN_LIMIT")
+          [ -n "$IN_TIPO" ] && args+=(--tipo "$IN_TIPO")
+          [ -n "$IN_SEED" ] && args+=(--shuffle-seed "$IN_SEED")
+          # Contagem real de tokens numa amostra (endpoint gratuito) para
+          # conferir a densidade conservadora usada na estimativa.
+          [ -n "$ANTHROPIC_API_KEY" ] && args+=(--count-sample 20)
+          uv run python -m leizilla.teacher_batch plan "${args[@]}" | tee "$WORK_DIR.log"
+          {
+            echo "## Teacher batch — plan"
+            echo '```'
+            cat "$WORK_DIR.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: teacher-batch-plan
+          path: ${{ env.WORK_DIR }}/plan.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "teacher-batch / plan"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  submit:
+    if: inputs.step == 'submit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+
+      # Opcional: reenviar só as normas que falharam num collect anterior.
+      - name: Download failures.jsonl de um collect anterior
+        if: inputs.manifest_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: teacher-batch-labels
+          path: /tmp/teacher-batch-previous
+          run-id: ${{ inputs.manifest_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Submit — trava de custo + criação do(s) batch(es)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IN_MODEL: ${{ inputs.model }}
+          IN_EFFORT: ${{ inputs.effort }}
+          IN_LIMIT: ${{ inputs.limit }}
+          IN_TIPO: ${{ inputs.tipo }}
+          IN_SEED: ${{ inputs.shuffle_seed }}
+          IN_MAX_USD: ${{ inputs.max_usd }}
+          IN_GUARD: ${{ inputs.guard }}
+          IN_RETRY_RUN: ${{ inputs.manifest_run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "$IN_MAX_USD" ]; then
+            echo "::error::submit exige max_usd (teto de custo em US$) — não há padrão."
+            exit 1
+          fi
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::secret ANTHROPIC_API_KEY ausente."
+            exit 1
+          fi
+          args=(
+            --model "$IN_MODEL" --effort "$IN_EFFORT"
+            --max-usd "$IN_MAX_USD" --guard "$IN_GUARD"
+            --manifest "$WORK_DIR/manifest.json"
+          )
+          [ -n "$IN_LIMIT" ] && args+=(--limit "$IN_LIMIT")
+          [ -n "$IN_TIPO" ] && args+=(--tipo "$IN_TIPO")
+          [ -n "$IN_SEED" ] && args+=(--shuffle-seed "$IN_SEED")
+          [ -n "$IN_RETRY_RUN" ] && \
+            args+=(--retry-failures /tmp/teacher-batch-previous/failures.jsonl)
+          uv run python -m leizilla.teacher_batch submit "${args[@]}" | tee "$WORK_DIR.log"
+          {
+            echo "## Teacher batch — submit"
+            echo '```'
+            cat "$WORK_DIR.log"
+            echo '```'
+            echo "Para coletar: rode este workflow com \`step=collect\` e \`manifest_run_id=${GITHUB_RUN_ID}\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # `if: always()`: se a criação de um batch falhar no meio, o manifesto já
+      # gravado lista os batches que FORAM criados (e cobrados) — ele precisa
+      # sobreviver à falha do job para que ainda possam ser coletados.
+      - name: Upload manifest artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teacher-batch-manifest
+          path: ${{ env.WORK_DIR }}/manifest.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "teacher-batch / submit"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  collect:
+    if: inputs.step == 'collect'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+
+      - name: Exigir manifest_run_id
+        env:
+          IN_RUN: ${{ inputs.manifest_run_id }}
+        run: |
+          if [ -z "$IN_RUN" ]; then
+            echo "::error::collect exige manifest_run_id (id da execução de submit)."
+            exit 1
+          fi
+
+      - name: Download manifest da execução de submit
+        uses: actions/download-artifact@v4
+        with:
+          name: teacher-batch-manifest
+          path: ${{ env.WORK_DIR }}/in
+          run-id: ${{ inputs.manifest_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Collect — buscar, validar, fundir
+        id: collect
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+          IN_WAIT: ${{ inputs.wait_minutes }}
+          IN_UPLOAD_IA: ${{ inputs.upload_ia }}
+        run: |
+          set -uo pipefail
+          # --allow-failures: normas com falha (recusa, expiração, resposta
+          # fora do esquema) são esperadas em escala e ficam em failures.jsonl
+          # e no resumo abaixo — não derrubam a coleta das demais.
+          args=(
+            --manifest "$WORK_DIR/in/manifest.json" --out-dir "$WORK_DIR/out"
+            --wait-minutes "$IN_WAIT" --allow-failures
+          )
+          [ "$IN_UPLOAD_IA" = "true" ] && args+=(--upload-ia)
+          uv run python -m leizilla.teacher_batch collect "${args[@]}" | tee "$WORK_DIR.log"
+          code=${PIPESTATUS[0]}
+          {
+            echo "## Teacher batch — collect"
+            echo '```'
+            cat "$WORK_DIR.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -eq 3 ]; then
+            # Batches ainda processando: não é falha — rode collect de novo.
+            echo "::warning::batches ainda em processamento; rode collect novamente mais tarde."
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          exit "$code"
+
+      - name: Upload labels artifact
+        if: always() && steps.collect.outputs.pending != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: teacher-batch-labels
+          path: |
+            ${{ env.WORK_DIR }}/out/labels
+            ${{ env.WORK_DIR }}/out/failures.jsonl
+            ${{ env.WORK_DIR }}/out/summary.json
+            ${{ env.WORK_DIR }}/out/manifest.json
+            ${{ env.WORK_DIR }}/out/ia_upload.json
+          retention-days: 90
+          if-no-files-found: ignore
+
+      # Respostas brutas da API (auditoria/reprocessamento sem pagar de novo).
+      - name: Upload raw results artifact
+        if: always() && steps.collect.outputs.pending != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: teacher-batch-raw-results
+          path: ${{ env.WORK_DIR }}/out/raw
+          retention-days: 90
+          if-no-files-found: ignore
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "teacher-batch / collect"
+          github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -210,6 +210,12 @@ Conteúdo: `versoes.parquet` + `dataset_meta.json` (gerados por `upload_dataset(
 o item `-latest` acrescenta `latest.json`.
 `manifest-{ente}.csv` e `README.md` são planejados — ainda não emitidos no MVP.
 
+**Camada de texto (ADR-0015)**: a tabela `textos` (§3.5) é publicada em itens próprios,
+com o mesmo desenho — `leizilla-textos-{ente}-v{N}-{revision}` (imutável) e
+`leizilla-textos-{ente}-v{N}-latest` (ponteiro). Conteúdo: `textos.parquet` +
+`dataset_meta.json` (`"table": "textos"`; gerados por `upload_textos()`), e `latest.json`
+no ponteiro. O piso de linhas de cada tabela é lido do seu próprio item `-latest`.
+
 ### 1.5 Exclusões permanentes conhecidas (gaps de origem externa)
 
 Um item raw pode ficar permanentemente fora do dataset publicado quando o
@@ -467,6 +473,50 @@ Single-table é decisão transicional. Revisita em M5 com dados reais. Gatilhos 
 - `rows > 2M`
 
 **1 gatilho → RFC** discutindo split. **2+ gatilhos → split obrigatório** antes de M5 close. M4 inclui benchmark scripts medindo todos.
+
+### 3.5 Tabela `textos` — camada de texto não estruturado (ADR-0015)
+
+Tabela separada de `versoes`, grão **uma linha por norma** com OCR disponível (S3),
+independente de a norma já ter sido estruturada (S4). Chave: `texto_id`, que materializa a
+identidade raw `(ente, fonte, tipo, numero)`. Parquet ZSTD, ordenado por `texto_id`.
+Contrato em código: `leizilla.textlayer.TEXTOS_SCHEMA`.
+
+| Coluna | Tipo | Conteúdo |
+|---|---|---|
+| `texto_id` | VARCHAR | `leizilla-raw-{ente}-{fonte}-{tipo}-{numero:05d}` (§5.1) — único |
+| `ente`, `fonte`, `tipo` | VARCHAR | identidade raw (ADR-0011); `tipo` é o da fonte (`lei`, `lc`, `decreto`, …) |
+| `numero` | INTEGER | número da norma na fonte |
+| `rendicao` | VARCHAR | rendição da captura no `index.csv` (`original`, `compilada`, `atual` ou vazio) |
+| `qualidade` | VARCHAR | sempre `texto-nao-estruturado` |
+| `sha256_fonte` | VARCHAR | SHA-256 do arquivo de origem (PDF), do `index.csv` — identifica a captura |
+| `capturado_em` | VARCHAR | ISO-8601 da captura do arquivo de origem |
+| `ia_item` | VARCHAR | item de range no IA que preserva o arquivo |
+| `pdf_url` | VARCHAR | URL do PDF preservado no IA |
+| `texto_url` | VARCHAR | URL do `_djvu.txt` de onde o texto veio |
+| `ocr_motor` | VARCHAR | motor e versão do OCR declarados pelo IA (ex. `tesseract 5.3.0-6-g76ae`); NULL se o IA não declarar |
+| `ocr_modulo_versao`, `ocr_parametros` | VARCHAR | versão do módulo de OCR do IA e parâmetros |
+| `ocr_derivado_em` | VARCHAR | ISO-8601 (UTC) da derivação do `_djvu.txt` |
+| `sha1_texto_ia` | VARCHAR | SHA-1 que o IA declara para o `_djvu.txt`, conferido no download |
+| `sha256_texto` | VARCHAR | SHA-256 dos bytes do `_djvu.txt` baixado |
+| `num_caracteres` | INTEGER | tamanho de `texto` em code points |
+| `artigos_fecham` | BOOLEAN | derivado: a sequência de artigos fecha (1..N completa, nada sem explicação) |
+| `artigos_total`, `artigos_ultimo` | INTEGER | derivados: artigos próprios lidos e maior número |
+| `ancoras` | VARCHAR | derivado: JSON `[{"n", "sufixo", "ini", "fim"}]`, offsets em code points Unicode sobre `texto` |
+| `trecho` | VARCHAR | derivado: prefixo de `texto` com espaços colapsados (até 280 caracteres), para listagens |
+| `texto` | VARCHAR | **verbatim**: o `_djvu.txt` decodificado em UTF-8, sem limpeza nem correção |
+
+Regras:
+
+- `texto` nunca é reescrito. `ancoras`, `artigos_*` e `trecho` são dado derivado,
+  recalculado a cada construção por `leizilla.article_sequence.read_articles`; consumidores
+  só devem usar `ancoras` como navegação quando `artigos_fecham` é verdadeiro.
+- Havendo várias capturas da mesma norma, entra a mais recente que já tem `_djvu.txt`.
+- Não há ano nem data do ato: a identidade raw não os carrega.
+- Elo com `versoes`: `texto_id` é o mesmo valor de `versoes.fontes[].ia_id`. Uma norma é
+  "só texto" quando seu `texto_id` não aparece em nenhuma linha de `versoes`.
+- Gates de publicação próprios (`release-textos`): contrato de colunas, unicidade,
+  texto não vazio, âncoras dentro do texto, e piso de linhas do item `-latest` de `textos`.
+  Os gates de `versoes` não mudam.
 
 ---
 
@@ -759,6 +809,12 @@ Prefixo de família (usado por `count_ia_items` para contar ambos os padrões ac
 não mais um identifier publicável por si só desde a issue #175):
 ```
 ^leizilla-dataset-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)$
+```
+
+Camada de texto (ADR-0015, tabela `textos`; mesmos papéis de release e ponteiro):
+```
+^leizilla-textos-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)-(?P<revision>\d{8}t\d{6}z)$
+^leizilla-textos-(?P<ente>[a-z][a-z0-9-]*)-v(?P<version>\d+)-latest$
 ```
 
 ### 5.6 URN LEX (spec oficial CGPID 2008)

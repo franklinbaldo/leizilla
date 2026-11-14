@@ -1,10 +1,11 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import LeiPage from '../components/lei/LeiPage.svelte';
+import LeiRoute from '../components/lei/LeiRoute.svelte';
 // Rota client-side: /lei/?id={lei_id}#{dispositivo_path}. Todo o conteúdo é
 // uma ilha client:only (DuckDB-WASM); a ilha atualiza document.title ao carregar.
+// Um id que é raw_id (leizilla-raw-…) abre a camada de texto não estruturado (ADR-0015).
 ---
 
 <Layout title="Lei">
-  <LeiPage client:only="svelte" />
+  <LeiRoute client:only="svelte" />
 </Layout>

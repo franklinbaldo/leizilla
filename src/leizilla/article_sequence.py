@@ -23,12 +23,13 @@ It is a measurement and review aid for the `boundary-decision-parser` research f
 from __future__ import annotations
 
 import re
-from typing import TypedDict
+from bisect import bisect_right
+from typing import Sequence, TypedDict
 
 # "Art" + optional separator + number-like token. The token allows the letters OCR
 # substitutes for digits (I, l for 1; O for 0). Whitespace may include line breaks:
 # typewritten scans come out one word per line.
-_CANDIDATE = re.compile(
+ARTICLE_CANDIDATE = re.compile(
     r"\b(?:Art|AH|Arl|Aft)\s*[.,:]?\s*(?P<num>[0-9IlO]{1,4})"
     r"(?P<ord>\s?[ºo°ªQ^?])?"
     r"(?:\s?-\s?(?P<suffix>[A-Z])\b)?"
@@ -36,7 +37,8 @@ _CANDIDATE = re.compile(
 _OCR_DIGITS = str.maketrans({"I": "1", "l": "1", "O": "0"})
 # Digits the ordinal indicator is misread as when glued to the number ("4º" -> "42").
 _ORDINAL_AS_DIGIT = "029"
-_QUOTE_OPEN = re.compile(r"[\"“”‘'«]\s*$")
+QUOTE_CHARS = "\"“”‘'«"
+_QUOTE_OPEN = re.compile(rf"[{QUOTE_CHARS}]\s*$")
 # A capitalised "Art." right after one of these words is a citation inside a sentence
 # ("nos termos do Art. 42 da Constituição"), not a marker. Decided before the chain is
 # built, so a citation can never be absorbed as one of the norm's own articles.
@@ -46,6 +48,7 @@ _REFERENCE_LEFT = re.compile(
 
 _GAP_PENALTY = 0.5
 _LOOKBACK = 80
+_INF = 1 << 62
 
 
 class ArticleRead(TypedDict):
@@ -70,7 +73,7 @@ class SequenceReport(TypedDict):
     closes: bool
 
 
-def _readings(num: str, has_ordinal: bool) -> list[int]:
+def article_readings(num: str, has_ordinal: bool) -> list[int]:
     """Plausible article numbers for a raw token, literal reading first."""
     digits = num.translate(_OCR_DIGITS)
     literal = int(digits)
@@ -84,23 +87,42 @@ def _readings(num: str, has_ordinal: bool) -> list[int]:
     return out
 
 
-def _best_chain(cands: list[list[int]], suffixed: list[bool]) -> list[int | None]:
+def best_chain(
+    cands: Sequence[Sequence[int]],
+    suffixed: Sequence[bool],
+    *,
+    anchored: bool = True,
+    free_skips: frozenset[int] = frozenset(),
+) -> list[int | None]:
     """Pick one reading per candidate (or None) forming the best increasing chain.
 
     Score: +1 per candidate taken, minus a penalty per skipped number. A candidate may
     repeat the previous number only when it carries a letter suffix ("Art. 8º-A").
+
+    ``anchored`` charges the numbers skipped before the first member, so the chain is
+    pulled towards starting at 1 (a norm's own numbering). An unanchored chain may start
+    anywhere (a fragment quoted from another norm). Numbers in ``free_skips`` may be
+    skipped at no cost (alíneas of older norms skip k, w and y).
     """
+
+    def skipped(lo: int, hi: int) -> int:
+        """How many chargeable numbers lie strictly between lo and hi."""
+        count = hi - lo - 1
+        if free_skips and count > 0:
+            count -= sum(1 for k in free_skips if lo < k < hi)
+        return count
+
     n = len(cands)
     best: list[dict[int, float]] = [{} for _ in range(n)]
     back: list[dict[int, tuple[int, int] | None]] = [{} for _ in range(n)]
     for i in range(n):
         for v in cands[i]:
-            score = 1.0 - _GAP_PENALTY * (v - 1)
+            score = 1.0 - (_GAP_PENALTY * skipped(0, v) if anchored else 0.0)
             prev: tuple[int, int] | None = None
             for j in range(max(0, i - _LOOKBACK), i):
                 for u, s in best[j].items():
                     if v > u:
-                        cand = s + 1.0 - _GAP_PENALTY * (v - u - 1)
+                        cand = s + 1.0 - _GAP_PENALTY * skipped(u, v)
                     elif v == u and suffixed[i]:
                         cand = s + 1.0
                     else:
@@ -124,24 +146,48 @@ def _best_chain(cands: list[list[int]], suffixed: list[bool]) -> list[int | None
     return chosen
 
 
-def read_articles(text: str) -> SequenceReport:
-    """Read the article markers of one norm, resolving OCR ambiguity by sequence."""
-    matches = list(_CANDIDATE.finditer(text))
+def _in_spans(pos: int, spans: Sequence[tuple[int, int]]) -> bool:
+    """True when ``pos`` falls inside one of the sorted, disjoint ``spans``."""
+    k = bisect_right(spans, (pos, _INF)) - 1
+    return k >= 0 and spans[k][0] <= pos < spans[k][1]
+
+
+def read_articles(
+    text: str, quoted_spans: Sequence[tuple[int, int]] = ()
+) -> SequenceReport:
+    """Read the article markers of one norm, resolving OCR ambiguity by sequence.
+
+    ``quoted_spans`` are sorted, disjoint character ranges already known to be text
+    quoted from another norm (see `hierarchy_sequence`); a candidate inside one is
+    ``quoted`` up front and can never join the norm's own chain.
+    """
+    matches = list(ARTICLE_CANDIDATE.finditer(text))
     cands: list[list[int]] = []
     is_ref: list[bool] = []
+    is_quoted: list[bool] = []
     for m in matches:
-        ref = bool(_REFERENCE_LEFT.search(text[max(0, m.start() - 12) : m.start()]))
-        is_ref.append(ref)
-        cands.append(
-            [] if ref else _readings(m.group("num"), m.group("ord") is not None)
+        quoted = bool(quoted_spans) and _in_spans(m.start(), quoted_spans)
+        ref = not quoted and bool(
+            _REFERENCE_LEFT.search(text[max(0, m.start() - 12) : m.start()])
         )
-    chosen = _best_chain(cands, [m.group("suffix") is not None for m in matches])
+        is_ref.append(ref)
+        is_quoted.append(quoted)
+        cands.append(
+            []
+            if ref or quoted
+            else article_readings(m.group("num"), m.group("ord") is not None)
+        )
+    chosen = best_chain(cands, [m.group("suffix") is not None for m in matches])
 
     articles: list[ArticleRead] = []
     own_numbers: set[int] = set()
-    for m, readings, value, ref in zip(matches, cands, chosen, is_ref):
+    for m, readings, value, ref, quoted in zip(
+        matches, cands, chosen, is_ref, is_quoted
+    ):
         if ref:
             status = "reference"
+        elif quoted:
+            status = "quoted"
         elif value is not None:
             status = "own"
             own_numbers.add(value)
@@ -165,19 +211,19 @@ def read_articles(text: str) -> SequenceReport:
 
     last = max(own_numbers) if own_numbers else 0
     missing = [k for k in range(1, last + 1) if k not in own_numbers]
-    quoted = sum(1 for a in articles if a["status"] == "quoted")
+    n_quoted = sum(1 for a in articles if a["status"] == "quoted")
     unexplained = sum(1 for a in articles if a["status"] == "unexplained")
     return {
         "articles": articles,
         "own": sum(1 for a in articles if a["status"] == "own"),
         "last": last,
         "missing": missing,
-        "quoted": quoted,
+        "quoted": n_quoted,
         "references": sum(1 for a in articles if a["status"] == "reference"),
         "unexplained": unexplained,
         "corrected": sum(1 for a in articles if a["corrected"]),
         # Closing means the whole candidate set is explained: a full 1..N chain and
-        # nothing left over except quoted articles and in-sentence citations. A short chain that merely
-        # ignores unreadable candidates does not close.
+        # nothing left over except quoted articles and in-sentence citations. A short
+        # chain that merely ignores unreadable candidates does not close.
         "closes": last > 0 and not missing and unexplained == 0,
     }
