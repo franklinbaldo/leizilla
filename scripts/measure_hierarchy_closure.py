@@ -15,8 +15,10 @@ prints, with no model involved:
 - how many closures lean on a quoted block that was opened without a quotation mark or
   never closed (the least certain part of the reading).
 
-It also writes one JSON line per unexplained candidate, with context: the work queue
-for the decision models of the `boundary-decision-parser` front.
+It also writes a JSONL work queue for the decision models of the
+`boundary-decision-parser` front: one line per unexplained candidate (``queue:
+"unexplained"``, with context and a hint) and one per region where a chain skips numbers
+(``queue: "gap"``, the stretch of text where a lost marker should be looked for).
 
     uv run scripts/measure_hierarchy_closure.py CORPUS_DIR \\
         --metadata CORPUS_DIR/results.json --out /tmp/unexplained.jsonl
@@ -74,6 +76,46 @@ def _context(text: str, start: int, end: int, pad: int = 80) -> dict[str, str]:
         "marker": text[start:end],
         "right": text[end : end + pad],
     }
+
+
+def _gaps(report: HierarchyReport, text: str) -> list[dict[str, object]]:
+    """Regions where a chain skips numbers: a marker the OCR lost, to be looked for."""
+    nodes = report["nodes"]
+    groups: dict[tuple[int | None, str], list[int]] = {}
+    for node in nodes:
+        if node["status"] == "own" and node["number"] is not None:
+            groups.setdefault((node["parent"], node["kind"]), []).append(node["id"])
+    out: list[dict[str, object]] = []
+    for (parent, kind), ids in groups.items():
+        if kind == "item":
+            continue
+        ids.sort(key=lambda i: nodes[i]["start"])
+        origin = nodes[parent]["text_start"] if parent is not None else 0
+        previous, last = origin, 0
+        for i in ids:
+            number = nodes[i]["number"] or 0
+            # Alíneas may skip k, w and y; the reader does not count those as missing.
+            skips = (11, 23, 25) if kind == "alinea" else ()
+            missing = [k for k in range(last + 1, number) if k not in skips]
+            if missing:
+                start, end = previous, nodes[i]["start"]
+                out.append(
+                    {
+                        "queue": "gap",
+                        "kind": kind,
+                        "missing": missing,
+                        "start": start,
+                        "end": end,
+                        "scope_path": nodes[parent]["path"]
+                        if parent is not None
+                        else None,
+                        "left": text[max(0, start - 80) : start],
+                        "region": text[start:end][:1500],
+                        "right": text[end : end + 80],
+                    }
+                )
+            previous, last = nodes[i]["start"], max(last, number)
+    return out
 
 
 def _why_open(report: HierarchyReport, kind: str) -> str:
@@ -170,6 +212,7 @@ def main() -> int:
     quoted = Counter[str]()
     read_by: Counter[str] = Counter()
     hints: Counter[str] = Counter()
+    gap_rows: Counter[str] = Counter()
     caveats: Counter[str] = Counter()
     queue: list[dict[str, object]] = []
     slowest = (0.0, "")
@@ -241,6 +284,7 @@ def main() -> int:
             scope = left["scope"]
             queue.append(
                 {
+                    "queue": "unexplained",
                     "doc": doc_id,
                     "tipo": tipo,
                     "file": path.name,
@@ -254,6 +298,10 @@ def main() -> int:
                     **_context(text, left["start"], left["end"]),
                 }
             )
+
+        for gap in _gaps(report, text):
+            queue.append({"doc": doc_id, "tipo": tipo, "file": path.name, **gap})
+            gap_rows[str(gap["kind"])] += 1
 
     elapsed = time.perf_counter() - started
     print(
@@ -313,7 +361,12 @@ def main() -> int:
         with args.out.open("w", encoding="utf-8") as fh:
             for entry in queue:
                 fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        print(f"\n{len(queue)} unexplained candidates written to {args.out}")
+        gaps = sum(gap_rows.values())
+        print(
+            f"\n{len(queue)} queue rows written to {args.out}: "
+            f"{len(queue) - gaps} unexplained candidates, {gaps} chain gaps "
+            f"({', '.join(f'{k}={v}' for k, v in sorted(gap_rows.items()))})"
+        )
     return 0
 
 
