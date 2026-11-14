@@ -3,12 +3,14 @@
     getCoverageStats,
     getCoverageByEnte,
     getRecentLeis,
+    getTextLayerStats,
     DATASET_PARQUET_URL,
     DATASET_IA_ITEM,
     DATASET_META_URL,
     type CoverageStats,
     type EnteCoverage,
     type LeiRow,
+    type TextLayerStats,
   } from '../../lib/db';
   import {
     leiTitle,
@@ -25,6 +27,8 @@
   let stats = $state<CoverageStats | null>(null);
   let porEnte = $state<EnteCoverage[]>([]);
   let recentes = $state<LeiRow[]>([]);
+  // Camada de texto (ADR-0015): null enquanto não publicada — o painel não muda.
+  let textos = $state<TextLayerStats | null>(null);
 
   // DuckDB pode devolver BIGINT → normaliza antes de localizar.
   const fmt = (n: number | bigint) => Number(n).toLocaleString('pt-BR');
@@ -45,15 +49,17 @@
     let cancelled = false;
     (async () => {
       try {
-        const [s, e, r] = await Promise.all([
+        const [s, e, r, t] = await Promise.all([
           getCoverageStats(),
           getCoverageByEnte(),
           getRecentLeis(6),
+          getTextLayerStats().catch(() => null),
         ]);
         if (cancelled) return;
         stats = s;
         porEnte = e;
         recentes = r;
+        textos = t;
       } catch {
         // O island de busca já exibe o painel completo de indisponibilidade
         // (DatasetUnavailable); aqui degradamos para uma linha discreta sem
@@ -92,6 +98,12 @@
   <section class="panel" aria-label="Panorama do acervo estruturado">
     <h2>O acervo em números</h2>
     <div class="stats">
+      {#if textos}
+        <div class="stat">
+          <strong>{fmt(textos.normas)}</strong>
+          <span>normas legíveis sem PDF</span>
+        </div>
+      {/if}
       <div class="stat">
         <strong>{fmt(stats.leis)}</strong>
         <span>leis estruturadas</span>
@@ -113,7 +125,13 @@
     </div>
     <p class="stats-note">
       <small>
-        Estes números contam apenas o que chegou ao estágio S4 (estruturado);
+        {#if textos}
+          {fmt(textos.normas)} normas têm texto legível no portal (estágio S3);
+          {fmt(textos.so_texto)} delas ainda como texto não estruturado, extraído
+          por OCR. Os demais números contam o que chegou ao estágio S4 (estruturado);
+        {:else}
+          Estes números contam apenas o que chegou ao estágio S4 (estruturado);
+        {/if}
         compilação vigente em {formatDate(stats.vigente_em_max)}.
         {#each porEnte as e (e.ente)}
           {' '}{formatEnte(e.ente)}: {fmt(e.leis)}

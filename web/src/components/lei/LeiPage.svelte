@@ -140,9 +140,10 @@
   <article>
     <header><strong>Norma não encontrada no dataset publicado</strong></header>
     <p>
-      Não há linhas para <code>{leiId}</code> no dataset atual. O dataset cobre
-      apenas as normas que já alcançaram o estágio S4 (texto estruturado e
-      validado); documentos apenas arquivados ou identificados ainda não
+      Não há linhas para <code>{leiId}</code> no dataset estruturado atual, que
+      cobre as normas que já alcançaram o estágio S4 (texto estruturado e
+      validado). Normas que só têm texto extraído por OCR aparecem na busca com
+      o selo "texto não estruturado"; documentos apenas arquivados ainda não
       aparecem aqui.
     </p>
     <p>

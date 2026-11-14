@@ -2,12 +2,12 @@
   import { writable } from 'svelte/store';
   import { createQuery } from '@tanstack/svelte-query';
   import {
-    searchGroupedByLei,
-    countLeisGrouped,
-    listTiposLei,
+    searchCatalog,
+    countCatalog,
+    listTiposCatalog,
     listEntes,
     PAGE_SIZE,
-    type GroupedHit,
+    type CatalogHit,
   } from '../lib/db.ts';
   import {
     leiTitle,
@@ -22,8 +22,10 @@
   import DatasetUnavailable from './DatasetUnavailable.svelte';
 
   // Tudo que chega ao Parquet `versoes` alcançou o estágio S4 por construção
-  // (PRD §6) — o badge é o mesmo para toda linha, com a descrição no title.
+  // (PRD §6). Normas que só existem na camada de texto (ADR-0015) estão em S3 e
+  // levam o selo "texto não estruturado".
   const stageS4 = STAGES.find((s) => s.id === 'S4');
+  const stageS3 = STAGES.find((s) => s.id === 'S3');
 
   // Preserva uma busca vinda da página da lei (`Voltar aos resultados`).
   const initialTerm = new URLSearchParams(location.search).get('q')?.trim() ?? '';
@@ -42,7 +44,7 @@
   // dataset (lei.complementar, lc, decreto, ...), evitando slugs hardcoded que
   // poderiam divergir do ETL e filtrar zero resultados. Roda uma vez.
   $effect(() => {
-    listTiposLei()
+    listTiposCatalog()
       .then((tipos) => {
         tipoOptions = tipos;
       })
@@ -111,7 +113,7 @@
   // A localização do dispositivo só interessa quando a busca textual casou um
   // trecho que não é a ementa — na navegação a linha representativa é apenas
   // um resumo da norma, não um "match".
-  function isDispositivoHit(row: GroupedHit): boolean {
+  function isDispositivoHit(row: CatalogHit): boolean {
     return Boolean(debouncedTerm.trim()) && row.dispositivo_path !== 'ementa';
   }
 
@@ -131,12 +133,12 @@
   // --- Bridge: Svelte 5 state → Svelte 4 stores (TanStack Query interface) ---
   const resultsOpts = writable({
     queryKey: ['leis', '', '', '', null, 0] as readonly unknown[],
-    queryFn: () => searchGroupedByLei('', {}),
-    placeholderData: (prev: GroupedHit[] | undefined) => prev,
+    queryFn: () => searchCatalog('', {}),
+    placeholderData: (prev: CatalogHit[] | undefined) => prev,
   });
   const countOpts = writable({
     queryKey: ['leis-count', '', '', '', null] as readonly unknown[],
-    queryFn: () => countLeisGrouped('', {}),
+    queryFn: () => countCatalog('', {}),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -144,14 +146,14 @@
     resultsOpts.set({
       queryKey: ['leis', debouncedTerm, ente, tipoLei, year, page] as readonly unknown[],
       queryFn: () =>
-        searchGroupedByLei(debouncedTerm, {
+        searchCatalog(debouncedTerm, {
           ente: ente || undefined,
           tipoLei: selectedTipoValues(),
           year: year ?? undefined,
           page,
           pageSize: PAGE_SIZE,
         }),
-      placeholderData: (prev: GroupedHit[] | undefined) => prev,
+      placeholderData: (prev: CatalogHit[] | undefined) => prev,
     });
   });
 
@@ -159,7 +161,7 @@
     countOpts.set({
       queryKey: ['leis-count', debouncedTerm, ente, tipoLei, year] as readonly unknown[],
       queryFn: () =>
-        countLeisGrouped(debouncedTerm, {
+        countCatalog(debouncedTerm, {
           ente: ente || undefined,
           tipoLei: selectedTipoValues(),
           year: year ?? undefined,
@@ -180,7 +182,7 @@
 <section>
   <input
     type="search"
-    placeholder="Buscar no texto das leis (ex: servidores públicos, IPTU, cargos...)"
+    placeholder="Buscar no texto das leis ou pelo número (ex: servidores públicos, IPTU, 1234...)"
     value={rawTerm}
     oninput={onTermInput}
     aria-label="Buscar leis"
@@ -232,7 +234,11 @@
               <a href={resultLeiUrl(row.lei_id)}>{leiTitle(row)}</a>
             </h3>
             <span class="badge">{formatEnte(row.ente)}</span>
-            {#if stageS4}
+            {#if row.camada === 'texto'}
+              <span class="badge badge-texto" title={stageS3?.description}>
+                Texto não estruturado
+              </span>
+            {:else if stageS4}
               <span class="badge" title={stageS4.description}>
                 {stageS4.id} · {stageS4.label}
               </span>
@@ -275,11 +281,11 @@
                  leitura — por isso o link é secundário, não o CTA do card. -->
             <a
               class="ia-link"
-              href={iaDetailsUrl(row.lei_id)}
+              href={row.camada === 'texto' && row.pdf_url ? row.pdf_url : iaDetailsUrl(row.lei_id)}
               target="_blank"
               rel="noopener noreferrer"
             >
-              Evidência no IA
+              {row.camada === 'texto' ? 'PDF original no IA' : 'Evidência no IA'}
             </a>
           </footer>
         </article>
@@ -371,6 +377,10 @@
     text-transform: uppercase;
     letter-spacing: 0.02em;
     white-space: nowrap;
+  }
+  .badge-texto {
+    border-color: var(--pico-primary);
+    color: var(--pico-primary);
   }
   .hit-where {
     font-size: 0.8rem;
