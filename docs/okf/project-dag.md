@@ -265,6 +265,39 @@ fronts:
       - "M14.3 requires an adequate GPU executor."
       - "A stronger production claim requires noisier/multi-source RO evidence beyond the current small gold."
 
+  - id: "text-layer-publication"
+    kind: workstream
+    status: active
+    parents: [ro-coverage-q4-2026]
+    objective: "Make every RO norm that has usable text (S3) readable in the portal without opening a PDF, decoupling 'readable' from 'structured' (S4) so structure becomes a progressive enhancement instead of a publication gate."
+    origin: "Owner decision 2026-11-14: the portal only exposes S4 (20 norms at the 2026-09-25 baseline) while 572 norms already had OCR text. The project's first promise is reading the law without a PDF."
+    fork_reason: "Splits the reading outcome from the structuring outcome previously bundled in the S3->S4 parse."
+    next_action: "Design the dataset/portal contract for a text layer (a separate table or release artifact keyed by raw identity, with verbatim OCR text + provenance + an explicit 'unstructured' quality flag) and record it in an ADR + docs/SCHEMA.md before implementation. Acceptance: a norm at S3 but not S4 is findable and readable on the portal, visibly marked as unstructured text, with a link to the preserved PDF on IA; release gates (row floor, identity) keep applying to the structured table unchanged."
+
+  - id: "boundary-decision-parser"
+    kind: research
+    status: active
+    parents: [ro-coverage-q4-2026, opf-structural-parser-rnd, long-document-parse-resilience]
+    objective: "Evaluate replacing whole-document LLM rewriting with a classifier-not-rewriter parser: the OCR text stays verbatim, deterministic rules propose structural markers, numbering invariants flag the hard cases, and a calibrated decision model (THX-02) labels only the ambiguous candidates, feeding a CausaGanha-style flywheel (teacher labels -> rules / small CPU student -> ratchet gate against gold)."
+    origin: "Owner direction 2026-11-14. The live parse fronts (#325 output truncation, #327 unstable row counts) are symptoms of one-shot generative parsing; src/leizilla/segmenter.py and data/opf/gold already provide the regex baseline and gold. Reuses the thx skill and the CausaGanha active-learning flywheel pattern."
+    next_action: "Measure before building: run segmenter.py plus numbering-sequence invariants (Art. N -> N+1, increasing incisos/alineas/paragraphs) over all available S3 texts and report the share of norms that close cleanly with no model at all, and a taxonomy of the violations. That number sizes the 'hard case' pool and decides whether a THX teacher and a sklearn student are warranted. Do not change the production parser in this node; a production switch needs its own ADR and must keep XSD, identity, provenance and release gates."
+
+  - id: "ocr-engine-benchmark"
+    kind: research
+    status: open
+    parents: [ro-coverage-q4-2026]
+    objective: "Know, with evidence, how good IA-generated OCR is on RO norms and whether a self-run engine (Kreuzberg with PaddleOCR backend; a VLM OCR as an optional GPU comparison) is worth adding as a text source, without weakening IA's role as the preservation pillar (ADR-0001)."
+    origin: "Owner direction 2026-11-14: IA OCR quality on these scans is unmeasured; S2->S3 converted only 572/1196 at the 2026-09-25 baseline. Born-digital PDFs may need no OCR at all (direct text extraction)."
+    next_action: "On a stratified sample of preserved RO PDFs (born-digital vs scanned, by decade), compare IA _djvu.txt against Kreuzberg direct extraction and Kreuzberg+PaddleOCR: character error on a small hand-checked gold, structural-marker recall via segmenter.py, and CPU wall-clock per page on a GitHub runner. Also classify why S2 items lack S3 (IA derive pending/failed vs no text layer). Any adopted engine produces a derived text artifact stored next to the raw bytes on IA with engine+version provenance; raw PDF preservation on IA is not negotiable."
+
+  - id: "ro-diario-oficial-preservation"
+    kind: workstream
+    status: open
+    parents: [leizilla-root]
+    objective: "Preserve the digital-era Diario Oficial do Estado de Rondonia on the Internet Archive as an independent source: every edition stored content-addressed with discovery metadata, since the official hosting offers no durability guarantee."
+    origin: "Owner direction 2026-11-14. The gazette is the authentic publication vehicle of state norms and is a distinct corpus from the casacivil/assembleia norm catalogs."
+    next_action: "Scoping only, no crawling yet: identify the official DOE-RO portal(s), the first digital edition, edition identity (date/number/supplement), robots.txt posture (ADR-0008), volume estimate and existing Wayback/IA holdings. Then decide in an ADR how editions map onto ADR-0010/0011 (an edition is not a norm: identity is (ente, fonte, date, edition), and norm extraction from editions is a later, separate front)."
+
   - id: "m5-3-search-scaling"
     kind: workstream
     status: blocked
