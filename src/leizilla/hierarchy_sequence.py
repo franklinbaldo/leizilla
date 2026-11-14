@@ -21,6 +21,17 @@ Pipeline for one text:
 5. report closure per level. A level closes only when every scope holds a full 1..N
    chain and no marker-shaped candidate is left unexplained.
 
+Three kinds of reading, recorded per node in ``read_by``: ``literal`` (as printed),
+``confusion`` (a known OCR look-alike, picked by the chain) and ``gap`` (glyphs that are
+unreadable or contradict the chain, read only because exactly one number was missing
+between two neighbours and exactly one candidate sat there).
+
+What keeps a scope open, besides a gap in its chain: a marker where a marker sits (line
+start or after sentence punctuation) that joined no chain; a look-alike left beside a
+chain ("11 —" after "II —"); any short line opener that follows "…; e" or "…;", since
+the list plainly goes on. A leftover that a deeper level explains ("1 -" read as an
+item) does not count. Weak candidates outside those cases are ``ignored``.
+
 Known limits (by design, not oversights): text after the last child of a node (a
 "Pena - ..." line after the incisos) stays inside that last child; organisational
 blocks (TÍTULO, CAPÍTULO, Seção) are not nodes; a marker the OCR lost at the *end* of a
@@ -169,7 +180,7 @@ _ART_WILD = re.compile(
     r"(?m)^[ \t]*(?P<word>(?:[AÁ][rRtTiIlLpPfFnh]{1,3}s?|[aáà]r[tl]?)\b[.,:;]?"
     r"[ \t]*\n?[ \t]*(?:\d\S{0,3}|[A-Z]{1,2}\b|[Il][oO0]\b))"
 )
-_FINAL_CLAUSE = re.compile(r"vig[oêe]|revoga|publica[cç]", re.IGNORECASE)
+_FINAL_CLAUSE = re.compile(r"vigo|revog", re.IGNORECASE)
 _ENUM_LEFT = re.compile(r";\s*(?:(?:e|ou)\s*)?$")
 _LEAD = re.compile(r"\s*[.\-–—:]{0,2}\s*")
 _WORDING = re.compile(r"reda[cç][aã]o|redigid", re.IGNORECASE)
@@ -271,8 +282,9 @@ class HierarchyReport(TypedDict):
     # An unclosed quoted block runs to the end of the body: host articles after it, if
     # any, cannot be told from the quoted ones. Keeps the article level open.
     open_tail_block: bool
-    # The last own articles carry a vigência or revogação clause, as a complete norm
-    # does. Not part of `closes`; a cheap sign that the OCR text is not cut short.
+    # The last own article carries the vigência or revogação clause, as a complete norm
+    # does. Not part of `closes`: numbering cannot see a text cut short after a full
+    # chain, this can. Read `closes and final_clause` as the stricter verdict.
     final_clause: bool
     closes: bool
 
@@ -1092,8 +1104,9 @@ def read_hierarchy(text: str) -> HierarchyReport:
         and not unexplained_articles
         and not open_tail_block
     )
-    tail_start = own[-2]["start"] if len(own) > 1 else own[0]["start"] if own else 0
-    final_clause = bool(own) and bool(_FINAL_CLAUSE.search(text, tail_start, body_end))
+    final_clause = bool(own) and bool(
+        _FINAL_CLAUSE.search(text, own[-1]["start"], body_end)
+    )
     if own:
         body_end = max(find_body_end(text, own[-1]["start"]), own[-1]["end"])
     roots: list[int] = []
