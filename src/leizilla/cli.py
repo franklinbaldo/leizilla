@@ -852,6 +852,183 @@ def cmd_release_dataset(
         raise typer.Exit(1)
 
 
+@app.command("build-textos")
+def cmd_build_textos(
+    output: Path = typer.Option(..., "--output", help="Arquivo textos.parquet"),
+    ente: str = typer.Option("ro", "--ente", help="Ente federativo"),
+    fontes: Optional[str] = typer.Option(
+        None,
+        help="Fontes separadas por vírgula (default: todas as fontes do manifesto)",
+    ),
+    previous: Optional[Path] = typer.Option(
+        None,
+        "--previous",
+        help=(
+            "textos.parquet anterior: linhas cujo arquivo de origem e OCR não "
+            "mudaram são reaproveitadas sem novo download"
+        ),
+    ),
+    limit: Optional[int] = typer.Option(
+        None, "--limit", help="Máximo de normas (amostra; resultado é parcial)"
+    ),
+    sleep_s: float = typer.Option(
+        0.4, "--sleep", help="Pausa em segundos entre downloads do IA"
+    ),
+    allow_partial: bool = typer.Option(
+        False,
+        "--allow-partial",
+        help="Grava o Parquet e sai com 0 mesmo com falhas de leitura ou --limit",
+    ),
+) -> None:
+    """Construir a camada de texto (tabela textos, ADR-0015) a partir do IA.
+
+    Uma linha por norma com OCR (`_djvu.txt`): texto verbatim, proveniência e
+    âncoras de artigo derivadas. Só leitura no IA, sequencial e com pausa.
+    """
+    from leizilla import textlayer
+    from leizilla.discovery import load_manifest
+
+    if fontes:
+        fonte_list = [f.strip() for f in fontes.split(",") if f.strip()]
+    else:
+        fonte_list = list(load_manifest(ente).get("fontes", {}).keys())
+    if not fonte_list:
+        echo("Nenhuma fonte encontrada (--fontes vazio e manifesto sem fontes)")
+        raise typer.Exit(1)
+
+    prev_rows = None
+    if previous is not None:
+        if not previous.exists():
+            echo(f"Arquivo não encontrado: {previous}")
+            raise typer.Exit(1)
+        prev_rows = textlayer.read_textos_parquet(previous)
+
+    echo(f"Construindo textos: ente={ente} fontes={','.join(fonte_list)}...")
+    rows, stats = textlayer.build_textos(
+        ente, fonte_list, sleep_s=sleep_s, limit=limit, previous=prev_rows
+    )
+    echo(
+        f"  {stats.itens} itens · {stats.identidades} identidades · "
+        f"{stats.com_texto} com texto · {stats.baixados} baixados · "
+        f"{stats.reaproveitados} reaproveitados · {len(rows)} linhas · "
+        f"{sum(1 for r in rows if r['artigos_fecham'])} com artigos fechando"
+    )
+    for failure in stats.failures[:20]:
+        echo(f"  Falha: {failure}")
+    if len(stats.failures) > 20:
+        echo(f"  ... e mais {len(stats.failures) - 20} falha(s)")
+
+    if not stats.complete and not allow_partial:
+        echo(
+            "Construção parcial (falhas de leitura ou --limit) — Parquet não "
+            "gravado. Use --allow-partial para gravar mesmo assim."
+        )
+        raise typer.Exit(1)
+    if not rows:
+        echo("Nenhuma norma com texto encontrada — nada a gravar.")
+        raise typer.Exit(1)
+    textlayer.write_textos_parquet(rows, output)
+    echo(f"Parquet escrito em {output}")
+
+
+@app.command("release-textos")
+def cmd_release_textos(
+    parquet: Path = typer.Argument(..., help="textos.parquet (saída de build-textos)"),
+    ente: str = typer.Option("ro", "--ente", help="Ente federativo"),
+    version: int = typer.Option(0, "--version", help="Versão do dataset"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Valida e reporta stats sem fazer upload"
+    ),
+    allow_lower_count: bool = typer.Option(
+        False,
+        "--allow-lower-count",
+        help=(
+            "Ignora o piso de linhas da tabela textos quando a queda é esperada "
+            "e já verificada. Nunca default."
+        ),
+    ),
+) -> None:
+    """Publicar a camada de texto no IA (ADR-0015), com gates próprios.
+
+    Itens `leizilla-textos-{ente}-v{version}-{revision}` (imutável) e `-latest`
+    (ponteiro). Não lê nem altera os itens nem o piso do dataset `versoes`.
+    """
+    from leizilla import textlayer
+    from leizilla.publisher import (
+        DatasetFloorCheckError,
+        InternetArchivePublisher,
+        _dataset_revision,
+        fetch_published_textos_row_count,
+        get_git_sha,
+    )
+
+    if not parquet.exists():
+        echo(f"Arquivo não encontrado: {parquet}")
+        raise typer.Exit(1)
+    if version < 0:
+        echo(f"--version deve ser >= 0 (recebido: {version})")
+        raise typer.Exit(1)
+
+    problems = textlayer.validate_textos_parquet(parquet)
+    if problems:
+        for problem in problems[:20]:
+            echo(f"  Violação: {problem}")
+        echo(f"Gate de release falhou: {len(problems)} violação(ões) do contrato.")
+        raise typer.Exit(1)
+
+    meta = textlayer.build_textos_meta(
+        parquet, ente, version, _dataset_revision(), get_git_sha()
+    )
+    row_count = int(meta["row_count"])
+    echo(
+        f"Stats: {row_count} normas com texto, "
+        f"{meta['rows_artigos_fecham']} com artigos fechando, "
+        f"{meta['file_size_bytes'] / 1_048_576:.2f} MB"
+    )
+    if row_count == 0:
+        echo("Gate de release falhou: tabela textos vazia.")
+        raise typer.Exit(1)
+    if dry_run:
+        echo("Dry-run: nenhum upload realizado.")
+        return
+
+    try:
+        published = fetch_published_textos_row_count(ente, version)
+    except DatasetFloorCheckError as e:
+        echo(f"Gate de release falhou: não foi possível verificar o piso atual ({e})")
+        raise typer.Exit(1)
+    if published is not None and row_count < published:
+        if not allow_lower_count:
+            echo(
+                "Gate de release falhou: textos candidato tem "
+                f"{row_count} linhas, abaixo do piso publicado de {published}."
+            )
+            raise typer.Exit(1)
+        echo(
+            "Gate de release ignorado (--allow-lower-count): textos candidato tem "
+            f"{row_count} linhas, abaixo do piso publicado de {published}."
+        )
+
+    try:
+        result = InternetArchivePublisher().upload_textos(parquet, meta, ente, version)
+    except ValueError as e:
+        echo(f"Upload falhou: {e}")
+        raise typer.Exit(1)
+    if not result.get("success"):
+        echo(f"Upload falhou: {result.get('error', 'erro desconhecido')}")
+        raise typer.Exit(1)
+    echo(f"Textos publicados: {result['ia_url']} ({row_count} linhas)")
+    latest_pointer = result.get("latest_pointer") or {}
+    if latest_pointer.get("success"):
+        echo(f"Ponteiro latest atualizado: {latest_pointer['ia_url']}")
+    else:
+        echo(
+            "Aviso: ponteiro latest falhou "
+            f"({latest_pointer.get('error', 'erro desconhecido')}) — "
+            "release imutável publicada normalmente."
+        )
+
+
 @app.command("consolidate")
 def cmd_consolidate(
     xml_dir: Path = typer.Argument(..., help="Diretório com arquivos {lei_id}.xml"),
