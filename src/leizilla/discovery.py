@@ -388,6 +388,35 @@ def _promote_head_ambiguous(
 DEFAULT_CDX_AUTO_FALLBACK_END = 10
 
 
+#: Quantos números além do último range já preservado no IA a descoberta
+#: explora quando o template usa ``ia_frontier`` — um bucket de range inteiro,
+#: para que o range seguinte possa nascer.
+DEFAULT_IA_FRONTIER_WINDOW = 1000
+
+_RANGE_ITEM_RE = re.compile(r"(\d+)-(\d+)")
+
+
+def resolve_ia_range_max(ente: str, fonte: str, tipo: str) -> int:
+    """Maior limite superior entre os itens de range já existentes no IA.
+
+    ``leizilla_ro_casacivil_lei_1001-2000`` → 2000. Lê só os identificadores dos
+    itens (uma consulta), sem baixar índices. Retorna 0 se não houver item ou se
+    a consulta falhar — o chamador mantém o limite que já tinha.
+    """
+    from leizilla import publisher
+
+    prefix = f"leizilla_{ente.lower()}_{fonte.lower()}_{tipo.lower()}_"
+    item_ids = publisher.scrape_identifiers(prefix) or []
+    resolved = 0
+    for item_id in item_ids:
+        if not item_id.startswith(prefix):
+            continue
+        match = _RANGE_ITEM_RE.fullmatch(item_id[len(prefix) :])
+        if match:
+            resolved = max(resolved, int(match.group(2)))
+    return resolved
+
+
 class SequentialDiscovery:
     """Estratégia de descobrimento baseada em templates de URLs sequenciais.
 
@@ -398,6 +427,12 @@ class SequentialDiscovery:
     `resolve_cdx_max_for_template`).
     Fail-safe: se a CDX não resolver nada, usa `end_fallback`
     (default `DEFAULT_CDX_AUTO_FALLBACK_END`, configurável no manifesto).
+
+    Com `"ia_frontier": true` o limite também considera o que o próprio
+    Leizilla já preservou: o topo do maior item de range no IA mais
+    `ia_frontier_window`. Assim a fronteira avança sozinha e não depende de a
+    Wayback já conhecer os números novos nem de a CDX estar no ar (achado de
+    2026-11-07: CDX 503 → fallback 10 → nenhuma lei nova, job verde).
     """
 
     def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
@@ -418,6 +453,11 @@ class SequentialDiscovery:
             self.cdx_auto = False
         self.end_fallback = int(
             config.get("end_fallback", DEFAULT_CDX_AUTO_FALLBACK_END)
+        )
+
+        self.ia_frontier: bool = bool(config.get("ia_frontier", False))
+        self.ia_frontier_window = int(
+            config.get("ia_frontier_window", DEFAULT_IA_FRONTIER_WINDOW)
         )
 
         self.ente = ente
@@ -503,13 +543,24 @@ class SequentialDiscovery:
         # Ex.: D{num}.pdf e DEC{num}.pdf são ambos ``decreto``, mas não podem
         # compartilhar high-water (issue #319).
         resolved = resolve_cdx_max_for_template(cdx_prefix, tmpl)
+        ia_end = 0
+        if self.ia_frontier and tipo:
+            ia_max = resolve_ia_range_max(self.ente, self.fonte, tipo)
+            if ia_max > 0:
+                ia_end = ia_max + self.ia_frontier_window
         if resolved <= 0:
+            if ia_end > 0:
+                logger.warning(
+                    f"cdx-auto: CDX não resolveu o limite para {tmpl!r} "
+                    f"(tipo={tipo!r}); usando a fronteira do IA end={ia_end}."
+                )
+                return ia_end
             logger.warning(
                 f"cdx-auto: não foi possível resolver o limite via CDX para "
                 f"{tmpl!r} (tipo={tipo!r}); usando fallback end={self.end_fallback}."
             )
             return self.end_fallback
-        return resolved
+        return max(resolved, ia_end)
 
     def run(self, storage: Optional[DuckDBStorage] = None) -> List[Dict[str, Any]]:
         end = self._resolve_end()

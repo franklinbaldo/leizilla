@@ -922,6 +922,22 @@ class InternetArchivePublisher:
         self.secret_key = config.IA_SECRET_KEY
         self._upload_rate_limiter = make_rate_limiter(_IA_UPLOAD_MIN_INTERVAL_S)
 
+    def preserved_sources(self, item_id: str) -> Optional[set[str]]:
+        """URLs de origem (sem esquema) já capturadas num item, pelo ``index.csv``.
+
+        ``None`` quando o índice não pôde ser lido agora (falha transitória) —
+        distinto de um conjunto vazio, que é um item confirmado sem capturas.
+        """
+        try:
+            index_csv = _fetch_existing_index(item_id)
+        except IndexFetchError:
+            return None
+        return {
+            row["source"].split("://", 1)[-1]
+            for row in csv.DictReader(io.StringIO(index_csv or ""))
+            if row.get("source")
+        }
+
     def _run_ia_upload(self, args: list[str]) -> "subprocess.CompletedProcess[str]":
         """Roda ``ia upload ...`` com espaçamento + retry exponencial (ADR-0008).
 
