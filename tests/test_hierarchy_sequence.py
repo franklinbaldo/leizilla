@@ -482,6 +482,121 @@ def test_no_articles_closes_nothing() -> None:
     assert not report["closes"]
 
 
+def test_look_alike_after_the_chain_keeps_the_scope_open() -> None:
+    # "11 —" after "I —" and "II —" is III with a stroke lost: it fits no reading, and
+    # the chain that stops at II must not close.
+    text = "Art. 1º Valor:\nI — um;\nII — dois; e\n11 — três.\nArt. 2º Vigora."
+    report = read_hierarchy(text)
+    assert _unexplained(report) == ["11 —"]
+    assert not report["levels"]["inciso"]["closes"]
+    assert not report["closes"]
+
+
+def test_unreadable_marker_that_continues_a_list_keeps_the_scope_open() -> None:
+    text = "Art. 1º Receitas:\nI — taxas;\nII — doações; e\nWI — outras.\nArt. 2º Fim."
+    report = read_hierarchy(text)
+    assert _unexplained(report) == ["WI —"]
+    assert not report["closes"]
+
+
+def test_unreadable_line_opener_outside_a_list_is_ignored() -> None:
+    text = (
+        "Art. 1º Compete ao Prefeito e ao\nVice-Prefeito:\nI - um;\nII - dois.\n"
+        "Art. 2º Vigora."
+    )
+    report = read_hierarchy(text)
+    assert not _unexplained(report)
+    assert report["closes"]
+
+
+def test_leftover_explained_by_a_deeper_level_does_not_count() -> None:
+    # "1 -" is an inciso look-alike (I), left over beside the chain; the item reader
+    # explains it, so the inciso scope still closes.
+    text = (
+        "Art. 1º Compete:\nI - listar:\n1 - primeiro;\n2 - segundo;\nII - outro.\n"
+        "Art. 2º Vigora."
+    )
+    report = read_hierarchy(text)
+    assert "art-1-inc-1-item-2" in _paths(report)
+    assert not _unexplained(report)
+    assert report["closes"]
+
+
+def test_paragraph_look_alikes_left_over_keep_the_scope_open() -> None:
+    text = "Art. 1º Caput.\nS 2º Dois.\nS 3º Três.\nArt. 2º Vigora."
+    report = read_hierarchy(text)
+    assert not report["levels"]["paragrafo"]["closes"]
+    assert not report["closes"]
+
+
+def test_lowercase_paragrafo_unico_in_prose_is_not_a_marker() -> None:
+    text = (
+        "Art. 1º O art. 3º fica acrescido do § 2º, passando\n"
+        "o parágrafo único a ser § 1º.\nArt. 2º Vigora."
+    )
+    report = read_hierarchy(text)
+    assert _paths(report) == ["art-1", "art-2"]
+
+
+def test_lost_alinea_letters_are_read_inside_the_list() -> None:
+    # "1)" is "i)"; "))" is "j)", read only because it is the one gap in the chain.
+    letters = ["a", "b", "c", "d", "e", "f", "g", "h", "1", ")", "l"]
+    body = "\n".join(f"{x}) texto;" for x in letters)
+    report = read_hierarchy(f"Art. 1º Lista:\n{body}\nArt. 2º Vigora.")
+    assert _node(report, "art-1-ali-i")["read_by"] == "confusion"
+    assert _node(report, "art-1-ali-j")["read_by"] == "gap"
+    assert _node(report, "art-1-ali-l")["read_by"] == "literal"
+    assert report["closes"]
+
+
+def test_read_by_tells_literal_confusion_and_gap_apart() -> None:
+    text = (
+        "Art. 1º Compete:\nI - um;\nH - dois;\nNI — três;\nIV - quatro.\n"
+        "Art. 2º Vigora."
+    )
+    report = read_hierarchy(text)
+    assert [_node(report, f"art-1-inc-{n}")["read_by"] for n in (1, 2, 3, 4)] == [
+        "literal",
+        "confusion",
+        "gap",
+        "literal",
+    ]
+
+
+def test_block_opened_by_its_cue_still_closes_at_the_closing_mark() -> None:
+    text = (
+        "Art. 1º O parágrafo único do art. 34 passa a vigorar com a seguinte "
+        "redação:\n........\nParágrafo único. Os proventos serão calculados.”\n"
+        "§ 1º Regra do hospedeiro.\n§ 2º Outra.\nArt. 2º Esta Lei entra em vigor."
+    )
+    report = read_hierarchy(text)
+    (block,) = report["quoted_blocks"]
+    assert (block["opened_by"], block["closed"]) == ("cue", True)
+    assert _paths(report) == ["art-1", "art-1-par-1", "art-1-par-2", "art-2"]
+    assert _paths(report, "quoted") == ["par-unico"]
+    assert report["closes"]
+
+
+def test_unclosed_block_at_the_end_of_the_body_keeps_the_norm_open() -> None:
+    # The OCR text stops inside the quotation: the host's last articles, if any, are
+    # not there to be read.
+    text = (
+        "Art. 1º O art. 8º da Lei nº 5 passa a vigorar com a seguinte redação:\n"
+        '"Art. 8º Licenciar:\na) ferrovias;\nb) portos.'
+    )
+    report = read_hierarchy(text)
+    assert report["open_tail_block"]
+    assert not report["levels"]["artigo"]["closes"]
+    assert not report["closes"]
+
+
+def test_final_clause_flags_a_text_cut_short() -> None:
+    cut = read_hierarchy("Art. 1º Fica criado.\nArt. 2º Os recursos correrão.")
+    whole = read_hierarchy("Art. 1º Fica criado.\nArt. 2º Esta Lei entra em vigor.")
+    assert cut["closes"] and not cut["final_clause"]
+    assert whole["closes"] and whole["final_clause"]
+
+
 # --- articles ---------------------------------------------------------------------
 def test_garbled_article_word_is_read_in_a_single_gap() -> None:
     text = "Art. 1º Fica.\nAit. 2o. Esta Lei entra em vigor.\nArt. 3º Revogam-se."

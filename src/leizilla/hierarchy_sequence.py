@@ -54,9 +54,10 @@ from leizilla.article_sequence import (
 # A paragraph sign followed by a number-like token. OCR reads "§" as "$", "S", "8", "9",
 # "5" or "&"; the look-alike glyphs are only trusted at the start of a line.
 _PAR = re.compile(
-    r"(?<![A-Za-z0-9$§])(?P<glyph>§|\$|(?:\d{1,2}|[SsqgBfE&£])(?=\s))\s{0,3}"
-    r"(?P<num>[0-9IlO]{1,3})(?P<ord>\s?\.?[ºo°ªQ^?])?"
-    r"(?:-(?P<suffix>[A-Z])\b)?(?![.,]?\d)"
+    r"(?<![A-Za-z0-9$§])"
+    r"(?P<glyph>§|\$|(?:\d{1,2}|[SsqgBfE&£])(?=\s)|S(?=\d{1,2}[º°]))\s{0,3}"
+    r"(?P<num>[0-9IlO]{1,3})(?:(?P<ord>\s?\.?[ºo°ªQ^?])|(?![.,]?\d))"
+    r"(?:-(?P<suffix>[A-Z])\b)?"
 )
 # "§ T" for "§ 7º": a paragraph sign whose number is unreadable. It has no reading of
 # its own and can only be read by the chain around it.
@@ -71,10 +72,14 @@ _INC = re.compile(
 )
 # Any short token before a dash at the start of a line ("Vm -", "NI —", "VÊ -"): no
 # reading of its own, usable only to fill a single gap in a chain.
-_INC_WILD = re.compile(r"(?m)^[ \t]*(?P<tok>[^\W_]{1,4})[ \t]{0,2}[-–—]+[ \t]*\S")
+_INC_WILD = re.compile(
+    r"(?m)^[ \t]*(?P<mark>(?P<tok>[^\W_]{1,4})[ \t]{0,2}[-–—]+)(?P<gap>[ \t]*)\S"
+)
 _ALI = re.compile(r"(?<![\w(])(?P<let>[a-zA-Z06])\s?[)\]}]")
+_ALI_WILD = re.compile(r"(?m)^[ \t]*(?P<tok>[^\s(]{1,2})[ \t]?[)\]}]")
 _ITEM = re.compile(r"(?m)^[ \t]*(?P<num>\d{1,2})(?:\s?[.)]|\s?[-–—])(?=\s)(?!\s*\d)")
 
+_PROSE = re.compile(r"[ \t]+[^\W\d_]{2}")
 _PURE_ROMAN = re.compile(r"[IVXLC]+\Z")
 _HAS_ROMAN_CAPITAL = re.compile(r"[IVXLCH]")
 _STRONG_SEP = re.compile(r"[-–—~=_]")
@@ -164,6 +169,8 @@ _ART_WILD = re.compile(
     r"(?m)^[ \t]*(?P<word>(?:[AÁ][rRtTiIlLpPfFnh]{1,3}s?|[aáà]r[tl]?)\b[.,:;]?"
     r"[ \t]*\n?[ \t]*(?:\d\S{0,3}|[A-Z]{1,2}\b|[Il][oO0]\b))"
 )
+_FINAL_CLAUSE = re.compile(r"vig[oêe]|revoga|publica[cç]", re.IGNORECASE)
+_ENUM_LEFT = re.compile(r";\s*(?:(?:e|ou)\s*)?$")
 _LEAD = re.compile(r"\s*[.\-–—:]{0,2}\s*")
 _WORDING = re.compile(r"reda[cç][aã]o|redigid", re.IGNORECASE)
 _BARE_HEAD = re.compile(r"(?:Art|AH|Arl|Aft|§|\$\s?\d|Par[áa]grafo)")
@@ -203,6 +210,10 @@ class Node(TypedDict):
     children: list[int]
     status: str  # own | quoted
     corrected: bool  # the chosen reading differs from the literal one
+    # How the number was read: "literal" (as printed), "confusion" (a known OCR
+    # look-alike, chosen by the chain), "gap" (unreadable or contradictory glyphs, read
+    # only because exactly one number was missing around it) or "quoted".
+    read_by: str
 
 
 class Leftover(TypedDict):
@@ -214,6 +225,11 @@ class Leftover(TypedDict):
     raw: str
     status: str  # unexplained | reference | quoted | ignored
     scope: int | None  # id of the node whose scope it sits in
+    # For an unexplained candidate, how it relates to the chain of its scope:
+    # "duplicate" (a number the chain already has), "ahead" (beyond the chain's end),
+    # "out_of_order" (a missing number, in the wrong place), "unreadable" (no reading)
+    # or "no_chain" (the scope has no chain at all). Empty otherwise.
+    hint: str
 
 
 class ScopeReport(TypedDict):
@@ -252,6 +268,12 @@ class HierarchyReport(TypedDict):
     levels: dict[str, LevelReport]
     quoted_blocks: list[QuotedBlock]
     body_end: int
+    # An unclosed quoted block runs to the end of the body: host articles after it, if
+    # any, cannot be told from the quoted ones. Keeps the article level open.
+    open_tail_block: bool
+    # The last own articles carry a vigência or revogação clause, as a complete norm
+    # does. Not part of `closes`; a cheap sign that the OCR text is not cut short.
+    final_clause: bool
     closes: bool
 
 
@@ -263,6 +285,7 @@ class _Cand:
     suffix: str | None = None
     strong: bool = True  # sits where a marker sits: unexplained when left over
     literal: int | None = None  # what the marker says when read at face value
+    tail: bool = False  # weak, but unexplained when left over beside a chain
     ref: bool = False  # an in-sentence citation, decided before any chain
     unico: bool = False
     digit: bool = False  # an arabic token read as roman ("1 -" as I)
@@ -331,8 +354,13 @@ def _after_break(text: str, pos: int) -> bool:
     return bool(left) and (left[-1] in ".;:" or left[-1] in _QUOTES)
 
 
-def _marker_position(text: str, pos: int) -> bool:
-    return _at_line_start(text, pos) or _after_break(text, pos)
+def _in_enumeration(text: str, pos: int) -> bool:
+    """True when the previous element of a list ends right before ``pos``.
+
+    "…; e" or "…;" before a line means the enumeration goes on: whatever opens that
+    line is the next marker, however the OCR spelled it.
+    """
+    return _ENUM_LEFT.search(text[max(0, pos - 12) : pos]) is not None
 
 
 def _left(text: str, pos: int, width: int = 16) -> str:
@@ -368,16 +396,17 @@ def _paragraph_candidates(text: str) -> list[_Cand]:
                 m.end(),
                 readings,
                 suffix=m.group("suffix"),
-                strong=sign and (line_start or _after_break(text, m.start())),
+                # A look-alike glyph is only accepted at a line start with an ordinal
+                # sign, which is already where and how a paragraph marker sits.
+                strong=not sign or line_start or _after_break(text, m.start()),
                 literal=readings[0] if glyph == "§" else None,
                 ref=ref,
             )
         )
     for m in _PAR_UNICO.finditer(text):
         line_start = _at_line_start(text, m.start())
-        capital = m.group(0)[0] == "P"
-        if not capital and not line_start:
-            continue  # "o parágrafo único do art. 5º"
+        if m.group(0)[0] != "P":
+            continue  # "passando o parágrafo único a ser § 1º": prose, not a marker
         ref = bool(_REF_RIGHT_PAR.match(text, m.end(), m.end() + 12)) or (
             not line_start and bool(_REF_LEFT_PAR.search(_left(text, m.start())))
         )
@@ -385,7 +414,9 @@ def _paragraph_candidates(text: str) -> list[_Cand]:
     taken = {c.start for c in out}
     for m in _PAR_WILD.finditer(text):
         if m.start() not in taken and _at_line_start(text, m.start()):
-            out.append(_Cand(m.start(), m.end(), (), strong=False))
+            # A paragraph sign at the start of a line is a marker even when its number
+            # is unreadable: left over, it keeps the scope open.
+            out.append(_Cand(m.start(), m.end(), ()))
     out.sort(key=lambda c: c.start)
     return out
 
@@ -402,6 +433,8 @@ def _inciso_candidates(text: str) -> list[_Cand]:
         # candidate where a marker would sit.
         if (not pure or not dash) and not line_start:
             continue
+        if m.group("sep") == ")" and not pure:
+            continue  # "i)", "l)", "1)" are alíneas, never incisos
         glued = m.end() < len(text) and not text[m.end()].isspace()
         if glued and not (line_start and dash):
             continue  # "I-A", "V-se": only a line start makes a glued dash a marker
@@ -414,24 +447,38 @@ def _inciso_candidates(text: str) -> list[_Cand]:
                 readings,
                 # Unreadable tokens, digits and lowercase look-alikes are too common
                 # as page noise to be held against the norm when left over.
-                strong=dash
-                and bool(readings)
-                and _HAS_ROMAN_CAPITAL.search(token) is not None
-                and (line_start or _after_break(text, m.start())),
+                strong=_in_enumeration(text, m.start())
+                or (
+                    dash
+                    and bool(readings)
+                    and (
+                        (
+                            _HAS_ROMAN_CAPITAL.search(token) is not None
+                            and (line_start or _after_break(text, m.start()))
+                        )
+                        # "| — declarar": a look-alike that opens a line of prose.
+                        or (
+                            not token.isdigit()
+                            and _PROSE.match(text, m.end()) is not None
+                        )
+                    )
+                ),
                 literal=readings[0] if pure else None,
                 ref=bool(_REF_LEFT_INC.search(_left(text, m.start(), 20))),
                 digit=token.isdigit(),
+                tail=dash and line_start and bool(readings),
             )
         )
     taken = {c.start for c in out}
     for m in _INC_WILD.finditer(text):
-        start, end = m.start("tok"), m.end() - 1
+        start, end = m.start("tok"), m.end("mark")
         token = m.group("tok")
         if start in taken or token.isdigit():
             continue
-        if token.islower() and not text[end - 1].isspace():
+        if token.islower() and not m.group("gap"):
             continue  # "auto-sustentável" broken across lines
-        out.append(_Cand(start, end, (), strong=False))
+        # "WI —" after "II — …; e": unreadable, but the list plainly goes on.
+        out.append(_Cand(start, end, (), strong=_in_enumeration(text, start)))
     out.sort(key=lambda c: c.start)
     return out
 
@@ -457,6 +504,16 @@ def _alinea_candidates(text: str) -> list[_Cand]:
                 ref=bool(_REF_LEFT_ALI.search(_left(text, m.start()))),
             )
         )
+    taken = {c.start for c in out}
+    for m in _ALI_WILD.finditer(text):
+        start = m.start("tok")
+        if start in taken or not _in_enumeration(text, start):
+            continue
+        # "1)" for "i)" or "l)", "))" for "j)": the list goes on, the letter is lost.
+        token = m.group("tok")
+        readings = (12, 9) if token == "1" else ()
+        out.append(_Cand(start, m.end(), readings))
+    out.sort(key=lambda c: c.start)
     return out
 
 
@@ -543,17 +600,18 @@ def find_quoted_blocks(
             if not is_article and not _AMEND_CUE.search(text, host_start, k):
                 continue
         end, closed = limit, False
-        if opened_by == "mark":
-            depth = 1
-            for q in _QUOTE_CHAR.finditer(text, k + 1, limit):
-                j = q.start()
-                if _is_closing(text, j):
-                    depth -= 1
-                    if depth == 0:
-                        end, closed = j + 1, True
-                        break
-                elif _is_opening(text, j):
-                    depth += 1
+        # A block opened by its cue lost only the opening mark: the closing one is
+        # looked for all the same.
+        depth = 1
+        for q in _QUOTE_CHAR.finditer(text, k + 1, limit):
+            j = q.start()
+            if _is_closing(text, j):
+                depth -= 1
+                if depth == 0:
+                    end, closed = j + 1, True
+                    break
+            elif _is_opening(text, j):
+                depth += 1
         if not closed:
             # "(NR)" ends a rewritten dispositivo even when the mark was lost.
             marks = list(_NR.finditer(text, k, limit))
@@ -574,6 +632,7 @@ class _Builder:
         self.leftovers: list[Leftover] = []
         self.scopes: list[ScopeReport] = []
         self.masked: list[tuple[int, int]] = []
+        self.pending: list[tuple[Leftover, int]] = []
         self.cands: dict[str, list[_Cand]] = {
             "paragrafo": _paragraph_candidates(text),
             "inciso": _inciso_candidates(text),
@@ -594,6 +653,7 @@ class _Builder:
         status: str,
         corrected: bool,
         unico: bool = False,
+        gap: bool = False,
     ) -> int:
         text = self.text
         # The node's own text starts after the marker and its separator ("Art. 2º - A
@@ -627,11 +687,36 @@ class _Builder:
             "children": [],
             "status": status,
             "corrected": corrected,
+            "read_by": "quoted"
+            if status == "quoted"
+            else "gap"
+            if gap
+            else "confusion"
+            if corrected
+            else "literal",
         }
         self.nodes.append(node)
         if parent is not None:
             self.nodes[parent]["children"].append(node["id"])
         return node["id"]
+
+    def settle(self) -> None:
+        """Decide the marker-shaped leftovers once every level has been read.
+
+        A leftover that a deeper level turned into a node is explained ("1 -" is no
+        inciso, it is an item; "i)" is no inciso, it is an alínea). Every other one is
+        unexplained and keeps its scope open: "11 —" after "I —" and "II —" is most
+        likely III with a stroke lost, so the chain that ends at II must not close.
+        """
+        explained = {n["start"] for n in self.nodes if n["kind"] != "quoted_block"}
+        for leftover, scope_index in self.pending:
+            if leftover["start"] in explained:
+                continue
+            leftover["status"] = "unexplained"
+            scope = self.scopes[scope_index]
+            scope["unexplained"] += 1
+            scope["closes"] = False
+        self.scopes = [s for s in self.scopes if s["count"] or s["unexplained"]]
 
     def _slice(self, kind: str, lo: int, hi: int, lenient: bool) -> list[_Cand]:
         starts = self.starts[kind]
@@ -666,8 +751,10 @@ class _Builder:
             anchored=not lenient,
             free_skips=_ALI_FREE_SKIPS if kind == "alinea" else frozenset(),
         )
-        if not lenient:
-            _fill_single_gaps(cands, chosen)
+        free_skips = _ALI_FREE_SKIPS if kind == "alinea" else frozenset()
+        filled = (
+            _fill_single_gaps(cands, chosen, free_skips) if not lenient else frozenset()
+        )
         members = [i for i, v in enumerate(chosen) if v is not None]
         values = [v for v in chosen if v is not None]
         keep = bool(members)
@@ -687,7 +774,7 @@ class _Builder:
             members, values = [], []
 
         status = "quoted" if lenient else "own"
-        unexplained = 0
+        pending: list[Leftover] = []
         for i, c in enumerate(cands):
             if chosen[i] is not None:
                 continue
@@ -695,23 +782,25 @@ class _Builder:
                 left = "reference"
             elif lenient:
                 left = "quoted"
-            elif c.strong:
-                left = "unexplained"
-                unexplained += 1
             else:
                 left = "ignored"
-            self.leftovers.append(
-                {
-                    "kind": kind,
-                    "start": c.start,
-                    "end": c.end,
-                    "raw": self.text[c.start : c.end],
-                    "status": left,
-                    "scope": parent,
-                }
-            )
+            leftover: Leftover = {
+                "kind": kind,
+                "start": c.start,
+                "end": c.end,
+                "raw": self.text[c.start : c.end],
+                "status": left,
+                "scope": parent,
+                "hint": _hint(c.readings, values),
+            }
+            self.leftovers.append(leftover)
+            # A marker-shaped leftover keeps its scope open, unless a deeper level
+            # explains it ("1 -" left by the incisos, read as an item): decided in
+            # `settle`, once the whole tree is built.
+            if left == "ignored" and (c.strong or (c.tail and members)):
+                pending.append(leftover)
 
-        if not lenient and (members or unexplained):
+        if not lenient and (members or pending):
             present = set(values)
             last = max(present) if present else 0
             skips = _ALI_FREE_SKIPS if kind == "alinea" else frozenset()
@@ -719,6 +808,7 @@ class _Builder:
                 k for k in range(1, last + 1) if k not in present and k not in skips
             ]
             conflict = len(members) > 1 and any(cands[i].unico for i in members)
+            self.pending.extend((left_, len(self.scopes)) for left_ in pending)
             self.scopes.append(
                 {
                     "kind": kind,
@@ -726,9 +816,9 @@ class _Builder:
                     "count": len(members),
                     "last": last,
                     "missing": missing,
-                    "unexplained": unexplained,
+                    "unexplained": 0,
                     "conflict": conflict,
-                    "closes": not missing and not unexplained and not conflict,
+                    "closes": not missing and not conflict,
                 }
             )
 
@@ -751,6 +841,7 @@ class _Builder:
                 status,
                 corrected=value != c.literal,
                 unico=c.unico,
+                gap=i in filled,
             )
             self.descend(c.end, end, node, level + 1, lenient)
 
@@ -830,24 +921,52 @@ class _Builder:
         return found
 
 
-def _fill_single_gaps(cands: Sequence[_Cand], chosen: list[int | None]) -> None:
+def _fill_single_gaps(
+    cands: Sequence[_Cand], chosen: list[int | None], free_skips: frozenset[int]
+) -> frozenset[int]:
     """Read a lone leftover between k-1 and k+1 as k, whatever its glyphs say.
 
     "VII -" printed twice between VI and IX, or "NI —" between II and IV: when exactly
     one number is missing between two chain neighbours and exactly one candidate sits
     between them, the sequence decides the reading. Two leftovers in the gap, or two
-    missing numbers, stay open.
+    missing numbers, stay open. Returns the indices it filled.
     """
+    filled: set[int] = set()
     members = [i for i, v in enumerate(chosen) if v is not None]
     for a, b in zip(members, members[1:]):
         lo, hi = chosen[a], chosen[b]
-        if lo is None or hi is None or hi - lo != 2:
+        if lo is None or hi is None:
+            continue
+        absent = [k for k in range(lo + 1, hi) if k not in free_skips]
+        if len(absent) != 1:
             continue
         between = [i for i in range(a + 1, b) if not cands[i].ref]
         if len(between) == 1 and not cands[between[0]].unico:
             if cands[between[0]].digit:
                 continue  # "1 -" between II and IV is a list item, not III
-            chosen[between[0]] = lo + 1
+            chosen[between[0]] = absent[0]
+            filled.add(between[0])
+    return frozenset(filled)
+
+
+def _hint(readings: Sequence[int], chain: Sequence[int]) -> str:
+    """How a leftover candidate relates to the chain it did not join."""
+    if not readings:
+        return "unreadable"
+    if not chain:
+        return "no_chain"
+    if any(r in chain for r in readings):
+        return "duplicate"
+    if min(readings) > max(chain):
+        return "ahead"
+    return "out_of_order"
+
+
+def _article_numbers(text: str, start: int) -> list[int]:
+    m = ARTICLE_CANDIDATE.match(text, start)
+    if m is None:
+        return []
+    return article_readings(m.group("num"), m.group("ord") is not None)
 
 
 def _glued_suffix(m: re.Match[str]) -> str | None:
@@ -875,7 +994,7 @@ def _article_marker_end(text: str, start: int, fallback: int) -> tuple[int, str 
 
 def _fill_article_gaps(
     text: str, articles: list[ArticleRead], masked: Sequence[tuple[int, int]]
-) -> list[ArticleRead]:
+) -> tuple[list[ArticleRead], frozenset[int]]:
     """Read a lone garbled article marker between Art. k-1 and Art. k+1 as Art. k.
 
     The article reader only sees "Art" + a number-like token. When the word itself is
@@ -887,6 +1006,7 @@ def _fill_article_gaps(
     own = [a for a in out if a["status"] == "own" and a["number"] is not None]
     known = {a["start"] for a in out}
     added: list[ArticleRead] = []
+    filled: set[int] = set()
     for a, b in zip(own, own[1:]):
         if a["number"] is None or b["number"] is None:
             continue
@@ -910,6 +1030,7 @@ def _fill_article_gaps(
             loose[0]["status"] = "own"
             loose[0]["number"] = a["number"] + 1
             loose[0]["corrected"] = True
+            filled.add(loose[0]["start"])
         else:
             m = wild[0]
             added.append(
@@ -925,7 +1046,7 @@ def _fill_article_gaps(
             )
     out.extend(added)
     out.sort(key=lambda x: x["start"])
-    return out
+    return out, frozenset(filled | {x["start"] for x in added})
 
 
 def find_body_end(text: str, last_article_start: int) -> int:
@@ -954,14 +1075,25 @@ def read_hierarchy(text: str) -> HierarchyReport:
     masked.sort()
     second = read_articles(text, masked) if masked else first
     builder.masked = masked
-    all_articles = _fill_article_gaps(text, second["articles"], masked)
+    all_articles, gap_articles = _fill_article_gaps(text, second["articles"], masked)
 
     own = [a for a in all_articles if a["status"] == "own"]
     own_numbers = {a["number"] for a in own if a["number"] is not None}
     last_article = max(own_numbers, default=0)
     missing_articles = [k for k in range(1, last_article + 1) if k not in own_numbers]
     unexplained_articles = sum(1 for a in all_articles if a["status"] == "unexplained")
-    articles_close = bool(own) and not missing_articles and not unexplained_articles
+    open_tail_block = any(
+        not closed and end >= body_end and (not own or start > own[-1]["start"])
+        for start, end, _, closed in spans
+    )
+    articles_close = (
+        bool(own)
+        and not missing_articles
+        and not unexplained_articles
+        and not open_tail_block
+    )
+    tail_start = own[-2]["start"] if len(own) > 1 else own[0]["start"] if own else 0
+    final_clause = bool(own) and bool(_FINAL_CLAUSE.search(text, tail_start, body_end))
     if own:
         body_end = max(find_body_end(text, own[-1]["start"]), own[-1]["end"])
     roots: list[int] = []
@@ -978,6 +1110,7 @@ def read_hierarchy(text: str) -> HierarchyReport:
             None,
             "own",
             art["corrected"],
+            gap=art["start"] in gap_articles,
         )
         roots.append(node)
         builder.descend(marker_end, end, node, 0, False)
@@ -991,6 +1124,12 @@ def read_hierarchy(text: str) -> HierarchyReport:
                     "raw": art["raw"],
                     "status": art["status"],
                     "scope": None,
+                    "hint": _hint(
+                        tuple(_article_numbers(text, art["start"])),
+                        sorted(own_numbers),
+                    )
+                    if art["status"] == "unexplained"
+                    else "",
                 }
             )
 
@@ -1020,6 +1159,10 @@ def read_hierarchy(text: str) -> HierarchyReport:
             stop -= 1
         node_["text_end"] = stop
         node_["children"].sort(key=lambda c: nodes[c]["start"])
+    builder.settle()
+    for left in builder.leftovers:
+        if left["status"] != "unexplained":
+            left["hint"] = ""
     builder.leftovers.sort(key=lambda left: left["start"])
 
     levels: dict[str, LevelReport] = {}
@@ -1053,6 +1196,8 @@ def read_hierarchy(text: str) -> HierarchyReport:
         "levels": levels,
         "quoted_blocks": quoted_blocks,
         "body_end": body_end,
+        "open_tail_block": open_tail_block,
+        "final_clause": final_clause,
         # Conservative: every level, in every scope, a full chain and nothing
         # unexplained. Itens are too weakly marked to gate closure.
         "closes": all(levels[k]["closes"] for k in _LEVELS if k != "item"),

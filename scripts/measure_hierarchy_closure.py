@@ -6,7 +6,10 @@ prints, with no model involved:
 - closure per level (articles / paragraphs / incisos / alíneas) and overall, against two
   baselines for the article level (the naive regex of `segmenter.validate_structure`
   and the article-only `article_sequence.read_articles`);
-- the same table per tipo, when a metadata file maps texts to tipos;
+- the same table per tipo, when a metadata file maps texts to tipos; the last column
+  also asks for a vigência/revogação clause at the end, which catches texts cut short;
+- how each marker was read (literal, known OCR confusion, single-gap fill) and the
+  caveats on the closed set (weak candidates ignored, no final clause);
 - the residual taxonomy: why norms stay open, and the most frequent unexplained marker
   shapes;
 - how many closures lean on a quoted block that was opened without a quotation mark or
@@ -79,6 +82,8 @@ def _why_open(report: HierarchyReport, kind: str) -> str:
         return "closed"
     if kind == "artigo" and level["nodes"] == 0:
         return "no_article_read"
+    if kind == "artigo" and report["open_tail_block"]:
+        return "unclosed_quote_to_the_end"
     if kind != "artigo" and report["levels"]["artigo"]["nodes"] == 0:
         return "no_article_read"
     conflict = any(s["conflict"] for s in report["scopes"] if s["kind"] == kind)
@@ -153,7 +158,7 @@ def main() -> int:
         print("no texts found", file=sys.stderr)
         return 1
 
-    columns = ["naive_art", "seq_art", *LEVELS, "all_levels"]
+    columns = ["naive_art", "seq_art", *LEVELS, "all_levels", "all+clause"]
     overall: dict[str, Counter[str]] = {"TOTAL": Counter()}
     why: dict[str, Counter[str]] = {k: Counter() for k in LEVELS}
     shapes: dict[str, Counter[str]] = {k: Counter() for k in (*LEVELS, "item")}
@@ -163,6 +168,9 @@ def main() -> int:
     present: Counter[str] = Counter()
     present_closed: Counter[str] = Counter()
     quoted = Counter[str]()
+    read_by: Counter[str] = Counter()
+    hints: Counter[str] = Counter()
+    caveats: Counter[str] = Counter()
     queue: list[dict[str, object]] = []
     slowest = (0.0, "")
     started = time.perf_counter()
@@ -180,6 +188,7 @@ def main() -> int:
             row["naive_art"] += naive
             row["seq_art"] += seq
             row["all_levels"] += report["closes"]
+            row["all+clause"] += report["closes"] and report["final_clause"]
             for kind in LEVELS:
                 row[kind] += report["levels"][kind]["closes"]
         for kind in LEVELS:
@@ -192,6 +201,25 @@ def main() -> int:
                 present_closed[kind] += level["closes"]
         nodes["item"] += report["levels"]["item"]["nodes"]
         nodes["quoted"] += sum(1 for n in report["nodes"] if n["status"] == "quoted")
+
+        for node in report["nodes"]:
+            if node["status"] == "own":
+                where = "closed" if report["closes"] else "open"
+                read_by[f"{node['kind']}:{node['read_by']}:{where}"] += 1
+        caveats["open_tail_block"] += report["open_tail_block"]
+        if report["closes"]:
+            caveats["closed"] += 1
+            caveats["closed_without_final_clause"] += not report["final_clause"]
+            ignored = {
+                left["kind"]
+                for left in report["leftovers"]
+                if left["status"] == "ignored" and left["kind"] != "item"
+            }
+            caveats["closed_with_ignored_candidates"] += bool(ignored)
+            for kind in ignored:
+                caveats[f"closed_with_ignored_{kind}"] += 1
+            sub = sum(report["levels"][k]["nodes"] for k in LEVELS[1:])
+            caveats["closed_with_no_sublevel"] += sub == 0
 
         blocks = report["quoted_blocks"]
         if blocks:
@@ -209,6 +237,7 @@ def main() -> int:
             if left["status"] != "unexplained":
                 continue
             shapes[left["kind"]][_shape(left["raw"])] += 1
+            hints[f"{left['kind']}:{left['hint']}"] += 1
             scope = left["scope"]
             queue.append(
                 {
@@ -216,6 +245,7 @@ def main() -> int:
                     "tipo": tipo,
                     "file": path.name,
                     "kind": left["kind"],
+                    "hint": left["hint"],
                     "start": left["start"],
                     "end": left["end"],
                     "scope_path": report["nodes"][scope]["path"]
@@ -248,12 +278,26 @@ def main() -> int:
     print(
         f"  itens read: {nodes['item']}; nodes inside quoted blocks: {nodes['quoted']}"
     )
+    print("\nHow own markers were read (closed norms / open norms)")
+    for kind in (*LEVELS, "item"):
+        parts = []
+        for how in ("literal", "confusion", "gap"):
+            closed_n = read_by[f"{kind}:{how}:closed"]
+            open_n = read_by[f"{kind}:{how}:open"]
+            parts.append(f"{how}={closed_n}/{open_n}")
+        print(f"  {kind:10s} " + ", ".join(parts))
+    print("\nCaveats on the closed set (norms)")
+    for key, count in sorted(caveats.items()):
+        print(f"  {key:42s} {count}")
     print("\nWhy a level stays open (norms)")
     for kind in LEVELS:
-        parts = ", ".join(f"{k}={v}" for k, v in why[kind].most_common())
-        print(f"  {kind:10s} {parts}")
+        reasons = ", ".join(f"{k}={v}" for k, v in why[kind].most_common())
+        print(f"  {kind:10s} {reasons}")
     print("\nLeftover candidates by kind:status")
     for key, count in sorted(leftovers.items()):
+        print(f"  {key:24s} {count}")
+    print("\nUnexplained candidates against the chain of their scope (kind:hint)")
+    for key, count in sorted(hints.items()):
         print(f"  {key:24s} {count}")
     print("\nQuoted blocks (amending laws)")
     for key, count in sorted(quoted.items()):
