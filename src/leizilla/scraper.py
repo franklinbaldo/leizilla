@@ -6,6 +6,7 @@ Princípio #10: robots.txt é permanente (sem retry em URL bloqueada); rate-limi
 """
 
 import logging
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -15,7 +16,7 @@ from leizilla import robots, wayback
 from leizilla.discovery import load_manifest
 from leizilla.ia_utils import parse_identity, range_item_identifier
 from leizilla.parser import fetch_html
-from leizilla.publisher import InternetArchivePublisher
+from leizilla.publisher import InternetArchivePublisher, preserved_identity_token
 from leizilla.ratelimit import make_rate_limiter
 from leizilla.storage import DuckDBStorage
 
@@ -234,6 +235,9 @@ def _resolve_tipo_ingestion(
 # (this module already imports InternetArchivePublisher from publisher.py).
 
 
+_CANONICAL_GUESS = re.compile(r"[A-Za-z]+\d+\.pdf")
+
+
 def _schemeless(url: str) -> str:
     """URL sem esquema: http://… e https://… são a mesma origem de colheita."""
     return url.split("://", 1)[-1]
@@ -261,7 +265,19 @@ def _already_preserved(
     if item_id not in cache:
         cache[item_id] = publisher.preserved_sources(item_id)
     sources = cache[item_id]
-    return sources is not None and _schemeless(url) in sources
+    if sources is None:
+        return False
+    if _schemeless(url).lower() in sources:
+        return True
+    # A mesma norma aparece sob grafias diferentes do nome canônico ("L6.pdf",
+    # "L006.pdf", "/cotel/" vs "/COTEL/"). Se a identidade já tem captura e esta
+    # URL é só mais uma grafia canônica, não é documento novo — sem isto a
+    # colheita gastava o limite inteiro em 404 de nomes adivinhados. Um arquivo
+    # com sufixo ("L6324 - COMPILADA.pdf") é outra rendição e não entra aqui.
+    filename = url.rsplit("/", 1)[-1]
+    return bool(_CANONICAL_GUESS.fullmatch(filename)) and (
+        preserved_identity_token(identity[0], identity[1]) in sources
+    )
 
 
 def _iter_pending(

@@ -937,6 +937,11 @@ _IA_UPLOAD_MAX_DELAY_S = 60.0
 _IA_RATE_LIMIT_KEY = "https://archive.org/"  # host fixo p/ make_rate_limiter (ADR-0008)
 
 
+def preserved_identity_token(tipo: str, numero: int) -> str:
+    """Token de identidade usado em ``InternetArchivePublisher.preserved_sources``."""
+    return f"identity:{tipo.lower()}-{numero:05d}"
+
+
 class InternetArchivePublisher:
     """Upload para IA e geração de datasets Parquet."""
 
@@ -946,7 +951,10 @@ class InternetArchivePublisher:
         self._upload_rate_limiter = make_rate_limiter(_IA_UPLOAD_MIN_INTERVAL_S)
 
     def preserved_sources(self, item_id: str) -> Optional[set[str]]:
-        """URLs de origem (sem esquema) já capturadas num item, pelo ``index.csv``.
+        """O que um item já tem capturado, pelo ``index.csv``.
+
+        Contém as URLs de origem (sem esquema, em minúsculas) e um token por
+        identidade capturada (``preserved_identity_token``).
 
         ``None`` quando o índice não pôde ser lido agora (falha transitória) —
         distinto de um conjunto vazio, que é um item confirmado sem capturas.
@@ -955,11 +963,14 @@ class InternetArchivePublisher:
             index_csv = _fetch_existing_index(item_id)
         except IndexFetchError:
             return None
-        return {
-            row["source"].split("://", 1)[-1]
-            for row in csv.DictReader(io.StringIO(index_csv or ""))
-            if row.get("source")
-        }
+        preserved: set[str] = set()
+        for row in csv.DictReader(io.StringIO(index_csv or "")):
+            if row.get("source"):
+                preserved.add(row["source"].split("://", 1)[-1].lower())
+            numero = row.get("numero", "")
+            if row.get("tipo") and numero.isdigit():
+                preserved.add(preserved_identity_token(row["tipo"], int(numero)))
+        return preserved
 
     def _run_ia_upload(self, args: list[str]) -> "subprocess.CompletedProcess[str]":
         """Roda ``ia upload ...`` com espaçamento + retry exponencial (ADR-0008).

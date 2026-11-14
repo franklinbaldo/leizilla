@@ -55,7 +55,11 @@ def test_preserved_sources_reads_index_and_ignores_scheme() -> None:
     )
     pub = publisher.InternetArchivePublisher()
     with patch.object(publisher, "_fetch_existing_index", return_value=index):
-        assert pub.preserved_sources("item") == {"example.com/Files/L1.pdf"}
+        assert pub.preserved_sources("item") == {
+            "example.com/files/l1.pdf",
+            "identity:lei-00001",
+            "identity:lei-00002",
+        }
 
 
 def test_preserved_sources_missing_index_is_empty_not_unknown() -> None:
@@ -81,8 +85,8 @@ def test_harvest_skips_preserved_without_spending_the_limit(
         temp_db.insert_resource(_resource(numero))
     pub = MagicMock()
     pub.preserved_sources.return_value = {
-        "example.com/Files/L1.pdf",
-        "example.com/Files/L2.pdf",
+        "example.com/files/l1.pdf",
+        "example.com/files/l2.pdf",
     }
     pub.upload_raw.return_value = {"success": True, "ia_id": "x", "ia_url": "u"}
 
@@ -343,3 +347,35 @@ def test_ro_manifest_declares_year_index_per_tipo() -> None:
         "lc",
         "lei",
     ]
+
+
+def test_harvest_skips_another_spelling_of_a_preserved_norm_but_not_a_rendition(
+    temp_db: DuckDBStorage,
+) -> None:
+    # L006.pdf is preserved; the guessed L6.pdf is the same norm, while the
+    # compiled rendition is a different document.
+    guess = _resource(6)
+    guess["url"] = "https://example.com/Files/L6.pdf"
+    compiled = _resource(6)
+    compiled["url"] = "https://example.com/Files/L6%20-%20COMPILADA.pdf"
+    temp_db.insert_resource(guess)
+    temp_db.insert_resource(compiled)
+    pub = MagicMock()
+    pub.preserved_sources.return_value = {
+        "example.com/files/l006.pdf",
+        "identity:lei-00006",
+    }
+    pub.upload_raw.return_value = {"success": True, "ia_id": "x", "ia_url": "u"}
+
+    with (
+        patch("leizilla.scraper.robots.is_allowed", return_value=True),
+        patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
+        patch(
+            "leizilla.scraper.wayback.fetch_bytes_detailed",
+            return_value=(b"%PDF-1.4 x", False),
+        ),
+    ):
+        stats = harvest_pending_resources(temp_db, pub, limit=5)
+
+    assert stats["already-preserved"] == 1
+    assert stats["success"] == 1
