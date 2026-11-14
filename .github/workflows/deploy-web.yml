@@ -57,11 +57,23 @@ jobs:
           && mv web/public/data/ro/versoes.parquet.new web/public/data/ro/versoes.parquet \
           || echo "::warning::não foi possível sincronizar o espelho do dataset — mantendo a cópia já commitada"
 
+      # ADR-0015: camada de texto (tabela textos), mesmo espelho same-origin. Não há cópia
+      # commitada: sem o arquivo (item ainda não publicado ou IA instável) o portal segue
+      # só com versoes — a camada de texto é aditiva.
+      - name: Sync text-layer mirror from Internet Archive
+        run: |
+          mkdir -p web/public/data/ro
+          curl -fsSL "https://archive.org/download/leizilla-textos-ro-v0-latest/textos.parquet" \
+            -o web/public/data/ro/textos.parquet.new \
+          && mv web/public/data/ro/textos.parquet.new web/public/data/ro/textos.parquet \
+          || { rm -f web/public/data/ro/textos.parquet.new; echo "::warning::camada de texto não sincronizada — portal publicado sem ela"; }
+
       - name: Build Astro site
         working-directory: web
         run: npm run build
         env:
           PUBLIC_PARQUET_URL: ${{ vars.PUBLIC_PARQUET_URL }}
+          PUBLIC_TEXTOS_PARQUET_URL: ${{ vars.PUBLIC_TEXTOS_PARQUET_URL }}
           PUBLIC_DUCKDB_CDN: ${{ vars.PUBLIC_DUCKDB_CDN }}
           PUBLIC_DUCKDB_EXT_REPO: ${{ vars.PUBLIC_DUCKDB_EXT_REPO }}
 
