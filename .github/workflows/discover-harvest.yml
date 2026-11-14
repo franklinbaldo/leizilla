@@ -54,7 +54,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
-      - run: uv run playwright install chromium --with-deps
+      # Só a fonte assembleia usa Playwright. Rodar isto para casacivil derrubava
+      # o job inteiro quando o runner não tem pacote de Chromium suportado
+      # (2026-11-14: ubuntu-latest virou 26.04, que o Playwright 1.60 recusa).
+      - if: inputs.fonte == 'assembleia'
+        run: uv run playwright install chromium --with-deps
 
       # Achado de produção 2026-09-25 (PR #247 fixed the dedup CHECK, this
       # restores the STATE it checks against): sem isto, cada job começa de
