@@ -9,6 +9,7 @@ Archive access is mocked at the ``publisher`` wrappers and ``urlopen``.
 from __future__ import annotations
 
 import json
+import re
 import random
 import subprocess
 from pathlib import Path
@@ -1064,7 +1065,10 @@ class TestCLI:
             {_ref(): SIMPLE_LAW},
             ["submit", "--manifest", str(tmp_path / "m.json")],
         )
-        assert result.exit_code == 2 and "--max-usd" in result.output
+        # Typer colours its usage errors when the environment allows it (CI does),
+        # which splits the option name with escape codes.
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert result.exit_code == 2 and "--max-usd" in plain
         assert api.paths == []
 
     def test_submit_refuses_above_max_usd(self, tmp_path: Path) -> None:

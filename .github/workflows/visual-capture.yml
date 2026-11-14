@@ -17,7 +17,9 @@ permissions:
 
 jobs:
   capture:
-    runs-on: ubuntu-latest
+    # Pinned: 'playwright install --with-deps' refuses the ubuntu-26.04 image that
+    # ubuntu-latest now resolves to. Revisit when Playwright supports it.
+    runs-on: ubuntu-24.04
     env:
       CAPTURE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
