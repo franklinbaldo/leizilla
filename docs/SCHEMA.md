@@ -273,6 +273,11 @@ tentar de improviso).
 }
 ```
 
+`provenance_wayback.fetched_from` diz de onde vieram os bytes: `wayback` (do snapshot em
+`wayback_url`), `source-fallback` (havia snapshot e ele falhou) ou `source-direct` (direto
+da fonte, sem snapshot conhecido — colheita em lote, ADR-0016). `wayback_url` e
+`wayback_timestamp` só são preenchidos no primeiro caso.
+
 ### 2.2 `parsed_meta.json` — agora carrega o processo
 
 ```json
