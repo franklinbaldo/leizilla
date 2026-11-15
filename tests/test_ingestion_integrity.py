@@ -22,6 +22,8 @@ from leizilla.discovery import (
 from leizilla.scraper import harvest_pending_resources
 from leizilla.storage import DuckDBStorage
 
+from harvest_fakes import batch_ok
+
 runner = CliRunner()
 REPO = Path(__file__).resolve().parents[1]
 INDEX_HEADER = "tipo,numero,rendicao,formato,uuid5,sha256,captured_at,source\n"
@@ -88,11 +90,10 @@ def test_harvest_skips_preserved_without_spending_the_limit(
         "example.com/files/l1.pdf",
         "example.com/files/l2.pdf",
     }
-    pub.upload_raw.return_value = {"success": True, "ia_id": "x", "ia_url": "u"}
+    batch_ok(pub, ia_id="x", ia_url="u")
 
     with (
         patch("leizilla.scraper.robots.is_allowed", return_value=True),
-        patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
         patch(
             "leizilla.scraper.wayback.fetch_bytes_detailed",
             return_value=(b"%PDF-1.4 x", False),
@@ -102,7 +103,7 @@ def test_harvest_skips_preserved_without_spending_the_limit(
 
     assert stats["already-preserved"] == 2
     assert stats["success"] == 1
-    assert pub.upload_raw.call_count == 1
+    assert pub.upload_raw_batch.call_count == 1
     assert temp_db.get_pending_resources() == []
     # one index read for the whole range item, not one per resource
     assert pub.preserved_sources.call_count == 1
@@ -114,11 +115,10 @@ def test_harvest_treats_unreadable_index_as_not_preserved(
     temp_db.insert_resource(_resource(1))
     pub = MagicMock()
     pub.preserved_sources.return_value = None
-    pub.upload_raw.return_value = {"success": True, "ia_id": "x", "ia_url": "u"}
+    batch_ok(pub, ia_id="x", ia_url="u")
 
     with (
         patch("leizilla.scraper.robots.is_allowed", return_value=True),
-        patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
         patch(
             "leizilla.scraper.wayback.fetch_bytes_detailed",
             return_value=(b"%PDF-1.4 x", False),
@@ -139,7 +139,6 @@ def test_harvest_does_not_retry_a_transient_failure_in_the_same_run(
 
     with (
         patch("leizilla.scraper.robots.is_allowed", return_value=True),
-        patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
         patch(
             "leizilla.scraper.wayback.fetch_bytes_detailed", return_value=(None, False)
         ) as fetch,
@@ -365,11 +364,10 @@ def test_harvest_skips_another_spelling_of_a_preserved_norm_but_not_a_rendition(
         "example.com/files/l006.pdf",
         "identity:lei-00006",
     }
-    pub.upload_raw.return_value = {"success": True, "ia_id": "x", "ia_url": "u"}
+    batch_ok(pub, ia_id="x", ia_url="u")
 
     with (
         patch("leizilla.scraper.robots.is_allowed", return_value=True),
-        patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
         patch(
             "leizilla.scraper.wayback.fetch_bytes_detailed",
             return_value=(b"%PDF-1.4 x", False),

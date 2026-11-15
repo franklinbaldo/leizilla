@@ -147,6 +147,28 @@ def cmd_harvest(
         echo(f"  Falhas: {stats['failed']}")
         echo(f"  Robots bloqueado: {stats['robots-blocked']}")
         echo(f"  Já preservados no IA (pulados): {stats.get('already-preserved', 0)}")
+        # ADR-0016: lotes, derive único, PDFs recusados e Save Page Now assíncrono.
+        echo(
+            "  Recusados pelo IA (PDF inválido, não serão retentados): "
+            f"{stats.get('ia-rejected', 0)}"
+        )
+        derive_failed = stats.get("derive-failed") or []
+        echo(
+            f"  Lotes enviados ao IA: {stats.get('flushes', 0)} | derive pedido: "
+            f"{stats.get('derive-requested', 0)} item(ns), "
+            f"sem derive: {len(derive_failed)}"
+        )
+        for item_id in derive_failed:
+            echo(f"    - sem derive: {item_id} (ia tasks {item_id} --cmd derive.php)")
+        spn = stats.get("wayback-save")
+        if spn:
+            echo(
+                "  Wayback Save Page Now (best-effort): "
+                f"{spn.get('requested', 0)} pedidos, {spn.get('accepted', 0)} aceitos, "
+                f"{spn.get('failed', 0)} falhas, {spn.get('dropped', 0)} descartados"
+            )
+        if stats.get("aborted"):
+            echo(f"  Colheita interrompida cedo: {stats['aborted']}")
         if stats["failed"]:
             # Issue #297: per-item print()/logger.warning() calls inside the
             # harvest loop itself produced zero output in a live CI run, for

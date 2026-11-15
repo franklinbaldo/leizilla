@@ -14,6 +14,21 @@ on:
     # que o index.csv do IA mostra preservado, então cada execução gasta o limite
     # só com capturas novas. Diário também mantém o cache do banco em uso — o
     # GitHub descarta cache sem acesso há 7 dias, o intervalo exato do cron semanal.
+    #
+    # Limite por job = 1000 capturas (ADR-0016, 2026-11-15). Conta:
+    # - medido em 2026-11-15, fluxo antigo: 190 capturas em 1h43 (~33 s cada),
+    #   3 PUTs + 1 derive enfileirado por captura;
+    # - fluxo novo, ESTIMADO (não medido): ~6 s por captura (fetch direto a
+    #   ~1 req/s + upload em lote de 25), 2,04 PUTs por captura e ~1 derive por
+    #   item por execução. 1000 capturas ≈ 100 min; a 9 s (pessimista) o teto de
+    #   tempo abaixo corta em ~800;
+    # - HARVEST_MAX_SECONDS=7200 faz a colheita parar de baixar aos 120 min e
+    #   encerrar com flush + derive — só 17 min a mais que a colheita medida, e
+    #   deixa ~3h45 do teto de 360 min do job para checkout + descoberta;
+    # - a 1000/dia, os ~30 mil decretos restantes cabem em ~30 execuções, não
+    #   nas ~75 do limite anterior (400) nem nas ~160 do ritmo medido (190).
+    # Se o IA limitar a taxa, a colheita recua (até ~10 min por lote), desiste e
+    # deixa tudo 'pending' — o resumo imprime "Colheita interrompida cedo".
     - cron: "0 2 * * *"
   workflow_dispatch:
     inputs:
@@ -32,7 +47,7 @@ on:
         default: ""
       limit:
         description: "Limite de recursos por job"
-        default: "400"
+        default: "1000"
 
 permissions:
   contents: read
@@ -92,6 +107,8 @@ jobs:
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+          # Teto de tempo da colheita (s): ver a conta no topo do arquivo.
+          HARVEST_MAX_SECONDS: "7200"
         run: |
           uv run leizilla harvest \
             --ente "${{ inputs.ente }}" \
@@ -162,6 +179,13 @@ jobs:
       # semanal total (soma dos 7 `--limit`) não muda. A descoberta de cada
       # job agora é escopada ao seu próprio tipo (--tipo), não mais a fonte
       # inteira — bem mais rápido que descobrir todos os tipos por job.
+      #
+      # ADR-0016 (2026-11-15) NÃO muda isto. Dois tipos sobem para itens
+      # diferentes do IA, mas o limite que estourou em 2026-11-14
+      # ("total_tasks_queued exceeds global_limit") é da CONTA, não do item:
+      # dois jobs paralelos dobrariam a taxa de PUTs vista pelo IA (o lote já a
+      # leva de ~5,5 para ~20 PUTs/min, estimado) sem ganho que justifique —
+      # só o decreto tem backlog grande, e ele cabe num job por dia.
       max-parallel: 1
       matrix:
         tipo: [lei, lc, decreto, ec, resolucao, portaria, decreto-lei]
@@ -193,11 +217,13 @@ jobs:
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+          # Teto de tempo da colheita (s): ver a conta no topo do arquivo.
+          HARVEST_MAX_SECONDS: "7200"
         run: |
           uv run leizilla harvest \
             --ente "${{ inputs.ente || 'ro' }}" \
             --tipo "${{ matrix.tipo }}" \
-            --limit "${{ inputs.limit || '400' }}"
+            --limit "${{ inputs.limit || '1000' }}"
 
       - name: Save discovered-resources DB cache
         # Depois da colheita, e mesmo se ela falhar: o que a colheita marca
