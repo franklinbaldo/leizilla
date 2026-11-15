@@ -49,7 +49,7 @@ def _metadata(include_new_ocr: bool = True) -> bytes:
         _file("lei-00007_aaaa1111.pdf"),
         _file("lei-00007_aaaa1111_djvu.txt", OPEN),
         _file("lei-00007_bbbb2222.pdf"),
-        _file("cccc3333.pdf"),
+        _file("cccc3333.pdf", format="Text PDF"),
         _file("cccc3333_djvu.txt", OPEN),
         _file("history/files/cccc3333_djvu.txt", OPEN),
         _file("dddd4444.pdf"),  # sem OCR ainda: S2 sem S3
@@ -141,7 +141,8 @@ def test_build_one_row_per_norm_newest_capture_with_text() -> None:
     assert lei7["qualidade"] == "texto-nao-estruturado"
     assert lei7["artigos_fecham"] is True and lei7["artigos_ultimo"] == 3
     assert rows[1]["artigos_fecham"] is False
-    assert rows[1]["ocr_motor"] is None
+    # Sem _chocr e com PDF "Text PDF": o texto veio da camada embutida, não de OCR.
+    assert rows[1]["ocr_motor"] == textlayer.TEXT_LAYER_CONVERSION
     # history/ e a área _unidentified nunca são lidas.
     assert not any("history" in u or "unidentified" in u for u in ia.calls)
 
