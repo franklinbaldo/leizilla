@@ -88,8 +88,9 @@ discover ──> harvest/scrape ──> fetch-ocr ──> parse ──> consolid
 
 1. **Discover** — manifest-driven (`src/leizilla/manifests/{ente}.json`) strategies enqueue
    resources into DuckDB (`discovered_resources`).
-2. **Harvest/scrape** — respect robots.txt, save to Wayback then fetch from it
-   (fail-open to direct download), upload raw bytes to IA.
+2. **Harvest/scrape** — respect robots.txt. `scrape` saves to Wayback then fetches
+   from it (fail-open to direct download); the queue `harvest` fetches direct at the
+   per-host limit and uploads in batches (ADR-0016). Raw bytes go to IA.
 3. **OCR fetch** — pull IA-generated `_djvu.txt`, clean and normalize.
 4. **Parse** — an LLM (via LiteLLM — default Claude Haiku or Gemini Flash,
    per available key; RFC-0006) turns OCR/HTML into validated Leizilla XML.
@@ -139,6 +140,11 @@ data/                # local DuckDB + artifacts (gitignored)
   SHA-256 (source-agnostic, dedup-by-construction); parsed norms are keyed by
   URN-LEX. The harvest key (`coddoc`, URL path, …) is metadata in an `index.csv`,
   never a path or range boundary. ADR-0010 supersedes ADR-0005's raw-item scheme.
+- **ADR-0016 — batched harvest.** Amends ADR-0004 for the queue harvest: direct
+  fetch at the per-host limit, Save Page Now requested in the background
+  (best-effort provenance), one `ia upload --no-derive` per ~25 captures per IA
+  item, one derive per item at the end of the run. Resource status changes only
+  after the flush that contains the file; `ia-rejected` is terminal.
 - **ADR-0011 — identity-keyed navigable catalog; identity is evidence, not an
   ingestion gate.** The raw IA item is a navigable range bucket per `(ente, fonte,
   tipo, número)` with content-addressed files inside. **Extracting `(tipo, número)`
@@ -221,6 +227,9 @@ manifest exists.
 | `DUCKDB_PATH` | local DB location | `data/leizilla.duckdb` |
 | `DATA_DIR` | data directory | `data/` |
 | `CRAWLER_DELAY` / `CRAWLER_RETRIES` / `CRAWLER_TIMEOUT` | crawler tuning (ms/count/ms) | `2000` / `3` / `30000` |
+| `HARVEST_BATCH_SIZE` | captures per `ia upload` flush, per IA item (ADR-0016) | `25` |
+| `HARVEST_MAX_SECONDS` | harvest stops fetching after this long and ends with flush + derive (`0` = no budget) | `0` |
+| `HARVEST_WAYBACK_SAVE` / `HARVEST_DERIVE` | `0` turns off the background Save Page Now / the end-of-run derive request | `1` / `1` |
 | `LOG_LEVEL` | CLI root logger level (`leizilla.cli:main`) — without this, `logger.info`/`logger.debug` in `discovery.py`/`parser.py`/`publisher.py` produce no output at all, in CI or locally | `INFO` |
 
 See `.env.example`. Permissions for the Claude Code assistant live in

@@ -1,6 +1,6 @@
 # ADR-0004 — Wayback Machine como caminho primário de fetch
 
-**Status**: Aprovada  
+**Status**: Aprovada; emendada por [ADR-0016](0016-colheita-em-lote-wayback-best-effort.md) — na colheita da fila (backfill) o Wayback é proveniência best-effort, fora do caminho crítico  
 **Data**: 2026-05-20  
 **Contexto**: M1 — Foundation
 

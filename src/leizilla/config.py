@@ -26,5 +26,16 @@ CRAWLER_DELAY = int(os.getenv("CRAWLER_DELAY", "2000"))
 CRAWLER_RETRIES = int(os.getenv("CRAWLER_RETRIES", "3"))
 CRAWLER_TIMEOUT = int(os.getenv("CRAWLER_TIMEOUT", "30000"))
 
+# Colheita em lote (ADR-0016): capturas por `ia upload` (um por item de range) e
+# pedido assíncrono de Save Page Now. HARVEST_WAYBACK_SAVE=0 desliga o SPN.
+HARVEST_BATCH_SIZE = max(1, int(os.getenv("HARVEST_BATCH_SIZE", "25")))
+HARVEST_WAYBACK_SAVE = os.getenv("HARVEST_WAYBACK_SAVE", "1") not in ("0", "false", "")
+# HARVEST_DERIVE=0 não pede o derive ao fim (os PDFs ficam no item sem OCR até um
+# `ia tasks <item> --cmd derive.php`). HARVEST_MAX_SECONDS > 0 faz a colheita parar
+# de baixar ao estourar o orçamento e encerrar com flush + derive, em vez de ser
+# morta pelo teto do job com capturas no buffer.
+HARVEST_DERIVE = os.getenv("HARVEST_DERIVE", "1") not in ("0", "false", "")
+HARVEST_MAX_SECONDS = float(os.getenv("HARVEST_MAX_SECONDS", "0") or 0)
+
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 TEMP_DIR.mkdir(parents=True, exist_ok=True)

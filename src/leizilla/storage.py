@@ -122,9 +122,18 @@ class DuckDBStorage:
         # mesmos 10 itens em toda rodada, issue #297) — não resolve uma
         # falha persistente em si, mas garante que ela não monopolize
         # `limit` para sempre em detrimento de recursos nunca tentados.
+        #
+        # Dentro do mesmo degrau de justiça, o maior número primeiro: as normas
+        # mais recentes são as mais consultadas e as que ainda não têm cópia em
+        # lugar nenhum, então são preservadas antes do acervo antigo (ADR-0016).
+        # O número é o sufixo numérico da chave ("decreto-31250" → 31250); chave
+        # sem número (área de espera) vai por último, e a URL desempata para a
+        # ordem ser determinística.
         results = conn.execute(
             f"SELECT * FROM discovered_resources WHERE {where} "
-            "ORDER BY ultima_tentativa ASC NULLS FIRST LIMIT ?",
+            "ORDER BY ultima_tentativa ASC NULLS FIRST, "
+            "TRY_CAST(NULLIF(regexp_extract(chave, '(\\d+)$', 1), '') AS BIGINT) "
+            "DESC NULLS LAST, url ASC LIMIT ?",
             params,
         ).fetchall()
         columns = [desc[0] for desc in (conn.description or [])]
@@ -156,6 +165,17 @@ class DuckDBStorage:
                 "UPDATE discovered_resources SET status = ?, ultima_tentativa = ? WHERE url = ?",
                 [status, now, url],
             )
+
+    def set_wayback_snapshot(self, url: str, wayback_snapshot: str) -> None:
+        """Registra um snapshot Wayback conhecido sem mexer em status/tentativa.
+
+        Usado pelo Save Page Now assíncrono da colheita (ADR-0016): o snapshot
+        chega depois da captura, quando o recurso já foi marcado.
+        """
+        self.connect().execute(
+            "UPDATE discovered_resources SET wayback_snapshot = ? WHERE url = ?",
+            [wayback_snapshot, url],
+        )
 
     def insert_lei(self, lei_data: Dict[str, Any]) -> None:
         conn = self.connect()
