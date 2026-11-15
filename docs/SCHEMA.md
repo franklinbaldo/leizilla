@@ -523,6 +523,61 @@ Regras:
   texto não vazio, âncoras dentro do texto, e piso de linhas do item `-latest` de `textos`.
   Os gates de `versoes` não mudam.
 
+### 3.6 Tabela `completude` — livro-razão contra o índice oficial
+
+Responde "quanto da legislação da fonte está no acervo, e exatamente o que falta?". O
+denominador é o **índice oficial** da fonte — hoje as listas anuais do Consulegis (Casa
+Civil/RO), estratégia `casacivil-year-index` do manifesto — e não o que o projeto já
+descobriu (isso é `coverage.json`, S1–S4). Grão: **uma linha por norma listada**, mais
+uma linha por norma que o acervo guarda e o índice não lista. Parquet ZSTD
+(`completeness.parquet`), ordenado por `tipo, numero, sufixo`. Contrato em código:
+`leizilla.completeness.LEDGER_SCHEMA`; construção: `leizilla completeness`.
+
+| Coluna | Tipo | Conteúdo |
+|---|---|---|
+| `norma_id` | VARCHAR | `leizilla-raw-{ente}-{fonte}-{tipo}-{numero:05d}` + sufixo de letra em minúscula quando houver (`…-decreto-lei-00009a`) — único |
+| `ente`, `fonte`, `tipo` | VARCHAR | identidade raw (ADR-0011); `tipo` é o da lista oficial (`lei`, `lc`, `decreto`, `decreto-lei`) |
+| `numero` | INTEGER | número da norma |
+| `sufixo` | VARCHAR | letra do título oficial (`A` em "Decreto Lei n. 9A"); vazio no caso comum |
+| `situacao` | VARCHAR | `listada` · `fora-do-indice` · `indice-incompleto` · `tipo-sem-indice` (abaixo) |
+| `titulo` | VARCHAR | título oficial ("Lei n. 6572, de 12-11-2026"); vazio se não listada |
+| `data` | VARCHAR | data do ato, ISO `YYYY-MM-DD`, lida do título; NULL se ilegível ou não listada |
+| `ano`, `decada` | INTEGER | ano da lista oficial em que a norma aparece e sua década; NULL se não listada |
+| `ementa` | VARCHAR | ementa oficial, espaços colapsados |
+| `coddoc` | INTEGER | código do documento no Consulegis (`detalhes.aspx?coddoc=N`); o menor, se repetida |
+| `entradas` | INTEGER | quantas vezes o índice lista a norma (>1 = entrada repetida na fonte; 0 = não listada) |
+| `arquivos` | VARCHAR | JSON `[{"nome", "url", "rendicao"}]` dos arquivos listados; `rendicao` ∈ `original`, `compilada`, `revogado`, `retificado`, `outra`, derivada do sufixo do nome |
+| `arquivos_listados`, `arquivos_preservados` | INTEGER | arquivos na lista e quantos deles têm captura no acervo (casados por nome com `index.csv.source`) |
+| `preservada` | BOOLEAN | S2: há captura identificada num item de range do IA |
+| `com_texto` | BOOLEAN | S3: alguma captura tem texto (HTML nativo ou `_djvu.txt`) |
+| `legivel` | BOOLEAN | a norma está na tabela `textos` publicada (§3.5) |
+| `estruturada` | BOOLEAN | S4: há item parsed publicado |
+| `ia_item` | VARCHAR | item de range que preserva a norma; NULL se não preservada |
+| `texto_id` | VARCHAR | chave de junção com `textos.texto_id` e `versoes.fontes[].ia_id` (sem o sufixo) |
+| `catalogo_obtido_em` | VARCHAR | ISO-8601 de quando a lista anual da norma foi lida da fonte |
+
+Regras:
+
+- **NULL é "não medido", nunca falso.** Uma flag de estágio fica NULL quando a consulta
+  correspondente ao IA falhou; os contadores do resumo que dependem dela também.
+- **Ano não lido é desconhecido.** As normas de uma lista anual que não pôde ser lida não
+  têm linha; o ano aparece em `completeness.json` (`catalogo.anos_desconhecidos`), não
+  como "zero normas". Faltantes de um tipo:
+  `WHERE situacao = 'listada' AND NOT preservada`.
+- `situacao` das linhas não listadas: `fora-do-indice` só quando **todos** os anos do
+  tipo foram lidos (órfã de fato); `indice-incompleto` enquanto houver ano desconhecido;
+  `tipo-sem-indice` para tipos que a fonte não enumera em lista anual (`ec`, `resolucao`…).
+- **Sufixo de letra.** O acervo é chaveado por `(tipo, numero)`; quando o índice traz `9`
+  e `9A`, cada norma é casada pelo arquivo. S4 só conhece `(tipo, numero)`: `estruturada`
+  de uma norma com sufixo é NULL.
+- **Título e ano para a camada de texto.** `textos` não carrega ano nem data (§3.5);
+  `titulo`, `data`, `ano` e `ementa` daqui são a fonte desses campos para normas só-texto:
+  `textos JOIN completude USING (texto_id) WHERE sufixo = ''`.
+- Publicação: `completeness.json` (resumo por tipo, década e ano), `completeness.parquet`
+  e `completeness_catalog.json.gz` (snapshot das listas anuais, reaproveitado entre
+  execuções) vão para o item `-latest` do dataset, ao lado de `coverage.json`. É
+  instrumentação: não tem release imutável nem piso de linhas.
+
 ---
 
 ## 4. Leizilla XML v0.1 — formato canônico

@@ -44,6 +44,29 @@ em 2026-09, só para referência.
 1. `wayback-cdx` — prefixo `http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/`
 2. `sequential` para cada tipo (ver tabela acima)
 
+## Índice oficial anual e livro-razão de completude
+
+As listas anuais do Consulegis (`listleiord.aspx?ano=YYYY` para lei, `listleicomp` para
+lc, `listdecnum` para decreto, `listdeclei` para decreto-lei — estratégia
+`casacivil-year-index` do manifesto) enumeram todas as normas do ano com título, data,
+ementa, `coddoc` e o nome real do arquivo. São o denominador do livro-razão de
+completude (`leizilla completeness`, `src/leizilla/completeness.py`, SCHEMA.md §3.6):
+cada norma listada é conferida contra o acervo no IA.
+
+Observado nas listas reais (2026-11):
+
+- O cabeçalho traz "N resultado(s) encontrado(s)"; ano sem normas traz o rótulo vazio e
+  "Não foi encontrado nenhum registro" (`lblEmptyData`). Resposta sem o cabeçalho do ano
+  não é "ano vazio": é falha, e o ano fica desconhecido.
+- Títulos variam: "Lei n. 6572", "Decreto nº 1803", "Decreto n . 4758", "n.1879",
+  abreviados ("L946, de 20-12-2000", "D2797, …") e com sufixo de letra
+  ("Decreto Lei n. 9A", "Decreto n. 4591-C"), que é outra norma, não o mesmo número.
+- A mesma norma às vezes aparece duas vezes (dois `coddoc`); o livro-razão une as
+  entradas e registra `entradas` > 1.
+- O arquivo listado pode ter nome diferente do capturado pelo `sequential` (lista:
+  `L001.pdf`; acervo: `L1.pdf`) — por isso `arquivos_preservados` pode ser 0 numa norma
+  `preservada`.
+
 # Citations
 
 [1] [Estratégias de discovery](../discovery/strategies.md)

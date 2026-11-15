@@ -1282,6 +1282,191 @@ def cmd_coverage(
             )
 
 
+@app.command("completeness")
+def cmd_completeness(
+    output: Path = typer.Option(
+        ..., "--output", help="Parquet do livro-razão (ex.: completeness.parquet)"
+    ),
+    summary: Optional[Path] = typer.Option(
+        None,
+        "--summary",
+        help="Resumo JSON (default: completeness.json ao lado de --output)",
+    ),
+    ente: str = typer.Option("ro", "--ente", help="Ente federativo"),
+    fonte: Optional[str] = typer.Option(
+        None,
+        "--fonte",
+        help="Fonte com índice oficial (default: a única do manifesto que tem)",
+    ),
+    catalog_snapshot: Optional[Path] = typer.Option(
+        None,
+        "--catalog-snapshot",
+        help=(
+            "Snapshot do catálogo oficial (.json ou .json.gz): lido se existir e "
+            "regravado ao final — só os anos recentes são rebuscados"
+        ),
+    ),
+    refresh_years: int = typer.Option(
+        2,
+        "--refresh-years",
+        help="Quantos anos recentes rebuscar sempre, mesmo se estiverem no snapshot",
+    ),
+    max_fetch: Optional[int] = typer.Option(
+        None,
+        "--max-fetch",
+        help="Máximo de listas anuais buscadas ao vivo (o resto fica 'pending')",
+    ),
+    fetch_years: Optional[str] = typer.Option(
+        None,
+        "--fetch-years",
+        help="Restringe a busca ao vivo a estes anos (ex.: '1981-1990,2026')",
+    ),
+    textos: Optional[Path] = typer.Option(
+        None,
+        "--textos",
+        help="textos.parquet local (default: baixa o publicado no IA)",
+    ),
+    upload: bool = typer.Option(
+        False,
+        "--upload",
+        help="Publica resumo, Parquet e snapshot no item IA do dataset (-latest)",
+    ),
+    version: int = typer.Option(
+        0, "--version", help="Versão do dataset (textos publicado e alvo do upload)"
+    ),
+) -> None:
+    """Livro-razão de completude: o acervo contra o índice oficial da fonte.
+
+    Uma linha por norma das listas anuais oficiais (Casa Civil/RO), com as flags
+    preservada / com texto / legível / estruturada, mais as normas que o acervo
+    guarda e o índice não lista. Ano que não pôde ser lido fica desconhecido —
+    nunca conta como "zero normas".
+    """
+    import json as _json
+    import tempfile
+
+    from leizilla import completeness as comp
+    from leizilla.publisher import get_git_sha
+
+    if fonte is None:
+        candidates = comp.fontes_with_official_index(ente)
+        if len(candidates) != 1:
+            echo(
+                f"Informe --fonte: {len(candidates)} fonte(s) com índice oficial "
+                f"no manifesto de {ente} ({', '.join(candidates) or 'nenhuma'})"
+            )
+            raise typer.Exit(1)
+        fonte = candidates[0]
+    elif not comp.year_index_configs(ente, fonte):
+        echo(f"A fonte {ente}/{fonte} não declara índice oficial no manifesto")
+        raise typer.Exit(1)
+
+    years: Optional[set[int]] = None
+    if fetch_years is not None:
+        try:
+            years = comp.parse_year_spec(fetch_years)
+        except ValueError as e:
+            echo(str(e))
+            raise typer.Exit(1)
+
+    snapshot = None
+    if catalog_snapshot is not None and catalog_snapshot.exists():
+        snapshot = comp.load_catalog_snapshot(catalog_snapshot)
+        echo(f"Snapshot do catálogo: {len(snapshot)} lista(s) anual(is)")
+
+    echo(f"Lendo o índice oficial: ente={ente} fonte={fonte}...")
+    catalog = comp.fetch_catalog(
+        ente,
+        fonte,
+        snapshot=snapshot,
+        refresh_years=refresh_years,
+        max_fetch=max_fetch,
+        fetch_years=years,
+    )
+    echo(
+        f"  {catalog.known_pages}/{len(catalog.pages)} listas anuais lidas "
+        f"({catalog.live_requests} requisição(ões) ao vivo)"
+    )
+    if catalog.known_pages == 0:
+        echo("Nenhuma lista anual pôde ser lida — nada a gravar.")
+        raise typer.Exit(1)
+    if catalog_snapshot is not None:
+        saved = comp.write_catalog_snapshot(catalog, catalog_snapshot)
+        echo(f"  Snapshot regravado: {saved} lista(s) em {catalog_snapshot}")
+
+    textos_keys = None
+    with tempfile.TemporaryDirectory() as tmp:
+        textos_path = textos
+        if textos_path is None:
+            candidate = Path(tmp) / "textos.parquet"
+            if comp.fetch_published_textos(ente, version, candidate):
+                textos_path = candidate
+        elif not textos_path.exists():
+            echo(f"Arquivo não encontrado: {textos_path}")
+            raise typer.Exit(1)
+        if textos_path is not None:
+            textos_keys = comp.read_textos_keys(textos_path, ente, fonte)
+    if textos_keys is None:
+        echo("  Camada de texto indisponível — 'legível' fica sem medição")
+
+    echo("Lendo o acervo no Internet Archive...")
+    holdings = comp.collect_holdings(ente, fonte, textos_keys)
+    rows = comp.build_ledger(catalog, holdings)
+    payload = comp.summarize(catalog, holdings, rows, git_sha=get_git_sha())
+
+    comp.write_ledger_parquet(rows, output)
+    summary_path = summary or output.with_name(comp.SUMMARY_FILENAME)
+    summary_path.write_text(
+        _json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    echo(f"Livro-razão: {len(rows)} linhas em {output}; resumo em {summary_path}")
+
+    def show(value: Optional[int]) -> str:
+        return "?" if value is None else str(value)
+
+    for t in payload["tipos"]:
+        echo(
+            f"  {t['rotulo']}: {show(t['preservadas'])} de {show(t['listadas'])} "
+            f"preservadas · {show(t['com_texto'])} com texto · "
+            f"{show(t['legiveis'])} legíveis · {show(t['estruturadas'])} "
+            f"estruturadas · {show(t['faltantes'])} faltantes "
+            f"(índice lido em {t['anos_lidos']}/{t['anos']} anos)"
+        )
+    unknown = payload["catalogo"]["anos_desconhecidos"]
+    if unknown:
+        echo(
+            f"  {len(unknown)} lista(s) anual(is) desconhecida(s) — não contam "
+            "como zero; rode de novo para completá-las"
+        )
+    if not holdings.ok_s2_s3:
+        echo("  (IA: medição de preservação incompleta — '?' não é zero)")
+
+    if upload:
+        from leizilla.publisher import InternetArchivePublisher
+
+        with tempfile.TemporaryDirectory() as tmp:
+            # Nomes fixos no item, quaisquer que sejam os caminhos locais.
+            staged = [
+                (output, comp.LEDGER_FILENAME),
+                (summary_path, comp.SUMMARY_FILENAME),
+            ]
+            if catalog_snapshot is not None and catalog_snapshot.suffix == ".gz":
+                staged.append((catalog_snapshot, comp.CATALOG_FILENAME))
+            files = []
+            for src, name in staged:
+                dst = Path(tmp) / name
+                dst.write_bytes(src.read_bytes())
+                files.append(dst)
+            result = InternetArchivePublisher().upload_completeness(
+                files, ente, version
+            )
+        if result.get("success"):
+            echo(f"Livro-razão publicado: {result['ia_url']}")
+        else:
+            echo(f"Upload do livro-razão falhou: {result.get('error')}")
+            raise typer.Exit(1)
+
+
 @app.command("doctor")
 def cmd_doctor() -> None:
     """Verificar pré-requisitos de produção (RFC-0004): credenciais, dados, rede.

@@ -1,12 +1,14 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import CoberturaPanel from '../components/cobertura/CoberturaPanel.svelte';
+import CompletudePanel from '../components/cobertura/CompletudePanel.svelte';
 import FunilPanel from '../components/cobertura/FunilPanel.svelte';
 import ReleaseCitation from '../components/ReleaseCitation.svelte';
 import { STAGES } from '../lib/format';
 // Constantes puras derivadas em build-time (nenhuma conexão é aberta aqui) —
 // mantêm esta seção estática em sincronia com o que o navegador consulta.
 import {
+  COMPLETENESS_PARQUET_URL,
   DATASET_PARQUET_URL,
   DATASET_IA_ITEM,
   DATASET_META_URL,
@@ -25,6 +27,17 @@ import { iaDetailsUrl } from '../lib/format';
     capturado, o que está publicado e o que ainda falta. Expor a própria
     fronteira — inclusive as lacunas — faz parte do compromisso de auditabilidade.
   </p>
+
+  <section aria-labelledby="completude">
+    <h2 id="completude">Completude: o acervo contra o índice oficial</h2>
+    <p>
+      Quanto da legislação de Rondônia já está aqui, e o que falta? O
+      denominador são as listas anuais oficiais da Casa Civil: cada norma que
+      elas enumeram é conferida contra o que está preservado no Internet
+      Archive e contra o que já pode ser lido neste portal.
+    </p>
+    <CompletudePanel client:only="svelte" />
+  </section>
 
   <section aria-labelledby="funil">
     <h2 id="funil">O funil de processamento</h2>
@@ -131,6 +144,14 @@ import { iaDetailsUrl } from '../lib/format';
         — camada de texto não estruturado (tabela <code>textos</code>): uma linha
         por norma com OCR, texto literal e proveniência;
       </li>
+      {COMPLETENESS_PARQUET_URL && (
+        <li>
+          <a href={COMPLETENESS_PARQUET_URL} rel="external">completeness.parquet</a>
+          — livro-razão de completude: uma linha por norma do índice oficial
+          (número, data, ementa) com o que já está preservado, legível e
+          estruturado, mais as normas do acervo que o índice não lista;
+        </li>
+      )}
       {DATASET_IA_ITEM && (
         <li>
           <a href={iaDetailsUrl(DATASET_IA_ITEM)} rel="external">

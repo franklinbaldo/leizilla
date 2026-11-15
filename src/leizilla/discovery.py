@@ -3,6 +3,8 @@
 Lê manifestos declarativos por ente e popula a tabela de discovered_resources.
 """
 
+import datetime
+import html as html_lib
 import json
 import logging
 import re
@@ -802,9 +804,177 @@ _YEAR_INDEX_ROW = re.compile(
     r"""(?P<body>.*?)(?=<a[^>]*detalhes\.aspx\?coddoc=|\Z)""",
     re.IGNORECASE | re.DOTALL,
 )
-_YEAR_INDEX_NUMBER = re.compile(r"n\.?\s*[ºo°]?\s*(\d[\d.]*)", re.IGNORECASE)
-_YEAR_INDEX_FILE = re.compile(r"""href=['"](Files/[^'"]+\.pdf)['"]""", re.IGNORECASE)
+# Número do título, com sufixo de letra opcional colado ao número ("n. 9A",
+# "n. 4591-A"). O sufixo distingue normas diferentes (Decreto-Lei 9 ≠ 9A).
+# Variações vistas nas listas reais: "n. 5", "nº 5", "n.5", "n . 5", "n.  5".
+_YEAR_INDEX_NUMBER = re.compile(
+    r"\bn\s?\.?\s*[ºo°]?\.?\s*(\d[\d.]*)(?:-?([A-Za-z])(?![A-Za-z0-9]))?",
+    re.IGNORECASE,
+)
+# Título abreviado, sem "n." — visto na lista real de 2000: "L946, de 20-12-2000".
+_YEAR_INDEX_SHORT_NUMBER = re.compile(
+    r"^\s*[A-Za-z]{1,4}\s?(\d[\d.]*)(?:-?([A-Za-z])(?![A-Za-z0-9]))?\s*,"
+)
+_YEAR_INDEX_DATE = re.compile(r"\bde\s+(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})\b")
+_YEAR_INDEX_FILE = re.compile(r"""href=['"](Files/[^'"]+)['"]""", re.IGNORECASE)
+_YEAR_INDEX_EMENTA = re.compile(
+    r"""<span[^>]*id=['"][^'"]*ementadoc[^'"]*['"][^>]*>(?P<ementa>.*?)</span>""",
+    re.IGNORECASE | re.DOTALL,
+)
+_YEAR_INDEX_DECLARED = re.compile(r"(\d+)\s+resultado\(s\)\s+encontrado", re.IGNORECASE)
+_YEAR_INDEX_EMPTY = re.compile(
+    r"""id=['"][^'"]*lblEmptyData['"][^>]*>\s*N[ãa]o foi encontrado""", re.IGNORECASE
+)
+_YEAR_INDEX_PAGE_YEAR = re.compile(
+    r"""id=['"][^'"]*lblAno['"][^>]*>\s*(\d{4})\s*<""", re.IGNORECASE
+)
 _YEAR_INDEX_RATE_LIMIT_S = 1.0
+
+# Rótulos de rendição derivados do sufixo do nome do arquivo na lista oficial
+# ("L6500 - COMPILADA.pdf", "D31884 - REVOGADO.pdf", "DEC31990 - RETIFICADO.pdf").
+RENDICAO_ORIGINAL = "original"
+RENDICAO_COMPILADA = "compilada"
+RENDICAO_REVOGADO = "revogado"
+RENDICAO_RETIFICADO = "retificado"
+RENDICAO_OUTRA = "outra"
+_FILE_STEM_IDENTITY = re.compile(r"^[A-Za-z]+\s*\d[\d.]*[A-Za-z]?(?![A-Za-z])")
+
+
+def year_index_rendicao(filename: str) -> str:
+    """Rendição de um arquivo da lista anual, pelo sufixo do nome.
+
+    ``L6572.pdf`` → ``original``; ``L6500 - COMPILADA.pdf`` / ``DL9A -
+    COMPILADO_merged.pdf`` → ``compilada``; ``… - REVOGADO|REVOGADA`` →
+    ``revogado``; ``… - RETIFICADO`` → ``retificado``. Qualquer outro sufixo não
+    vazio ("SEM EFEITO") → ``outra``: o arquivo é listado, só não classificado.
+    """
+    stem = urllib.parse.unquote(filename).rsplit("/", 1)[-1]
+    if "." in stem:
+        stem = stem.rsplit(".", 1)[0]
+    rest = _FILE_STEM_IDENTITY.sub("", stem.strip(), count=1)
+    rest = re.sub(r"[\s_\-]+", " ", rest).strip().upper()
+    if not rest:
+        return RENDICAO_ORIGINAL
+    if "COMPIL" in rest or "CONSOLID" in rest:
+        return RENDICAO_COMPILADA
+    if "REVOG" in rest:
+        return RENDICAO_REVOGADO
+    if "RETIF" in rest:
+        return RENDICAO_RETIFICADO
+    return RENDICAO_OUTRA
+
+
+def _visible_text(fragment: str) -> str:
+    """Texto visível de um fragmento HTML: sem tags, entidades nem espaços extras."""
+    text = re.sub(r"<[^>]+>", " ", fragment)
+    return re.sub(r"\s+", " ", html_lib.unescape(text)).strip()
+
+
+def year_index_page_info(html_content: str) -> Dict[str, Optional[int]]:
+    """Ano e total declarados no cabeçalho de uma lista anual.
+
+    ``{"ano": 2026, "declarados": 266}``; cada campo é ``None`` quando o marcador
+    não está na página. Um ano sem normas traz o rótulo de total vazio e o aviso
+    explícito ``lblEmptyData`` ("Não foi encontrado nenhum registro") — só então
+    ``declarados`` é 0. Uma resposta sem ano ou sem total não é uma lista anual
+    (página de erro, HTML truncado) e não deve ser lida como "ano sem normas".
+    """
+    year = _YEAR_INDEX_PAGE_YEAR.search(html_content)
+    declared = _YEAR_INDEX_DECLARED.search(html_content)
+    declarados: Optional[int] = int(declared.group(1)) if declared else None
+    if declarados is None and _YEAR_INDEX_EMPTY.search(html_content):
+        declarados = 0
+    return {"ano": int(year.group(1)) if year else None, "declarados": declarados}
+
+
+def _title_number(title: str) -> Optional[re.Match[str]]:
+    """Número (grupo 1) e sufixo de letra (grupo 2) do título de uma entrada."""
+    number = _YEAR_INDEX_NUMBER.search(title) or _YEAR_INDEX_SHORT_NUMBER.search(title)
+    if number is None or not number.group(1).replace(".", ""):
+        return None
+    return number
+
+
+def casacivil_year_unreadable(html_content: str) -> List[Dict[str, Any]]:
+    """Entradas de uma lista anual cujo título não tem número legível.
+
+    ``[{"coddoc", "titulo"}]`` — exatamente as que ``parse_casacivil_year_catalog``
+    pula. Existem na lista oficial, só não puderam ser identificadas; quem monta
+    o livro-razão as expõe em vez de deixá-las sumir.
+    """
+    return [
+        {"coddoc": int(row.group("coddoc")), "titulo": title}
+        for row in _YEAR_INDEX_ROW.finditer(html_content)
+        if _title_number(title := _visible_text(row.group("title"))) is None
+    ]
+
+
+def parse_casacivil_year_catalog(
+    html_content: str, base_url: str, tipo: str, ano: Optional[int] = None
+) -> List[Dict[str, Any]]:
+    """Uma entrada por norma de uma lista anual do Consulegis (Casa Civil/RO).
+
+    É a leitura completa da lista — o denominador do livro-razão de completude
+    (``leizilla.completeness``). Cada registro traz:
+
+    - ``tipo`` (o canônico da lista), ``numero`` (int) e ``sufixo`` — a letra do
+      título quando existe ("Decreto Lei n. 9A" → ``numero=9, sufixo="A"``), senão
+      ``""``. O caso comum (sem sufixo) mantém a identidade ``(tipo, numero)``;
+    - ``titulo`` oficial, ``data`` (ISO ``YYYY-MM-DD``, ou ``None`` se ilegível),
+      ``ano`` (o ano da lista: o argumento, senão o cabeçalho da página, senão o
+      ano da data), ``ementa`` e ``coddoc``;
+    - ``arquivos``: ``[{"nome", "url", "rendicao"}]`` — todos os ``Files/…`` da
+      entrada, com a rendição derivada do sufixo (``year_index_rendicao``).
+
+    Entrada sem número legível no título é pulada (o total declarado no cabeçalho
+    da página deixa a diferença visível); entrada sem arquivo é mantida com
+    ``arquivos=[]`` — a norma existe mesmo sem download.
+    """
+    page_year = ano if ano is not None else year_index_page_info(html_content)["ano"]
+    records: List[Dict[str, Any]] = []
+    for row in _YEAR_INDEX_ROW.finditer(html_content):
+        title = _visible_text(row.group("title"))
+        number = _title_number(title)
+        if not number:
+            continue
+        digits = number.group(1).replace(".", "")
+        data: Optional[str] = None
+        date = _YEAR_INDEX_DATE.search(title)
+        if date:
+            try:
+                data = datetime.date(
+                    int(date.group(3)), int(date.group(2)), int(date.group(1))
+                ).isoformat()
+            except ValueError:
+                data = None
+        ementa = _YEAR_INDEX_EMENTA.search(row.group("body"))
+        arquivos: List[Dict[str, str]] = []
+        for href in _YEAR_INDEX_FILE.findall(row.group("body")):
+            nome = urllib.parse.unquote(href).rsplit("/", 1)[-1]
+            arquivos.append(
+                {
+                    "nome": nome,
+                    "url": urllib.parse.urljoin(base_url, href),
+                    "rendicao": year_index_rendicao(nome),
+                }
+            )
+        record_year = page_year
+        if record_year is None and data is not None:
+            record_year = int(data[:4])
+        records.append(
+            {
+                "tipo": tipo,
+                "numero": int(digits),
+                "sufixo": (number.group(2) or "").upper(),
+                "titulo": title,
+                "data": data,
+                "ano": record_year,
+                "ementa": _visible_text(ementa.group("ementa")) if ementa else "",
+                "coddoc": int(row.group("coddoc")),
+                "arquivos": arquivos,
+            }
+        )
+    return records
 
 
 def parse_casacivil_year_index(
@@ -816,21 +986,23 @@ def parse_casacivil_year_index(
     real do arquivo. A identidade vem do **título** (ADR-0011: contexto de
     descoberta), não do nome do arquivo, que varia ("L6572.pdf",
     "L6500 - COMPILADA.pdf"). Entrada sem número legível ou sem arquivo é pulada.
+
+    É a visão de descoberta de ``parse_casacivil_year_catalog``: um resource por
+    PDF, chaveado por ``{tipo}-{numero}`` (o sufixo de letra do título não entra
+    na chave de colheita — a captura segue no item de range do número).
     """
     resources: List[Dict[str, Any]] = []
-    for row in _YEAR_INDEX_ROW.finditer(html_content):
-        number = _YEAR_INDEX_NUMBER.search(row.group("title"))
-        if not number:
-            continue
-        numero = int(number.group(1).replace(".", ""))
-        for href in _YEAR_INDEX_FILE.findall(row.group("body")):
+    for record in parse_casacivil_year_catalog(html_content, base_url, tipo):
+        for arquivo in record["arquivos"]:
+            if not arquivo["url"].lower().endswith(".pdf"):
+                continue
             resources.append(
                 {
-                    "url": urllib.parse.urljoin(base_url, href),
+                    "url": arquivo["url"],
                     "ente": ente,
                     "fonte": fonte,
                     "tipo_documento": tipo,
-                    "chave": f"{tipo}-{numero:05d}",
+                    "chave": f"{tipo}-{record['numero']:05d}",
                     "status": "pending",
                     "wayback_snapshot": None,
                 }
