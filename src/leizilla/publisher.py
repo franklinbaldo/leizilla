@@ -1079,6 +1079,67 @@ def preserved_identity_token(tipo: str, numero: int) -> str:
     return f"identity:{tipo.lower()}-{numero:05d}"
 
 
+# refile-raw: correção pontual de capturas arquivadas sob um número errado.
+_REFILE_DOWNLOAD_ATTEMPTS = 3
+_REFILE_DOWNLOAD_TIMEOUT_S = 60
+_REFILE_DOWNLOAD_RETRY_S = 5.0
+_REFILE_VERIFY_RETRIES = 6
+_REFILE_VERIFY_SLEEP_S = 20.0
+_REFILE_TITLE_PREFIX = "[CADASTRO CORRIGIDO]"
+
+
+def _is_refile_row(row: Dict[str, Any], tipo: str, numero: int) -> bool:
+    """Linha PDF de ``(tipo, numero)`` no index.csv de um item."""
+    numero_s = str(row.get("numero") or "")
+    return (
+        row.get("tipo") == tipo
+        and numero_s.isdigit()
+        and int(numero_s) == numero
+        and row.get("formato") == "pdf"
+    )
+
+
+def _index_has_copy(index_csv: str, tipo: str, numero: int, sha256: str) -> bool:
+    """True se o index.csv já tem um PDF de ``tipo``/``numero`` com este sha256."""
+    for row in csv.DictReader(io.StringIO(index_csv)):
+        if _is_refile_row(row, tipo, numero) and row.get("sha256") == sha256:
+            return True
+    return False
+
+
+def _download_refile_bytes(url: str, sha256: str) -> Optional[bytes]:
+    """Baixa um arquivo do item errado e confere o sha256 (até 3 tentativas).
+
+    Devolve ``None`` se nunca bateu o hash esperado (falha de rede ou divergência).
+    """
+    for attempt in range(1, _REFILE_DOWNLOAD_ATTEMPTS + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+            with urllib.request.urlopen(
+                req, timeout=_REFILE_DOWNLOAD_TIMEOUT_S
+            ) as resp:
+                data: bytes = resp.read()
+        except (urllib.error.URLError, OSError) as e:
+            logger.warning(
+                "refile: download falhou (tentativa %d/%d): %s",
+                attempt,
+                _REFILE_DOWNLOAD_ATTEMPTS,
+                e,
+            )
+        else:
+            if compute_hash(data) == sha256:
+                return data
+            logger.warning(
+                "refile: sha256 divergente (tentativa %d/%d) em %s",
+                attempt,
+                _REFILE_DOWNLOAD_ATTEMPTS,
+                url,
+            )
+        if attempt < _REFILE_DOWNLOAD_ATTEMPTS:
+            time.sleep(_REFILE_DOWNLOAD_RETRY_S * attempt)
+    return None
+
+
 class InternetArchivePublisher:
     """Upload para IA e geração de datasets Parquet."""
 
@@ -1794,6 +1855,204 @@ class InternetArchivePublisher:
                 logger.warning("reconcile: reescrita do índice de espera falhou: %s", e)
                 return False
         return True
+
+    def refile_raw(
+        self,
+        wrong_item: str,
+        wrong_numero: int,
+        correct_numero: int,
+        *,
+        ente: str,
+        fonte: str,
+        tipo: str,
+        note: str,
+        dry_run: bool = True,
+    ) -> Dict[str, Any]:
+        """Move capturas arquivadas sob um número errado para o item do número certo.
+
+        Passos, cada um parando no primeiro problema sem escritas adicionais:
+        1. lê o index.csv do item errado e seleciona as linhas PDF do número errado;
+        2. baixa os bytes e confere o sha256 de cada linha;
+        3. ``dry_run``: devolve o plano, sem nenhuma escrita;
+        4. copia os bytes ao item do número certo via ``upload_raw``;
+        5. confere a cópia pelo sha256 no index do item certo (IA é eventualmente
+           consistente: até 6 novas leituras com 20 s entre elas);
+        6. só então anota o item errado com ``note`` (recebida do chamador, não
+           gerada aqui) e remove os PDFs, os ``_meta.json`` e o ``index.csv`` dele.
+
+        Falha na limpeza (passo 6) devolve ``refiled: True``: a cópia já está
+        confirmada e só a limpeza está pendente.
+        """
+        target_item = range_item_identifier(ente, fonte, tipo, correct_numero)
+        if target_item == wrong_item:
+            # Guarda de segurança: a limpeza apagaria o index.csv que acabou de
+            # receber a cópia. Não ocorre com os seis casos conhecidos.
+            return {"success": False, "reason": "same-item", "wrong_item": wrong_item}
+
+        try:
+            index_csv = _fetch_existing_index(wrong_item)
+        except IndexFetchError:
+            index_csv = None
+        if index_csv is None:
+            return {
+                "success": False,
+                "reason": "index-unreadable",
+                "wrong_item": wrong_item,
+            }
+
+        rows: List[Dict[str, Any]] = list(csv.DictReader(io.StringIO(index_csv)))
+        selected = [r for r in rows if _is_refile_row(r, tipo, wrong_numero)]
+        if not selected:
+            return {"success": False, "reason": "not-found", "wrong_item": wrong_item}
+        if len(selected) != len(rows):
+            # O passo 6 apaga o index.csv inteiro; outras linhas se perderiam.
+            return {
+                "success": False,
+                "reason": "index-has-other-rows",
+                "wrong_item": wrong_item,
+            }
+
+        captures: List[tuple[Dict[str, Any], str, bytes]] = []
+        for row in selected:
+            wrong_file = raw_filename(
+                row["uuid5"], ".pdf", name_prefix=f"{tipo}-{wrong_numero:05d}"
+            )
+            data = _download_refile_bytes(
+                download_url(wrong_item, wrong_file), row["sha256"]
+            )
+            if data is None:
+                return {
+                    "success": False,
+                    "reason": "bytes-mismatch",
+                    "wrong_item": wrong_item,
+                    "wrong_file": wrong_file,
+                }
+            captures.append((row, wrong_file, data))
+
+        plan = [
+            {
+                "wrong_file": wrong_file,
+                "sha256": row["sha256"],
+                "source_url": row.get("source", ""),
+                "target_item": target_item,
+            }
+            for row, wrong_file, _ in captures
+        ]
+        if dry_run:
+            return {
+                "success": True,
+                "dry_run": True,
+                "wrong_item": wrong_item,
+                "target_item": target_item,
+                "plan": plan,
+            }
+
+        index_cache: Dict[str, str] = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            for i, (row, _, data) in enumerate(captures):
+                pdf_path = Path(tmp) / f"refile-{i}.pdf"
+                pdf_path.write_bytes(data)
+                lei_data = {
+                    "id": f"{ente}-{fonte}-{tipo}-{correct_numero:05d}",
+                    "ente": ente,
+                    "fonte": fonte,
+                    "chave": f"{tipo}-{correct_numero:05d}",
+                    "titulo": f"{tipo.upper()} {tipo}-{correct_numero:05d} "
+                    f"({ente.upper()})",
+                    "url_original": row.get("source", ""),
+                    "rendicao": row.get("rendicao", ""),
+                }
+                up = self.upload_raw(
+                    pdf_path,
+                    lei_data,
+                    data,
+                    fetched_from="refile",
+                    index_cache=index_cache,
+                )
+                if not up.get("success"):
+                    return {
+                        "success": False,
+                        "reason": "upload-failed",
+                        "wrong_item": wrong_item,
+                        "target_item": target_item,
+                        "error": up.get("error"),
+                    }
+
+        pending = list(captures)
+        for attempt in range(_REFILE_VERIFY_RETRIES + 1):
+            if attempt:
+                time.sleep(_REFILE_VERIFY_SLEEP_S)
+            try:
+                target_csv = _fetch_existing_index(target_item)
+            except IndexFetchError:
+                target_csv = None
+            if target_csv is not None:
+                pending = [
+                    c
+                    for c in pending
+                    if not _index_has_copy(
+                        target_csv, tipo, correct_numero, c[0]["sha256"]
+                    )
+                ]
+            if not pending:
+                break
+        if pending:
+            return {
+                "success": False,
+                "reason": "copy-unverified",
+                "wrong_item": wrong_item,
+                "target_item": target_item,
+                "unverified_sha256": [c[0]["sha256"] for c in pending],
+            }
+
+        cleanup_files: List[str] = []
+        for row, wrong_file, _ in captures:
+            cleanup_files.append(wrong_file)
+            cleanup_files.append(
+                raw_filename(
+                    row["uuid5"], "_meta.json", name_prefix=f"{tipo}-{wrong_numero:05d}"
+                )
+            )
+        cleanup_files.append(INDEX_FILENAME)
+        cleanup_files = list(dict.fromkeys(cleanup_files))
+
+        stage = "annotate"
+        try:
+            self._run_ia_upload(
+                [
+                    "ia",
+                    "metadata",
+                    wrong_item,
+                    "--modify",
+                    f"title:{_REFILE_TITLE_PREFIX} {wrong_item}",
+                    "--modify",
+                    f"description:{note}",
+                ]
+            )
+            stage = "delete"
+            self._run_ia_upload(["ia", "delete", wrong_item, *cleanup_files])
+        except (subprocess.CalledProcessError, OSError) as e:
+            logger.error(
+                "refile: limpeza do item %s falhou em '%s': %s", wrong_item, stage, e
+            )
+            return {
+                "success": False,
+                "reason": "cleanup-failed",
+                "refiled": True,
+                "stage": stage,
+                "wrong_item": wrong_item,
+                "target_item": target_item,
+                "error": str(e),
+            }
+
+        logger.info("refile: %s -> %s concluído", wrong_item, target_item)
+        return {
+            "success": True,
+            "dry_run": False,
+            "refiled": plan,
+            "wrong_item": wrong_item,
+            "target_item": target_item,
+        }
 
     def reconcile_unidentified(
         self,

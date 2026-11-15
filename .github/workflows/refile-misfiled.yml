@@ -1,0 +1,72 @@
+name: Refile misfiled raw captures (one-off)
+
+# Correção pontual de 2026-11-15: seis decretos foram arquivados sob números que
+# não existem, porque o índice oficial da Casa Civil de RO trazia erro de
+# digitação no título. Cada captura é copiada para o item do número certo,
+# conferida pelo sha256 e só então o item errado é anotado e limpo (ver
+# InternetArchivePublisher.refile_raw). Disparo manual apenas; dry-run por padrão.
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: "Se 'true', executa a correção no IA; senão só mostra o plano"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write # notify-run-failure
+
+concurrency:
+  group: refile-misfiled
+  cancel-in-progress: false
+
+jobs:
+  refile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+
+      # Uma linha por decreto, em sequência. Uma falha não interrompe as demais;
+      # o passo termina com erro se alguma linha falhou.
+      - name: Refile os seis decretos
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+          EXECUTE: ${{ inputs.execute }}
+        run: |
+          EXEC_FLAG=""
+          if [ "$EXECUTE" = "true" ]; then EXEC_FLAG="--execute"; fi
+
+          refile_one() {
+            local wrong_item="$1" wrong_numero="$2" correct_numero="$3"
+            local source_file="$4" target_item="$5"
+            local note="Cadastro corrigido em 2026-11-15. Este item foi criado por engano: o índice oficial da Casa Civil de Rondônia trazia o título com erro de digitação (Decreto n. ${wrong_numero}), enquanto o arquivo publicado era ${source_file}. O documento é o Decreto n. ${correct_numero} e foi movido para o item ${target_item}. Este item foi mantido vazio, com esta nota, para registrar a correção."
+            uv run leizilla refile-raw \
+              --ente ro --fonte casacivil --tipo decreto \
+              --wrong-item "$wrong_item" \
+              --wrong-numero "$wrong_numero" \
+              --correct-numero "$correct_numero" \
+              --note "$note" \
+              $EXEC_FLAG
+          }
+
+          failed=0
+          refile_one leizilla_ro_casacivil_decreto_304001-305000 304012 30412 D30412.pdf leizilla_ro_casacivil_decreto_30001-31000 || failed=1
+          refile_one leizilla_ro_casacivil_decreto_202001-203000 202223 20223 D20223.pdf leizilla_ro_casacivil_decreto_20001-21000 || failed=1
+          refile_one leizilla_ro_casacivil_decreto_111001-112000 111525 11525 D11525.pdf leizilla_ro_casacivil_decreto_11001-12000 || failed=1
+          refile_one leizilla_ro_casacivil_decreto_66001-67000 66814 6814 D6814.pdf leizilla_ro_casacivil_decreto_6001-7000 || failed=1
+          refile_one leizilla_ro_casacivil_decreto_77001-78000 77001 7701 D7701.pdf leizilla_ro_casacivil_decreto_7001-8000 || failed=1
+          refile_one leizilla_ro_casacivil_decreto_80001-81000 80756 8756 D8756.pdf leizilla_ro_casacivil_decreto_8001-9000 || failed=1
+
+          exit "$failed"
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "refile-misfiled / decretos"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
