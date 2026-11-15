@@ -55,7 +55,11 @@ def test_preserved_sources_reads_index_and_ignores_scheme() -> None:
     )
     pub = publisher.InternetArchivePublisher()
     with patch.object(publisher, "_fetch_existing_index", return_value=index):
-        assert pub.preserved_sources("item") == {"example.com/Files/L1.pdf"}
+        assert pub.preserved_sources("item") == {
+            "example.com/files/l1.pdf",
+            "identity:lei-00001",
+            "identity:lei-00002",
+        }
 
 
 def test_preserved_sources_missing_index_is_empty_not_unknown() -> None:
@@ -81,8 +85,8 @@ def test_harvest_skips_preserved_without_spending_the_limit(
         temp_db.insert_resource(_resource(numero))
     pub = MagicMock()
     pub.preserved_sources.return_value = {
-        "example.com/Files/L1.pdf",
-        "example.com/Files/L2.pdf",
+        "example.com/files/l1.pdf",
+        "example.com/files/l2.pdf",
     }
     pub.upload_raw.return_value = {"success": True, "ia_id": "x", "ia_url": "u"}
 
@@ -271,3 +275,107 @@ def test_workflow_saves_db_cache_after_harvest() -> None:
         assert job.index("name: Harvest") < job.index(
             "name: Save discovered-resources DB cache"
         )
+
+
+# --- Casa Civil year index: the authoritative list of what exists --------------------
+
+_YEAR_PAGE = """
+<table><tr><td><div>
+<a id="h0" href="../Livros/detalhes.aspx?coddoc=45727">Lei n. 6572, de 12-11-2026</a><br />
+<span>Download:</span>&nbsp;<a id="d0" href="Files/L6572.pdf">L6572.pdf</a>
+<span>Autoriza o Poder Executivo a alienar imóvel.</span>
+</div></td></tr><tr><td><div>
+<a id="h1" href="../Livros/detalhes.aspx?coddoc=45001">Lei n. 6.324, de 02-03-2026</a><br />
+<span>Download:</span>&nbsp;<a id="d1" href="Files/L6324%20-%20COMPILADA.pdf">x</a>
+</div></td></tr><tr><td><div>
+<a id="h2" href="../Livros/detalhes.aspx?coddoc=45002">Sem número</a><br />
+<a id="d2" href="Files/avulso.pdf">avulso.pdf</a>
+</div></td></tr></table>
+"""
+
+
+def test_year_index_takes_identity_from_the_title_not_the_filename() -> None:
+    from leizilla.discovery import parse_casacivil_year_index
+
+    base = "https://example.gov.br/COTEL/Livros/listleiord.aspx?ano=2026"
+    resources = parse_casacivil_year_index(_YEAR_PAGE, base, "lei", "ro", "casacivil")
+
+    assert [r["chave"] for r in resources] == ["lei-06572", "lei-06324"]
+    assert resources[0]["url"] == "https://example.gov.br/COTEL/Livros/Files/L6572.pdf"
+    assert resources[1]["url"].endswith("Files/L6324%20-%20COMPILADA.pdf")
+    assert all(r["tipo_documento"] == "lei" for r in resources)
+
+
+def test_year_index_walks_newest_year_first_and_survives_a_failed_year() -> None:
+    from leizilla.discovery import CasacivilYearIndexDiscovery
+
+    strategy = CasacivilYearIndexDiscovery(
+        {
+            "strategy": "casacivil-year-index",
+            "tipo": "lei",
+            "url_template": "https://example.gov.br/list.aspx?ano={ano}",
+            "start_year": 2024,
+            "end_year": 2026,
+        },
+        "ro",
+        "casacivil",
+    )
+    seen: list[str] = []
+
+    def fake_fetch(url: str) -> Any:
+        seen.append(url)
+        return None if url.endswith("2025") else _YEAR_PAGE
+
+    with patch.object(strategy, "_fetch", side_effect=fake_fetch):
+        resources = strategy.run()
+
+    assert [u[-4:] for u in seen] == ["2026", "2025", "2024"]
+    assert len(resources) == 4
+
+
+def test_ro_manifest_declares_year_index_per_tipo() -> None:
+    from leizilla.discovery import _discovery_cfg_tipo, load_manifest
+
+    cfgs = [
+        c
+        for c in load_manifest("ro")["fontes"]["casacivil"]["discovery"]
+        if c["strategy"] == "casacivil-year-index"
+    ]
+    assert sorted(_discovery_cfg_tipo(c) or "" for c in cfgs) == [
+        "decreto",
+        "decreto-lei",
+        "lc",
+        "lei",
+    ]
+
+
+def test_harvest_skips_another_spelling_of_a_preserved_norm_but_not_a_rendition(
+    temp_db: DuckDBStorage,
+) -> None:
+    # L006.pdf is preserved; the guessed L6.pdf is the same norm, while the
+    # compiled rendition is a different document.
+    guess = _resource(6)
+    guess["url"] = "https://example.com/Files/L6.pdf"
+    compiled = _resource(6)
+    compiled["url"] = "https://example.com/Files/L6%20-%20COMPILADA.pdf"
+    temp_db.insert_resource(guess)
+    temp_db.insert_resource(compiled)
+    pub = MagicMock()
+    pub.preserved_sources.return_value = {
+        "example.com/files/l006.pdf",
+        "identity:lei-00006",
+    }
+    pub.upload_raw.return_value = {"success": True, "ia_id": "x", "ia_url": "u"}
+
+    with (
+        patch("leizilla.scraper.robots.is_allowed", return_value=True),
+        patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
+        patch(
+            "leizilla.scraper.wayback.fetch_bytes_detailed",
+            return_value=(b"%PDF-1.4 x", False),
+        ),
+    ):
+        stats = harvest_pending_resources(temp_db, pub, limit=5)
+
+    assert stats["already-preserved"] == 1
+    assert stats["success"] == 1

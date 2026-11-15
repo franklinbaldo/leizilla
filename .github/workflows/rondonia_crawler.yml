@@ -36,7 +36,9 @@ jobs:
   # assembleia (Playwright, ~3h47 observado) estourar o prazo, não derruba
   # casacivil-lei/lc que rodariam depois no mesmo job monolítico anterior.
   scrape-assembleia:
-    runs-on: ubuntu-latest
+    # Pinned: 'playwright install --with-deps' refuses the ubuntu-26.04 image that
+    # ubuntu-latest now resolves to. Revisit when Playwright supports it.
+    runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
@@ -78,7 +80,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
   scrape-casacivil-lei:
-    runs-on: ubuntu-latest
+    # Pinned: 'playwright install --with-deps' refuses the ubuntu-26.04 image that
+    # ubuntu-latest now resolves to. Revisit when Playwright supports it.
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
@@ -120,7 +124,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
   scrape-casacivil-lc:
-    runs-on: ubuntu-latest
+    # Pinned: 'playwright install --with-deps' refuses the ubuntu-26.04 image that
+    # ubuntu-latest now resolves to. Revisit when Playwright supports it.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4

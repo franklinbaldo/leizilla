@@ -1,0 +1,94 @@
+name: Text layer (textos) — build + release
+
+# ADR-0015: camada de texto desacoplada de versoes. Constrói a tabela `textos` a
+# partir do OCR já derivado pelo Internet Archive e a publica em itens próprios
+# (leizilla-textos-{ente}-v{N}-{revision} + -latest), com piso de linhas próprio.
+# Não lê nem altera os itens leizilla-dataset-* nem o release de versoes.
+#
+# Só manual por enquanto: a primeira publicação é uma decisão deliberada. Um
+# `schedule` pode ser acrescentado depois que o primeiro release for verificado.
+on:
+  workflow_dispatch:
+    inputs:
+      ente:
+        description: "Ente federativo"
+        default: "ro"
+      dataset_version:
+        description: "Versão do dataset textos publicado no IA (inteiro)"
+        default: "0"
+      dry_run:
+        description: "Se 'true', constrói e valida sem publicar"
+        default: "true"
+      allow_lower_count:
+        description: "Se 'true', publica mesmo abaixo do piso de linhas de textos — só para queda esperada e verificada"
+        default: "false"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: text-layer-release
+  cancel-in-progress: false
+
+jobs:
+  textos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+
+      # Reaproveita o release anterior: só baixa do IA o texto de normas novas ou
+      # cujo arquivo de origem/OCR mudou. Fail-open: sem release anterior, baixa tudo.
+      - name: Fetch previous textos.parquet (se houver)
+        run: |
+          curl -fsSL "https://archive.org/download/leizilla-textos-${{ inputs.ente || 'ro' }}-v${{ inputs.dataset_version || '0' }}-latest/textos.parquet" \
+            -o /tmp/textos-previous.parquet \
+          || { rm -f /tmp/textos-previous.parquet; echo "Sem release anterior de textos — construção completa."; }
+
+      - name: Build textos.parquet
+        run: |
+          PREVIOUS_FLAG=""
+          if [ -f /tmp/textos-previous.parquet ]; then PREVIOUS_FLAG="--previous /tmp/textos-previous.parquet"; fi
+          uv run leizilla build-textos \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --output /tmp/textos.parquet \
+            $PREVIOUS_FLAG
+
+      - name: Preserve candidate Parquet
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: textos-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/textos.parquet
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Dry-run (valida, sem upload)
+        if: "${{ inputs.dry_run != 'false' }}"
+        run: |
+          uv run leizilla release-textos /tmp/textos.parquet \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --version "${{ inputs.dataset_version || '0' }}" \
+            --dry-run
+
+      - name: Release textos → IA
+        if: "${{ inputs.dry_run == 'false' }}"
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          ALLOW_LOWER_FLAG=""
+          if [ "${{ inputs.allow_lower_count || 'false' }}" = "true" ]; then ALLOW_LOWER_FLAG="--allow-lower-count"; fi
+          uv run leizilla release-textos /tmp/textos.parquet \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --version "${{ inputs.dataset_version || '0' }}" \
+            $ALLOW_LOWER_FLAG
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "text-layer-release / textos"
+          github-token: ${{ secrets.GITHUB_TOKEN }}

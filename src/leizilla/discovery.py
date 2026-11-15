@@ -796,6 +796,122 @@ class CasacivilIndexDiscovery:
         return resources
 
 
+_YEAR_INDEX_ROW = re.compile(
+    r"""<a[^>]*href=['"][^'"]*detalhes\.aspx\?coddoc=(?P<coddoc>\d+)['"][^>]*>"""
+    r"""(?P<title>[^<]*)</a>"""
+    r"""(?P<body>.*?)(?=<a[^>]*detalhes\.aspx\?coddoc=|\Z)""",
+    re.IGNORECASE | re.DOTALL,
+)
+_YEAR_INDEX_NUMBER = re.compile(r"n\.?\s*[ºo°]?\s*(\d[\d.]*)", re.IGNORECASE)
+_YEAR_INDEX_FILE = re.compile(r"""href=['"](Files/[^'"]+\.pdf)['"]""", re.IGNORECASE)
+_YEAR_INDEX_RATE_LIMIT_S = 1.0
+
+
+def parse_casacivil_year_index(
+    html_content: str, base_url: str, tipo: str, ente: str, fonte: str
+) -> List[Dict[str, Any]]:
+    """Extrai resources de uma lista anual do Consulegis (Casa Civil/RO).
+
+    Cada entrada traz o título oficial ("Lei n. 6572, de 12-11-2026") e o nome
+    real do arquivo. A identidade vem do **título** (ADR-0011: contexto de
+    descoberta), não do nome do arquivo, que varia ("L6572.pdf",
+    "L6500 - COMPILADA.pdf"). Entrada sem número legível ou sem arquivo é pulada.
+    """
+    resources: List[Dict[str, Any]] = []
+    for row in _YEAR_INDEX_ROW.finditer(html_content):
+        number = _YEAR_INDEX_NUMBER.search(row.group("title"))
+        if not number:
+            continue
+        numero = int(number.group(1).replace(".", ""))
+        for href in _YEAR_INDEX_FILE.findall(row.group("body")):
+            resources.append(
+                {
+                    "url": urllib.parse.urljoin(base_url, href),
+                    "ente": ente,
+                    "fonte": fonte,
+                    "tipo_documento": tipo,
+                    "chave": f"{tipo}-{numero:05d}",
+                    "status": "pending",
+                    "wayback_snapshot": None,
+                }
+            )
+    return resources
+
+
+class CasacivilYearIndexDiscovery:
+    """Descoberta pelas listas anuais oficiais do Consulegis (Casa Civil/RO).
+
+    ``listleiord.aspx?ano=YYYY`` (e as irmãs para LC, decreto e decreto-lei)
+    enumeram todas as normas do ano com número, data, ementa e o nome real do
+    arquivo. É a fonte autoritativa do que existe: substitui adivinhar
+    ``Files/L{n}.pdf`` e não depende de a Wayback já conhecer o número.
+
+    Configuração: ``url_template`` com ``{ano}``, ``tipo`` (canônico),
+    ``start_year`` e, opcionalmente, ``end_year`` (default: ano corrente).
+    Percorre do ano mais recente para o mais antigo, ~1 req/s (ADR-0008). Um ano
+    que falha é registrado e pulado; a execução não aborta.
+    """
+
+    def __init__(self, config: Dict[str, Any], ente: str, fonte: str) -> None:
+        self.url_template = str(config["url_template"])
+        self.tipo = str(config["tipo"])
+        self.start_year = int(config["start_year"])
+        self.end_year: Optional[int] = (
+            int(config["end_year"]) if config.get("end_year") is not None else None
+        )
+        self.ente = ente
+        self.fonte = fonte
+
+    def _allowed(self, url: str) -> bool:
+        from leizilla.scraper import robots
+
+        return bool(robots.is_allowed(url))
+
+    def _fetch(self, url: str) -> Optional[str]:
+        try:
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "leizilla-crawler/0.1"}
+            )
+            with urllib.request.urlopen(req, timeout=60.0) as r:
+                content: str = r.read().decode("utf-8", errors="ignore")
+                return content
+        except (urllib.error.URLError, OSError) as e:
+            logger.error(f"Falha ao buscar lista anual {url}: {e}")
+            return None
+
+    def run(self, storage: Optional[DuckDBStorage] = None) -> List[Dict[str, Any]]:
+        import datetime
+        import time
+
+        end_year = self.end_year or datetime.datetime.now(datetime.UTC).year
+        logger.info(
+            f"Rodando CasacivilYearIndex Discovery para {self.ente}/{self.fonte} "
+            f"tipo={self.tipo} ({end_year} até {self.start_year})..."
+        )
+        resources: List[Dict[str, Any]] = []
+        failed_years: List[int] = []
+        for ano in range(end_year, self.start_year - 1, -1):
+            url = self.url_template.format(ano=ano)
+            if not self._allowed(url):
+                logger.error(f"robots.txt bloqueou {url}")
+                return resources
+            time.sleep(_YEAR_INDEX_RATE_LIMIT_S)
+            html_content = self._fetch(url)
+            if html_content is None:
+                failed_years.append(ano)
+                continue
+            resources.extend(
+                parse_casacivil_year_index(
+                    html_content, url, self.tipo, self.ente, self.fonte
+                )
+            )
+        logger.info(
+            f"CasacivilYearIndex Discovery concluído: {len(resources)} recursos "
+            f"(tipo={self.tipo}); anos com falha: {failed_years or 'nenhum'}"
+        )
+        return resources
+
+
 class PlaywrightCrawlerDiscovery:
     """Estratégia de descobrimento que usa o LeisCrawler (Playwright) para o portal ALRO."""
 
@@ -947,6 +1063,7 @@ STRATEGIES: Dict[
     "wayback-cdx": WaybackCdxDiscovery,
     "sequential": SequentialDiscovery,
     "casacivil-index": CasacivilIndexDiscovery,
+    "casacivil-year-index": CasacivilYearIndexDiscovery,
     "playwright-crawler": PlaywrightCrawlerDiscovery,
     "planalto": PlanaltoDiscovery,
 }
@@ -974,7 +1091,7 @@ def _discovery_cfg_tipo(discovery_cfg: Dict[str, Any]) -> Optional[str]:
     chama trata None como "sempre roda, não é filtrável por tipo".
     """
     strategy = discovery_cfg.get("strategy")
-    if strategy == "planalto":
+    if strategy in ("planalto", "casacivil-year-index"):
         tipo = discovery_cfg.get("tipo")
         return str(tipo) if tipo else None
     if strategy == "sequential":

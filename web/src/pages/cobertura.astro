@@ -6,7 +6,12 @@ import ReleaseCitation from '../components/ReleaseCitation.svelte';
 import { STAGES } from '../lib/format';
 // Constantes puras derivadas em build-time (nenhuma conexão é aberta aqui) —
 // mantêm esta seção estática em sincronia com o que o navegador consulta.
-import { DATASET_PARQUET_URL, DATASET_IA_ITEM, DATASET_META_URL } from '../lib/db';
+import {
+  DATASET_PARQUET_URL,
+  DATASET_IA_ITEM,
+  DATASET_META_URL,
+  TEXTOS_PARQUET_URL,
+} from '../lib/db';
 import { iaDetailsUrl } from '../lib/format';
 ---
 
@@ -42,9 +47,11 @@ import { iaDetailsUrl } from '../lib/format';
       ))}
     </ol>
     <p>
-      Tudo o que aparece na busca alcançou o estágio <strong>S4
+      A busca lista as normas que alcançaram o estágio <strong>S4
       (estruturado)</strong> — os números da seção seguinte medem exatamente
-      esse conjunto.
+      esse conjunto — e também as que estão em <strong>S3 (com texto)</strong>,
+      marcadas com o selo "texto não estruturado": texto extraído por OCR, sem
+      revisão, com link para o PDF original.
     </p>
   </section>
 
@@ -118,6 +125,11 @@ import { iaDetailsUrl } from '../lib/format';
       <li>
         <a href={DATASET_PARQUET_URL} rel="external">versoes.parquet</a>
         — download direto do dataset;
+      </li>
+      <li>
+        <a href={TEXTOS_PARQUET_URL} rel="external">textos.parquet</a>
+        — camada de texto não estruturado (tabela <code>textos</code>): uma linha
+        por norma com OCR, texto literal e proveniência;
       </li>
       {DATASET_IA_ITEM && (
         <li>

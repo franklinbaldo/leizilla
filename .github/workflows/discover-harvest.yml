@@ -48,13 +48,19 @@ jobs:
   # ── DISPATCH com tipo específico ──────────────────────────────────────────
   harvest-single:
     if: github.event_name == 'workflow_dispatch' && inputs.tipo != ''
-    runs-on: ubuntu-latest
+    # Pinned: 'playwright install --with-deps' refuses the ubuntu-26.04 image that
+    # ubuntu-latest now resolves to. Revisit when Playwright supports it.
+    runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
-      - run: uv run playwright install chromium --with-deps
+      # Só a fonte assembleia usa Playwright. Rodar isto para casacivil derrubava
+      # o job inteiro quando o runner não tem pacote de Chromium suportado
+      # (2026-11-14: ubuntu-latest virou 26.04, que o Playwright 1.60 recusa).
+      - if: inputs.fonte == 'assembleia'
+        run: uv run playwright install chromium --with-deps
 
       # Achado de produção 2026-09-25 (PR #247 fixed the dedup CHECK, this
       # restores the STATE it checks against): sem isto, cada job começa de

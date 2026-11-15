@@ -5,6 +5,30 @@
       "tipo_ingestion": "pdf",
       "discovery": [
         {
+          "strategy": "casacivil-year-index",
+          "tipo": "lei",
+          "url_template": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/listleiord.aspx?ano={ano}",
+          "start_year": 1983
+        },
+        {
+          "strategy": "casacivil-year-index",
+          "tipo": "lc",
+          "url_template": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/listleicomp.aspx?ano={ano}",
+          "start_year": 1984
+        },
+        {
+          "strategy": "casacivil-year-index",
+          "tipo": "decreto",
+          "url_template": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/listdecnum.aspx?ano={ano}",
+          "start_year": 1981
+        },
+        {
+          "strategy": "casacivil-year-index",
+          "tipo": "decreto-lei",
+          "url_template": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/listdeclei.aspx?ano={ano}",
+          "start_year": 1981
+        },
+        {
           "strategy": "casacivil-index",
           "url": "https://ditel.casacivil.ro.gov.br/COTEL/Livros/"
         },

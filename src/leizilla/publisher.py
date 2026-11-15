@@ -322,6 +322,29 @@ def fetch_published_dataset_row_count(
     return _dataset_meta_row_count(legacy_id, timeout=timeout)
 
 
+def textos_item_identifier(ente: str, version: int, revision: str) -> str:
+    """Item IA da camada de texto (ADR-0015): ``leizilla-textos-{ente}-v{N}-{rev}``.
+
+    ``revision`` é um timestamp de release imutável ou ``latest`` (ponteiro
+    mutável). Itens próprios, separados dos de ``versoes``: o piso de linhas de
+    uma tabela nunca interfere no da outra.
+    """
+    return f"leizilla-textos-{ente}-v{version}-{revision}"
+
+
+def fetch_published_textos_row_count(
+    ente: str, version: int, *, timeout: int = 20
+) -> Optional[int]:
+    """Piso publicado da tabela ``textos`` (ponteiro latest); None se nunca publicada.
+
+    Fail-closed como o piso de ``versoes``: levanta ``DatasetFloorCheckError``
+    quando a existência ou o conteúdo não podem ser confirmados.
+    """
+    return _dataset_meta_row_count(
+        textos_item_identifier(ente, version, _DATASET_LATEST_SUFFIX), timeout=timeout
+    )
+
+
 def count_ia_items(identifier_prefix: str) -> Optional[int]:
     """Count IA items whose identifier starts with prefix via scrape API.
 
@@ -914,6 +937,11 @@ _IA_UPLOAD_MAX_DELAY_S = 60.0
 _IA_RATE_LIMIT_KEY = "https://archive.org/"  # host fixo p/ make_rate_limiter (ADR-0008)
 
 
+def preserved_identity_token(tipo: str, numero: int) -> str:
+    """Token de identidade usado em ``InternetArchivePublisher.preserved_sources``."""
+    return f"identity:{tipo.lower()}-{numero:05d}"
+
+
 class InternetArchivePublisher:
     """Upload para IA e geração de datasets Parquet."""
 
@@ -923,7 +951,10 @@ class InternetArchivePublisher:
         self._upload_rate_limiter = make_rate_limiter(_IA_UPLOAD_MIN_INTERVAL_S)
 
     def preserved_sources(self, item_id: str) -> Optional[set[str]]:
-        """URLs de origem (sem esquema) já capturadas num item, pelo ``index.csv``.
+        """O que um item já tem capturado, pelo ``index.csv``.
+
+        Contém as URLs de origem (sem esquema, em minúsculas) e um token por
+        identidade capturada (``preserved_identity_token``).
 
         ``None`` quando o índice não pôde ser lido agora (falha transitória) —
         distinto de um conjunto vazio, que é um item confirmado sem capturas.
@@ -932,11 +963,14 @@ class InternetArchivePublisher:
             index_csv = _fetch_existing_index(item_id)
         except IndexFetchError:
             return None
-        return {
-            row["source"].split("://", 1)[-1]
-            for row in csv.DictReader(io.StringIO(index_csv or ""))
-            if row.get("source")
-        }
+        preserved: set[str] = set()
+        for row in csv.DictReader(io.StringIO(index_csv or "")):
+            if row.get("source"):
+                preserved.add(row["source"].split("://", 1)[-1].lower())
+            numero = row.get("numero", "")
+            if row.get("tipo") and numero.isdigit():
+                preserved.add(preserved_identity_token(row["tipo"], int(numero)))
+        return preserved
 
     def _run_ia_upload(self, args: list[str]) -> "subprocess.CompletedProcess[str]":
         """Roda ``ia upload ...`` com espaçamento + retry exponencial (ADR-0008).
@@ -1891,6 +1925,140 @@ class InternetArchivePublisher:
             }
         except subprocess.CalledProcessError as e:
             return {"success": False, "error": e.stderr, "ia_id": latest_id}
+
+    def upload_textos(
+        self,
+        parquet_path: Path,
+        dataset_meta: Dict[str, Any],
+        ente: str,
+        version: int = 0,
+        publish_latest: bool = True,
+    ) -> Dict[str, Any]:
+        """Upload ``textos.parquet`` + ``dataset_meta.json`` para IA (ADR-0015).
+
+        Mesmo desenho de ``upload_dataset`` (release imutável
+        ``leizilla-textos-{ente}-v{version}-{revision}`` + ponteiro mutável
+        ``-latest`` com ``latest.json``), em itens próprios: nada aqui toca os
+        itens ``leizilla-dataset-*`` de ``versoes``. ``dataset_meta`` vem de
+        ``textlayer.build_textos_meta`` e carrega ``revision`` e ``row_count``.
+        """
+        if not self.access_key or not self.secret_key:
+            return {"success": False, "error": "IA credentials not configured"}
+        if version < 0:
+            raise ValueError(f"version must be >= 0, got {version}")
+        if not re.match(r"^[a-z][a-z0-9-]*$", ente):
+            raise ValueError(f"ente must match [a-z][a-z0-9-]*, got {ente!r}")
+        revision = str(dataset_meta.get("revision") or "")
+        if not re.match(_DATASET_REVISION_RE, revision):
+            raise ValueError(
+                f"revision must match {_DATASET_REVISION_RE}, got {revision!r}"
+            )
+
+        ia_id = textos_item_identifier(ente, version, revision)
+        latest_id = textos_item_identifier(ente, version, _DATASET_LATEST_SUFFIX)
+        row_count = dataset_meta.get("row_count")
+
+        def _upload(item_id: str, files: list[Path], title: str, desc: str) -> None:
+            self._run_ia_upload(
+                [
+                    "ia",
+                    "upload",
+                    item_id,
+                    *[str(f) for f in files],
+                    "--metadata",
+                    f"title:{title}",
+                    "--metadata",
+                    "mediatype:data",
+                    "--metadata",
+                    f"subject:leis;leizilla;{ente};parquet;textos",
+                    "--metadata",
+                    "creator:leizilla-etl",
+                    "--metadata",
+                    "language:pt",
+                    "--metadata",
+                    f"coverage:{_entity_coverage(ente)}",
+                    "--metadata",
+                    f"description:{desc}",
+                ]
+            )
+
+        def _failure(item_id: str, exc: Exception) -> Dict[str, Any]:
+            error = (
+                "ia CLI não encontrado — instale 'internetarchive'"
+                if isinstance(exc, FileNotFoundError)
+                else getattr(exc, "stderr", str(exc))
+            )
+            return {"success": False, "error": error, "ia_id": item_id}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            parquet_dst = Path(tmp) / "textos.parquet"
+            shutil.copy2(str(parquet_path), str(parquet_dst))
+            meta_path = Path(tmp) / "dataset_meta.json"
+            meta_path.write_text(
+                json.dumps(dataset_meta, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            try:
+                _upload(
+                    ia_id,
+                    [parquet_dst, meta_path],
+                    f"Leizilla Textos {ente.upper()} v{version} ({revision})",
+                    f"Release imutável (revisão {revision}) da camada de texto "
+                    f"(tabela textos: texto OCR não estruturado, verbatim) das "
+                    f"normas do ente {ente.upper()}, gerada pelo projeto Leizilla. "
+                    f"Contém {row_count} linhas.",
+                )
+            except (FileNotFoundError, subprocess.CalledProcessError) as e:
+                return _failure(ia_id, e)
+
+            result: Dict[str, Any] = {
+                "success": True,
+                "ia_id": ia_id,
+                "ia_url": f"https://archive.org/details/{ia_id}",
+                "row_count": row_count,
+                "revision": revision,
+            }
+            if not publish_latest:
+                return result
+
+            latest_json_path = Path(tmp) / "latest.json"
+            latest_json_path.write_text(
+                json.dumps(
+                    {
+                        "identifier": ia_id,
+                        "ia_url": f"https://archive.org/details/{ia_id}",
+                        "parquet_url": (
+                            f"https://archive.org/download/{ia_id}/textos.parquet"
+                        ),
+                        "revision": revision,
+                        "generated_at": dataset_meta.get("generated_at"),
+                        "git_sha": dataset_meta.get("git_sha"),
+                        "row_count": row_count,
+                        "hash_parquet": dataset_meta.get("hash_parquet"),
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            try:
+                _upload(
+                    latest_id,
+                    [parquet_dst, meta_path, latest_json_path],
+                    f"Leizilla Textos {ente.upper()} v{version} (latest pointer)",
+                    f"Ponteiro MUTÁVEL para a release corrente da camada de texto "
+                    f"{ente.upper()} v{version} — não cite este item; cite {ia_id} "
+                    f"(ver latest.json).",
+                )
+                result["latest_pointer"] = {
+                    "success": True,
+                    "ia_id": latest_id,
+                    "ia_url": f"https://archive.org/details/{latest_id}",
+                    "points_to": ia_id,
+                }
+            except (FileNotFoundError, subprocess.CalledProcessError) as e:
+                # Fail-open como em upload_dataset: a release imutável já existe.
+                result["latest_pointer"] = _failure(latest_id, e)
+            return result
 
     def upload_coverage(
         self,

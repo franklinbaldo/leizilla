@@ -2,6 +2,8 @@ cotel_scrap-main/*
 web/node_modules/
 web/dist/
 web/.astro/
+# Espelho da camada de texto (ADR-0015): sincronizado no deploy, nunca commitado.
+web/public/data/*/textos.parquet
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
