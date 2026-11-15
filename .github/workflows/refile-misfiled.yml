@@ -64,6 +64,34 @@ jobs:
 
           exit "$failed"
 
+      # Roda mesmo se o passo acima falhou: o refile falha nos seis itens depois
+      # que o index.csv some, e a limpeza precisa rodar de qualquer forma. O
+      # purge recusa agir em item que ainda tenha index.csv ou o PDF original.
+      - name: Remove derivados de OCR dos seis itens errados
+        if: ${{ always() }}
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+          EXECUTE: ${{ inputs.execute }}
+        run: |
+          EXEC_FLAG=""
+          if [ "$EXECUTE" = "true" ]; then EXEC_FLAG="--execute"; fi
+
+          purge_one() {
+            local item="$1" stem="$2"
+            uv run leizilla purge-leftovers --item "$item" --stem "$stem" $EXEC_FLAG
+          }
+
+          failed=0
+          purge_one leizilla_ro_casacivil_decreto_304001-305000 decreto-304012_41beb5ed || failed=1
+          purge_one leizilla_ro_casacivil_decreto_202001-203000 decreto-202223_d4bf251c || failed=1
+          purge_one leizilla_ro_casacivil_decreto_111001-112000 decreto-111525_151fc174 || failed=1
+          purge_one leizilla_ro_casacivil_decreto_66001-67000 decreto-66814_2d38c10d || failed=1
+          purge_one leizilla_ro_casacivil_decreto_77001-78000 decreto-77001_2ae51e3c || failed=1
+          purge_one leizilla_ro_casacivil_decreto_80001-81000 decreto-80756_3f41ab94 || failed=1
+
+          exit "$failed"
+
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}
         uses: ./.github/actions/notify-run-failure

@@ -2153,6 +2153,33 @@ def cmd_refile_raw(
         raise typer.Exit(code=1)
 
 
+@app.command("purge-leftovers")
+def cmd_purge_leftovers(
+    item: str = typer.Option(
+        ..., "--item", help="Item IA onde restaram os derivados de OCR"
+    ),
+    stem: str = typer.Option(
+        ..., "--stem", help="Stem da captura, ex.: decreto-304012_41beb5ed"
+    ),
+    execute: bool = typer.Option(
+        False, "--execute", help="Apaga de fato; sem a flag, só lista"
+    ),
+) -> None:
+    """Remove os derivados de OCR de uma captura já movida (ver refile-raw).
+
+    Dry run por padrão. Recusa agir se o item ainda tiver index.csv ou o PDF
+    original (ver InternetArchivePublisher.purge_capture_leftovers).
+    """
+    from leizilla.publisher import InternetArchivePublisher
+
+    result = InternetArchivePublisher().purge_capture_leftovers(
+        item, stem, dry_run=not execute
+    )
+    echo(json.dumps(result, ensure_ascii=False, indent=2))
+    if not result.get("success"):
+        raise typer.Exit(code=1)
+
+
 @app.command("pipeline")
 def cmd_pipeline(
     ente: str = typer.Option("ro", help="Ente federativo"),

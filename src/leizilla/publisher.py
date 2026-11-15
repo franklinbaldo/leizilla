@@ -2045,6 +2045,14 @@ class InternetArchivePublisher:
                 "error": str(e),
             }
 
+        leftovers: List[Dict[str, Any]] = []
+        for row, _, _ in captures:
+            stem = raw_filename(
+                row["uuid5"], "", name_prefix=f"{tipo}-{wrong_numero:05d}"
+            )
+            outcome = self.purge_capture_leftovers(wrong_item, stem, dry_run=False)
+            leftovers.append({"stem": stem, **outcome})
+
         logger.info("refile: %s -> %s concluído", wrong_item, target_item)
         return {
             "success": True,
@@ -2052,7 +2060,47 @@ class InternetArchivePublisher:
             "refiled": plan,
             "wrong_item": wrong_item,
             "target_item": target_item,
+            "leftovers": leftovers,
         }
+
+    def purge_capture_leftovers(
+        self, item_id: str, stem: str, *, dry_run: bool = True
+    ) -> Dict[str, Any]:
+        """Remove os derivados de OCR de uma captura já movida pelo ``refile_raw``.
+
+        Os PDFs originais já foram apagados; o IA, porém, deixou para trás os
+        arquivos derivados (``{stem}_djvu.txt``, ``{stem}_hocr.html``, ...). Só
+        apaga arquivos cujo nome começa com ``{stem}_`` e não estão em
+        subpasta (``history/...`` nunca é tocado).
+
+        Recusa agir (sem apagar nada) se o item ainda tem ``index.csv`` (é um
+        item de range vivo) ou se o ``{stem}.pdf`` original ainda existe.
+        """
+        names = fetch_item_filenames(item_id)
+        if names is None:
+            return {"success": False, "reason": "metadata-unreadable"}
+        if INDEX_FILENAME in names:
+            return {"success": False, "reason": "index-present"}
+        if f"{stem}.pdf" in names:
+            return {"success": False, "reason": "original-present"}
+
+        selected = sorted(n for n in names if n.startswith(f"{stem}_") and "/" not in n)
+        if not selected:
+            return {"success": True, "deleted": [], "dry_run": dry_run}
+        if dry_run:
+            return {"success": True, "dry_run": True, "would_delete": selected}
+
+        try:
+            self._run_ia_upload(["ia", "delete", item_id, *selected])
+        except subprocess.CalledProcessError as e:
+            return {
+                "success": False,
+                "reason": "delete-failed",
+                "error": (e.stderr or "").strip()[-500:] or str(e),
+            }
+        except FileNotFoundError as e:
+            return {"success": False, "reason": "delete-failed", "error": str(e)}
+        return {"success": True, "dry_run": False, "deleted": selected}
 
     def reconcile_unidentified(
         self,
