@@ -1,6 +1,7 @@
 """Leizilla CLI — interface de linha de comando."""
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -2106,6 +2107,49 @@ def cmd_retract_parsed(
             echo(f"OK: {ia_id_old} marcado superseded_by={ia_id_new}")
     else:
         echo(f"Erro: {result.get('error')}")
+        raise typer.Exit(code=1)
+
+
+@app.command("refile-raw")
+def cmd_refile_raw(
+    ente: str = typer.Option("ro", "--ente", help="Ente federativo"),
+    fonte: str = typer.Option(..., "--fonte", help="Fonte (ex.: casacivil)"),
+    tipo: str = typer.Option(..., "--tipo", help="Tipo normativo (ex.: decreto)"),
+    wrong_item: str = typer.Option(
+        ..., "--wrong-item", help="Item IA onde a captura está mal arquivada"
+    ),
+    wrong_numero: int = typer.Option(
+        ..., "--wrong-numero", help="Número errado sob o qual foi arquivada"
+    ),
+    correct_numero: int = typer.Option(
+        ..., "--correct-numero", help="Número certo da norma"
+    ),
+    note: str = typer.Option(
+        ..., "--note", help="Nota gravada no item errado (texto livre)"
+    ),
+    execute: bool = typer.Option(
+        False, "--execute", help="Executa de fato; sem a flag, só mostra o plano"
+    ),
+) -> None:
+    """Move uma captura do número errado para o item do número certo.
+
+    Dry run por padrão. Copia, confere pelo sha256 e só então anota e limpa o
+    item errado (ver InternetArchivePublisher.refile_raw).
+    """
+    from leizilla.publisher import InternetArchivePublisher
+
+    result = InternetArchivePublisher().refile_raw(
+        wrong_item,
+        wrong_numero,
+        correct_numero,
+        ente=ente,
+        fonte=fonte,
+        tipo=tipo,
+        note=note,
+        dry_run=not execute,
+    )
+    echo(json.dumps(result, ensure_ascii=False, indent=2))
+    if not result.get("success"):
         raise typer.Exit(code=1)
 
 
