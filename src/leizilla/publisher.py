@@ -2103,6 +2103,39 @@ class InternetArchivePublisher:
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
 
+    def upload_completeness(
+        self,
+        files: list[Path],
+        ente: str,
+        version: int = 0,
+    ) -> Dict[str, Any]:
+        """Upload do livro-razão de completude para o ponteiro `-latest` do dataset.
+
+        Mesmo destino e mesma razão de ``upload_coverage``: é instrumentação que
+        muda independente da release imutável em vigor. ``files`` são os
+        artefatos já gravados por ``leizilla completeness`` (resumo JSON, Parquet
+        e, opcionalmente, o snapshot do catálogo), enviados com o próprio nome.
+        """
+        if not self.access_key or not self.secret_key:
+            return {"success": False, "error": "IA credentials not configured"}
+
+        ia_id = f"leizilla-dataset-{ente}-v{version}-{_DATASET_LATEST_SUFFIX}"
+        try:
+            self._run_ia_upload(["ia", "upload", ia_id, *(str(f) for f in files)])
+        except FileNotFoundError:
+            return {
+                "success": False,
+                "error": "ia CLI não encontrado — instale 'internetarchive'",
+                "ia_id": ia_id,
+            }
+        except subprocess.CalledProcessError as e:
+            return {"success": False, "error": e.stderr, "ia_id": ia_id}
+        return {
+            "success": True,
+            "ia_id": ia_id,
+            "ia_url": f"https://archive.org/details/{ia_id}",
+        }
+
     def upload_to_archive(
         self,
         archive_ia_id: str,

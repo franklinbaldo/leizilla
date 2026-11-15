@@ -118,6 +118,7 @@ src/leizilla/
 ├── parser.py        # OCR/HTML → Leizilla XML via LLM/LiteLLM (confidence-gated)
 ├── ocr.py           # OCR text cleaning + normalization
 ├── etl.py           # Leizilla XML → Parquet (versioning + revogação cascade)
+├── completeness.py  # completeness ledger: official year index × IA holdings (SCHEMA §3.6)
 ├── cli.py           # Typer CLI, ~20 commands  [largest user-facing, ~1300 LOC]
 ├── fontes/          # source-specific discovery: ro.py (done), federal.py (Planalto), sp.py (stub)
 └── manifests/       # per-ente discovery manifests (currently ro.json)
@@ -175,6 +176,7 @@ All commands run as `uv run leizilla <command>`. Most take `--ente` (default `ro
 | `release-dataset out.parquet --ente ro --version 0` | publish Parquet (positional) dataset to IA |
 | `export --ente ro --year 2020` | export local Parquet |
 | `search --ente ro` / `stats --ente ro` | local search / IA item counts |
+| `completeness --output completeness.parquet --catalog-snapshot completeness_catalog.json.gz` | ledger of every norm in the official year index vs. what is preserved / readable / structured (`--max-fetch`, `--fetch-years`, `--refresh-years`, `--textos`, `--upload`) |
 | `pipeline --ente ro --limit 5` | orchestrate discover→harvest→export |
 
 Source-specific discovery currently exists for RO (`fontes/ro.py`) and federal
