@@ -104,6 +104,20 @@ export const COVERAGE_JSON_URL: string | null = DATASET_IA_ITEM
   : null;
 
 /**
+ * Livro-razão de completude (`leizilla completeness --upload`), publicado no
+ * mesmo item e pelo mesmo caminho de coverage.json: o resumo JSON é lido pelo
+ * navegador (o IA envia CORS para .json); o Parquet com uma linha por norma é
+ * só link de download — nenhuma página o consulta (docs/SCHEMA.md §3.6).
+ */
+export const COMPLETENESS_JSON_URL: string | null = DATASET_IA_ITEM
+  ? `https://archive.org/download/${DATASET_IA_ITEM}/completeness.json`
+  : null;
+
+export const COMPLETENESS_PARQUET_URL: string | null = DATASET_IA_ITEM
+  ? `https://archive.org/download/${DATASET_IA_ITEM}/completeness.parquet`
+  : null;
+
+/**
  * latest.json do ponteiro mutável — só existe quando DATASET_IA_ITEM é de fato um
  * ponteiro `-latest` (publisher._publish_latest_pointer). Null noutro caso (ex.:
  * PUBLIC_PARQUET_URL apontando direto para uma release imutável ou outro host).
