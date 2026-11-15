@@ -247,6 +247,18 @@ def captures_by_identity(index_csv: str) -> dict[tuple[str, int], list[dict[str,
     }
 
 
+#: Valor de ``ocr_motor`` quando o IA não fez OCR: o PDF já trazia uma camada de
+#: texto (formato "Text PDF") e o ``_djvu.txt`` é a conversão dela. Não há arquivo
+#: ``_chocr`` nesse caso. Distinguir as duas origens importa: a camada embutida por
+#: scanner foi a pior fonte medida (docs/okf, ocr-engine-benchmark).
+TEXT_LAYER_CONVERSION = "pdf-to-hocr (camada de texto do PDF, sem OCR)"
+
+
+def _converted_text_layer(pdf_entry: dict[str, Any]) -> Optional[str]:
+    """``TEXT_LAYER_CONVERSION`` se o PDF de origem é um "Text PDF" no IA."""
+    return TEXT_LAYER_CONVERSION if pdf_entry.get("format") == "Text PDF" else None
+
+
 def _mtime_iso(entry: dict[str, Any]) -> Optional[str]:
     try:
         return datetime.fromtimestamp(int(entry["mtime"]), tz=timezone.utc).isoformat()
@@ -364,7 +376,8 @@ def collect_fonte(
                     pdf_name=f"{stem}.pdf",
                     texto_name=texto_name,
                     text_bytes=text_bytes,
-                    ocr_motor=ocr.get("ocr"),
+                    ocr_motor=ocr.get("ocr")
+                    or _converted_text_layer(files.get(f"{stem}.pdf", {})),
                     ocr_modulo_versao=ocr.get("ocr_module_version"),
                     ocr_parametros=ocr.get("ocr_parameters"),
                     ocr_derivado_em=_mtime_iso(entry),

@@ -32,7 +32,7 @@ on:
         default: ""
       limit:
         description: "Limite de recursos por job"
-        default: "200"
+        default: "400"
 
 permissions:
   contents: read
@@ -197,7 +197,7 @@ jobs:
           uv run leizilla harvest \
             --ente "${{ inputs.ente || 'ro' }}" \
             --tipo "${{ matrix.tipo }}" \
-            --limit "${{ inputs.limit || '200' }}"
+            --limit "${{ inputs.limit || '400' }}"
 
       - name: Save discovered-resources DB cache
         # Depois da colheita, e mesmo se ela falhar: o que a colheita marca
