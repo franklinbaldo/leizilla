@@ -600,7 +600,7 @@ def test_ro_live_head_strategies_are_bounded_and_newest_first():
         for cfg in manifest["fontes"]["casacivil"]["discovery"]
         if cfg.get("strategy") == "sequential" and cfg.get("head_check") is True
     ]
-    assert len(configs) == 6
+    assert len(configs) == 4
     for cfg in configs:
         assert cfg["max_head_checks"] == 2000
         assert cfg["max_scan_seconds"] == 3600
@@ -913,10 +913,11 @@ def test_run_discovery(temp_db):
     ):
         total = run_discovery("ro", temp_db)
 
-    # casacivil: 1 cdx + 8 sequential (um "sequential" cdx-auto por tipo do
-    # manifesto de casacivil, RFC-0003 Fase 1) — cada um mockado retornando o
-    # mesmo mock_res_seq (L2.pdf), então só 2 URLs distintas chegam ao DuckDB.
-    assert total == 9
+    # casacivil: 1 cdx + 4 sequential (EC, Res, Port, DEC; os sequential de
+    # L/LC/D/DL saíram do manifesto, o índice anual os substitui) — cada um
+    # mockado retornando o mesmo mock_res_seq (L2.pdf), então só 2 URLs
+    # distintas chegam ao DuckDB.
+    assert total == 5
 
     pending = temp_db.get_pending_resources()
     assert len(pending) == 2  # lei-00001 (cdx) + lei-00002 (sequential, deduplicado)
@@ -960,8 +961,9 @@ def test_run_discovery_scoped_to_fonte(temp_db):
 
 def test_run_discovery_scoped_to_tipo(temp_db):
     """tipo='decreto' só deve rodar os templates sequential cujo nome de
-    amostra resolve para 'decreto' (D{num}.pdf e DEC{num}.pdf no manifesto
-    de casacivil), pulando lei/lc/ec/resolucao/portaria/decreto-lei — mas
+    amostra resolve para 'decreto' (DEC{num}.pdf no manifesto de casacivil;
+    o D{num}.pdf foi removido, o índice anual lista os nomes reais), pulando
+    lei/lc/ec/resolucao/portaria/decreto-lei — mas
     ainda roda as estratégias amplas (casacivil-index/wayback-cdx), que não
     têm tipo determinável e não são o custo caro (o head_check sequencial
     por número é).
@@ -987,7 +989,6 @@ def test_run_discovery_scoped_to_tipo(temp_db):
     mock_index.assert_called_once()
     mock_playwright_run.assert_not_called()
     assert seen_templates == [
-        "https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/D{num}.pdf",
         "https://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/DEC{num}.pdf",
     ]
 

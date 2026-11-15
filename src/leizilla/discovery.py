@@ -972,9 +972,66 @@ def parse_casacivil_year_catalog(
                 "ementa": _visible_text(ementa.group("ementa")) if ementa else "",
                 "coddoc": int(row.group("coddoc")),
                 "arquivos": arquivos,
+                "numero_divergente": None,
+                "identidade_incerta": False,
             }
         )
+    _reconcile_title_and_file_numbers(records)
     return records
+
+
+_CANONICAL_FILE_NUMBER = re.compile(r"[A-Za-z]+0*(\d+)\.pdf")
+
+
+def _reconcile_title_and_file_numbers(records: List[Dict[str, Any]]) -> None:
+    """Resolve, pela faixa da própria lista, título e arquivo que discordam.
+
+    O índice oficial tem erros de digitação nos dois sentidos: título "Decreto
+    n. 304012" com arquivo ``D30412.pdf``, e título "Decreto n. 1888" com arquivo
+    ``D18889.pdf`` (0,3% das entradas medidas). Nenhum dos dois é confiável
+    sozinho, mas uma lista anual cobre uma faixa contínua de números: o
+    candidato que cai na faixa das entradas em que título e arquivo concordam é
+    o certo. Em 2026-11-15 a regra "título manda" arquivou 6 decretos sob
+    números inexistentes.
+
+    Se exatamente um candidato cai na faixa, ele vira ``numero`` e o outro fica
+    em ``numero_divergente``. Se nenhum ou ambos caem, a entrada mantém o número
+    do título com ``identidade_incerta=True`` — a descoberta não a enfileira.
+    """
+
+    def file_numbers(record: Dict[str, Any]) -> set[int]:
+        return {
+            int(m.group(1))
+            for a in record["arquivos"]
+            if (m := _CANONICAL_FILE_NUMBER.fullmatch(a["nome"]))
+        }
+
+    agreeing: List[int] = []
+    disagreeing: List[tuple[Dict[str, Any], int]] = []
+    for record in records:
+        numbers = file_numbers(record)
+        if not numbers or record["numero"] in numbers:
+            if numbers:
+                agreeing.append(record["numero"])
+            continue
+        if len(numbers) == 1:
+            disagreeing.append((record, next(iter(numbers))))
+        else:
+            record["identidade_incerta"] = True
+    if not disagreeing:
+        return
+    low, high = (min(agreeing), max(agreeing)) if agreeing else (1, 0)
+    for record, from_file in disagreeing:
+        title_fits = low <= record["numero"] <= high
+        file_fits = low <= from_file <= high
+        if file_fits and not title_fits:
+            record["numero_divergente"] = record["numero"]
+            record["numero"] = from_file
+        elif title_fits and not file_fits:
+            record["numero_divergente"] = from_file
+        else:
+            record["numero_divergente"] = from_file
+            record["identidade_incerta"] = True
 
 
 def parse_casacivil_year_index(
@@ -985,7 +1042,9 @@ def parse_casacivil_year_index(
     Cada entrada traz o título oficial ("Lei n. 6572, de 12-11-2026") e o nome
     real do arquivo. A identidade vem do **título** (ADR-0011: contexto de
     descoberta), não do nome do arquivo, que varia ("L6572.pdf",
-    "L6500 - COMPILADA.pdf"). Entrada sem número legível ou sem arquivo é pulada.
+    "L6500 - COMPILADA.pdf"). Quando título e arquivo discordam, decide a faixa
+    de números da própria lista; se ela não decide, a entrada não é enfileirada.
+    Entrada sem número legível ou sem arquivo é pulada.
 
     É a visão de descoberta de ``parse_casacivil_year_catalog``: um resource por
     PDF, chaveado por ``{tipo}-{numero}`` (o sufixo de letra do título não entra
@@ -993,6 +1052,13 @@ def parse_casacivil_year_index(
     """
     resources: List[Dict[str, Any]] = []
     for record in parse_casacivil_year_catalog(html_content, base_url, tipo):
+        if record["identidade_incerta"]:
+            logger.warning(
+                "lista anual: identidade incerta, não enfileirada: %r (arquivos %s)",
+                record["titulo"],
+                [a["nome"] for a in record["arquivos"]],
+            )
+            continue
         for arquivo in record["arquivos"]:
             if not arquivo["url"].lower().endswith(".pdf"):
                 continue

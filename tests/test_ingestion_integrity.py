@@ -431,3 +431,78 @@ def test_parsed_item_404_with_unreadable_metadata_stays_inconclusive() -> None:
 def test_parsed_item_server_error_stays_inconclusive() -> None:
     result = _strict_listing({"leizilla-ro-lei-00001-1983": 503}, filenames={"law.xml"})
     assert result is None
+
+
+# --- the official index has typos: title and file name can disagree -------------------
+
+
+def _year_page(entries: list[tuple[str, str]]) -> str:
+    rows = "".join(
+        f'<a id="h{i}" href="../Livros/detalhes.aspx?coddoc={100 + i}">{title}</a><br />'
+        f'<a id="d{i}" href="Files/{name}">{name}</a>'
+        for i, (title, name) in enumerate(entries)
+    )
+    return f"<table><tr><td>{rows}</td></tr></table>"
+
+
+def test_title_typo_is_resolved_by_the_range_of_the_list() -> None:
+    from leizilla.discovery import parse_casacivil_year_catalog
+
+    page = _year_page(
+        [
+            ("Decreto n. 30414, de 05-01-2025", "D30414.pdf"),
+            ("Decreto n. 304012, de 04-01-2025", "D30412.pdf"),
+            ("Decreto n. 30410, de 03-01-2025", "D30410.pdf"),
+        ]
+    )
+    records = parse_casacivil_year_catalog(page, "https://example.gov.br/x", "decreto")
+
+    assert [r["numero"] for r in records] == [30414, 30412, 30410]
+    assert records[1]["numero_divergente"] == 304012
+    assert not records[1]["identidade_incerta"]
+
+
+def test_file_name_typo_keeps_the_title_number() -> None:
+    from leizilla.discovery import parse_casacivil_year_catalog
+
+    page = _year_page(
+        [
+            ("Decreto n. 1890, de 20-02-1984", "D1890.pdf"),
+            ("Decreto n. 1888, de 17-02-1984", "D18889.pdf"),
+            ("Decreto n. 1885, de 15-02-1984", "D1885.pdf"),
+        ]
+    )
+    records = parse_casacivil_year_catalog(page, "https://example.gov.br/x", "decreto")
+
+    assert records[1]["numero"] == 1888
+    assert records[1]["numero_divergente"] == 18889
+
+
+def test_undecidable_disagreement_is_not_enqueued() -> None:
+    from leizilla.discovery import parse_casacivil_year_index
+
+    page = _year_page(
+        [
+            ("Decreto n. 2530, de 20-11-1984", "D2530.pdf"),
+            ("Decreto n. 2524, de 16-11-1984", "D2523.pdf"),
+            ("Decreto n. 2520, de 14-11-1984", "D2520.pdf"),
+        ]
+    )
+    resources = parse_casacivil_year_index(
+        page, "https://example.gov.br/x", "decreto", "ro", "casacivil"
+    )
+
+    assert [r["chave"] for r in resources] == ["decreto-02530", "decreto-02520"]
+
+
+def test_ro_manifest_no_longer_guesses_names_the_index_lists() -> None:
+    from leizilla.discovery import load_manifest
+
+    templates = [
+        c["templates"][0].rsplit("/", 1)[-1]
+        for c in load_manifest("ro")["fontes"]["casacivil"]["discovery"]
+        if c["strategy"] == "sequential"
+    ]
+    assert not {"L{num}.pdf", "LC{num}.pdf", "D{num}.pdf", "DL{num}.pdf"} & set(
+        templates
+    )

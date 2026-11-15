@@ -134,6 +134,8 @@ class TestYearCatalog:
                     "rendicao": "original",
                 }
             ],
+            "numero_divergente": None,
+            "identidade_incerta": False,
         }
 
     def test_rendition_comes_from_the_file_suffix(self) -> None:
