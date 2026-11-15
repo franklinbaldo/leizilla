@@ -280,6 +280,9 @@ class BuildStats:
     com_texto: int = 0
     baixados: int = 0
     reaproveitados: int = 0
+    #: Linhas do release anterior mantidas porque o texto não está no IA agora
+    #: (derive em refação) e o arquivo de origem não mudou.
+    mantidos: int = 0
     truncated: bool = False
     failures: list[str] = field(default_factory=list)
 
@@ -331,7 +334,18 @@ def collect_fonte(
                 return rows
             chosen = _first_with_text(candidates, files)
             if chosen is None:
-                continue  # S2 sem S3: OCR ainda não derivado
+                # S2 sem S3 agora. Se a norma já esteve legível e os bytes de
+                # origem são os mesmos, o texto continua valendo: o IA apaga o
+                # ``_djvu.txt`` enquanto refaz o derive de um arquivo reenviado
+                # (achado de 2026-11-15: a Lei 1738 sumiu de um release assim).
+                kept = _keep_previous(
+                    (previous or {}).get(texto_id(ente, fonte, tipo, numero)),
+                    candidates,
+                )
+                if kept is not None:
+                    rows.append(kept)
+                    stats.mantidos += 1
+                continue
             capture, texto_name = chosen
             stats.com_texto += 1
             entry = files[texto_name]
@@ -397,6 +411,22 @@ def _first_with_text(
         if names:
             return capture, names[0]
     return None
+
+
+def _keep_previous(
+    old: Optional[dict[str, Any]], candidates: list[dict[str, str]]
+) -> Optional[dict[str, Any]]:
+    """Linha anterior de uma norma cujo texto não está disponível agora, ou None.
+
+    Só é mantida se o ``sha256`` do arquivo de origem daquela linha ainda é uma
+    captura da norma: mesmo documento, só o OCR temporariamente ausente. Se a
+    origem mudou, o texto antigo não descreve mais o que está preservado.
+    """
+    if not old or not old.get("texto") or not old.get("sha256_fonte"):
+        return None
+    if old["sha256_fonte"] not in {c.get("sha256") for c in candidates}:
+        return None
+    return refresh_anchors(old)
 
 
 def build_textos(

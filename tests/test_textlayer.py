@@ -384,3 +384,40 @@ def test_cli_build_writes_parquet_and_refuses_partial(tmp_path: Path) -> None:
             ["build-textos", "--output", str(partial_out), "--fontes", "casacivil"],
         )
     assert partial.exit_code == 1 and not partial_out.exists()
+
+
+def _metadata_without_text_for(prefix: str) -> bytes:
+    data = json.loads(_metadata())
+    data["files"] = [
+        f
+        for f in data["files"]
+        if not (f["name"].startswith(prefix) and "_djvu.txt" in f["name"])
+    ]
+    return json.dumps(data).encode()
+
+
+def test_row_is_kept_while_ia_rederives_an_unchanged_file(tmp_path: Path) -> None:
+    rows, _ = _build(_default_ia())
+    out = tmp_path / "textos.parquet"
+    textlayer.write_textos_parquet(rows, out)
+    previous = textlayer.read_textos_parquet(out)
+
+    # IA removed the OCR text of lei 7 while re-deriving; the source bytes are the same.
+    ia = FakeIA(_metadata_without_text_for("lei-00007"), {"cccc3333_djvu.txt": OPEN})
+    again, stats = _build(ia, previous=previous)
+
+    assert stats.mantidos == 1 and stats.complete
+    assert [r["texto_id"] for r in again] == [r["texto_id"] for r in rows]
+    assert again[0]["texto"] == rows[0]["texto"]
+
+
+def test_row_is_not_kept_when_the_source_file_changed(tmp_path: Path) -> None:
+    rows, _ = _build(_default_ia())
+    stale = dict(rows[0], sha256_fonte="sha-of-a-file-no-longer-in-the-index")
+    previous = {stale["texto_id"]: stale}
+
+    ia = FakeIA(_metadata_without_text_for("lei-00007"), {"cccc3333_djvu.txt": OPEN})
+    again, stats = _build(ia, previous=previous)
+
+    assert stats.mantidos == 0
+    assert stale["texto_id"] not in [r["texto_id"] for r in again]

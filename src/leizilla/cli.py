@@ -910,7 +910,8 @@ def cmd_build_textos(
     echo(
         f"  {stats.itens} itens · {stats.identidades} identidades · "
         f"{stats.com_texto} com texto · {stats.baixados} baixados · "
-        f"{stats.reaproveitados} reaproveitados · {len(rows)} linhas · "
+        f"{stats.reaproveitados} reaproveitados · {stats.mantidos} mantidos "
+        f"(OCR em refação) · {len(rows)} linhas · "
         f"{sum(1 for r in rows if r['artigos_fecham'])} com artigos fechando"
     )
     for failure in stats.failures[:20]:
