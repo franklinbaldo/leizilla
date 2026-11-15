@@ -5,13 +5,15 @@ direto se Wayback falhar.
 """
 
 import json
+import queue
 import re
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
-from typing import Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
 _AVAILABILITY_API = "https://archive.org/wayback/available"
 _SAVE_URL_TMPL = "https://web.archive.org/save/{}"
@@ -337,3 +339,152 @@ def fetch_bytes(url: str, timeout: int = 60, retries: int = 3) -> Optional[bytes
     """
     content, _permanent = fetch_bytes_detailed(url, timeout=timeout, retries=retries)
     return content
+
+
+def _background_save(
+    url: str,
+    access_key: Optional[str],
+    secret_key: Optional[str],
+    timeout: int,
+) -> Optional[str]:
+    """Um pedido de Save Page Now, sem retry: o que :class:`BackgroundSaver` executa.
+
+    Ponto único de saída de rede do salvamento assíncrono (os testes o substituem).
+    """
+    return save_page_spn2(url, access_key, secret_key, timeout=timeout, retries=1)
+
+
+class BackgroundSaver:
+    """Pede Save Page Now fora do caminho crítico da colheita (ADR-0016).
+
+    A colheita baixa o PDF direto da fonte e só **avisa** o Wayback; a captura do
+    Wayback vira testemunha independente quando acontecer, sem segurar o upload.
+    Uma única thread consome uma fila limitada:
+
+    - **limitado**: fila cheia descarta o pedido (contado em ``dropped``) em vez de
+      crescer ou de bloquear a colheita;
+    - **educado**: cada pedido faz o robô do Wayback bater uma vez na fonte, então
+      passa pelo ``source_limiter`` — o mesmo orçamento por host do fetch direto
+      (ADR-0008) — além do intervalo próprio contra o Wayback (``min_interval``);
+    - **fail-open**: erro de rede ou resposta inesperada só incrementa ``failed``.
+
+    ``snapshots`` guarda apenas URLs de snapshot reais (com timestamp de captura);
+    a página de histórico que ``save_page_spn2`` devolve como fallback não é
+    proveniência e fica de fora.
+    """
+
+    def __init__(
+        self,
+        access_key: Optional[str] = None,
+        secret_key: Optional[str] = None,
+        *,
+        min_interval: float = 5.0,
+        max_pending: int = 200,
+        timeout: int = 60,
+        source_limiter: Optional[Callable[[str], None]] = None,
+    ) -> None:
+        self._access_key = access_key
+        self._secret_key = secret_key
+        self._min_interval = min_interval
+        self._timeout = timeout
+        self._source_limiter = source_limiter
+        self._queue: "queue.Queue[Optional[str]]" = queue.Queue(maxsize=max_pending)
+        self._thread: Optional[threading.Thread] = None
+        self._abort = threading.Event()
+        self._closed = False
+        self._lock = threading.Lock()
+        self._last_save: Optional[float] = None
+        self.snapshots: Dict[str, str] = {}
+        self.stats: Dict[str, int] = {
+            "requested": 0,
+            "accepted": 0,
+            "failed": 0,
+            "dropped": 0,
+        }
+
+    def submit(self, url: str) -> bool:
+        """Enfileira ``url`` sem bloquear. ``False`` se o pedido foi descartado."""
+        with self._lock:
+            if self._closed:
+                self.stats["dropped"] += 1
+                return False
+            try:
+                self._queue.put_nowait(url)
+            except queue.Full:
+                self.stats["dropped"] += 1
+                return False
+            self.stats["requested"] += 1
+            if self._thread is None:
+                self._thread = threading.Thread(
+                    target=self._run, name="wayback-save", daemon=True
+                )
+                self._thread.start()
+        return True
+
+    def _run(self) -> None:
+        while not self._abort.is_set():
+            url = self._queue.get()
+            if url is None:
+                return
+            if self._abort.is_set():
+                self._count("dropped")
+                return
+            try:
+                if self._source_limiter is not None:
+                    self._source_limiter(url)
+                if self._last_save is not None:
+                    wait = self._min_interval - (time.monotonic() - self._last_save)
+                    if wait > 0 and self._abort.wait(wait):
+                        self._count("dropped")
+                        return
+                self._last_save = time.monotonic()
+                result = _background_save(
+                    url, self._access_key, self._secret_key, self._timeout
+                )
+            except Exception:
+                result = None
+            if result is None:
+                self._count("failed")
+                continue
+            self._count("accepted")
+            if snapshot_timestamp(result):
+                with self._lock:
+                    self.snapshots[url] = result
+
+    def _count(self, key: str) -> None:
+        with self._lock:
+            self.stats[key] += 1
+
+    def close(self, grace: float = 30.0) -> Dict[str, int]:
+        """Para de aceitar pedidos, espera até ``grace`` s e devolve as contagens.
+
+        O que ainda estiver na fila ao fim do prazo é abandonado e contado em
+        ``dropped`` — a colheita nunca fica presa esperando o Wayback.
+        """
+        with self._lock:
+            self._closed = True
+            thread = self._thread
+        if thread is not None:
+            try:
+                self._queue.put_nowait(None)
+            except queue.Full:
+                pass
+            thread.join(timeout=max(0.0, grace))
+            if thread.is_alive():
+                self._abort.set()
+        abandoned = 0
+        while True:
+            try:
+                if self._queue.get_nowait() is not None:
+                    abandoned += 1
+            except queue.Empty:
+                break
+        if thread is not None and thread.is_alive():
+            # Acorda a thread (se estiver parada na fila vazia) para ela encerrar.
+            try:
+                self._queue.put_nowait(None)
+            except queue.Full:
+                pass
+        with self._lock:
+            self.stats["dropped"] += abandoned
+            return dict(self.stats)

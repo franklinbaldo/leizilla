@@ -14,6 +14,8 @@ import pytest
 
 from leizilla.storage import DuckDBStorage
 
+from harvest_fakes import batch_ok, uploaded_captures
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -279,7 +281,6 @@ class TestHarvestPendingResources:
 
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch(
                 "leizilla.scraper.wayback.fetch_bytes_detailed",
                 return_value=(None, False),
@@ -303,7 +304,6 @@ class TestHarvestPendingResources:
 
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch(
                 "leizilla.scraper.wayback.fetch_bytes_detailed",
                 return_value=(None, False),  # transient: not a confirmed 404/410
@@ -332,7 +332,6 @@ class TestHarvestPendingResources:
 
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch(
                 "leizilla.scraper.wayback.fetch_bytes_detailed",
                 return_value=(None, True),  # confirmed permanent
@@ -353,14 +352,10 @@ class TestHarvestPendingResources:
 
         temp_db.insert_resource(_make_resource())
         pub = MagicMock()
-        pub.upload_raw.return_value = {
-            "success": True,
-            "ia_url": "https://archive.org/details/test",
-        }
+        batch_ok(pub, ia_url="https://archive.org/details/test")
 
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch(
                 "leizilla.scraper.wayback.fetch_bytes_detailed",
                 return_value=(b"%PDF-1.4 content", False),
@@ -369,7 +364,7 @@ class TestHarvestPendingResources:
             stats = harvest_pending_resources(temp_db, pub, limit=10)
 
         assert stats["success"] == 1
-        pub.upload_raw.assert_called_once()
+        pub.upload_raw_batch.assert_called_once()
 
     def test_items_report_parity_with_scrape(self, temp_db: DuckDBStorage) -> None:
         # `items` gives cmd_harvest per-resource results (RFC-0003 Fase 1: report
@@ -381,18 +376,17 @@ class TestHarvestPendingResources:
             _make_resource(url="http://blocked.com/lei.pdf", chave="lei-00002")
         )
         pub = MagicMock()
-        pub.upload_raw.return_value = {
-            "success": True,
-            "ia_id": "leizilla-raw-ro-assembleia-lei-00001",
-            "ia_url": "https://archive.org/details/test",
-        }
+        batch_ok(
+            pub,
+            ia_id="leizilla-raw-ro-assembleia-lei-00001",
+            ia_url="https://archive.org/details/test",
+        )
 
         with (
             patch(
                 "leizilla.scraper.robots.is_allowed",
                 side_effect=lambda url: "blocked" not in url,
             ),
-            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch(
                 "leizilla.scraper.wayback.fetch_bytes_detailed",
                 return_value=(b"%PDF-1.4 content", False),
@@ -565,15 +559,11 @@ class TestHarvestPendingResources:
 
         temp_db.insert_resource(_make_resource())  # default ente=ro/fonte=casacivil
         pub = MagicMock()
-        pub.upload_raw.return_value = {
-            "success": True,
-            "ia_url": "https://archive.org/details/test",
-        }
+        batch_ok(pub, ia_url="https://archive.org/details/test")
 
         with (
             patch("leizilla.scraper.scrape_one_html") as mock_scrape_html,
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch(
                 "leizilla.scraper.wayback.fetch_bytes_detailed",
                 return_value=(b"%PDF-1.4 content", False),
@@ -584,29 +574,47 @@ class TestHarvestPendingResources:
         mock_scrape_html.assert_not_called()
         assert stats["success"] == 1
 
-    def test_wayback_timestamp_threaded_into_upload(
+    def test_no_known_snapshot_fetches_direct_without_waiting_for_wayback(
         self, temp_db: DuckDBStorage
     ) -> None:
-        # The provenance key (snapshot timestamp) must reach upload_raw, not be discarded.
+        # ADR-0016: with no snapshot in the ledger the harvest neither queries nor
+        # waits for the Wayback; provenance must not cite a snapshot it never used.
         from leizilla.scraper import harvest_pending_resources
 
         temp_db.insert_resource(_make_resource())
         pub = MagicMock()
-        pub.upload_raw.return_value = {"success": True, "ia_url": "https://ia/x"}
-        snap = (
-            "http://web.archive.org/web/20220903083131/http://x/lei.pdf",
-            "20220903083131",
-        )
+        batch_ok(pub, ia_url="https://ia/x")
 
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.ensure_archived", return_value=snap),
-            patch("leizilla.scraper.wayback.fetch_bytes", return_value=b"%PDF-1.4"),
+            patch("leizilla.scraper.wayback.ensure_archived") as ensure,
+            patch("leizilla.scraper.wayback.closest_snapshot") as closest,
+            patch("leizilla.scraper.wayback.save_and_locate") as save,
+            patch("leizilla.scraper.wayback.fetch_bytes") as snapshot_fetch,
+            patch(
+                "leizilla.scraper.wayback.fetch_bytes_detailed",
+                return_value=(b"%PDF-1.4", False),
+            ) as direct_fetch,
         ):
             harvest_pending_resources(temp_db, pub, limit=10)
 
-        lei_data = pub.upload_raw.call_args.args[1]
-        assert lei_data["wayback_timestamp"] == "20220903083131"
+        for blocking_call in (ensure, closest, save, snapshot_fetch):
+            blocking_call.assert_not_called()
+        direct_fetch.assert_called_once_with("http://example.com/lei.pdf")
+        capture = uploaded_captures(pub)[0]
+        assert capture.lei_data["wayback_timestamp"] is None
+        assert capture.raw_meta["provenance_wayback"] == {
+            "fetched_from": "source-direct",
+            "wayback_url": None,
+            "wayback_timestamp": None,
+            "wayback_blocked_robots": False,
+        }
+        row = (
+            temp_db.connect()
+            .execute("SELECT status, wayback_snapshot FROM discovered_resources")
+            .fetchone()
+        )
+        assert row == ("downloaded", None)
 
     def test_predicovered_snapshot_timestamp_recovered_from_url(
         self, temp_db: DuckDBStorage
@@ -620,16 +628,17 @@ class TestHarvestPendingResources:
         )
         temp_db.insert_resource(res)
         pub = MagicMock()
-        pub.upload_raw.return_value = {"success": True, "ia_url": "https://ia/x"}
+        batch_ok(pub, ia_url="https://ia/x")
 
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch("leizilla.scraper.wayback.fetch_bytes", return_value=b"%PDF-1.4"),
         ):
             harvest_pending_resources(temp_db, pub, limit=10)
 
-        assert pub.upload_raw.call_args.args[1]["wayback_timestamp"] == "20241208221945"
+        assert (
+            uploaded_captures(pub)[0].lei_data["wayback_timestamp"] == "20241208221945"
+        )
 
     def test_limit_respected(self, temp_db: DuckDBStorage) -> None:
         from leizilla.scraper import harvest_pending_resources
@@ -642,7 +651,6 @@ class TestHarvestPendingResources:
         pub = MagicMock()
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch(
                 "leizilla.scraper.wayback.fetch_bytes_detailed",
                 return_value=(None, False),
@@ -659,19 +667,16 @@ class TestHarvestPendingResources:
         # download do PR #93 — cobertura própria, sem depender do teste de scrape_one.
         from leizilla.scraper import harvest_pending_resources
 
-        temp_db.insert_resource(_make_resource())
+        res = _make_resource()
+        res["wayback_snapshot"] = (
+            "https://web.archive.org/web/20260101000000/http://x/lei.pdf"
+        )
+        temp_db.insert_resource(res)
         pub = MagicMock()
-        pub.upload_raw.return_value = {"success": True, "ia_url": "https://ia/x"}
+        batch_ok(pub, ia_url="https://ia/x")
 
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch(
-                "leizilla.scraper.wayback.ensure_archived",
-                return_value=(
-                    "https://web.archive.org/web/2026/http://x/lei.pdf",
-                    "2026",
-                ),
-            ),
             patch(
                 "leizilla.scraper.wayback.fetch_bytes",
                 return_value=b"<!DOCTYPE html><html>error</html>",
@@ -684,8 +689,12 @@ class TestHarvestPendingResources:
             stats = harvest_pending_resources(temp_db, pub, limit=10)
 
         assert stats["success"] == 1
-        lei_data = pub.upload_raw.call_args.args[1]
-        assert lei_data["wayback_timestamp"] is None
+        capture = uploaded_captures(pub)[0]
+        assert capture.lei_data["wayback_timestamp"] is None
+        # the snapshot was known but unusable: provenance says so and cites none
+        provenance = capture.raw_meta["provenance_wayback"]
+        assert provenance["fetched_from"] == "source-fallback"
+        assert provenance["wayback_url"] is None
 
     def test_direct_fallback_rejects_non_pdf(self, temp_db: DuckDBStorage) -> None:
         from leizilla.scraper import harvest_pending_resources
@@ -695,7 +704,6 @@ class TestHarvestPendingResources:
 
         with (
             patch("leizilla.scraper.robots.is_allowed", return_value=True),
-            patch("leizilla.scraper.wayback.ensure_archived", return_value=None),
             patch(
                 "leizilla.scraper.wayback.fetch_bytes_detailed",
                 return_value=(b"<!DOCTYPE html><html>error</html>", False),
@@ -705,4 +713,4 @@ class TestHarvestPendingResources:
 
         assert stats["failed"] == 1
         assert stats["items"][0]["reason"] == "not-pdf"
-        pub.upload_raw.assert_not_called()
+        pub.upload_raw_batch.assert_not_called()

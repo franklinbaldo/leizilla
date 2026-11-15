@@ -438,6 +438,31 @@ jobs:
             --upload \
             --version "${{ inputs.dataset_version || '0' }}"
 
+      # Livro-razão de completude (SCHEMA.md §3.6): o acervo contra as listas anuais
+      # oficiais da Casa Civil. O snapshot do catálogo publicado na rodada anterior é
+      # reaproveitado — só os 2 anos mais recentes são rebuscados; --max-fetch limita as
+      # requisições à fonte por rodada (~1 req/s), então um catálogo vazio se completa
+      # ao longo de poucas rodadas, com os anos ainda não lidos marcados como
+      # desconhecidos no resumo (nunca como zero).
+      - name: Publish completeness ledger → IA
+        if: "${{ inputs.dry_run != 'true' }}"
+        continue-on-error: true # instrumentação: nunca deve derrubar a release do dataset
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          mkdir -p /tmp/leizilla-completeness
+          curl -fsSL "https://archive.org/download/leizilla-dataset-${{ inputs.ente || 'ro' }}-v${{ inputs.dataset_version || '0' }}-latest/completeness_catalog.json.gz" \
+            -o /tmp/leizilla-completeness/completeness_catalog.json.gz \
+          || { rm -f /tmp/leizilla-completeness/completeness_catalog.json.gz; echo "Sem snapshot anterior do catálogo — leitura a partir do zero."; }
+          uv run leizilla completeness \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --output /tmp/leizilla-completeness/completeness.parquet \
+            --catalog-snapshot /tmp/leizilla-completeness/completeness_catalog.json.gz \
+            --max-fetch 60 \
+            --upload \
+            --version "${{ inputs.dataset_version || '0' }}"
+
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}
         uses: ./.github/actions/notify-run-failure

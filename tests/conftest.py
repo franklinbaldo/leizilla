@@ -23,3 +23,20 @@ def _offline_casacivil_year_index(monkeypatch: pytest.MonkeyPatch) -> Iterator[N
         lambda self, url: None,
     )
     yield
+
+
+@pytest.fixture(autouse=True)
+def _offline_wayback_background_save(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Keep the harvest's background Save Page Now off the network in every test.
+
+    ``harvest_pending_resources`` starts a ``wayback.BackgroundSaver`` thread by
+    default (ADR-0016). Tests of that path pass their own saver explicitly; and
+    even then the single network exit point is stubbed here, so a forgotten mock
+    can never reach web.archive.org.
+    """
+    monkeypatch.setattr("leizilla.config.HARVEST_WAYBACK_SAVE", False)
+    monkeypatch.setattr(
+        "leizilla.wayback._background_save",
+        lambda url, access_key, secret_key, timeout: None,
+    )
+    yield

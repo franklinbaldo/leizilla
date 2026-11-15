@@ -16,9 +16,10 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from leizilla import config
 from leizilla import storage as storage_module
@@ -937,6 +938,108 @@ _IA_UPLOAD_MAX_DELAY_S = 60.0
 _IA_RATE_LIMIT_KEY = "https://archive.org/"  # host fixo p/ make_rate_limiter (ADR-0008)
 
 
+# Lote (ADR-0016): um flush é raro (um por ~25 capturas) e caro de repetir, então o
+# recuo entre tentativas é bem mais longo que o do upload unitário — tempo para a
+# fila de tarefas da conta no IA esvaziar ("total_tasks_queued exceeds global_limit").
+_IA_BATCH_MAX_ATTEMPTS = 3
+_IA_BATCH_BASE_DELAY_S = 60.0
+_IA_BATCH_MAX_DELAY_S = 300.0
+# `ia upload --retries/--sleep` (verificado em `ia upload --help`, internetarchive
+# 5.8.0): em 503 SlowDown a biblioteca espera e repete **só o arquivo corrente**,
+# sem reenviar os anteriores do lote.
+_IA_BATCH_S3_RETRIES = 5
+_IA_BATCH_S3_SLEEP_S = 30
+# O IA recusou o conteúdo do PDF. Repetir não muda o resultado: é permanente.
+_IA_PDF_REJECTED_RE = re.compile(r"error checking pdf file", re.IGNORECASE)
+# Formato impresso por internetarchive.Item.upload_file em modo verbose:
+# " error uploading {key}: {msg}" — a chave é o nome do arquivo dentro do item.
+_IA_UPLOAD_ERROR_KEY_RE = re.compile(r"error uploading (\S+?):")
+_IA_THROTTLED_RE = re.compile(
+    r"reduce your request rate|total_tasks_queued|slow ?down", re.IGNORECASE
+)
+
+
+@dataclass(frozen=True)
+class RawTarget:
+    """Destino de uma captura raw no IA, derivado só da chave de colheita."""
+
+    item_id: str
+    title: str
+    ia_id: str
+    ente: str
+    fonte: str
+    chave: str
+    tipo: str
+    numero: Optional[int]
+
+    @property
+    def identified(self) -> bool:
+        return self.numero is not None
+
+
+def raw_target(lei_data: Dict[str, Any], default_fonte: str = "casacivil") -> RawTarget:
+    """Resolve o item de range (ou a área de espera) de uma captura (ADR-0011 §1).
+
+    Função pura — não toca a rede — para o chamador poder agrupar capturas por
+    item antes de subir o lote.
+    """
+    ente = str(lei_data.get("ente", "unknown"))
+    fonte = str(lei_data.get("fonte", default_fonte))
+    chave = str(lei_data.get("chave") or lei_data.get("id", "unknown"))
+    identity = parse_identity(chave)
+    if identity is None:
+        return RawTarget(
+            item_id=unidentified_item_identifier(ente, fonte),
+            title=_unidentified_title(ente, fonte),
+            ia_id=_raw_identifier(ente, fonte, chave),
+            ente=ente,
+            fonte=fonte,
+            chave=chave,
+            tipo="",
+            numero=None,
+        )
+    tipo, numero = identity
+    return RawTarget(
+        item_id=range_item_identifier(ente, fonte, tipo, numero),
+        title=_range_title(ente, fonte, tipo, numero),
+        ia_id=_raw_identifier(ente, fonte, chave),
+        ente=ente,
+        fonte=fonte,
+        chave=chave,
+        tipo=tipo,
+        numero=numero,
+    )
+
+
+@dataclass
+class RawCapture:
+    """Um PDF já baixado, à espera do flush do lote do seu item (ADR-0016).
+
+    ``raw_meta`` é montado na captura — não no flush — para ``data_captura`` e a
+    proveniência refletirem o instante e a origem reais do download.
+    """
+
+    lei_data: Dict[str, Any]
+    content: bytes
+    raw_meta: Dict[str, Any]
+    target: RawTarget
+
+
+def make_raw_capture(
+    lei_data: Dict[str, Any],
+    pdf_bytes: bytes,
+    fetched_from: str,
+    wayback_url: Optional[str] = None,
+) -> RawCapture:
+    """Empacota um PDF baixado com o seu sidecar de proveniência e o seu destino."""
+    return RawCapture(
+        lei_data=lei_data,
+        content=pdf_bytes,
+        raw_meta=build_raw_meta(lei_data, pdf_bytes, fetched_from, wayback_url),
+        target=raw_target(lei_data),
+    )
+
+
 def preserved_identity_token(tipo: str, numero: int) -> str:
     """Token de identidade usado em ``InternetArchivePublisher.preserved_sources``."""
     return f"identity:{tipo.lower()}-{numero:05d}"
@@ -972,7 +1075,14 @@ class InternetArchivePublisher:
                 preserved.add(preserved_identity_token(row["tipo"], int(numero)))
         return preserved
 
-    def _run_ia_upload(self, args: list[str]) -> "subprocess.CompletedProcess[str]":
+    def _run_ia_upload(
+        self,
+        args: list[str],
+        *,
+        max_attempts: int = _IA_UPLOAD_MAX_ATTEMPTS,
+        base_delay: float = _IA_UPLOAD_BASE_DELAY_S,
+        max_delay: float = _IA_UPLOAD_MAX_DELAY_S,
+    ) -> "subprocess.CompletedProcess[str]":
         """Roda ``ia upload ...`` com espaçamento + retry exponencial (ADR-0008).
 
         Duas defesas contra o throttle/spam-flag do IA visto em produção
@@ -996,6 +1106,11 @@ class InternetArchivePublisher:
 
         O ``ia.ini`` temporário (credenciais em texto plano) é removido no
         ``finally`` assim que esta chamada termina — não sobrevive além dela.
+
+        ``max_attempts``/``base_delay``/``max_delay`` deixam o flush de lote
+        (ADR-0016) recuar por mais tempo que o upload unitário. Um PDF recusado
+        pelo IA ("error checking pdf file") nunca é repetido, mesmo que o resto
+        do stderr case um padrão transitório.
         """
         self._upload_rate_limiter(_IA_RATE_LIMIT_KEY)
         env = _ia_subprocess_env(self.access_key, self.secret_key)
@@ -1007,22 +1122,21 @@ class InternetArchivePublisher:
                         args, capture_output=True, text=True, check=True, env=env
                     )
                 except subprocess.CalledProcessError as e:
+                    stderr = e.stderr or ""
                     if (
-                        attempt == _IA_UPLOAD_MAX_ATTEMPTS
-                        or not _RETRYABLE_IA_ERROR_RE.search(e.stderr or "")
+                        attempt == max_attempts
+                        or _IA_PDF_REJECTED_RE.search(stderr)
+                        or not _RETRYABLE_IA_ERROR_RE.search(stderr)
                     ):
                         raise
-                    delay = min(
-                        _IA_UPLOAD_MAX_DELAY_S,
-                        _IA_UPLOAD_BASE_DELAY_S * (2 ** (attempt - 1)),
-                    )
+                    delay = min(max_delay, base_delay * (2 ** (attempt - 1)))
                     delay += random.uniform(0, delay * 0.25)  # jitter
                     logger.warning(
                         "ia upload: erro transiente (tentativa %d/%d), retry em %.1fs: %s",
                         attempt,
-                        _IA_UPLOAD_MAX_ATTEMPTS,
+                        max_attempts,
                         delay,
-                        (e.stderr or "").strip()[:200],
+                        stderr.strip()[-200:],
                     )
                     time.sleep(delay)
             raise AssertionError("unreachable — loop always returns or raises")
@@ -1167,6 +1281,277 @@ class InternetArchivePublisher:
             "item_id": item_id,
             "identified": identity is not None,
         }
+
+    def upload_raw_batch(
+        self,
+        item_id: str,
+        captures: List[RawCapture],
+        index_cache: Optional[Dict[str, str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Sobe um lote de capturas do MESMO item num único ``ia upload`` (ADR-0016).
+
+        Uma invocação do CLI envia todos os PDFs e sidecars e, **por último**, o
+        ``index.csv`` já mesclado com todas as linhas do lote — escrito uma vez
+        por flush. ``--no-derive`` impede o IA de enfileirar um derive por
+        upload; o chamador pede um único derive por item ao fim da execução
+        (:meth:`request_derive`).
+
+        Devolve um resultado por captura, na mesma ordem. Sucesso só existe se o
+        flush inteiro (índice incluído) terminou bem; em falha cada resultado
+        traz ``reason``:
+
+        - ``ia-rejected`` — o IA recusou aquele PDF ("error checking pdf file").
+          Permanente: o arquivo sai do lote e o restante é reenviado;
+        - ``ia-throttled`` — o IA pediu para reduzir a taxa e os recuos se
+          esgotaram. O chamador deve parar a colheita;
+        - ``ia-unavailable`` — sem credenciais ou sem o CLI ``ia``;
+        - ``index-unreadable`` — o índice atual não pôde ser lido; nada é
+          enviado, para não sobrescrever o histórico do item;
+        - ``upload-failed`` — qualquer outra falha.
+
+        ``index_cache`` só é atualizado depois de um flush bem-sucedido. Num
+        flush que falhou a meio, os PDFs que chegaram ao IA ficam sem linha no
+        índice (o índice é o último arquivo); a recaptura posterior encontra os
+        mesmos bytes sob o mesmo nome e ``--checksum`` os pula.
+        """
+        results: List[Optional[Dict[str, Any]]] = [None] * len(captures)
+
+        def fail(indices: List[int], reason: str, error: str) -> None:
+            for i in indices:
+                results[i] = {
+                    "success": False,
+                    "reason": reason,
+                    "error": error,
+                    "ia_id": captures[i].target.ia_id,
+                    "item_id": item_id,
+                }
+
+        remaining = list(range(len(captures)))
+        if not self.access_key or not self.secret_key:
+            fail(remaining, "ia-unavailable", "IA credentials not configured")
+            remaining = []
+        cache: Dict[str, str] = index_cache if index_cache is not None else {}
+
+        while remaining:
+            batch = [captures[i] for i in remaining]
+            try:
+                names, index_csv = self._plan_raw_batch(item_id, batch, cache)
+            except IndexFetchError as e:
+                fail(
+                    remaining,
+                    "index-unreadable",
+                    f"could not read existing index (aborting to avoid data loss): {e}",
+                )
+                break
+            try:
+                self._put_raw_batch(item_id, batch, names, index_csv)
+            except FileNotFoundError:
+                fail(
+                    remaining,
+                    "ia-unavailable",
+                    "ia CLI não encontrado — instale 'internetarchive'",
+                )
+                break
+            except subprocess.CalledProcessError as e:
+                stderr = e.stderr or ""
+                if _IA_PDF_REJECTED_RE.search(stderr):
+                    culprit = self._rejected_capture(stderr, remaining, names)
+                    if culprit is not None:
+                        fail([culprit], "ia-rejected", stderr[-500:])
+                        remaining.remove(culprit)
+                        continue
+                    # Não deu para saber qual arquivo: isola um por flush, para
+                    # o culpado se identificar sozinho sem condenar o lote.
+                    for i in remaining:
+                        results[i] = self.upload_raw_batch(
+                            item_id, [captures[i]], cache
+                        )[0]
+                    break
+                throttled = _IA_THROTTLED_RE.search(stderr) is not None
+                fail(
+                    remaining,
+                    "ia-throttled" if throttled else "upload-failed",
+                    stderr[-500:],
+                )
+                break
+            # Flush OK: só agora o índice mesclado vale para os próximos flushes
+            # deste item (o IA não garante read-after-write).
+            cache[item_id] = index_csv
+            for pos, i in enumerate(remaining):
+                target = captures[i].target
+                results[i] = {
+                    "success": True,
+                    "ia_id": target.ia_id,
+                    "ia_url": f"https://archive.org/details/{item_id}",
+                    "uuid5": names[pos][0],
+                    "item_id": item_id,
+                    "identified": target.identified,
+                }
+            break
+
+        return [r if r is not None else {"success": False} for r in results]
+
+    @staticmethod
+    def _rejected_capture(
+        stderr: str, remaining: List[int], names: List[tuple[str, str, str]]
+    ) -> Optional[int]:
+        """Índice (em ``captures``) do PDF que o IA recusou, ou ``None``.
+
+        Lote de um arquivo só: é ele. Senão, lê a chave na linha de erro do CLI.
+        """
+        if len(remaining) == 1:
+            return remaining[0]
+        by_name: Dict[str, List[int]] = {}
+        for pos, i in enumerate(remaining):
+            by_name.setdefault(names[pos][1], []).append(i)
+        for line in stderr.splitlines():
+            if not _IA_PDF_REJECTED_RE.search(line):
+                continue
+            m = _IA_UPLOAD_ERROR_KEY_RE.search(line)
+            if m and m.group(1) in by_name:
+                return by_name[m.group(1)][0]
+        return None
+
+    @staticmethod
+    def _plan_raw_batch(
+        item_id: str, captures: List[RawCapture], index_cache: Dict[str, str]
+    ) -> tuple[List[tuple[str, str, str]], str]:
+        """Nomes dos arquivos e ``index.csv`` final de um lote, sem tocar ``index_cache``.
+
+        Devolve ``([(uuid5, nome_pdf, nome_meta), ...], index_csv)``. As linhas são
+        mescladas uma a uma sobre uma cópia de trabalho do índice (lido do IA uma
+        vez, se ainda não estiver no cache), reusando ``_resolve_uuid5_and_index``
+        — mesma detecção de colisão e mesma idempotência do upload unitário.
+        Levanta ``IndexFetchError`` se o índice atual não puder ser lido.
+        """
+        working: Dict[str, str] = {}
+        if item_id in index_cache:
+            working[item_id] = index_cache[item_id]
+        names: List[tuple[str, str, str]] = []
+        index_csv = ""
+        for cap in captures:
+            target = cap.target
+            source = str(
+                cap.lei_data.get("url_pdf_original")
+                or cap.lei_data.get("url_original")
+                or ""
+            )
+            uuid5, index_csv = _resolve_uuid5_and_index(
+                item_id,
+                cap.content,
+                tipo=target.tipo,
+                numero=target.numero,
+                rendicao=str(cap.lei_data.get("rendicao", "")),
+                formato="pdf",
+                source=source,
+                index_cache=working,
+            )
+            working[item_id] = index_csv
+            prefix = (
+                f"{target.tipo}-{target.numero:05d}"
+                if target.numero is not None
+                else None
+            )
+            names.append(
+                (
+                    uuid5,
+                    raw_filename(uuid5, ".pdf", name_prefix=prefix),
+                    raw_filename(uuid5, "_meta.json", name_prefix=prefix),
+                )
+            )
+        return names, index_csv
+
+    def _put_raw_batch(
+        self,
+        item_id: str,
+        captures: List[RawCapture],
+        names: List[tuple[str, str, str]],
+        index_csv: str,
+    ) -> None:
+        """Escreve o lote num diretório temporário e roda um único ``ia upload``."""
+        target = captures[0].target
+        with tempfile.TemporaryDirectory() as tmp:
+            files: List[str] = []
+            for cap, (_uuid5, pdf_name, meta_name) in zip(captures, names):
+                # Mesmos bytes para a mesma identidade → mesmo nome: um arquivo só.
+                for dst in (Path(tmp) / pdf_name, Path(tmp) / meta_name):
+                    if str(dst) not in files:
+                        files.append(str(dst))
+                (Path(tmp) / pdf_name).write_bytes(cap.content)
+                (Path(tmp) / meta_name).write_text(
+                    json.dumps(cap.raw_meta, indent=2, ensure_ascii=False)
+                )
+            # index.csv por ÚLTIMO: se qualquer PDF falhar, o CLI aborta antes de
+            # o índice apontar para arquivos que não chegaram.
+            index_path = Path(tmp) / INDEX_FILENAME
+            index_path.write_text(index_csv, encoding="utf-8")
+            files.append(str(index_path))
+            desc = (
+                f"Documentos originais (PDF) da legislação do ente federativo "
+                f"{target.ente.upper()}, fonte {target.fonte}, capturados pelo "
+                f"projeto Leizilla. O index.csv mapeia identidade para arquivo."
+            )
+            self._run_ia_upload(
+                [
+                    "ia",
+                    "upload",
+                    item_id,
+                    *files,
+                    "--no-derive",
+                    "--checksum",
+                    "--retries",
+                    str(_IA_BATCH_S3_RETRIES),
+                    "--sleep",
+                    str(_IA_BATCH_S3_SLEEP_S),
+                    "--metadata",
+                    f"title:{target.title}",
+                    "--metadata",
+                    "mediatype:texts",
+                    "--metadata",
+                    f"subject:leis;leizilla;{target.ente};{target.fonte}",
+                    "--metadata",
+                    "creator:leizilla-crawler",
+                    "--metadata",
+                    "language:pt",
+                    "--metadata",
+                    f"coverage:{_entity_coverage(target.ente)}",
+                    "--metadata",
+                    f"description:{desc}",
+                ],
+                max_attempts=_IA_BATCH_MAX_ATTEMPTS,
+                base_delay=_IA_BATCH_BASE_DELAY_S,
+                max_delay=_IA_BATCH_MAX_DELAY_S,
+            )
+
+    def request_derive(self, item_id: str) -> bool:
+        """Pede ao IA **um** derive do item (OCR dos PDFs novos). ``True`` se aceito.
+
+        Usa a Tasks API pelo CLI: ``ia tasks <item> --cmd derive.php`` (verificado
+        em ``internetarchive`` 5.8.0, ``cli/ia_tasks.py`` → ``session.submit_task``;
+        equivale a ``Item.derive()``). O CLI sai com código 1 também quando a
+        tarefa já está na fila ("already queued/running") — isso é sucesso aqui:
+        o derive pendente cobre o item inteiro. Se o IA recusar por limite de
+        taxa, tenta uma vez com ``--reduced-priority`` (aceito com mais folga, roda
+        mais tarde).
+        """
+        if not self.access_key or not self.secret_key:
+            return False
+        base = ["ia", "tasks", item_id, "--cmd", "derive.php"]
+        for args in (base, [*base, "--reduced-priority"]):
+            try:
+                self._run_ia_upload(args, max_attempts=2, base_delay=30.0)
+            except FileNotFoundError:
+                return False
+            except subprocess.CalledProcessError as e:
+                stderr = e.stderr or ""
+                if "already queued/running" in stderr:
+                    return True
+                logger.warning("derive de %s recusado: %s", item_id, stderr[-200:])
+                if not _IA_THROTTLED_RE.search(stderr):
+                    return False
+            else:
+                return True
+        return False
 
     def upload_raw_html(
         self,
@@ -2102,6 +2487,39 @@ class InternetArchivePublisher:
                 }
             except subprocess.CalledProcessError as e:
                 return {"success": False, "error": e.stderr, "ia_id": ia_id}
+
+    def upload_completeness(
+        self,
+        files: list[Path],
+        ente: str,
+        version: int = 0,
+    ) -> Dict[str, Any]:
+        """Upload do livro-razão de completude para o ponteiro `-latest` do dataset.
+
+        Mesmo destino e mesma razão de ``upload_coverage``: é instrumentação que
+        muda independente da release imutável em vigor. ``files`` são os
+        artefatos já gravados por ``leizilla completeness`` (resumo JSON, Parquet
+        e, opcionalmente, o snapshot do catálogo), enviados com o próprio nome.
+        """
+        if not self.access_key or not self.secret_key:
+            return {"success": False, "error": "IA credentials not configured"}
+
+        ia_id = f"leizilla-dataset-{ente}-v{version}-{_DATASET_LATEST_SUFFIX}"
+        try:
+            self._run_ia_upload(["ia", "upload", ia_id, *(str(f) for f in files)])
+        except FileNotFoundError:
+            return {
+                "success": False,
+                "error": "ia CLI não encontrado — instale 'internetarchive'",
+                "ia_id": ia_id,
+            }
+        except subprocess.CalledProcessError as e:
+            return {"success": False, "error": e.stderr, "ia_id": ia_id}
+        return {
+            "success": True,
+            "ia_id": ia_id,
+            "ia_url": f"https://archive.org/details/{ia_id}",
+        }
 
     def upload_to_archive(
         self,
