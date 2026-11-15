@@ -584,6 +584,7 @@ def list_parsed_raw_ids_strict(ente: str, fonte: str) -> Optional[Set[str]]:
         # ~200). All-or-nothing sem retry tornaria S4 praticamente sempre
         # `None` em produção — poucas tentativas curtas bastam pra distinguir
         # "flutuação de rede" de "IA realmente fora do ar".
+        incomplete = False
         for attempt in range(3):
             try:
                 req = urllib.request.Request(
@@ -592,15 +593,48 @@ def list_parsed_raw_ids_strict(ente: str, fonte: str) -> Optional[Set[str]]:
                 with urllib.request.urlopen(req, timeout=20) as resp:
                     meta = json.loads(resp.read())
                 break
+            except urllib.error.HTTPError as e:
+                # Um item parsed que existe mas não tem parsed_meta.json é um
+                # upload que ficou pela metade — evidência definitiva de "este
+                # item não conta como parseado", não uma leitura inconclusiva.
+                # Sem esta distinção um único item assim devolvia None para
+                # sempre e abortava todo parse-release (achado de 2026-11-15:
+                # leizilla-ro-lei-complementar-00048-1991, só com law.xml desde
+                # 2026-10-29, travou a estruturação por mais de duas semanas).
+                if e.code == 404 and _confirmed_without_file(
+                    ia_id_parsed, "parsed_meta.json"
+                ):
+                    incomplete = True
+                    break
+                if attempt == 2:
+                    return None
+                time.sleep(1)
             except Exception:
                 if attempt == 2:
                     return None
                 time.sleep(1)
+        if incomplete:
+            logger.warning(
+                "item parsed incompleto (sem parsed_meta.json), ignorado: %s",
+                ia_id_parsed,
+            )
+            continue
         raw_id = str((meta or {}).get("ia_id_raw", ""))
         if raw_id.startswith(prefix):
             raw_ids.add(raw_id)
 
     return raw_ids
+
+
+def _confirmed_without_file(item_id: str, filename: str) -> bool:
+    """True só se o metadata do item foi lido e confirma que ``filename`` não existe.
+
+    Metadata ilegível ou item sem nenhum arquivo listado não confirmam nada.
+    """
+    filenames = fetch_item_filenames(item_id)
+    if not filenames:
+        return False
+    return filename not in filenames
 
 
 def list_parsed_ia_ids(ente: str) -> list[str]:

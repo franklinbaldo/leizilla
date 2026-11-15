@@ -6,7 +6,7 @@ to 10 whenever the Wayback CDX was down, and both ended in a green job.
 """
 
 from pathlib import Path
-from typing import Any, Dict, Iterator
+from typing import Any, Dict, Iterator, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -377,3 +377,57 @@ def test_harvest_skips_another_spelling_of_a_preserved_norm_but_not_a_rendition(
 
     assert stats["already-preserved"] == 1
     assert stats["success"] == 1
+
+
+# --- one incomplete parsed item must not make the whole listing inconclusive ----------
+
+
+def _strict_listing(
+    meta_for: Dict[str, Any], filenames: Optional[set[str]]
+) -> Optional[set[str]]:
+    import io
+    import json as _json
+    import urllib.error
+
+    def fake_urlopen(req: Any, timeout: float = 0) -> Any:
+        url = req.full_url
+        if "services/search" in url:
+            body = {"items": [{"identifier": i} for i in meta_for]}
+            return io.BytesIO(_json.dumps(body).encode())
+        item = url.rsplit("/", 2)[-2]
+        answer = meta_for[item]
+        if isinstance(answer, int):
+            raise urllib.error.HTTPError(url, answer, "x", None, None)  # type: ignore[arg-type]
+        return io.BytesIO(_json.dumps(answer).encode())
+
+    with (
+        patch("urllib.request.urlopen", side_effect=fake_urlopen),
+        patch.object(publisher, "fetch_item_filenames", return_value=filenames),
+        patch("time.sleep"),
+    ):
+        return publisher.list_parsed_raw_ids_strict("ro", "casacivil")
+
+
+def test_parsed_item_without_meta_is_skipped_not_inconclusive() -> None:
+    result = _strict_listing(
+        {
+            "leizilla-ro-lei-00001-1983": {
+                "ia_id_raw": "leizilla-raw-ro-casacivil-lei-00001"
+            },
+            "leizilla-ro-lei-complementar-00048-1991": 404,
+        },
+        filenames={"law.xml"},
+    )
+    assert result == {"leizilla-raw-ro-casacivil-lei-00001"}
+
+
+def test_parsed_item_404_with_unreadable_metadata_stays_inconclusive() -> None:
+    result = _strict_listing(
+        {"leizilla-ro-lei-complementar-00048-1991": 404}, filenames=None
+    )
+    assert result is None
+
+
+def test_parsed_item_server_error_stays_inconclusive() -> None:
+    result = _strict_listing({"leizilla-ro-lei-00001-1983": 503}, filenames={"law.xml"})
+    assert result is None
