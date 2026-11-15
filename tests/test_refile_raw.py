@@ -91,6 +91,12 @@ class FakeArchive:
         self.copy_appears = True
         self.cleanup_fail_on: Optional[str] = None
         self.ia_calls: list[list[str]] = []
+        self.item_files: Optional[set[str]] = set()
+        self.fail_nth_delete: Optional[int] = None
+        self.delete_count = 0
+
+    def fetch_files(self, item_id: str) -> Optional[set[str]]:
+        return self.item_files
 
     def fetch_index(self, item_id: str) -> Optional[str]:
         self.events.append(f"read-index:{item_id}")
@@ -131,6 +137,10 @@ class FakeArchive:
     ) -> subprocess.CompletedProcess[str]:
         self.events.append(f"ia:{args[1]}")
         self.ia_calls.append(args)
+        if args[1] == "delete":
+            self.delete_count += 1
+            if self.delete_count == self.fail_nth_delete:
+                raise subprocess.CalledProcessError(1, args, stderr="ia failed")
         if self.cleanup_fail_on == args[1]:
             raise subprocess.CalledProcessError(1, args, stderr="ia failed")
         return subprocess.CompletedProcess(args, 0)
@@ -140,6 +150,7 @@ class FakeArchive:
 def archive(monkeypatch: pytest.MonkeyPatch) -> FakeArchive:
     fa = FakeArchive()
     publisher = InternetArchivePublisher()
+    monkeypatch.setattr(pub_mod, "fetch_item_filenames", fa.fetch_files)
     monkeypatch.setattr(pub_mod, "_fetch_existing_index", fa.fetch_index)
     monkeypatch.setattr(pub_mod, "_download_refile_bytes", fa.download)
     monkeypatch.setattr(pub_mod.time, "sleep", fa.sleep)
@@ -342,6 +353,141 @@ def test_delete_failure_returns_refiled_true(archive: FakeArchive) -> None:
     assert result["stage"] == "delete"
 
 
+STEM = "decreto-304012_a1b2c3d4"
+OCR_FILES = {
+    f"{STEM}_djvu.txt",
+    f"{STEM}_hocr.html",
+    f"{STEM}_imgonly_pdfmeta.json",
+}
+
+
+def test_purge_dry_run_lists_leftovers_and_deletes_nothing(
+    archive: FakeArchive,
+) -> None:
+    publisher: InternetArchivePublisher = archive.publisher  # type: ignore[attr-defined]
+    archive.item_files = {*OCR_FILES, "other-file.txt"}
+
+    result = publisher.purge_capture_leftovers(WRONG_ITEM, STEM)
+
+    assert result == {
+        "success": True,
+        "dry_run": True,
+        "would_delete": sorted(OCR_FILES),
+    }
+    assert archive.ia_calls == []
+
+
+def test_purge_refuses_item_that_still_has_index(archive: FakeArchive) -> None:
+    publisher: InternetArchivePublisher = archive.publisher  # type: ignore[attr-defined]
+    archive.item_files = {*OCR_FILES, "index.csv"}
+
+    result = publisher.purge_capture_leftovers(WRONG_ITEM, STEM, dry_run=False)
+
+    assert result == {"success": False, "reason": "index-present"}
+    assert archive.ia_calls == []
+
+
+def test_purge_refuses_when_original_pdf_still_present(archive: FakeArchive) -> None:
+    publisher: InternetArchivePublisher = archive.publisher  # type: ignore[attr-defined]
+    archive.item_files = {*OCR_FILES, f"{STEM}.pdf"}
+
+    result = publisher.purge_capture_leftovers(WRONG_ITEM, STEM, dry_run=False)
+
+    assert result == {"success": False, "reason": "original-present"}
+    assert archive.ia_calls == []
+
+
+def test_purge_reports_unreadable_metadata(archive: FakeArchive) -> None:
+    publisher: InternetArchivePublisher = archive.publisher  # type: ignore[attr-defined]
+    archive.item_files = None
+
+    result = publisher.purge_capture_leftovers(WRONG_ITEM, STEM, dry_run=False)
+
+    assert result == {"success": False, "reason": "metadata-unreadable"}
+    assert archive.ia_calls == []
+
+
+def test_purge_never_selects_history_or_other_stems(archive: FakeArchive) -> None:
+    publisher: InternetArchivePublisher = archive.publisher  # type: ignore[attr-defined]
+    archive.item_files = {
+        f"{STEM}_djvu.txt",
+        f"history/files/{STEM}_djvu.txt",
+        f"{STEM}X_djvu.txt",
+        "decreto-30412_b9999999_djvu.txt",
+    }
+
+    result = publisher.purge_capture_leftovers(WRONG_ITEM, STEM, dry_run=False)
+
+    assert result["deleted"] == [f"{STEM}_djvu.txt"]
+    assert archive.ia_calls == [["ia", "delete", WRONG_ITEM, f"{STEM}_djvu.txt"]]
+
+
+def test_purge_nothing_to_delete_is_success_without_ia_call(
+    archive: FakeArchive,
+) -> None:
+    publisher: InternetArchivePublisher = archive.publisher  # type: ignore[attr-defined]
+    archive.item_files = {"unrelated.txt"}
+
+    result = publisher.purge_capture_leftovers(WRONG_ITEM, STEM, dry_run=False)
+
+    assert result == {"success": True, "deleted": [], "dry_run": False}
+    assert archive.ia_calls == []
+
+
+def test_purge_real_delete_is_one_call_with_sorted_names(archive: FakeArchive) -> None:
+    publisher: InternetArchivePublisher = archive.publisher  # type: ignore[attr-defined]
+    archive.item_files = set(OCR_FILES)
+
+    result = publisher.purge_capture_leftovers(WRONG_ITEM, STEM, dry_run=False)
+
+    assert result == {
+        "success": True,
+        "dry_run": False,
+        "deleted": sorted(OCR_FILES),
+    }
+    assert archive.ia_calls == [["ia", "delete", WRONG_ITEM, *sorted(OCR_FILES)]]
+
+
+def test_purge_delete_failure_is_reported_not_raised(archive: FakeArchive) -> None:
+    publisher: InternetArchivePublisher = archive.publisher  # type: ignore[attr-defined]
+    archive.item_files = set(OCR_FILES)
+    archive.cleanup_fail_on = "delete"
+
+    result = publisher.purge_capture_leftovers(WRONG_ITEM, STEM, dry_run=False)
+
+    assert result["success"] is False
+    assert result["reason"] == "delete-failed"
+    assert result["error"] == "ia failed"
+
+
+def test_refile_happy_path_purges_leftovers_after_delete(archive: FakeArchive) -> None:
+    archive.item_files = set(OCR_FILES)
+
+    result = _refile(archive)
+
+    assert result["success"] is True
+    assert result["leftovers"] == [
+        {
+            "stem": STEM,
+            "success": True,
+            "dry_run": False,
+            "deleted": sorted(OCR_FILES),
+        }
+    ]
+    assert archive.ia_calls[-1] == ["ia", "delete", WRONG_ITEM, *sorted(OCR_FILES)]
+
+
+def test_refile_still_succeeds_when_purge_fails(archive: FakeArchive) -> None:
+    archive.item_files = set(OCR_FILES)
+    archive.fail_nth_delete = 2  # 1ª: cleanup do refile; 2ª: purge
+
+    result = _refile(archive)
+
+    assert result["success"] is True
+    assert result["leftovers"][0]["success"] is False
+    assert result["leftovers"][0]["reason"] == "delete-failed"
+
+
 def test_download_helper_gives_up_after_three_hash_mismatches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -432,3 +578,44 @@ def _fake_publisher_class(result: dict[str, Any]) -> Any:
     cls = MagicMock()
     cls.return_value.refile_raw.return_value = result
     return cls
+
+
+def _fake_purge_class(result: dict[str, Any]) -> Any:
+    from unittest.mock import MagicMock
+
+    cls = MagicMock()
+    cls.return_value.purge_capture_leftovers.return_value = result
+    return cls
+
+
+_PURGE_ARGS = [
+    "purge-leftovers",
+    "--item",
+    WRONG_ITEM,
+    "--stem",
+    STEM,
+]
+
+
+def test_cli_purge_dry_run_exits_0_and_defaults_to_no_execute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_cls = _fake_purge_class({"success": True, "dry_run": True, "would_delete": []})
+    monkeypatch.setattr(pub_mod, "InternetArchivePublisher", fake_cls)
+
+    result = CliRunner().invoke(cli.app, _PURGE_ARGS)
+
+    assert result.exit_code == 0
+    purge = fake_cls.return_value.purge_capture_leftovers
+    assert purge.call_args.kwargs["dry_run"] is True
+
+
+def test_cli_purge_failure_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_cls = _fake_purge_class({"success": False, "reason": "index-present"})
+    monkeypatch.setattr(pub_mod, "InternetArchivePublisher", fake_cls)
+
+    result = CliRunner().invoke(cli.app, [*_PURGE_ARGS, "--execute"])
+
+    assert result.exit_code == 1
+    purge = fake_cls.return_value.purge_capture_leftovers
+    assert purge.call_args.kwargs["dry_run"] is False
