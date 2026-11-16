@@ -68,6 +68,22 @@ jobs:
           && mv web/public/data/ro/textos.parquet.new web/public/data/ro/textos.parquet \
           || { rm -f web/public/data/ro/textos.parquet.new; echo "::warning::camada de texto não sincronizada — portal publicado sem ela"; }
 
+      # ADR-0017: catálogo oficial (ementas, situação, estágio de cada norma) e relações
+      # entre normas, publicados diariamente por catalogo-oficial.yml no item -latest do
+      # dataset. Mesmo espelho same-origin; os nomes do espelho são os do portal
+      # (catalogo.parquet = completeness.parquet). Sem cópia commitada: sem os arquivos o
+      # portal segue com a busca anterior — o catálogo é aditivo (fail-open).
+      - name: Sync official-catalog mirror from Internet Archive
+        run: |
+          mkdir -p web/public/data/ro
+          for pair in "completeness.parquet:catalogo.parquet" "relacoes.parquet:relacoes.parquet"; do
+            src="${pair%%:*}"; dst="${pair##*:}"
+            curl -fsSL "https://archive.org/download/leizilla-dataset-ro-v0-latest/${src}" \
+              -o "web/public/data/ro/${dst}.new" \
+            && mv "web/public/data/ro/${dst}.new" "web/public/data/ro/${dst}" \
+            || { rm -f "web/public/data/ro/${dst}.new"; echo "::warning::catálogo oficial (${dst}) não sincronizado — portal publicado sem ele"; }
+          done
+
       - name: Build Astro site
         working-directory: web
         run: npm run build
