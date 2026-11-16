@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
 import sys
 import urllib.error
 from pathlib import Path
@@ -586,3 +587,225 @@ def test_fetch_published_reocr_metadata_unreachable_aborts(tmp_path: Path) -> No
         pytest.raises(OSError, match="HTTP 503"),
     ):
         reocr.fetch_published_reocr("ro", 0, tmp_path / "r.parquet")
+
+
+# --- ordem da fila ----------------------------------------------------------
+
+ZERO = "LEI N. 3\n\nDispõe sobre nada.\n"  # sem artigos: não fecha, lê zero
+
+
+def test_queue_puts_norms_with_own_articles_first_then_zero_article_ones() -> None:
+    rows = [_row(1, ZERO), _row(11, OPEN), _row(3, ZERO), _row(9, MANY_OPEN)]
+    queue, stats = _queue(rows)
+    assert [q["numero"] for q in queue] == [9, 11, 1, 3]
+    assert [q["_artigos_ia"] for q in queue] == [6, 1, 0, 0]
+    assert (stats.fila_com_artigos, stats.fila_sem_artigos) == (2, 2)
+    assert stats.na_fila == 4
+
+
+def test_cli_reocr_dry_run_prints_the_class_sizes_in_the_fila_line(
+    tmp_path: Path,
+) -> None:
+    textos = _write_textos(tmp_path)
+    with patch("leizilla.reocr.fetch_published_reocr", return_value=False):
+        result = _runner.invoke(app, ["reocr", "--textos", str(textos), "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "2 na fila (2 com artigos lidos primeiro · 0 sem artigos)" in result.output
+
+
+# --- espera por fila cheia do IA -------------------------------------------
+
+QUEUE_FULL = (
+    "Please reduce your request rate. - total_tasks_queued exceeds global_limit"
+)
+BUCKET_FULL = "error: bucket_tasks_queued exceeds rationed amount"
+RESET = "connection reset by peer"
+
+
+def _ia_fail(stderr: str) -> subprocess.CalledProcessError:
+    return subprocess.CalledProcessError(1, ["ia", "upload"], stderr=stderr)
+
+
+def _pub() -> publisher.InternetArchivePublisher:
+    pub = publisher.InternetArchivePublisher.__new__(publisher.InternetArchivePublisher)
+    pub.access_key, pub.secret_key = "a", "b"
+    pub._upload_rate_limiter = MagicMock()
+    return pub
+
+
+def _sleeps(sleep: MagicMock) -> list[float]:
+    return [c.args[0] for c in sleep.call_args_list]
+
+
+def test_queue_full_is_waited_out_within_the_budget() -> None:
+    budget = publisher.IaQueueWait(budget_s=3600)
+    outcomes = [_ia_fail(QUEUE_FULL), _ia_fail(BUCKET_FULL), MagicMock()]
+    with (
+        patch("leizilla.publisher.subprocess.run", side_effect=outcomes) as run,
+        patch("leizilla.publisher.time.sleep") as sleep,
+    ):
+        _pub()._run_ia_upload(["ia", "upload", "x"], queue_wait=budget)
+    assert run.call_count == 3
+    assert _sleeps(sleep) == [60.0, 120.0]
+    assert budget.waited_s == 180.0
+
+
+def test_queue_full_gives_up_when_the_budget_is_exhausted() -> None:
+    budget = publisher.IaQueueWait(budget_s=200)
+    with (
+        patch(
+            "leizilla.publisher.subprocess.run", side_effect=_ia_fail(QUEUE_FULL)
+        ) as run,
+        patch("leizilla.publisher.time.sleep") as sleep,
+        pytest.raises(subprocess.CalledProcessError),
+    ):
+        _pub()._run_ia_upload(["ia", "upload", "x"], queue_wait=budget)
+    # 60 + 120 + o que sobra (20) = 200 s; a próxima espera não existe.
+    assert _sleeps(sleep) == [60.0, 120.0, 20.0]
+    assert run.call_count == 4
+    assert budget.remaining_s == 0
+
+
+def test_other_errors_keep_the_short_retry_even_with_a_budget() -> None:
+    budget = publisher.IaQueueWait(budget_s=3600)
+    with (
+        patch("leizilla.publisher.subprocess.run", side_effect=_ia_fail(RESET)) as run,
+        patch("leizilla.publisher.time.sleep") as sleep,
+        pytest.raises(subprocess.CalledProcessError),
+    ):
+        _pub()._run_ia_upload(["ia", "upload", "x"], queue_wait=budget)
+    assert run.call_count == publisher._IA_UPLOAD_MAX_ATTEMPTS
+    delays = _sleeps(sleep)
+    assert len(delays) == publisher._IA_UPLOAD_MAX_ATTEMPTS - 1
+    for got, base in zip(delays, [2.0, 4.0, 8.0, 16.0]):
+        assert base <= got <= base * 1.25
+    assert budget.waited_s == 0
+
+
+def test_queue_full_without_a_budget_keeps_the_short_retry() -> None:
+    with (
+        patch(
+            "leizilla.publisher.subprocess.run", side_effect=_ia_fail(QUEUE_FULL)
+        ) as run,
+        patch("leizilla.publisher.time.sleep") as sleep,
+        pytest.raises(subprocess.CalledProcessError),
+    ):
+        _pub()._run_ia_upload(["ia", "upload", "x"])
+    assert run.call_count == publisher._IA_UPLOAD_MAX_ATTEMPTS
+    assert all(d < 60 for d in _sleeps(sleep))
+
+
+@pytest.mark.parametrize("throttled_item", [0, 1])
+def test_upload_reocr_waits_out_a_throttle_on_either_item(
+    tmp_path: Path, throttled_item: int
+) -> None:
+    parquet = tmp_path / "reocr.parquet"
+    reocr.write_reocr_parquet(_accepted_rows(), parquet)
+    meta = reocr.build_reocr_meta(parquet, "ro", 0, "20261116t000000z")
+    ok = MagicMock()
+    outcomes: list[Any] = []
+    for i in range(2):  # 0 = datado, 1 = -latest
+        if i == throttled_item:
+            outcomes.append(_ia_fail(QUEUE_FULL))
+        outcomes.append(ok)
+    with (
+        patch("leizilla.publisher.subprocess.run", side_effect=outcomes) as run,
+        patch("leizilla.publisher.time.sleep") as sleep,
+    ):
+        result = _pub().upload_reocr(parquet, meta, "ro", 0, queue_wait_minutes=45)
+    assert result["success"] and result["latest_pointer"]["success"]
+    assert run.call_count == len(outcomes)
+    assert _sleeps(sleep) == [60.0]
+
+
+def test_upload_reocr_budget_is_shared_by_both_items(tmp_path: Path) -> None:
+    parquet = tmp_path / "reocr.parquet"
+    reocr.write_reocr_parquet(_accepted_rows(), parquet)
+    meta = reocr.build_reocr_meta(parquet, "ro", 0, "20261116t000000z")
+    # Dois itens, cada um com uma fila cheia de 60 s: 120 s no total, não 60 + 60.
+    outcomes = [
+        _ia_fail(QUEUE_FULL),
+        MagicMock(),
+        _ia_fail(QUEUE_FULL),
+        MagicMock(),
+    ]
+    with (
+        patch("leizilla.publisher.subprocess.run", side_effect=outcomes),
+        patch("leizilla.publisher.time.sleep") as sleep,
+    ):
+        result = _pub().upload_reocr(parquet, meta, "ro", 0, queue_wait_minutes=2)
+    assert result["success"] and result["latest_pointer"]["success"]
+    assert _sleeps(sleep) == [60.0, 60.0]
+
+
+def test_upload_reocr_with_zero_wait_keeps_the_old_behaviour(tmp_path: Path) -> None:
+    parquet = tmp_path / "reocr.parquet"
+    reocr.write_reocr_parquet(_accepted_rows(), parquet)
+    meta = reocr.build_reocr_meta(parquet, "ro", 0, "20261116t000000z")
+    outcomes = [MagicMock()] + [
+        _ia_fail(QUEUE_FULL)
+    ] * publisher._IA_UPLOAD_MAX_ATTEMPTS
+    with (
+        patch("leizilla.publisher.subprocess.run", side_effect=outcomes),
+        patch("leizilla.publisher.time.sleep") as sleep,
+    ):
+        result = _pub().upload_reocr(parquet, meta, "ro", 0, queue_wait_minutes=0)
+    # Latest falha depois do recuo curto; a release imutável já existe.
+    assert result["success"] and result["latest_pointer"]["success"] is False
+    assert all(d < 60 for d in _sleeps(sleep))
+
+
+def test_cli_reocr_upload_wait_defaults_to_45_and_zero_disables_it(
+    tmp_path: Path,
+) -> None:
+    textos = _write_textos(tmp_path)
+    out = tmp_path / "reocr.parquet"
+    ok = {
+        "success": True,
+        "ia_url": "https://archive.org/details/x",
+        "latest_pointer": {"success": True, "ia_url": "u"},
+    }
+    with (
+        patch("leizilla.reocr.fetch_published_reocr", return_value=False),
+        patch("leizilla.reocr.installed_kreuzberg_version", return_value=KZ),
+        patch("leizilla.reocr.ocr_pdf", _ocr_returning(CLOSING)),
+        patch("leizilla.textlayer.http_get", lambda url: _pdf(9)),
+        patch.object(
+            publisher.InternetArchivePublisher, "upload_reocr", return_value=ok
+        ) as upload,
+    ):
+        base = ["reocr", "--textos", str(textos), "--output", str(out), "--upload"]
+        assert _runner.invoke(app, base).exit_code == 0
+        assert upload.call_args.kwargs["queue_wait_minutes"] == 45.0
+        assert _runner.invoke(app, [*base, "--upload-wait-minutes", "0"]).exit_code == 0
+        assert upload.call_args.kwargs["queue_wait_minutes"] == 0.0
+        bad = _runner.invoke(app, [*base, "--upload-wait-minutes", "-1"])
+        assert bad.exit_code == 1
+
+
+def test_cli_reocr_exits_nonzero_when_only_the_latest_pointer_failed(
+    tmp_path: Path,
+) -> None:
+    textos = _write_textos(tmp_path)
+    out = tmp_path / "reocr.parquet"
+    partial = {
+        "success": True,
+        "ia_url": "https://archive.org/details/leizilla-reocr-ro-v0-x",
+        "latest_pointer": {"success": False, "error": "total_tasks_queued"},
+    }
+    with (
+        patch("leizilla.reocr.fetch_published_reocr", return_value=False),
+        patch("leizilla.reocr.installed_kreuzberg_version", return_value=KZ),
+        patch("leizilla.reocr.ocr_pdf", _ocr_returning(CLOSING)),
+        patch("leizilla.textlayer.http_get", lambda url: _pdf(9)),
+        patch.object(
+            publisher.InternetArchivePublisher, "upload_reocr", return_value=partial
+        ),
+    ):
+        result = _runner.invoke(
+            app,
+            ["reocr", "--textos", str(textos), "--output", str(out), "--upload"],
+        )
+    assert result.exit_code == 1
+    assert "Upload incompleto" in result.output
+    assert "leizilla-reocr-ro-v0-x" in result.output

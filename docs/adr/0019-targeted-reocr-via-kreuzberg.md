@@ -72,3 +72,20 @@ the command; the next day's text-layer build applies the overlay.
   19 MB of ONNX models downloaded on first use and cached in CI.
 - A norm with an accepted re-OCR is re-downloaded from IA by `build-textos` each day
   (its row has no `sha1_texto_ia`), which keeps the overlay reversible.
+- **Patient upload (operation).** The first real run lost its OCR work to an IA queue
+  throttle (`total_tasks_queued exceeds global_limit`): the account's task queue is full
+  for minutes to tens of minutes, and the short retry of the shared upload helper gives up
+  in about 30 s. `reocr --upload` now waits out that throttle (and `bucket_tasks_queued
+  exceeds rationed amount`) with a capped backoff of 60, 120, 240 s and then 300 s per
+  attempt, up to `--upload-wait-minutes` (default 45; 0 restores the short retry). The
+  budget is shared by the dated item and `-latest`; other errors keep the short retry. A
+  run whose `-latest` pointer fails exits 1 with a message, because `build-textos` reads
+  `-latest`; the dated release stays on IA and a rerun publishes a new revision. The job
+  timeout of 120 min is kept, but a full batch of 60 norms plus the default 45 min wait
+  can approach it. A run killed by the timeout publishes nothing (its candidate Parquet
+  is still kept as an artifact); the lever is `--limit` or `--upload-wait-minutes`.
+- **Queue order (operation).** The queue puts norms that already read at least one own
+  article on IA's text first (the partial chains that the pilot re-OCR fixed), then norms
+  that read zero, each class in `texto_id` order. Nothing is dropped; the `Fila:` line
+  reports both class sizes, so a run's acceptance rate can be read against the class it
+  started with.

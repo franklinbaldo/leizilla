@@ -189,7 +189,7 @@ All commands run as `uv run leizilla <command>`. Most take `--ente` (default `ro
 | `search --ente ro` / `stats --ente ro` | local search / IA item counts |
 | `completeness --output completeness.parquet --catalog-snapshot completeness_catalog.json.gz` | ledger of every norm in the official year index vs. what is preserved / readable / structured (`--max-fetch`, `--fetch-years`, `--refresh-years`, `--textos`, `--sem-ia`, `--relations`, `--upload`); also writes `relacoes.parquet` |
 | `release-catalogo completeness.parquet relacoes.parquet --summary completeness.json` | validate (contract + row floor) and publish the official catalog + relations to IA (`--dry-run`, `--allow-lower-count`; ADR-0017) |
-| `reocr --ente ro --limit 60 --max-pages 40 --output reocr.parquet` | targeted re-OCR (ADR-0019): norms whose `read_hierarchy` does not close → IA PDF → poppler → Kreuzberg+PaddleOCR → deterministic gate; one row per attempt (`--upload`, `--dry-run`, `--textos`, `--previous`); needs `uv sync --extra reocr` + poppler; `build-textos --reocr` overlays accepted texts |
+| `reocr --ente ro --limit 60 --max-pages 40 --output reocr.parquet` | targeted re-OCR (ADR-0019): norms whose `read_hierarchy` does not close → IA PDF → poppler → Kreuzberg+PaddleOCR → deterministic gate; one row per attempt (`--upload`, `--upload-wait-minutes` (default 45: waits out an IA queue throttle), `--dry-run`, `--textos`, `--previous`); needs `uv sync --extra reocr` + poppler; `build-textos --reocr` overlays accepted texts |
 | `pipeline --ente ro --limit 5` | orchestrate discover→harvest→export |
 
 Source-specific discovery currently exists for RO (`fontes/ro.py`) and federal
