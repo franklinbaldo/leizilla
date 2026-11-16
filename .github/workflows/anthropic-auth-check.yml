@@ -1,0 +1,25 @@
+name: Check Anthropic federation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  authenticate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ANTHROPIC_GOOGLE_WIF_PROVIDER: ${{ vars.ANTHROPIC_GOOGLE_WIF_PROVIDER }}
+      ANTHROPIC_GOOGLE_SERVICE_ACCOUNT: ${{ vars.ANTHROPIC_GOOGLE_SERVICE_ACCOUNT }}
+      ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+      ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+      ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      - name: Verify authentication and renewal without inference or batch submission
+        run: uv run python scripts/anthropic_wif.py check

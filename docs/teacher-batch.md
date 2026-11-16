@@ -30,6 +30,13 @@ into three steps that run separately:
 All three steps are dispatched from **Actions → Teacher Batch → Run workflow**.
 The workflow has no schedule: it runs only when you dispatch it.
 
+On `main`, authentication uses GitHub OIDC through the existing Google/Anthropic
+federation, with automatic token renewal and no `ANTHROPIC_API_KEY` secret.
+First run **Check Anthropic federation** to test models access and free token
+counting without submitting a batch. See [ADR-0018](adr/0018-anthropic-google-federation.md)
+for the exact trust restrictions and repository variables. Other branches and
+pull requests cannot use this identity.
+
 ### 1. Plan
 
 Dispatch with `step=plan`. Leave `limit` empty to size the full run. The step

@@ -60,6 +60,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write # Google OIDC -> Anthropic federation
   issues: write # notify-run-failure
   actions: read # baixar o artifact do manifesto de outra execução
 
@@ -70,6 +71,11 @@ concurrency:
 
 env:
   WORK_DIR: /tmp/teacher-batch
+  ANTHROPIC_GOOGLE_WIF_PROVIDER: ${{ vars.ANTHROPIC_GOOGLE_WIF_PROVIDER }}
+  ANTHROPIC_GOOGLE_SERVICE_ACCOUNT: ${{ vars.ANTHROPIC_GOOGLE_SERVICE_ACCOUNT }}
+  ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+  ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+  ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
 
 jobs:
   plan:
@@ -79,11 +85,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync
+      - run: uv sync --frozen
 
       - name: Plan — enumerar e estimar custo
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           IN_EFFORT: ${{ inputs.effort }}
           IN_LIMIT: ${{ inputs.limit }}
           IN_TIPO: ${{ inputs.tipo }}
@@ -96,8 +101,8 @@ jobs:
           [ -n "$IN_SEED" ] && args+=(--shuffle-seed "$IN_SEED")
           # Contagem real de tokens numa amostra (endpoint gratuito) para
           # conferir a densidade conservadora usada na estimativa.
-          [ -n "$ANTHROPIC_API_KEY" ] && args+=(--count-sample 20)
-          uv run python -m leizilla.teacher_batch plan "${args[@]}" | tee "$WORK_DIR.log"
+          args+=(--count-sample 20)
+          uv run python scripts/anthropic_wif.py run -- -m leizilla.teacher_batch plan "${args[@]}" | tee "$WORK_DIR.log"
           {
             echo "## Teacher batch — plan"
             echo '```'
@@ -127,7 +132,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync
+      - run: uv sync --frozen
 
       # Opcional: reenviar só as normas que falharam num collect anterior.
       - name: Download failures.jsonl de um collect anterior
@@ -141,7 +146,6 @@ jobs:
 
       - name: Submit — trava de custo + criação do(s) batch(es)
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           IN_MODEL: ${{ inputs.model }}
           IN_EFFORT: ${{ inputs.effort }}
           IN_LIMIT: ${{ inputs.limit }}
@@ -156,10 +160,7 @@ jobs:
             echo "::error::submit exige max_usd (teto de custo em US$) — não há padrão."
             exit 1
           fi
-          if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "::error::secret ANTHROPIC_API_KEY ausente."
-            exit 1
-          fi
+
           args=(
             --model "$IN_MODEL" --effort "$IN_EFFORT"
             --max-usd "$IN_MAX_USD" --guard "$IN_GUARD"
@@ -170,7 +171,7 @@ jobs:
           [ -n "$IN_SEED" ] && args+=(--shuffle-seed "$IN_SEED")
           [ -n "$IN_RETRY_RUN" ] && \
             args+=(--retry-failures /tmp/teacher-batch-previous/failures.jsonl)
-          uv run python -m leizilla.teacher_batch submit "${args[@]}" | tee "$WORK_DIR.log"
+          uv run python scripts/anthropic_wif.py run -- -m leizilla.teacher_batch submit "${args[@]}" | tee "$WORK_DIR.log"
           {
             echo "## Teacher batch — submit"
             echo '```'
@@ -205,7 +206,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync
+      - run: uv sync --frozen
 
       - name: Exigir manifest_run_id
         env:
@@ -227,7 +228,6 @@ jobs:
       - name: Collect — buscar, validar, fundir
         id: collect
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
           IN_WAIT: ${{ inputs.wait_minutes }}
@@ -242,7 +242,7 @@ jobs:
             --wait-minutes "$IN_WAIT" --allow-failures
           )
           [ "$IN_UPLOAD_IA" = "true" ] && args+=(--upload-ia)
-          uv run python -m leizilla.teacher_batch collect "${args[@]}" | tee "$WORK_DIR.log"
+          uv run python scripts/anthropic_wif.py run -- -m leizilla.teacher_batch collect "${args[@]}" | tee "$WORK_DIR.log"
           code=${PIPESTATUS[0]}
           {
             echo "## Teacher batch — collect"
