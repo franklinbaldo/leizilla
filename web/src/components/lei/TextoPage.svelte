@@ -7,7 +7,8 @@
   import { paragrafos, parseAncoras, segmentar } from '../../lib/textos';
   import DatasetUnavailable from '../DatasetUnavailable.svelte';
 
-  let { textoId }: { textoId: string } = $props();
+  // `embedded`: a página da norma (catálogo oficial) já mostra o título; aqui só o texto.
+  let { textoId, embedded = false }: { textoId: string; embedded?: boolean } = $props();
 
   let row = $state<TextoRow | null>(null);
   let estruturadaId = $state<string | null>(null);
@@ -50,7 +51,7 @@
   });
 
   $effect(() => {
-    if (row) document.title = `${titulo} — Leizilla`;
+    if (row && !embedded) document.title = `${titulo} — Leizilla`;
   });
 
   // Deep-link (#art-5): os alvos só existem depois do render.
@@ -73,6 +74,10 @@
   <DatasetUnavailable {error} />
 {:else if loading}
   <p aria-busy="true">Carregando o texto da norma…</p>
+{:else if !row && embedded}
+  <p class="sem-texto-embutido">
+    O texto desta norma ainda não foi publicado na camada de texto.
+  </p>
 {:else if !row}
   <article>
     <header><strong>Texto não encontrado</strong></header>
@@ -98,13 +103,20 @@
   </article>
 {:else}
   <header class="texto-header">
-    <hgroup>
-      <h2>{titulo}</h2>
+    {#if embedded}
       <p>
         <span class="selo">{formatEnte(row.ente)}</span>
         <span class="selo selo-nao-estruturado">Texto não estruturado</span>
       </p>
-    </hgroup>
+    {:else}
+      <hgroup>
+        <h2>{titulo}</h2>
+        <p>
+          <span class="selo">{formatEnte(row.ente)}</span>
+          <span class="selo selo-nao-estruturado">Texto não estruturado</span>
+        </p>
+      </hgroup>
+    {/if}
 
     <article class="aviso">
       <p>
@@ -191,6 +203,9 @@
 {/if}
 
 <style>
+  .sem-texto-embutido {
+    color: var(--pico-muted-color);
+  }
   .texto-header hgroup {
     margin-bottom: 0.5rem;
   }

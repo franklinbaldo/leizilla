@@ -8,6 +8,7 @@
   import Versoes from './Versoes.svelte';
   import Evidencias from './Evidencias.svelte';
   import Dados from './Dados.svelte';
+  import CatalogoDaLei from '../catalogo/CatalogoDaLei.svelte';
   import { buildTree, copyText, currentRows, fmtDate } from './model';
 
   const params = new URLSearchParams(location.search);
@@ -195,6 +196,8 @@
       </article>
     {/if}
   </header>
+
+  <CatalogoDaLei {leiId} />
 
   {#if searchTerm}
     <aside class="contexto-busca" aria-label="Contexto da busca">

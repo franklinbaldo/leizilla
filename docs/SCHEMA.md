@@ -555,6 +555,14 @@ uma linha por norma que o acervo guarda e o índice não lista. Parquet ZSTD
 | `ia_item` | VARCHAR | item de range que preserva a norma; NULL se não preservada |
 | `texto_id` | VARCHAR | chave de junção com `textos.texto_id` e `versoes.fontes[].ia_id` (sem o sufixo) |
 | `catalogo_obtido_em` | VARCHAR | ISO-8601 de quando a lista anual da norma foi lida da fonte |
+| `identidade_incerta` | BOOLEAN | o número do título e o do arquivo divergem e o parser não resolveu (ADR-0017); a norma entra, marcada |
+| `rendicoes` | VARCHAR | rendições distintas dos arquivos listados, ordenadas e separadas por vírgula (`compilada,original`) |
+| `situacao_norma` | VARCHAR | situação lida **só do índice**: `revogada` (arquivo `revogado` ou anotação "REVOGADO PELO…" na ementa) > `retificada` > `tem-compilada` > `sem-indicacao-de-revogacao` (o índice não marca revogação; **não é "vigente"**); NULL nas linhas não listadas |
+| `situacao_evidencias` | VARCHAR | todas as marcas que sustentam a situação (`rendicao-revogado`, `anotacao-na-ementa`, `rendicao-retificado`, `rendicao-compilada`) |
+| `busca` | VARCHAR | título + ementa normalizados: minúsculas, sem acento, `[^a-z0-9]+` → espaço (`leizilla.catalogo.normalizar_busca`; o portal aplica o mesmo à consulta) |
+| `url_oficial` | VARCHAR | arquivo oficial no índice (o `original`, senão o primeiro) |
+| `url_ia` | VARCHAR | PDF preservado no IA; NULL se não preservada ou não medido |
+| `link_publico` | VARCHAR | melhor link: `url_ia`, senão `url_oficial` |
 
 Regras:
 
@@ -573,10 +581,40 @@ Regras:
 - **Título e ano para a camada de texto.** `textos` não carrega ano nem data (§3.5);
   `titulo`, `data`, `ano` e `ementa` daqui são a fonte desses campos para normas só-texto:
   `textos JOIN completude USING (texto_id) WHERE sufixo = ''`.
-- Publicação: `completeness.json` (resumo por tipo, década e ano), `completeness.parquet`
+- Versão 0.2 (ADR-0017): colunas de catálogo aditivas; o arquivo é também o **catálogo oficial** do
+  portal (espelho `catalogo.parquet`). `situacao` continua sendo a presença no índice.
+- Publicação: `completeness.json` (resumo por tipo, década e ano, mais `normas_listadas` e
+  `relacoes`), `completeness.parquet`, `relacoes.parquet` (§3.7)
   e `completeness_catalog.json.gz` (snapshot das listas anuais, reaproveitado entre
   execuções) vão para o item `-latest` do dataset, ao lado de `coverage.json`. É
   instrumentação: não tem release imutável nem piso de linhas.
+
+### 3.7 Tabela `relacoes` — relações entre normas lidas das ementas (ADR-0017)
+
+Uma linha por relação `origem —verbo→ alvo`, extraída por regras (`leizilla.relacoes`), sem modelo
+e sem ler o corpo da norma. Parquet ZSTD, `relacoes.parquet`. Contrato: `RELACOES_SCHEMA`.
+
+| Coluna | Tipo | Conteúdo |
+|---|---|---|
+| `relacao_id` | VARCHAR | `rel-` + hash de origem, verbo e alvo — único |
+| `origem_id` | VARCHAR | `norma_id` da norma que age (sempre no catálogo) |
+| `verbo` | VARCHAR | `altera`, `revoga`, `acrescenta`, `da-nova-redacao`, `regulamenta`, `prorroga`, `outro` |
+| `verbo_texto` | VARCHAR | o verbo como escrito |
+| `parcial` | BOOLEAN | a ação recai sobre parte do alvo (art., inciso, anexo…) |
+| `alvo_tipo`, `alvo_categoria` | VARCHAR | tipo canônico (`lei`, `lc`, `decreto`, `decreto-lei`) ou o do alvo fora do índice (`resolucao`, `emenda-constitucional`, `constituicao`…); categoria `estadual-ou-nao-qualificada`, `federal`, `municipal`, `constituicao`, `outro-tipo` |
+| `alvo_numero`, `alvo_sufixo` | INTEGER, VARCHAR | número e letra, como escritos |
+| `alvo_data`, `alvo_ano` | VARCHAR, INTEGER | data ISO só se dia, mês e ano foram escritos; ano se só ele |
+| `alvo_texto` | VARCHAR | a referência como escrita na ementa |
+| `alvo_id` | VARCHAR | `norma_id` do alvo quando resolve no catálogo |
+| `confianca` | VARCHAR | `resolvida` (`alvo_id` preenchido), `nao-resolvida`, `ambigua` |
+| `nota` | VARCHAR | motivo: `federal`, `municipal`, `constituicao-*`, `tipo-sem-indice`, `ausente-do-indice`, `data-diverge`, `data-diverge-mesmo-ano`, `data-ilegivel`, `cronologia`, `autorreferencia`, `sem-data`, `identidade-incerta`, `sufixo-diverge:…` |
+| `trecho` | VARCHAR | trecho da ementa que sustenta a relação |
+| `fonte_relacao` | VARCHAR | `ementa`, ou `anotacao-do-indice` ("REVOGADO PELO X": a origem é X, só emitida se X resolve) |
+
+Regras: precisão antes de cobertura — na dúvida não há relação resolvida; federais e
+Constituições nunca resolvem contra normas estaduais; uma norma não altera outra posterior; o
+escopo do verbo termina em "que…", particípio passivo ("alterada pela…", "aprovado pelo…") e
+verbo desconhecido. Gates: `leizilla release-catalogo`.
 
 ---
 

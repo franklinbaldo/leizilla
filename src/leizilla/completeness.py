@@ -44,12 +44,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-from leizilla import discovery, publisher
+from leizilla import catalogo, discovery, ia_utils, publisher, relacoes
 from leizilla.coverage import _CHAVE_RE, _UNIDENTIFIED_SUFFIX, _has_text
 
 logger = logging.getLogger(__name__)
 
-LEDGER_VERSION = "0.1"
+LEDGER_VERSION = "0.2"
 CATALOG_VERSION = "0.1"
 YEAR_INDEX_STRATEGY = "casacivil-year-index"
 _USER_AGENT = "leizilla-crawler/0.1"
@@ -105,6 +105,15 @@ LEDGER_SCHEMA: dict[str, str] = {
     "ia_item": "VARCHAR",
     "texto_id": "VARCHAR",
     "catalogo_obtido_em": "VARCHAR",
+    # Catálogo como produto (ADR-0017): derivados só do índice oficial.
+    "identidade_incerta": "BOOLEAN",
+    "rendicoes": "VARCHAR",
+    "situacao_norma": "VARCHAR",
+    "situacao_evidencias": "VARCHAR",
+    "busca": "VARCHAR",
+    "url_oficial": "VARCHAR",
+    "url_ia": "VARCHAR",
+    "link_publico": "VARCHAR",
 }
 
 Identity = tuple[str, int]
@@ -424,6 +433,7 @@ class Capture:
     key: str
     sha256: str
     has_text: Optional[bool]
+    pdf_name: Optional[str] = None  # nome do PDF dentro do item de range
 
 
 @dataclass
@@ -489,6 +499,11 @@ def collect_holdings(
             entry = holdings.held.setdefault(
                 (tipo, int(numero_s)), Held(ia_item=item_id)
             )
+            pdf_name: Optional[str] = None
+            if row.get("formato") == "pdf" and row.get("uuid5"):
+                pdf_name = ia_utils.raw_filename(
+                    row["uuid5"], ".pdf", name_prefix=f"{tipo}-{int(numero_s):05d}"
+                )
             entry.captures.append(
                 Capture(
                     key=file_key(row.get("source", "")),
@@ -496,6 +511,7 @@ def collect_holdings(
                     has_text=_has_text(
                         row.get("formato", ""), row.get("uuid5", ""), files
                     ),
+                    pdf_name=pdf_name,
                 )
             )
 
@@ -686,6 +702,17 @@ def build_ledger(catalog: Catalog, holdings: Holdings) -> list[dict[str, Any]]:
             estruturada = identity in holdings.parsed
 
         ano = int(norm["ano"]) if norm.get("ano") is not None else None
+        situacao_norma, evidencias = catalogo.situacao_da_norma(
+            (a.get("rendicao") or "outra" for a in norm["arquivos"]),
+            norm.get("ementa") or "",
+        )
+        oficial = catalogo.url_oficial(norm["arquivos"])
+        ia_pdf = next((c.pdf_name for c in mine if c.pdf_name), None)
+        url_ia = (
+            ia_utils.download_url(held.ia_item, ia_pdf)
+            if held is not None and ia_pdf
+            else None
+        )
         rows.append(
             {
                 "norma_id": norma_id(ente, fonte, tipo, numero, sufixo),
@@ -716,6 +743,16 @@ def build_ledger(catalog: Catalog, holdings: Holdings) -> list[dict[str, Any]]:
                 "ia_item": held.ia_item if held is not None and mine else None,
                 "texto_id": norma_id(ente, fonte, tipo, numero),
                 "catalogo_obtido_em": norm.get("fetched_at"),
+                "identidade_incerta": bool(norm.get("identidade_incerta")),
+                "rendicoes": catalogo.rendicoes_distintas(norm["arquivos"]),
+                "situacao_norma": situacao_norma,
+                "situacao_evidencias": ",".join(evidencias),
+                "busca": catalogo.campo_busca(
+                    norm.get("titulo") or "", norm.get("ementa") or ""
+                ),
+                "url_oficial": oficial,
+                "url_ia": url_ia,
+                "link_publico": url_ia or oficial,
             }
         )
 
@@ -764,6 +801,14 @@ def build_ledger(catalog: Catalog, holdings: Holdings) -> list[dict[str, Any]]:
                 "ia_item": held.ia_item if held is not None else None,
                 "texto_id": norma_id(ente, fonte, tipo, numero),
                 "catalogo_obtido_em": None,
+                "identidade_incerta": None,
+                "rendicoes": "",
+                "situacao_norma": None,
+                "situacao_evidencias": "",
+                "busca": catalogo.normalizar_busca(f"{tipo} {numero}"),
+                "url_oficial": None,
+                "url_ia": None,
+                "link_publico": None,
             }
         )
     return rows
@@ -771,30 +816,11 @@ def build_ledger(catalog: Catalog, holdings: Holdings) -> list[dict[str, Any]]:
 
 def write_ledger_parquet(rows: list[dict[str, Any]], output_path: Path) -> None:
     """Grava o livro-razão em Parquet (ZSTD), ordenado por tipo, número e sufixo."""
-    import duckdb
-
     if not rows:
         raise ValueError("rows is empty — nothing to write")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    cols = list(LEDGER_SCHEMA)
-    conn = duckdb.connect()
-    try:
-        conn.execute(
-            "CREATE TABLE completude ("
-            + ", ".join(f"{c} {t}" for c, t in LEDGER_SCHEMA.items())
-            + ")"
-        )
-        conn.executemany(
-            f"INSERT INTO completude VALUES ({', '.join('?' for _ in cols)})",
-            [[row.get(c) for c in cols] for row in rows],
-        )
-        target = str(output_path).replace("'", "''")
-        conn.execute(
-            "COPY (SELECT * FROM completude ORDER BY tipo, numero, sufixo, situacao) "
-            f"TO '{target}' (FORMAT parquet, COMPRESSION zstd)"
-        )
-    finally:
-        conn.close()
+    relacoes.rows_to_parquet(
+        rows, LEDGER_SCHEMA, output_path, "tipo, numero, sufixo, situacao"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1012,6 +1038,7 @@ def summarize(
             "ok_legivel": holdings.textos is not None,
         },
         "linhas": len(rows),
+        "normas_listadas": sum(1 for r in rows if r["situacao"] == SITUACAO_LISTADA),
         "tipos": tipos_out,
         "tipos_sem_indice": [
             {"tipo": t, "preservadas": n} for t, n in sorted(sem_indice.items())

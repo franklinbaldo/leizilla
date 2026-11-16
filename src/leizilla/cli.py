@@ -1353,6 +1353,19 @@ def cmd_completeness(
     version: int = typer.Option(
         0, "--version", help="Versão do dataset (textos publicado e alvo do upload)"
     ),
+    relations: Optional[Path] = typer.Option(
+        None,
+        "--relations",
+        help="Parquet das relações entre normas (default: relacoes.parquet ao lado de --output)",
+    ),
+    sem_ia: bool = typer.Option(
+        False,
+        "--sem-ia",
+        help=(
+            "Não consulta o Internet Archive: as flags de estágio ficam sem medição "
+            "(NULL). Basta para o catálogo oficial e as relações; não use com --upload"
+        ),
+    ),
 ) -> None:
     """Livro-razão de completude: o acervo contra o índice oficial da fonte.
 
@@ -1414,9 +1427,14 @@ def cmd_completeness(
         echo(f"  Snapshot regravado: {saved} lista(s) em {catalog_snapshot}")
 
     textos_keys = None
+    if sem_ia and upload:
+        echo("--sem-ia não pode ser combinado com --upload (estágios sem medição)")
+        raise typer.Exit(1)
     with tempfile.TemporaryDirectory() as tmp:
         textos_path = textos
-        if textos_path is None:
+        if sem_ia:
+            textos_path = None
+        elif textos_path is None:
             candidate = Path(tmp) / "textos.parquet"
             if comp.fetch_published_textos(ente, version, candidate):
                 textos_path = candidate
@@ -1428,17 +1446,30 @@ def cmd_completeness(
     if textos_keys is None:
         echo("  Camada de texto indisponível — 'legível' fica sem medição")
 
-    echo("Lendo o acervo no Internet Archive...")
-    holdings = comp.collect_holdings(ente, fonte, textos_keys)
+    if sem_ia:
+        holdings = comp.Holdings(ok_s2_s3=False)
+    else:
+        echo("Lendo o acervo no Internet Archive...")
+        holdings = comp.collect_holdings(ente, fonte, textos_keys)
     rows = comp.build_ledger(catalog, holdings)
     payload = comp.summarize(catalog, holdings, rows, git_sha=get_git_sha())
 
+    from leizilla import catalogo, relacoes
+
+    relation_rows = relacoes.construir_relacoes(rows)
+    payload["relacoes"] = catalogo.resumo_relacoes(relation_rows)
     comp.write_ledger_parquet(rows, output)
+    relations_path = relations or output.with_name(relacoes.RELACOES_FILENAME)
+    relacoes.write_relacoes_parquet(relation_rows, relations_path)
     summary_path = summary or output.with_name(comp.SUMMARY_FILENAME)
     summary_path.write_text(
         _json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     echo(f"Livro-razão: {len(rows)} linhas em {output}; resumo em {summary_path}")
+    echo(
+        f"Relações: {len(relation_rows)} em {relations_path} "
+        f"({payload['relacoes']['por_confianca']})"
+    )
 
     def show(value: Optional[int]) -> str:
         return "?" if value is None else str(value)
@@ -1468,6 +1499,7 @@ def cmd_completeness(
             staged = [
                 (output, comp.LEDGER_FILENAME),
                 (summary_path, comp.SUMMARY_FILENAME),
+                (relations_path, relacoes.RELACOES_FILENAME),
             ]
             if catalog_snapshot is not None and catalog_snapshot.suffix == ".gz":
                 staged.append((catalog_snapshot, comp.CATALOG_FILENAME))
@@ -1484,6 +1516,93 @@ def cmd_completeness(
         else:
             echo(f"Upload do livro-razão falhou: {result.get('error')}")
             raise typer.Exit(1)
+
+
+@app.command("release-catalogo")
+def cmd_release_catalogo(
+    ledger: Path = typer.Argument(
+        ..., help="completeness.parquet (catálogo estendido)"
+    ),
+    relations: Path = typer.Argument(..., help="relacoes.parquet"),
+    summary: Path = typer.Option(..., "--summary", help="completeness.json"),
+    catalog_snapshot: Optional[Path] = typer.Option(
+        None, "--catalog-snapshot", help="completeness_catalog.json.gz (opcional)"
+    ),
+    ente: str = typer.Option("ro", "--ente", help="Ente federativo"),
+    version: int = typer.Option(0, "--version", help="Versão do dataset"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Valida e reporta sem fazer upload"
+    ),
+    allow_lower_count: bool = typer.Option(
+        False,
+        "--allow-lower-count",
+        help="Ignora o piso de normas listadas quando a queda é esperada. Nunca default.",
+    ),
+) -> None:
+    """Publicar o catálogo oficial e as relações no IA (ADR-0017), com gates próprios.
+
+    Valida o contrato dos dois Parquets e o piso de normas listadas (o
+    ``completeness.json`` já publicado) antes de enviar ao item `-latest` do dataset.
+    """
+    import json as _json
+    import tempfile
+
+    from leizilla import catalogo, relacoes
+    from leizilla import completeness as comp
+    from leizilla.publisher import InternetArchivePublisher
+
+    for path in (ledger, relations, summary):
+        if not path.exists():
+            echo(f"Arquivo não encontrado: {path}")
+            raise typer.Exit(1)
+    problems = catalogo.validate_catalogo_files(ledger, relations)
+    if problems:
+        for problem in problems[:20]:
+            echo(f"  Violação: {problem}")
+        echo(f"Gate de release falhou: {len(problems)} violação(ões) do contrato.")
+        raise typer.Exit(1)
+
+    candidate = catalogo.published_floor(_json.loads(summary.read_text("utf-8")))
+    if candidate is None or candidate == 0:
+        echo("Gate de release falhou: o resumo não declara normas listadas.")
+        raise typer.Exit(1)
+    echo(f"Catálogo: {candidate} normas listadas; relações validadas.")
+    if dry_run:
+        echo("Dry-run: nenhum upload realizado.")
+        return
+
+    try:
+        floor = catalogo.fetch_published_floor(ente, version)
+    except RuntimeError as e:
+        echo(f"Gate de release falhou: não foi possível verificar o piso atual ({e})")
+        raise typer.Exit(1)
+    if floor is not None and candidate < floor:
+        if not allow_lower_count:
+            echo(
+                f"Gate de release falhou: o candidato tem {candidate} normas listadas, "
+                f"abaixo do piso publicado de {floor}."
+            )
+            raise typer.Exit(1)
+        echo(f"Gate de release ignorado (--allow-lower-count): {candidate} < {floor}.")
+
+    staged = [
+        (ledger, comp.LEDGER_FILENAME),
+        (summary, comp.SUMMARY_FILENAME),
+        (relations, relacoes.RELACOES_FILENAME),
+    ]
+    if catalog_snapshot is not None and catalog_snapshot.exists():
+        staged.append((catalog_snapshot, comp.CATALOG_FILENAME))
+    with tempfile.TemporaryDirectory() as tmp:
+        files = []
+        for src, name in staged:
+            dst = Path(tmp) / name
+            dst.write_bytes(src.read_bytes())
+            files.append(dst)
+        result = InternetArchivePublisher().upload_completeness(files, ente, version)
+    if not result.get("success"):
+        echo(f"Upload do catálogo falhou: {result.get('error')}")
+        raise typer.Exit(1)
+    echo(f"Catálogo publicado: {result['ia_url']}")
 
 
 @app.command("doctor")

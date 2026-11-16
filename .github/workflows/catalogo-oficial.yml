@@ -1,0 +1,118 @@
+name: Catálogo oficial (ementas, situação, relações) — build + release
+
+# ADR-0017: o índice oficial da Casa Civil (número, data, ementa e rendições de cada
+# norma) como produto público, independente de OCR e de qualquer modelo. Constrói o
+# catálogo (livro-razão de completude estendido, SCHEMA.md §3.6) e a tabela de relações
+# (§3.7) e os publica no item `-latest` do dataset, junto de completeness.json.
+#
+# Tem workflow próprio de propósito: o passo de completude de parse-release.yml fica
+# atrás de um job que falha por motivos alheios (e é continue-on-error), então o
+# catálogo nunca ficaria fresco por lá. Aqui nada depende de parse nem de LLM.
+#
+# Incremental: o snapshot das listas anuais publicado na rodada anterior é reaproveitado;
+# só os 2 anos mais recentes são rebuscados (8 requisições ao host da Casa Civil, a
+# ~1 req/s, com robots.txt respeitado). Sem snapshot (primeira rodada) --max-fetch limita
+# a leitura por execução e os anos ainda não lidos ficam "desconhecidos", nunca "zero".
+on:
+  schedule:
+    # Depois do release da camada de texto (05:13 UTC, text-layer-release.yml) — a flag
+    # "legível" usa o textos.parquet publicado — e antes do espelho do portal
+    # (deploy-web.yml, 06:30 UTC).
+    - cron: "51 5 * * *"
+  workflow_dispatch:
+    inputs:
+      ente:
+        description: "Ente federativo"
+        default: "ro"
+      dataset_version:
+        description: "Versão do dataset (inteiro)"
+        default: "0"
+      dry_run:
+        description: "Se 'true', constrói e valida sem publicar"
+        default: "true"
+      allow_lower_count:
+        description: "Se 'true', publica mesmo abaixo do piso de normas listadas — só para queda esperada e verificada"
+        default: "false"
+
+permissions:
+  contents: read
+  issues: write # notify-run-failure
+
+concurrency:
+  group: catalogo-oficial
+  cancel-in-progress: false
+
+jobs:
+  catalogo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+
+      # Fail-open: sem snapshot anterior a leitura recomeça do zero (limitada por
+      # --max-fetch), em vez de falhar a rodada.
+      - name: Fetch previous catalog snapshot (se houver)
+        run: |
+          mkdir -p /tmp/leizilla-catalogo
+          curl -fsSL "https://archive.org/download/leizilla-dataset-${{ inputs.ente || 'ro' }}-v${{ inputs.dataset_version || '0' }}-latest/completeness_catalog.json.gz" \
+            -o /tmp/leizilla-catalogo/completeness_catalog.json.gz \
+          || { rm -f /tmp/leizilla-catalogo/completeness_catalog.json.gz; echo "Sem snapshot anterior do catálogo — leitura a partir do zero."; }
+
+      - name: Build catalog + relations
+        run: |
+          uv run leizilla completeness \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --output /tmp/leizilla-catalogo/completeness.parquet \
+            --catalog-snapshot /tmp/leizilla-catalogo/completeness_catalog.json.gz \
+            --refresh-years 2 \
+            --max-fetch 60 \
+            --version "${{ inputs.dataset_version || '0' }}"
+
+      - name: Preserve candidate files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalogo-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/leizilla-catalogo/completeness.parquet
+            /tmp/leizilla-catalogo/relacoes.parquet
+            /tmp/leizilla-catalogo/completeness.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Dry-run (valida, sem upload)
+        if: "${{ github.event_name == 'workflow_dispatch' && inputs.dry_run != 'false' }}"
+        run: |
+          uv run leizilla release-catalogo \
+            /tmp/leizilla-catalogo/completeness.parquet \
+            /tmp/leizilla-catalogo/relacoes.parquet \
+            --summary /tmp/leizilla-catalogo/completeness.json \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --version "${{ inputs.dataset_version || '0' }}" \
+            --dry-run
+
+      - name: Release catalog → IA
+        if: "${{ github.event_name == 'schedule' || inputs.dry_run == 'false' }}"
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          ALLOW_LOWER_FLAG=""
+          if [ "${{ inputs.allow_lower_count || 'false' }}" = "true" ]; then ALLOW_LOWER_FLAG="--allow-lower-count"; fi
+          uv run leizilla release-catalogo \
+            /tmp/leizilla-catalogo/completeness.parquet \
+            /tmp/leizilla-catalogo/relacoes.parquet \
+            --summary /tmp/leizilla-catalogo/completeness.json \
+            --catalog-snapshot /tmp/leizilla-catalogo/completeness_catalog.json.gz \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --version "${{ inputs.dataset_version || '0' }}" \
+            $ALLOW_LOWER_FLAG
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "catalogo-oficial / catalogo"
+          github-token: ${{ secrets.GITHUB_TOKEN }}

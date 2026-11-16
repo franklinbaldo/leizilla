@@ -728,7 +728,7 @@ class TestSummary:
             generated_at="2026-11-15T00:00:00+00:00",
             git_sha="abc123",
         )
-        assert summary["leizilla_completeness_version"] == "0.1"
+        assert summary["leizilla_completeness_version"] == "0.2"
         assert (summary["ente"], summary["fonte"]) == ("ro", "casacivil")
         assert summary["catalogo"]["completo"] is False
         assert summary["catalogo"]["anos_desconhecidos"] == [
@@ -967,6 +967,7 @@ class TestCli:
                 "leizilla-dataset-ro-v0-latest",
                 "completeness.parquet",
                 "completeness.json",
+                "relacoes.parquet",
                 "completeness_catalog.json.gz",
             ]
         ]
