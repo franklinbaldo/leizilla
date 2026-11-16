@@ -35,7 +35,10 @@ item) does not count. Weak candidates outside those cases are ``ignored``.
 Known limits (by design, not oversights): text after the last child of a node (a
 "Pena - ..." line after the incisos) stays inside that last child; organisational
 blocks (TÍTULO, CAPÍTULO, Seção) are not nodes; a marker the OCR lost at the *end* of a
-chain leaves no trace and cannot be detected by numbering alone.
+chain leaves no trace in the numbering. Two placement checks on the article level
+(`final_clause_placed`, `tail_clean`) catch the common shapes of that loss: a closing
+sentence opening a line with no article marker, and an unread article marker after the
+last own article.
 
 It is a measurement and review aid for the `boundary-decision-parser` research front
 (docs/okf/project-dag.md), not part of the production parser.
@@ -283,9 +286,16 @@ class HierarchyReport(TypedDict):
     # any, cannot be told from the quoted ones. Keeps the article level open.
     open_tail_block: bool
     # The last own article carries the vigência or revogação clause, as a complete norm
-    # does. Not part of `closes`: numbering cannot see a text cut short after a full
-    # chain, this can. Read `closes and final_clause` as the stricter verdict.
+    # does. Presence only: not part of `closes`. Read `closes and final_clause` as the
+    # stricter verdict, or prefer `closes`, which now requires the two checks below.
     final_clause: bool
+    # Every vigência/revogação sentence in the body opens an article the reader read (or
+    # a prose line), never a line whose article marker was lost ("Art. T. Esta Lei...").
+    # Part of the article-level `closes`.
+    final_clause_placed: bool
+    # Nothing after the last own article opens as an article the reader did not read
+    # ("Art. T." or "49 - Revogam-se" with the next number expected). Part of `closes`.
+    tail_clean: bool
     closes: bool
 
 
@@ -981,24 +991,16 @@ def _article_numbers(text: str, start: int) -> list[int]:
     return article_readings(m.group("num"), m.group("ord") is not None)
 
 
-def _glued_suffix(m: re.Match[str]) -> str | None:
-    """A letter suffix only when glued ("Art. 8º-A"), not "Art. 8º - A lei"."""
-    suffix = m.group("suffix")
-    if suffix is None:
-        return None
-    return suffix if re.search(r"\S-[A-Z]\Z", m.group(0)) else None
-
-
 def _article_marker_end(text: str, start: int, fallback: int) -> tuple[int, str | None]:
     """End of an article marker proper, and its letter suffix if it really has one.
 
-    The article candidate pattern swallows " - A" in "Art. 2º - A lei"; that "A" is the
-    first word of the caput, not a suffix.
+    The suffix rule ("Art. 8º-A" yes, "Art. 2º - A lei" no) lives in
+    ``ARTICLE_CANDIDATE``, so both readers agree on it.
     """
     m = ARTICLE_CANDIDATE.match(text, start)
     if m is None:
         return fallback, None
-    suffix = _glued_suffix(m)
+    suffix = m.group("suffix")
     if suffix is not None:
         return m.end(), suffix
     return (m.end("ord") if m.group("ord") is not None else m.end("num")), None
@@ -1065,6 +1067,122 @@ def find_body_end(text: str, last_article_start: int) -> int:
     """Where the articulated body stops: the closing formula or the first annex."""
     m = _BODY_END.search(text, last_article_start)
     return m.start() if m else len(text)
+
+
+# The sentence that closes a norm, from its subject on: "Esta Lei ... entra em vigor",
+# "Revogam-se as disposições em contrário". Placed by where it starts, not by where its
+# keyword falls, so a long sentence is still judged by its first words.
+_FINAL_SENTENCE = re.compile(
+    r"\b(?:Esta|Essa|Este|Estes|Estas)\s+(?:Lei|Norma|Decreto|Portaria|Resolu\S*)\b"
+    r"[^.;]{0,60}?\bentr\w*\s+em\s+vigor"
+    r"|\brevog\w*(?:-se)?\s+(?:as|os|a|o)\s+disposi",
+    re.IGNORECASE,
+)
+_BARE_ARTICLE_LINE = re.compile(
+    r"[ \t]*(?:art|a\s?r/t|ait|alt|aft|arl|apt)\.?[ \t]*$", re.IGNORECASE
+)
+_PARAGRAPH_WORD = re.compile(r"§|par[áa]gr|[uú]nico", re.IGNORECASE)
+_NOTE_MARK = re.compile(r"[()\[\]]")
+# A line opener that is OCR debris rather than prose: at most three short tokens, each
+# punctuation, a digit, a dotted abbreviation or a single capital ("Art. T.", "49 -").
+_DEBRIS_TOKEN = re.compile(r"[\W_]*|.*\d.*|.*\..*|[A-ZÀ-Ý]")
+_NUM_HEAD = re.compile(r"(?m)^[ \t]*(?P<num>\d{1,2})\s?[-–—.]\s+[A-ZÀ-Ý]")
+
+
+def _covered(nodes: Sequence[Node], pos: int) -> bool:
+    """True when an own marker of the reader starts at or spans ``pos``."""
+    return any(
+        n["status"] == "own" and n["start"] <= pos < n["start"] + len(n["raw"])
+        for n in nodes
+    )
+
+
+def _ends_marker(text: str, nodes: Sequence[Node], pos: int) -> bool:
+    """True when an own marker ends just before ``pos``, with only spacing between."""
+    for node in nodes:
+        if node["status"] != "own":
+            continue
+        end = node["start"] + len(node["raw"])
+        if end <= pos and pos - end <= 6 and not re.search(r"[^\W\d_]", text[end:pos]):
+            return True
+    return False
+
+
+def _is_debris(prefix: str) -> bool:
+    """True when the text before a sentence on its line is OCR debris, not prose."""
+    tokens = prefix.split()
+    if not 1 <= len(tokens) <= 3 or len("".join(tokens)) > 12:
+        return False
+    if not any(ch.isalnum() for ch in prefix):
+        return False
+    return all(_DEBRIS_TOKEN.fullmatch(tok) for tok in tokens)
+
+
+def _final_clause_placed(
+    text: str,
+    nodes: Sequence[Node],
+    masked: Sequence[tuple[int, int]],
+    lo: int,
+    hi: int,
+) -> bool:
+    """A closing sentence must open an article, not sit where a lost marker would be.
+
+    For each vigência/revogação sentence in the body (outside quoted spans): if it opens
+    its line after OCR debris ("Art. T. Esta Lei ...") or opens a line whose marker the
+    reader did not read, an article marker was probably lost there. A sentence that
+    follows an own marker, a parenthesised note, a paragraph word or prose is fine.
+    """
+    for m in _FINAL_SENTENCE.finditer(text, lo, hi):
+        pos = m.start()
+        if any(s <= pos < e for s, e in masked):
+            continue
+        line = text.rfind("\n", 0, pos) + 1
+        prefix = text[line:pos]
+        if _ends_marker(text, nodes, pos) or _PARAGRAPH_WORD.search(prefix):
+            continue
+        if _NOTE_MARK.search(prefix):
+            continue
+        if prefix.strip() == "" or not any(ch.isalnum() for ch in prefix):
+            # The sentence opens its line. Only a bare "Art." line before it means a
+            # marker was lost (a plain line break inside prose is not evidence).
+            if line > 0:
+                prev = text.rfind("\n", 0, line - 1) + 1
+                if _BARE_ARTICLE_LINE.fullmatch(text[prev : line - 1]):
+                    return False
+            continue
+        if _is_debris(prefix):
+            return False
+    return True
+
+
+def _tail_clean(
+    text: str,
+    nodes: Sequence[Node],
+    masked: Sequence[tuple[int, int]],
+    lo: int,
+    hi: int,
+    expected: int,
+    known: Sequence[tuple[int, int]],
+) -> bool:
+    """Nothing after the last own article opens as an article the reader did not read.
+
+    Two signatures only, both at a line start: a garbled article word followed by its
+    number or letter ("Art. T."), and a bare number-dash-capital opener equal to the
+    next article number ("49 - Revogam-se", with 4 expected). Anything else, including
+    other numbered lines, is left alone.
+    """
+    for m in _ART_WILD.finditer(text, lo, hi):
+        pos = m.start("word")
+        if any(s <= pos < e for s, e in known) or any(s <= pos < e for s, e in masked):
+            continue
+        return False
+    for m in _NUM_HEAD.finditer(text, lo, hi):
+        pos = m.start("num")
+        if int(m.group("num")) != expected or any(s <= pos < e for s, e in masked):
+            continue
+        if not _covered(nodes, pos):
+            return False
+    return True
 
 
 def read_hierarchy(text: str) -> HierarchyReport:
@@ -1178,6 +1296,26 @@ def read_hierarchy(text: str) -> HierarchyReport:
             left["hint"] = ""
     builder.leftovers.sort(key=lambda left: left["start"])
 
+    # The sequence cannot see a lost last article, so the article level also needs the
+    # closing sentence to sit where an article starts and the tail to be free of
+    # article markers the reader did not read.
+    final_placed = True
+    tail_clean = True
+    if own:
+        final_placed = _final_clause_placed(
+            text, nodes, masked, own[0]["start"], body_end
+        )
+        tail_clean = _tail_clean(
+            text,
+            nodes,
+            masked,
+            own[-1]["start"],
+            body_end,
+            last_article + 1,
+            [(a["start"], a["end"]) for a in all_articles],
+        )
+        articles_close = articles_close and final_placed and tail_clean
+
     levels: dict[str, LevelReport] = {}
     for kind in _LEVELS:
         mine = [n for n in nodes if n["kind"] == kind and n["status"] == "own"]
@@ -1211,8 +1349,11 @@ def read_hierarchy(text: str) -> HierarchyReport:
         "body_end": body_end,
         "open_tail_block": open_tail_block,
         "final_clause": final_clause,
+        "final_clause_placed": final_placed,
+        "tail_clean": tail_clean,
         # Conservative: every level, in every scope, a full chain and nothing
-        # unexplained. Itens are too weakly marked to gate closure.
+        # unexplained. Itens are too weakly marked to gate closure. The article level
+        # also needs the two tail checks (see `final_clause_placed`, `tail_clean`).
         "closes": all(levels[k]["closes"] for k in _LEVELS if k != "item"),
     }
 
