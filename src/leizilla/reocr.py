@@ -19,6 +19,7 @@ O Kreuzberg é pesado e opcional (extra ``reocr``): só é importado dentro de
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 import shutil
@@ -587,12 +588,29 @@ def fetch_published_reocr(ente: str, version: int, dest: Path) -> bool:
         with urllib.request.urlopen(req, timeout=120) as resp:
             dest.write_bytes(resp.read())
     except urllib.error.HTTPError as e:
-        if e.code == 404:
+        # O IA responde 503 (não 404) ao /download/ de um item que nunca existiu;
+        # a API de metadados é quem confirma a ausência (devolve ``{}``).
+        if e.code == 404 or _item_never_published(item):
             return False
         raise OSError(f"{url}: HTTP {e.code}") from e
     except urllib.error.URLError as e:
         raise OSError(f"{url}: {e}") from e
     return True
+
+
+def _item_never_published(item: str) -> bool:
+    """``True`` só se a API de metadados do IA confirma que o item não existe.
+
+    Qualquer falha ao perguntar devolve ``False``: na dúvida, o item existe e quem
+    chama aborta em vez de publicar um histórico encolhido.
+    """
+    url = f"https://archive.org/metadata/{item}"
+    req = urllib.request.Request(url, headers={"User-Agent": textlayer._USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return bool(json.loads(resp.read()) == {})
+    except (urllib.error.URLError, ValueError):
+        return False
 
 
 def build_reocr_meta(
