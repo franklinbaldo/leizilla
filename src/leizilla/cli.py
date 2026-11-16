@@ -168,6 +168,20 @@ def cmd_harvest(
                 f"{spn.get('requested', 0)} pedidos, {spn.get('accepted', 0)} aceitos, "
                 f"{spn.get('failed', 0)} falhas, {spn.get('dropped', 0)} descartados"
             )
+        postponed = stats.get("derive-postponed") or []
+        if postponed:
+            echo(f"  derive adiado: {len(postponed)} item(ns) ainda com pendências")
+            for item_id in postponed:
+                echo(f"    - derive adiado: {item_id}")
+        deferred = stats.get("deferred", 0)
+        if deferred:
+            deferred_items = stats.get("deferred-items") or []
+            echo(
+                f"  adiados (item com fila cheia no IA): {deferred} em "
+                f"{len(deferred_items)} item(ns)"
+            )
+            for item_id in deferred_items:
+                echo(f"    - adiado: {item_id}")
         if stats.get("aborted"):
             echo(f"  Colheita interrompida cedo: {stats['aborted']}")
         if stats["failed"]:
@@ -205,6 +219,10 @@ def cmd_harvest(
             f"Erro: nenhuma captura bem-sucedida e {len(unexpected)} falha(s) "
             "inesperada(s) nesta colheita."
         )
+        raise typer.Exit(1)
+    if stats.get("deferred") and not stats["success"]:
+        # Tudo adiado por fila cheia no IA e nada capturado: não é sucesso.
+        echo("Erro: nenhuma captura; recursos adiados por limite de taxa do IA.")
         raise typer.Exit(1)
 
 

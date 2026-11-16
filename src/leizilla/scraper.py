@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional
 
 from leizilla import config, robots, wayback
 from leizilla.discovery import load_manifest
-from leizilla.ia_utils import parse_identity, range_item_identifier
+from leizilla.ia_utils import parse_identity, range_bounds, range_item_identifier
 from leizilla.parser import fetch_html
 from leizilla.publisher import (
     InternetArchivePublisher,
@@ -332,6 +332,29 @@ _MAX_CONSECUTIVE_TRANSIENT_FETCH = 10
 _MAX_CONSECUTIVE_FLUSH_FAILURES = 2
 # Motivos de flush que encerram a colheita na hora (repetir agora não ajuda).
 _FATAL_FLUSH_REASONS = frozenset({"ia-throttled", "ia-unavailable"})
+# Sequência de 404/410 confirmados, sem nenhuma captura na execução: a fila traz
+# chutes obsoletos (ex.: números além do último existente). Cada 404 já vira
+# terminal, então a próxima execução segue adiante — isto só limita o desperdício
+# do limite a N por execução.
+_MAX_CONSECUTIVE_ABSENT = 50
+_ABSENT_STREAK_REASON = "sequência de documentos inexistentes"
+
+
+def ia_throttle_scope(message: Optional[str]) -> str:
+    """Classifica uma recusa por taxa do IA: ``"item"`` ou ``"account"``.
+
+    ``bucket_tasks_queued exceeds rationed amount`` é a ração **por item**: só
+    aquele item está com a fila cheia. ``total_tasks_queued`` é o limite da conta
+    inteira. Mensagem sem nenhum dos dois marcadores (ou com os dois) é tratada
+    como da conta — o caso conservador, que encerra a colheita.
+    """
+    text = message or ""
+    if "total_tasks_queued" in text:
+        return "account"
+    if "bucket_tasks_queued" in text:
+        return "item"
+    return "account"
+
 
 # Save Page Now em segundo plano: no máximo 1 pedido a cada 5 s (12/min), fila
 # limitada, e até 30 s de espera ao fim para os pedidos em voo.
@@ -379,6 +402,16 @@ class _RawBatcher:
         self.derive_items: List[str] = []
         self.consecutive_failures = 0
         self.abort_reason: Optional[str] = None
+        # Itens cuja fila no IA está cheia (ração por item): nada mais sobe a eles
+        # nesta execução e o derive deles fica para depois.
+        self.throttled_items: set[str] = set()
+        # Itens de range que esta execução tocou (subiu, pulou por já preservado,
+        # ou falha permanente) → (ente, fonte, tipo, número), para checar se ainda
+        # há pendências antes de pedir o derive.
+        self.item_meta: Dict[str, tuple[str, str, str, int]] = {}
+
+    def register_item(self, item_id: str, key: tuple[str, str, str, int]) -> None:
+        self.item_meta.setdefault(item_id, key)
 
     def add(self, staged: _Staged) -> None:
         item_id = staged.capture.target.item_id
@@ -406,6 +439,7 @@ class _RawBatcher:
         self.stats["flushes"] += 1
 
         batch_failure: Optional[str] = None
+        throttle_error = ""
         any_success = False
         for entry, result in zip(staged, results):
             if result.get("success"):
@@ -417,12 +451,22 @@ class _RawBatcher:
                 self._record_rejected(entry)
                 continue
             batch_failure = reason
+            if reason == "ia-throttled":
+                throttle_error = str(result.get("error", ""))
             self._record_failure(entry, reason, str(result.get("error", "?")))
 
         if any_success and item_id not in self.derive_items:
             self.derive_items.append(item_id)
         if batch_failure is None:
             self.consecutive_failures = 0
+            return
+        if (
+            batch_failure == "ia-throttled"
+            and ia_throttle_scope(throttle_error) == "item"
+        ):
+            # Ração por item: só este item recua; os demais seguem. Não conta como
+            # flush falho seguido (o problema não é do lote nem da conta).
+            self.throttled_items.add(item_id)
             return
         self.consecutive_failures += 1
         if batch_failure in _FATAL_FLUSH_REASONS:
@@ -494,9 +538,43 @@ class _RawBatcher:
             # ficou no buffer volta para a fila como falha transitória.
             for entry in self.buffers.pop(item_id):
                 self._record_failure(entry, self.abort_reason, "colheita abortada")
-        for item_id in self.derive_items:
+        self._request_derives()
+
+    def _pending_in_item(self, item_id: str) -> Optional[int]:
+        """Pendências na fila que mapeiam para este item, ou ``None`` se incalculável."""
+        key = self.item_meta.get(item_id)
+        if key is None:
+            return None
+        ente, fonte, tipo, numero = key
+        start, end = range_bounds(numero)
+        return self.storage.count_pending_in_range(
+            ente, fonte, tipo, 0 if start == 1 else start, end
+        )
+
+    def _request_derives(self) -> None:
+        """Um derive por item **terminado** (ADR-0016, regra do dia 2).
+
+        Um derive pedido enquanto o item ainda recebe uploads fica na fila do IA
+        e os uploads seguintes se empilham atrás dele. Por isso só se pede o
+        derive quando nenhum recurso da fila mapeia mais para o item. Também
+        entram itens que esta execução tocou sem subir nada (pulados por já
+        preservados, 404 confirmado) e que ficaram sem pendências.
+        """
+        uploaded = list(self.derive_items)
+        touched_only = [i for i in self.item_meta if i not in uploaded]
+        for item_id in [*uploaded, *touched_only]:
+            received_files = item_id in uploaded
+            if item_id in self.throttled_items:
+                self.stats["derive-postponed"].append(item_id)
+                continue
+            pending = self._pending_in_item(item_id)
+            if pending:
+                if received_files:
+                    self.stats["derive-postponed"].append(item_id)
+                continue
             if not config.HARVEST_DERIVE:
-                self.stats["derive-failed"].append(item_id)
+                if received_files:
+                    self.stats["derive-failed"].append(item_id)
                 continue
             try:
                 accepted = bool(self.publisher.request_derive(item_id))
@@ -546,6 +624,9 @@ def harvest_pending_resources(
         "flushes": 0,
         "derive-requested": 0,
         "derive-failed": [],
+        "derive-postponed": [],
+        "deferred": 0,
+        "deferred-items": [],
         "aborted": None,
         "wayback-save": None,
         "items": [],
@@ -577,6 +658,8 @@ def harvest_pending_resources(
             source_limiter=rate_limiter,
         )
     consecutive_transient = 0
+    consecutive_absent = 0
+    fetched_any = False
     deadline = (
         time.monotonic() + config.HARVEST_MAX_SECONDS
         if config.HARVEST_MAX_SECONDS > 0
@@ -599,9 +682,26 @@ def harvest_pending_resources(
             chave = res["chave"]
             wb_url = res["wayback_snapshot"]
 
+            identity = parse_identity(chave)
+            item_id = (
+                range_item_identifier(ente, fonte, identity[0], identity[1])
+                if identity
+                else None
+            )
+            item_key = (ente, fonte, identity[0], identity[1]) if identity else None
+
             if _already_preserved(publisher, ente, fonte, chave, url, preserved_cache):
                 storage.update_resource_status(url, "downloaded")
                 stats["already-preserved"] += 1
+                if item_id and item_key:
+                    batcher.register_item(item_id, item_key)
+                continue
+            if item_id is not None and item_id in batcher.throttled_items:
+                # Fila cheia no IA para este item: nem baixamos da fonte um
+                # arquivo que não conseguimos subir agora. Continua 'pending'.
+                stats["deferred"] += 1
+                if item_id not in stats["deferred-items"]:
+                    stats["deferred-items"].append(item_id)
                 continue
             if attempts >= limit:
                 break
@@ -752,6 +852,15 @@ def harvest_pending_resources(
                 )
                 if permanent_failure:
                     consecutive_transient = 0  # a fonte respondeu: está de pé
+                    if item_id and item_key:
+                        batcher.register_item(item_id, item_key)
+                    consecutive_absent += 1
+                    if (
+                        not fetched_any
+                        and consecutive_absent >= _MAX_CONSECUTIVE_ABSENT
+                    ):
+                        stats["aborted"] = _ABSENT_STREAK_REASON
+                        break
                     continue
                 consecutive_transient += 1
                 if consecutive_transient >= _MAX_CONSECUTIVE_TRANSIENT_FETCH:
@@ -759,6 +868,8 @@ def harvest_pending_resources(
                     break
                 continue
             consecutive_transient = 0
+            consecutive_absent = 0
+            fetched_any = True
 
             # Validate PDF magic bytes — source may serve HTML error pages with .pdf URLs
             if pdf_bytes[:4] != b"%PDF":
@@ -791,6 +902,8 @@ def harvest_pending_resources(
                 # Wayback de onde os bytes vieram — None quando vieram da fonte.
                 "wayback_timestamp": wb_ts,
             }
+            if item_id and item_key:
+                batcher.register_item(item_id, item_key)
             batcher.add(
                 _Staged(
                     capture=make_raw_capture(

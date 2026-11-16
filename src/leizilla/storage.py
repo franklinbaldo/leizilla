@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -138,6 +139,28 @@ class DuckDBStorage:
         ).fetchall()
         columns = [desc[0] for desc in (conn.description or [])]
         return [dict(zip(columns, row)) for row in results]
+
+    def count_pending_in_range(
+        self, ente: str, fonte: str, tipo: str, start: int, end: int
+    ) -> int:
+        """Recursos ``pending`` que mapeiam para o item de range ``[start, end]``.
+
+        O item do IA é função de ``(ente, fonte, tipo, número)``; a chave
+        ``{tipo}-{número}`` e a mesma extração numérica da ordenação de
+        :meth:`get_pending_resources` definem a pertença.
+        """
+        row = (
+            self.connect()
+            .execute(
+                "SELECT count(*) FROM discovered_resources WHERE status = 'pending' "
+                "AND ente = ? AND fonte = ? AND regexp_matches(chave, ?) "
+                "AND TRY_CAST(NULLIF(regexp_extract(chave, '(\\d+)$', 1), '') "
+                "AS BIGINT) BETWEEN ? AND ?",
+                [ente, fonte, f"^{re.escape(tipo)}-\\d+$", start, end],
+            )
+            .fetchone()
+        )
+        return int(row[0]) if row else 0
 
     def get_downloaded_resources(
         self, ente: str, fonte: str, limit: int = 100
