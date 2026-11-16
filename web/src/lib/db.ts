@@ -68,6 +68,26 @@ export function getTextosSourceUrl(): string {
 }
 
 /**
+ * Catálogo oficial (ADR-0017): o livro-razão de completude estendido (uma linha por norma
+ * do índice da Casa Civil) e a tabela de relações entre normas, publicados no item
+ * `-latest` do dataset e espelhados same-origin como `catalogo.parquet` e
+ * `relacoes.parquet` (deploy-web.yml). Sem os arquivos o portal segue só com `versoes`.
+ */
+export function getCatalogoSourceUrl(): string {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_CATALOGO_SOURCE_URL) {
+    return import.meta.env.PUBLIC_CATALOGO_SOURCE_URL as string;
+  }
+  return mirrorUrl('catalogo.parquet');
+}
+
+export function getRelacoesSourceUrl(): string {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_RELACOES_SOURCE_URL) {
+    return import.meta.env.PUBLIC_RELACOES_SOURCE_URL as string;
+  }
+  return mirrorUrl('relacoes.parquet');
+}
+
+/**
  * Extrai a identidade lógica do item IA do pathname `/download/{item}/...`.
  *
  * O host é deliberadamente ignorado: ADR-0013 permite servir o Parquet por um
@@ -378,7 +398,7 @@ function buildWhere(query: string, opts: SearchOptions = {}) {
   return { where: clauses.length ? clauses.join(' AND ') : 'TRUE', params };
 }
 
-async function runSql<T>(
+export async function runSql<T>(
   sql: string,
   params: Array<string | number>,
   mapper: RowMapper<T>,

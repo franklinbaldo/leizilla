@@ -4,6 +4,9 @@ web/dist/
 web/.astro/
 # Espelho da camada de texto (ADR-0015): sincronizado no deploy, nunca commitado.
 web/public/data/*/textos.parquet
+# Espelho do catálogo oficial (ADR-0017): sincronizado no deploy, nunca commitado.
+web/public/data/*/catalogo.parquet
+web/public/data/*/relacoes.parquet
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
