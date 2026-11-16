@@ -2,11 +2,12 @@ name: Discover & Harvest (manifest-driven)
 
 on:
   schedule:
-    # Sábado 02:00 UTC — os 7 tipos rodam em sequência, um job de cada vez
-    # (max-parallel na matrix abaixo), pra não fazer o IA recusar a rajada
-    # de uploads como spam (achado de produção, 2026-07-14). max-parallel: 2
-    # ainda deixava ~30% das execuções serem throttled pelo IA (#141); o
-    # limite de recursos por job também caiu de 500 para 200 pelo mesmo
+    # Os 7 tipos rodam 3 de cada vez (max-parallel: 3 na matrix abaixo; ADR-0016,
+    # adendo 2026-11-16). O histórico: em 2026-07-14 uma rajada de uploads fez o IA
+    # recusar tudo ("Please reduce your request rate") e max-parallel: 2 ainda
+    # deixava ~30% das execuções throttled (#141); desde o ADR-0016 o upload é em
+    # lote por item, e o IA limita por item e por conta, não por processo.
+    # O limite de recursos por job também caiu de 500 para 200 pelo mesmo
     # motivo — rajadas menores, throughput semanal total inalterado (o
     # backlog real por tipo/semana fica bem abaixo do limite de qualquer
     # forma; isto é headroom de segurança, não um corte de trabalho).
@@ -30,17 +31,25 @@ on:
     # Se o IA limitar a taxa, a colheita recua (até ~10 min por lote), desiste e
     # deixa tudo 'pending' — o resumo imprime "Colheita interrompida cedo".
     #
-    # Atualização 2026-11-16 (ADR-0016, adendo): orçamento de 4,5 h por tipo
-    # (HARVEST_MAX_SECONDS=16200), limite 3000 e quatro execuções por dia, a cada
-    # 6 h (02:00, 08:00, 14:00 e 20:00 UTC). Conta do teto de 360 min por job:
-    # checkout + uv sync + cache ~5 min, descoberta ~10 min, colheita 270 min, mais
-    # o fim da execução (fetch em voo, flush de até 25 capturas por item e derive;
-    # com recuo do IA até ~10 min por lote) ~20-30 min = ~315 min no pior caso, ~45
-    # min de folga. O grupo de concorrência abaixo enfileira (não cancela) uma
-    # execução que começa com a anterior ainda rodando — mas o GitHub guarda UMA só
-    # pendente por grupo: uma terceira pendente substitui (cancela) a pendente mais
-    # velha. max-parallel: 1 vale por execução e execuções nunca se sobrepõem, então
-    # os uploads ao IA continuam em série.
+    # Atualização 2026-11-16 (ADR-0016, adendo): quatro execuções por dia, a cada
+    # 6 h (02:00, 08:00, 14:00 e 20:00 UTC), e a execução INTEIRA precisa caber
+    # nesses 6 h. Antes, 7 tipos em série x 4,5 h de colheita = mais de um dia por
+    # execução, e o grupo de concorrência engolia os disparos seguintes. Agora:
+    # 3 tipos em paralelo (lei, lc, decreto na primeira onda), HARVEST_MAX_SECONDS
+    # = 4500 s (75 min) por tipo. Conta por job, pior caso: checkout + uv sync +
+    # cache ~5 min, descoberta ~10 min, colheita 75 min, fim da execução (fetch em
+    # voo, flush, derive; recuo do IA) ~25 min = ~115 min; timeout-minutes: 120.
+    # Pior caso do workflow: 7 jobs em 3 vagas = 3 ondas x 115 min = 345 min
+    # (~5,75 h) < 360 min. Na prática só lei/lc/decreto têm backlog grande; ec,
+    # resolucao, portaria e decreto-lei terminam em minutos e o total fica em
+    # ~3 h. O ritmo por host da fonte é dividido (HARVEST_HOST_INTERVAL_S=3 por
+    # job x 3 jobs = ~1 req/s no total, ADR-0008).
+    #
+    # Disparo do cron durante uma execução em andamento: o grupo de concorrência
+    # (abaixo, cancel-in-progress: false) NÃO cancela a execução em curso; a nova
+    # fica pendente e começa quando a anterior termina. O GitHub guarda UMA só
+    # pendente por grupo: uma terceira substitui (cancela) a pendente mais velha.
+    # Como a execução cabe em 6 h, o normal é não haver disparo pendente.
     - cron: "0 2 * * *"
     - cron: "0 8 * * *"
     - cron: "0 14 * * *"
@@ -153,7 +162,7 @@ jobs:
   # não é scoped por tipo por padrão — uma única chamada descobre
   # lei/lc/decreto/ec/resolucao/portaria/decreto-lei de uma vez, e rodá-la
   # dentro de cada um dos 7 jobs da matrix repetia a varredura completa do
-  # site 7x em série (max-parallel: 1), inflando o ciclo semanal de horas
+  # site 7x em série (max-parallel: 1 na época), inflando o ciclo semanal de horas
   # para potencialmente dias.
   #
   # Um job `discover-shared` único (discovery de TODOS os tipos numa
@@ -176,32 +185,19 @@ jobs:
   harvest-parallel:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.tipo == '')
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # 5 setup + 10 descoberta + 75 colheita (4500 s) + ~25 encerramento = ~115 min.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
-      # max-parallel: 1 (serializa os 7 jobs) — os 7 jobs rodando ao mesmo
-      # tempo (max-parallel: 7, o default) fariam upload pro IA em paralelo;
-      # uma rajada assim levou o IA a recusar uploads como spam em produção
-      # (2026-07-14: "Please reduce your request rate"). `_run_ia_upload`
-      # (publisher.py) já paceia/retry POR PROCESSO (rate limiter interno +
-      # backoff exponencial em erro transiente), mas isso não protege contra
-      # múltiplos PROCESSOS distintos batendo no IA ao mesmo tempo — dois
-      # processos a ~1 req/2s cada já dobram a taxa efetiva vista pelo IA.
-      # max-parallel: 2 ainda deixava ~30% das execuções throttled (#141);
-      # serializar totalmente é o próximo degrau de segurança. Isso alonga o
-      # tempo de relógio do workflow como um todo, mas não o tempo de CADA
-      # job — o teto de 360min é por job, não cumulativo — e o throughput
-      # semanal total (soma dos 7 `--limit`) não muda. A descoberta de cada
-      # job agora é escopada ao seu próprio tipo (--tipo), não mais a fonte
-      # inteira — bem mais rápido que descobrir todos os tipos por job.
-      #
-      # ADR-0016 (2026-11-15) NÃO muda isto. Dois tipos sobem para itens
-      # diferentes do IA, mas o limite que estourou em 2026-11-14
-      # ("total_tasks_queued exceeds global_limit") é da CONTA, não do item:
-      # dois jobs paralelos dobrariam a taxa de PUTs vista pelo IA (o lote já a
-      # leva de ~5,5 para ~20 PUTs/min, estimado) sem ganho que justifique —
-      # só o decreto tem backlog grande, e ele cabe num job por dia.
-      max-parallel: 1
+      # max-parallel: 3 (ADR-0016, adendo 2026-11-16). Cada tipo grava em itens
+      # PRÓPRIOS do IA (tipo faz parte do identificador do item), então os jobs não
+      # disputam a ração por item (bucket_tasks_queued); o limite de conta
+      # (total_tasks_queued) é a preocupação, e o upload em lote mantém a taxa de
+      # PUTs bem abaixo dele. Se o IA voltar a recusar por conta, volte a 1.
+      # Politeness (ADR-0008): os 3 jobs batem no mesmo host do governo, então cada
+      # um paceia a 3 s por requisição (HARVEST_HOST_INTERVAL_S) — ~1 req/s somado.
+      # Os tipos grandes (lei, lc, decreto) vêm primeiro: são a primeira onda.
+      max-parallel: 3
       matrix:
         tipo: [lei, lc, decreto, ec, resolucao, portaria, decreto-lei]
 
@@ -233,7 +229,9 @@ jobs:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
           # Teto de tempo da colheita (s): ver a conta no topo do arquivo.
-          HARVEST_MAX_SECONDS: "16200"
+          HARVEST_MAX_SECONDS: "4500"
+          # 3 jobs em paralelo no mesmo host: 3 s cada = ~1 req/s no total.
+          HARVEST_HOST_INTERVAL_S: "3.0"
         run: |
           uv run leizilla harvest \
             --ente "${{ inputs.ente || 'ro' }}" \

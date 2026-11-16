@@ -165,3 +165,42 @@ produção:
 razoável e libera os uploads seguintes; que a ração por item se esvazia quando o derive
 do item termina; que o derive adiado é pedido numa execução posterior (depende de a
 fila do item esvaziar, não de um agendamento).
+
+## Adendo 2026-11-16 (2) — recusa por conteúdo, item cheio sem espera, tipos em paralelo
+
+**Medido** (execução 43893315937): o IA recusou 4 PDFs válidos (`%PDF-1.4`, 250–500 KB;
+lei-05995, 04977, 05942, 04971) com `Uploaded content is unacceptable. - pdf file looks
+like spam`. A regex de recusa só reconhecia `error checking pdf file`, então cada recusa
+virou `upload-failed`: o lote inteiro (25) falhou, o culpado voltou a `pending` (e
+envenenou a execução seguinte) e dois flushes falhos seguidos abortaram a colheita de lei
+(`ia-upload-failing`) com 275 sucessos. Cada captura custava ~25–32 s, dominadas pelo
+upload, e os 7 tipos em série passavam de um dia, de modo que o grupo de concorrência
+engolia os disparos do cron.
+
+1. *Recusa por arquivo, duas mensagens.* `error checking pdf file` e `pdf file looks like
+   spam` seguem o mesmo caminho: o arquivo culpado é identificado pela linha
+   `error uploading {arquivo}`, vira `ia-rejected` (terminal), o restante é reenviado no
+   mesmo flush (`--checksum` pula o que já subiu antes do culpado) e o `index.csv` sai
+   nesse reenvio, com as linhas de todos que subiram. Recusa por arquivo **não** conta
+   para `_MAX_CONSECUTIVE_FLUSH_FAILURES`. O motivo fica distinto: coluna `motivo` em
+   `discovered_resources` (`spam` | `pdf-check`; migração `ADD COLUMN IF NOT EXISTS` para
+   bancos em cache), `reason` `ia-rejected: spam` nos itens do resumo, e a CLI imprime
+   `Recusados pelo IA ...: N (spam: M)`. A URL fica no banco para uma estratégia especial
+   futura (ADR-0011); nada é apagado do IA e os bytes não são preservados por outra via
+   (mesmo trade-off da regra 5).
+2. *Ração por item não espera.* `bucket_tasks_queued exceeds rationed amount` num flush da
+   colheita propaga na hora (sem os recuos de 60 s + 120 s + terceira tentativa, ~10 min):
+   o item é adiado (regra 1 do adendo anterior), as capturas em buffer voltam a `pending`
+   e a colheita segue com os outros itens. Só a colheita pede isso
+   (`fail_fast_item_ration`); uploads de dataset, textos e reocr mantêm seus recuos. O
+   limite da conta (`total_tasks_queued`) mantém os recuos curtos (60 s, 120 s) e, esgotados,
+   encerra a colheita: é uma espera única, depois da qual a execução acaba.
+3. *Tipos em paralelo, ritmo dividido.* `max-parallel: 3` (lei, lc, decreto primeiro).
+   Cada tipo grava em itens próprios do IA, então não disputam a ração por item. A
+   cortesia da ADR-0008 é preservada dividindo o ritmo: `HARVEST_HOST_INTERVAL_S` (padrão
+   1,0 s) vale 3,0 s em cada job, ~1 req/s somado. `HARVEST_MAX_SECONDS` cai para 4500 s
+   (75 min) e `timeout-minutes` para 120; pior caso do workflow: 7 jobs em 3 vagas = 3
+   ondas x ~115 min = ~5,75 h, menos que os 6 h entre disparos. O que um tipo não colhe
+   em 75 min fica `pending` para a execução seguinte (4 por dia). O grupo de concorrência
+   continua enfileirando sem cancelar a execução em curso e guardando uma só pendente.
+

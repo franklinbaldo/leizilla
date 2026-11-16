@@ -98,8 +98,9 @@ discover ──> harvest/scrape ──> fetch-ocr ──> parse ──> consolid
 6. **Release** — publish the Parquet dataset to IA.
 7. **Search** — `web/` runs DuckDB-WASM against the published Parquet in-browser.
 
-The scheduled GitHub Actions run this chain weekly: **Sat** discover-harvest →
-**Sun** crawl → **Mon** parse/release, plus a **Mon/Thu** Claude maintenance
+The scheduled GitHub Actions: discover-harvest runs every 6 h (02/08/14/20 UTC;
+the whole run fits the interval, ADR-0016); the rest of the chain is weekly
+(**Sun** crawl → **Mon** parse/release), plus a **Mon/Thu** Claude maintenance
 routine.
 
 ## Source layout
@@ -149,8 +150,11 @@ data/                # local DuckDB + artifacts (gitignored)
   (best-effort provenance), one `ia upload --no-derive` per ~25 captures per IA
   item; the derive is requested at the end of the run only for items with no pending
   resource left, and a per-item IA throttle (`bucket_tasks_queued`) defers that item
-  instead of stopping the run. Resource status changes only
-  after the flush that contains the file; `ia-rejected` is terminal.
+  at once (no long retries) instead of stopping the run. Resource status changes only
+  after the flush that contains the file; `ia-rejected` (IA content rejection:
+  invalid PDF or "looks like spam", reason in `discovered_resources.motivo`) is
+  terminal and never aborts the run. The 7 tipo jobs run 3 in parallel at
+  `HARVEST_HOST_INTERVAL_S=3` each (~1 req/s combined).
 - **ADR-0011 — identity-keyed navigable catalog; identity is evidence, not an
   ingestion gate.** The raw IA item is a navigable range bucket per `(ente, fonte,
   tipo, número)` with content-addressed files inside. **Extracting `(tipo, número)`
@@ -238,6 +242,7 @@ manifest exists.
 | `CRAWLER_DELAY` / `CRAWLER_RETRIES` / `CRAWLER_TIMEOUT` | crawler tuning (ms/count/ms) | `2000` / `3` / `30000` |
 | `HARVEST_BATCH_SIZE` | captures per `ia upload` flush, per IA item (ADR-0016) | `25` |
 | `HARVEST_MAX_SECONDS` | harvest stops fetching after this long and ends with flush + derive (`0` = no budget) | `0` |
+| `HARVEST_HOST_INTERVAL_S` | min seconds between harvest hits on the same source host (ADR-0008); N parallel jobs → N × 1.0 | `1.0` |
 | `HARVEST_WAYBACK_SAVE` / `HARVEST_DERIVE` | `0` turns off the background Save Page Now / the end-of-run derive requests | `1` / `1` |
 | `LOG_LEVEL` | CLI root logger level (`leizilla.cli:main`) — without this, `logger.info`/`logger.debug` in `discovery.py`/`parser.py`/`publisher.py` produce no output at all, in CI or locally | `INFO` |
 
