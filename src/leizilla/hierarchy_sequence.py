@@ -61,6 +61,7 @@ from leizilla.article_sequence import (
     QUOTE_CHARS,
     article_readings,
     best_chain,
+    is_reference,
     read_articles,
 )
 
@@ -1037,6 +1038,7 @@ def _fill_article_gaps(
             for m in _ART_WILD.finditer(text, a["end"], b["start"])
             if m.start("word") not in known
             and not any(lo <= m.start() < hi for lo, hi in masked)
+            and not is_reference(text, m.start("word"))
         ]
         if len(loose) + len(wild) != 1:
             continue
@@ -1087,6 +1089,8 @@ _NOTE_MARK = re.compile(r"[()\[\]]")
 # punctuation, a digit, a dotted abbreviation or a single capital ("Art. T.", "49 -").
 _DEBRIS_TOKEN = re.compile(r"[\W_]*|.*\d.*|.*\..*|[A-ZÀ-Ý]")
 _NUM_HEAD = re.compile(r"(?m)^[ \t]*(?P<num>\d{1,2})\s?[-–—.]\s+[A-ZÀ-Ý]")
+# The article word as OCR garbles it at a line start ("Arte e Revogam-se", "Ait", "Arl").
+_GARBLED_ART = re.compile(r"[AÁ][rR][tTlI]?[eEaAoO]?|Aft|Arl|Ait|Alt|Apt")
 
 
 def _covered(nodes: Sequence[Node], pos: int) -> bool:
@@ -1115,6 +1119,10 @@ def _is_debris(prefix: str) -> bool:
         return False
     if not any(ch.isalnum() for ch in prefix):
         return False
+    if _GARBLED_ART.fullmatch(tokens[0]) and all(
+        tok in ("e", "ou") or _DEBRIS_TOKEN.fullmatch(tok) for tok in tokens[1:]
+    ):
+        return True
     return all(_DEBRIS_TOKEN.fullmatch(tok) for tok in tokens)
 
 

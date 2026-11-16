@@ -785,3 +785,43 @@ def test_ait_with_unreadable_number_is_read_in_a_single_gap() -> None:
     second = _node(report, "art-2")
     assert second["raw"].startswith("Ait. T")
     assert second["corrected"]
+
+
+def test_stray_e_over_the_last_article_is_read_as_its_marker() -> None:
+    # decreto-lei-00044 and lei-00460: the closing article reads as article 2 / 6 once
+    # the stray "e" is no longer taken as a citation.
+    report = read_hierarchy(
+        "Art. 19. Fica o Governo autorizado a contrair empréstimos.\n"
+        "DECRETA:\ne\n\n\nArt. 29. As garantias das operações de créditos.\n"
+        "Porto Velho, 31 de dezembro de 1.982."
+    )
+    assert _node(report, "art-2")["raw"].startswith("Art. 29")
+    assert report["closes"]
+
+
+def test_garbled_article_word_before_revogacao_keeps_the_norm_open() -> None:
+    # lei-00169: "Arte e Revogam-se ..." is the seventh article, its number unread.
+    report = read_hierarchy(
+        SIX_ARTICLES + "Arte e Revogam-se as disposições em contrário."
+    )
+    assert not report["final_clause_placed"]
+    assert not report["closes"]
+
+
+def test_lowercase_citation_in_a_gap_is_not_read_as_the_missing_article() -> None:
+    # lei-00154: "art. 19 desta Lei" in prose sat between Art. 2 and Art. 4 and was
+    # taken as Art. 3, while the real Art. 3 was never read.
+    text = (
+        "Art. 1º Fica criado o Quadro.\n"
+        "Art. 2º O vencimento referido no\n\n\nart. \n19 desta Lei, são os constantes.\n"
+        "Art. 4º Os vencimentos fixados.\n"
+        "Art. 5º Esta Lei entra em vigor."
+    )
+    report = read_hierarchy(text)
+    own_numbers = [
+        n["number"]
+        for n in report["nodes"]
+        if n["kind"] == "artigo" and n["status"] == "own"
+    ]
+    assert 3 not in own_numbers
+    assert not report["closes"]

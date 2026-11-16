@@ -45,13 +45,14 @@ ARTICLE_CANDIDATE = re.compile(
     r"|(?<![^\n])[ \t]*(?:Ait|Alt)(?=\.?\s*[0-9Il])"
     r"|\bA\s?r/t(?=\.?\s*[0-9Il])"
     r")"
-    r"\s*[.,:]?\s*(?P<num>[0-9IlO]{1,4})"
+    r"\s*[.,:;»«„“”\"'^™_]{0,3}\s*(?P<num>[0-9IlO]{1,4})"
     r"(?P<ord>\s?[ºo°ªQ^?])?"
     r"(?:-(?P<suffix>[A-Z])(?=[.:\-–—]|[ \t]*[\-–—]|[ \t]*(?:\n|\Z)))?"
 )
 _OCR_DIGITS = str.maketrans({"I": "1", "l": "1", "O": "0"})
 # Digits the ordinal indicator is misread as when glued to the number ("4º" -> "42").
 _ORDINAL_AS_DIGIT = "029"
+_GLUED_ORDINAL_PAIRS = frozenset({"20", "90", "00"})
 QUOTE_CHARS = "\"“”‘'«"
 _QUOTE_OPEN = re.compile(rf"[{QUOTE_CHARS}]\s*$")
 # A capitalised "Art." right after one of these words is a citation inside a sentence
@@ -60,6 +61,11 @@ _QUOTE_OPEN = re.compile(rf"[{QUOTE_CHARS}]\s*$")
 _REFERENCE_LEFT = re.compile(
     r"\b(?:d?o|n?o|ao|d?os|n?os|aos|pelos?|e|ou|§\s?\S{1,3})\s+$", re.IGNORECASE
 )
+# A connector that opens its line, after at most three tokens of OCR debris and no
+# word, is a stray glyph ("e" over an article), not the start of a sentence citing the
+# article: "e Art. 6º - Revogam-se" is the last article of a norm.
+_LINE_CONNECTOR = frozenset({"e", "ou"})
+_WORD = re.compile(r"[^\W\d_]{2,}")
 
 _GAP_PENALTY = 0.5
 _LOOKBACK = 80
@@ -99,7 +105,39 @@ def article_readings(num: str, has_ordinal: bool) -> list[int]:
         alt = int(digits[0])
         if alt > 0 and alt not in out:
             out.append(alt)
+    # Three digits: a two-digit article with its ordinal glued as a digit ("109" is
+    # "10º"), or a one-digit article whose "º" came out as "20", "90" or "00" ("220",
+    # "290" are "2º"). Only the chain can tell these readings apart from real numbers.
+    if not has_ordinal and len(digits) == 3:
+        if digits[2] in _ORDINAL_AS_DIGIT:
+            alt = int(digits[:2])
+            if alt > 0 and alt not in out:
+                out.append(alt)
+        if digits[1:] in _GLUED_ORDINAL_PAIRS:
+            alt = int(digits[0])
+            if alt > 0 and alt not in out:
+                out.append(alt)
     return out
+
+
+def is_reference(text: str, start: int) -> bool:
+    """True when the "Art." at ``start`` sits inside a sentence as a citation.
+
+    The connector before it ("do", "no", "e", "§ 2º") marks a citation, except when the
+    connector is a lone glyph opening its line: then the marker is read on its own.
+    """
+    window_start = max(0, start - 12)
+    found = _REFERENCE_LEFT.search(text[window_start:start])
+    if found is None:
+        return False
+    connector = found.group(0).split()[0].lower()
+    if connector in _LINE_CONNECTOR:
+        conn_start = window_start + found.start()
+        line_start = text.rfind("\n", 0, conn_start) + 1
+        before = text[line_start:conn_start].split()
+        if len(before) <= 3 and not any(_WORD.search(tok) for tok in before):
+            return False
+    return True
 
 
 def best_chain(
@@ -182,9 +220,7 @@ def read_articles(
     is_quoted: list[bool] = []
     for m in matches:
         quoted = bool(quoted_spans) and _in_spans(m.start(), quoted_spans)
-        ref = not quoted and bool(
-            _REFERENCE_LEFT.search(text[max(0, m.start() - 12) : m.start()])
-        )
+        ref = not quoted and is_reference(text, m.start())
         is_ref.append(ref)
         is_quoted.append(quoted)
         cands.append(
