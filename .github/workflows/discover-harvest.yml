@@ -29,7 +29,22 @@ on:
     #   nas ~75 do limite anterior (400) nem nas ~160 do ritmo medido (190).
     # Se o IA limitar a taxa, a colheita recua (até ~10 min por lote), desiste e
     # deixa tudo 'pending' — o resumo imprime "Colheita interrompida cedo".
+    #
+    # Atualização 2026-11-16 (ADR-0016, adendo): orçamento de 4,5 h por tipo
+    # (HARVEST_MAX_SECONDS=16200), limite 3000 e quatro execuções por dia, a cada
+    # 6 h (02:00, 08:00, 14:00 e 20:00 UTC). Conta do teto de 360 min por job:
+    # checkout + uv sync + cache ~5 min, descoberta ~10 min, colheita 270 min, mais
+    # o fim da execução (fetch em voo, flush de até 25 capturas por item e derive;
+    # com recuo do IA até ~10 min por lote) ~20-30 min = ~315 min no pior caso, ~45
+    # min de folga. O grupo de concorrência abaixo enfileira (não cancela) uma
+    # execução que começa com a anterior ainda rodando — mas o GitHub guarda UMA só
+    # pendente por grupo: uma terceira pendente substitui (cancela) a pendente mais
+    # velha. max-parallel: 1 vale por execução e execuções nunca se sobrepõem, então
+    # os uploads ao IA continuam em série.
     - cron: "0 2 * * *"
+    - cron: "0 8 * * *"
+    - cron: "0 14 * * *"
+    - cron: "0 20 * * *"
   workflow_dispatch:
     inputs:
       ente:
@@ -47,7 +62,7 @@ on:
         default: ""
       limit:
         description: "Limite de recursos por job"
-        default: "1000"
+        default: "3000"
 
 permissions:
   contents: read
@@ -108,7 +123,7 @@ jobs:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
           # Teto de tempo da colheita (s): ver a conta no topo do arquivo.
-          HARVEST_MAX_SECONDS: "7200"
+          HARVEST_MAX_SECONDS: "16200"
         run: |
           uv run leizilla harvest \
             --ente "${{ inputs.ente }}" \
@@ -218,12 +233,12 @@ jobs:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
           # Teto de tempo da colheita (s): ver a conta no topo do arquivo.
-          HARVEST_MAX_SECONDS: "7200"
+          HARVEST_MAX_SECONDS: "16200"
         run: |
           uv run leizilla harvest \
             --ente "${{ inputs.ente || 'ro' }}" \
             --tipo "${{ matrix.tipo }}" \
-            --limit "${{ inputs.limit || '1000' }}"
+            --limit "${{ inputs.limit || '3000' }}"
 
       - name: Save discovered-resources DB cache
         # Depois da colheita, e mesmo se ela falhar: o que a colheita marca

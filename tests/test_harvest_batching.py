@@ -26,7 +26,7 @@ from leizilla.publisher import (
     make_raw_capture,
 )
 from leizilla.ratelimit import make_rate_limiter
-from leizilla.scraper import harvest_pending_resources
+from leizilla.scraper import harvest_pending_resources, ia_throttle_scope
 from leizilla.storage import DuckDBStorage
 
 from harvest_fakes import batch_ok, uploaded_captures
@@ -428,7 +428,8 @@ def test_harvest_takes_the_newest_norms_first(
 
     _harvest(temp_db, pub, limit=2, batch_size=25)
 
-    assert [c.target.numero for c in uploaded_captures(pub)] == [31250, 31249]
+    # newest of each bucket in turn: 31250 (bucket 31xxx), then 900 (bucket 0xxx)
+    assert [c.target.numero for c in uploaded_captures(pub)] == [31250, 900]
 
 
 def test_status_changes_only_after_the_flush_that_holds_the_file(
@@ -555,7 +556,9 @@ def test_throttled_flush_stops_the_harvest_and_stops_hitting_the_source(
     stats = _harvest(temp_db, pub, fetch=fetch, limit=10, batch_size=2)
 
     assert stats["aborted"] == "ia-throttled"
-    assert len(fetched) == 2  # nothing more is taken from the source after the trip
+    # the trip happens at the flush of the 2nd capture of 31xxx (3rd fetch, since
+    # buckets alternate); nothing more is taken from the source after it
+    assert len(fetched) == 3
     assert pub.upload_raw_batch.call_count == 1  # and IA is not asked again
     assert set(_statuses(temp_db).values()) == {"pending"}
     pub.request_derive.assert_not_called()
@@ -617,7 +620,8 @@ def test_buffered_captures_are_flushed_even_if_the_loop_raises(
         "decreto-31250": "downloaded",
         "decreto-31249": "pending",
     }
-    pub.request_derive.assert_called_once_with(ITEM)
+    # 31249 is still pending, so the item is not finished: derive postponed
+    pub.request_derive.assert_not_called()
 
 
 def test_harvest_stops_after_consecutive_transient_source_failures(
@@ -671,7 +675,9 @@ def test_time_budget_ends_the_harvest_cleanly(
 
     assert stats["aborted"] == "time-budget"
     assert stats["success"] == 1  # what was fetched before the budget still lands
-    pub.request_derive.assert_called_once_with(ITEM)
+    # two norms of the item are still pending: the derive waits for a later run
+    pub.request_derive.assert_not_called()
+    assert stats["derive-postponed"] == [ITEM]
 
 
 # ------------------------------------------------------------- storage: queue ordering
@@ -702,6 +708,49 @@ def test_pending_queue_is_newest_first_but_never_tried_still_wins(
         "decreto-09000",  # retried: least recently tried first
         "decreto-31250",
     ]
+
+
+def test_pending_queue_interleaves_range_buckets_newest_first(
+    temp_db: DuckDBStorage,
+) -> None:
+    for n in (31250, 31249, 31248, 30010, 30009, 5, 31001, 1000, 1001):
+        temp_db.insert_resource(_resource(n))
+    conn = temp_db.connect()
+    # a retried resource keeps its place after every never-tried one
+    conn.execute(
+        "UPDATE discovered_resources SET ultima_tentativa = ? WHERE chave = ?",
+        ["2026-11-14 00:00:00", "decreto-31248"],
+    )
+
+    order = [r["chave"] for r in temp_db.get_pending_resources(limit=20)]
+
+    assert order == [
+        "decreto-31250",  # bucket 31001-32000, newest
+        "decreto-30010",  # bucket 30001-31000, newest
+        "decreto-01001",  # bucket 1001-2000
+        "decreto-01000",  # bucket 1-1000
+        "decreto-31249",  # second of each bucket, highest bucket first
+        "decreto-30009",
+        "decreto-00005",  # second of the 1-1000 bucket
+        "decreto-31001",  # third of the 31xxx bucket (31248 was retried)
+        "decreto-31248",  # retried: after everything never tried
+    ]
+
+
+def test_iteration_never_repeats_a_url_while_buckets_rotate(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    for n in (31250, 31249, 31248, 30010, 30009, 29001):
+        temp_db.insert_resource(_resource(n))
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    batch_ok(pub)
+
+    stats = _harvest(temp_db, pub, limit=10, batch_size=25)
+
+    numbers = [c.target.numero for c in uploaded_captures(pub)]
+    assert sorted(numbers) == sorted({31250, 31249, 31248, 30010, 30009, 29001})
+    assert len(numbers) == 6 and stats["success"] == 6
 
 
 def test_pending_queue_orders_by_number_not_by_text(temp_db: DuckDBStorage) -> None:
@@ -963,7 +1012,354 @@ def test_workflow_keeps_ia_uploads_serial_and_bounds_the_harvest_in_time() -> No
         budget = harvest_step.split('HARVEST_MAX_SECONDS: "')[1].split('"')[0]
         # the harvest must end on its own well inside the 360-minute job limit
         assert "timeout-minutes: 360" in job
-        assert 0 < int(budget) <= 240 * 60
+        assert 0 < int(budget) <= 270 * 60
+
+
+# ------------------------------------- per-item throttle, derive timing, absent streak
+
+ITEM_LOW = "leizilla_ro_casacivil_decreto_30001-31000"
+ITEM_QUEUE_FULL = (
+    "Please reduce your request rate. - bucket_tasks_queued exceeds rationed amount"
+)
+ACCOUNT_FULL = (
+    "Please reduce your request rate. - total_tasks_queued exceeds rationed amount"
+)
+
+
+def _throttle_item_only(blocked: str, fetched: Optional[List[str]] = None) -> Any:
+    """upload_raw_batch fake: ``blocked`` has a full queue, every other item works."""
+
+    def _upload(
+        item_id: str, captures: List[RawCapture], index_cache: Any = None
+    ) -> List[Dict[str, Any]]:
+        if item_id == blocked:
+            return [
+                {"success": False, "reason": "ia-throttled", "error": ITEM_QUEUE_FULL}
+                for _ in captures
+            ]
+        return [{"success": True, "item_id": item_id} for _ in captures]
+
+    return _upload
+
+
+def test_throttle_scope_parses_the_two_real_ia_messages() -> None:
+    assert ia_throttle_scope(ITEM_QUEUE_FULL) == "item"
+    assert ia_throttle_scope(ACCOUNT_FULL) == "account"
+    assert ia_throttle_scope(THROTTLED) == "account"
+    # no marker at all: conservative, stop the run
+    assert ia_throttle_scope("Please reduce your request rate.") == "account"
+    assert ia_throttle_scope("") == "account"
+    assert ia_throttle_scope(None) == "account"
+    assert ia_throttle_scope(f"{ITEM_QUEUE_FULL} total_tasks_queued") == "account"
+
+
+def test_per_item_throttle_defers_that_item_and_the_run_continues(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    high = [31250, 31249, 31248, 31247]  # ITEM, newest first
+    low = [30010, 30009]
+    for n in [*high, *low]:
+        temp_db.insert_resource(_resource(n))
+    fetched: List[str] = []
+
+    def fetch(url: str) -> tuple[bytes, bool]:
+        fetched.append(url)
+        return f"%PDF {url}".encode(), False
+
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    pub.upload_raw_batch.side_effect = _throttle_item_only(ITEM)
+    pub.request_derive.return_value = True
+
+    stats = _harvest(temp_db, pub, fetch=fetch, limit=10, batch_size=2)
+
+    assert stats["aborted"] is None
+    # only the first flush of ITEM was fetched/attempted; 31248/31247 are deferred
+    # buckets alternate: 31250, 30010, then 31249 completes ITEM's first flush
+    assert [u.rsplit("/", 1)[1] for u in fetched[:3]] == [
+        "D31250.pdf",
+        "D30010.pdf",
+        "D31249.pdf",
+    ]
+    assert not any(u.endswith(("D31248.pdf", "D31247.pdf")) for u in fetched)
+    assert stats["deferred"] == 2 and stats["deferred-items"] == [ITEM]
+    assert stats["success"] == 2  # the other item was harvested
+    assert stats["failed"] == 2  # the two captures of the rejected flush
+    statuses = _statuses(temp_db)
+    assert {statuses[f"decreto-{n}"] for n in (31250, 31249, 31248, 31247)} == {
+        "pending"
+    }
+    assert {statuses["decreto-30010"], statuses["decreto-30009"]} == {"downloaded"}
+    # the throttled item gets no derive; the finished one does
+    pub.request_derive.assert_called_once_with(ITEM_LOW)
+    assert ITEM in stats["derive-postponed"]
+
+
+def test_deferred_resources_do_not_count_against_the_limit(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    for n in (31250, 31249, 31248, 31247, 30010):
+        temp_db.insert_resource(_resource(n))
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    pub.upload_raw_batch.side_effect = _throttle_item_only(ITEM)
+
+    # limit 3 = the two throttled attempts + the one resource of the other item
+    stats = _harvest(temp_db, pub, limit=3, batch_size=2)
+
+    assert stats["deferred"] == 2
+    assert _statuses(temp_db)["decreto-30010"] == "downloaded"
+
+
+def test_account_wide_throttle_still_stops_the_run(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    for n in (31250, 31249, 30010, 30009):
+        temp_db.insert_resource(_resource(n))
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    pub.upload_raw_batch.side_effect = lambda item_id, captures, index_cache=None: [
+        {"success": False, "reason": "ia-throttled", "error": ACCOUNT_FULL}
+        for _ in captures
+    ]
+
+    stats = _harvest(temp_db, pub, limit=10, batch_size=2)
+
+    assert stats["aborted"] == "ia-throttled"
+    assert stats["deferred"] == 0
+    assert pub.upload_raw_batch.call_count == 1
+    assert set(_statuses(temp_db).values()) == {"pending"}
+
+
+def test_derive_is_requested_only_for_items_with_no_pending_work(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    # ITEM is finished by this run; ITEM_LOW still has resources beyond the limit
+    for n in (31250, 30010, 30009, 30008):
+        temp_db.insert_resource(_resource(n))
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    batch_ok(pub)
+
+    stats = _harvest(temp_db, pub, limit=2)
+
+    assert stats["success"] == 2
+    pub.request_derive.assert_called_once_with(ITEM)
+    assert stats["derive-requested"] == 1
+    assert stats["derive-postponed"] == [ITEM_LOW]
+
+
+def test_pending_in_other_tipo_or_range_does_not_postpone_the_derive(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    temp_db.insert_resource(_resource(31250))
+    temp_db.insert_resource(_resource(30010))  # lower range: another item
+    temp_db.insert_resource(
+        {
+            **_resource(31249),
+            "url": "https://fonte.example/Files/DL31249.pdf",
+            "tipo_documento": "decreto-lei",
+            "chave": "decreto-lei-31249",
+        }
+    )
+    assert (
+        temp_db.count_pending_in_range("ro", "casacivil", "decreto", 31001, 32000) == 1
+    )
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    batch_ok(pub)
+
+    stats = _harvest(temp_db, pub, limit=1)
+
+    assert stats["success"] == 1
+    pub.request_derive.assert_called_once_with(ITEM)
+
+
+def test_item_finished_without_uploads_gets_its_derive(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    # 31250 was uploaded in an earlier run (its derive was postponed then); the
+    # only pending resource left in the item is a confirmed 404 → nothing uploaded
+    temp_db.insert_resource(_resource(31249))
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    pub.request_derive.return_value = True
+
+    stats = _harvest(temp_db, pub, fetch=lambda url: (None, True), limit=10)
+
+    assert stats["success"] == 0 and stats["flushes"] == 0
+    assert _statuses(temp_db) == {"decreto-31249": "failed"}
+    pub.upload_raw_batch.assert_not_called()
+    pub.request_derive.assert_called_once_with(ITEM)
+    assert stats["derive-requested"] == 1
+
+
+def test_item_skipped_as_already_preserved_gets_its_derive_once_finished(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    temp_db.insert_resource(_resource(31250))
+    pub = MagicMock()
+    pub.preserved_sources.return_value = {"fonte.example/files/d31250.pdf"}
+    pub.request_derive.return_value = True
+
+    stats = _harvest(temp_db, pub, limit=10)
+
+    assert stats["already-preserved"] == 1
+    pub.request_derive.assert_called_once_with(ITEM)
+
+
+def test_untouched_item_without_uploads_and_with_pending_gets_no_derive(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    temp_db.insert_resource(_resource(31249))
+    temp_db.insert_resource(_resource(31248))
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+
+    stats = _harvest(temp_db, pub, fetch=lambda url: (None, True), limit=1)
+
+    assert stats["failed"] == 1
+    pub.request_derive.assert_not_called()
+    assert stats["derive-postponed"] == []  # received no files: nothing to report
+
+
+def test_harvest_derive_zero_still_disables_every_derive(
+    temp_db: DuckDBStorage, fast_source: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("leizilla.config.HARVEST_DERIVE", False)
+    temp_db.insert_resource(_resource(31250))  # uploaded, item finished
+    temp_db.insert_resource(_resource(30010))  # failed permanently, item finished
+
+    def fetch(url: str) -> tuple[Optional[bytes], bool]:
+        if url.endswith("D30010.pdf"):
+            return None, True
+        return b"%PDF-1.4", False
+
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    batch_ok(pub)
+
+    stats = _harvest(temp_db, pub, fetch=fetch, limit=10)
+
+    pub.request_derive.assert_not_called()
+    assert stats["derive-requested"] == 0
+    assert stats["derive-failed"] == [ITEM]
+
+
+def test_consecutive_absent_documents_without_a_success_end_the_run_early(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    for n in range(1, 81):
+        temp_db.insert_resource(_resource(n))
+    calls: List[str] = []
+
+    def fetch(url: str) -> tuple[None, bool]:
+        calls.append(url)
+        return None, True
+
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+
+    stats = _harvest(temp_db, pub, fetch=fetch, limit=80)
+
+    assert len(calls) == 50
+    assert stats["aborted"] == "sequência de documentos inexistentes"
+    statuses = list(_statuses(temp_db).values())
+    assert statuses.count("failed") == 50 and statuses.count("pending") == 30
+
+
+def test_a_success_resets_the_absent_streak(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    for n in range(1, 111):
+        temp_db.insert_resource(_resource(n))
+
+    def fetch(url: str) -> tuple[Optional[bytes], bool]:
+        # newest first: 110 .. 61 absent (50 would trip), but 60 is a hit
+        n = int(url.rsplit("D", 1)[1].split(".")[0])
+        if n == 80:
+            return b"%PDF-1.4", False
+        return None, True
+
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    batch_ok(pub)
+
+    stats = _harvest(temp_db, pub, fetch=fetch, limit=200)
+
+    # 110..81 = 30 absent, a hit at 80, then 79..1 = 79 absent: never 50 in a row
+    # before the first success, and afterwards the streak no longer ends the run
+    assert stats["aborted"] is None
+    assert stats["success"] == 1 and stats["failed"] == 109
+
+
+def test_a_streak_just_under_the_threshold_does_not_stop(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    for n in range(1, 50):
+        temp_db.insert_resource(_resource(n))
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+
+    stats = _harvest(temp_db, pub, fetch=lambda url: (None, True), limit=100)
+
+    assert stats["aborted"] is None and stats["failed"] == 49
+
+
+def test_cli_summary_reports_deferred_items_and_postponed_derives() -> None:
+    stats = {
+        "success": 3,
+        "failed": 2,
+        "robots-blocked": 0,
+        "derive-postponed": [ITEM],
+        "deferred": 7,
+        "deferred-items": [ITEM],
+        "items": [{"status": "failed", "chave": "x", "reason": "ia-throttled"}],
+    }
+    with (
+        patch("leizilla.scraper.harvest_pending_resources", return_value=stats),
+        patch("leizilla.storage.DuckDBStorage"),
+        patch("leizilla.publisher.InternetArchivePublisher"),
+    ):
+        result = CliRunner().invoke(app, ["harvest"])
+
+    assert result.exit_code == 0  # captures plus deferrals is a success
+    assert "adiados (item com fila cheia no IA): 7 em 1 item(ns)" in result.output
+    assert f"adiado: {ITEM}" in result.output
+    assert "derive adiado: 1 item(ns) ainda com pendências" in result.output
+
+
+def test_cli_fails_when_everything_was_deferred_by_item_throttling() -> None:
+    stats = {
+        "success": 0,
+        "failed": 0,
+        "robots-blocked": 0,
+        "deferred": 5,
+        "deferred-items": [ITEM],
+        "items": [],
+    }
+    with (
+        patch("leizilla.scraper.harvest_pending_resources", return_value=stats),
+        patch("leizilla.storage.DuckDBStorage"),
+        patch("leizilla.publisher.InternetArchivePublisher"),
+    ):
+        result = CliRunner().invoke(app, ["harvest"])
+
+    assert result.exit_code == 1
+
+
+def test_workflow_runs_four_times_a_day_with_a_budget_that_fits_the_job_timeout() -> (
+    None
+):
+    text = (REPO / ".github/workflows/discover-harvest.yml").read_text()
+    for hour in (2, 8, 14, 20):
+        assert f'cron: "0 {hour} * * *"' in text
+    assert text.count('HARVEST_MAX_SECONDS: "16200"') == 2
+    assert "inputs.limit || '3000'" in text and 'default: "3000"' in text
+    # 4.5 h of harvest leaves >= 45 min of the 360 min job for setup and the flush
+    assert 16200 + 45 * 60 <= 360 * 60
+    # overlapping runs queue behind the singleton group instead of cancelling it
+    assert "cancel-in-progress: false" in text
 
 
 # ------------------------------------------- end to end: real publisher, fake `ia` CLI

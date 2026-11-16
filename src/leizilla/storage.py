@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -129,15 +130,51 @@ class DuckDBStorage:
         # O número é o sufixo numérico da chave ("decreto-31250" → 31250); chave
         # sem número (área de espera) vai por último, e a URL desempata para a
         # ordem ser determinística.
+        # Intercalado entre os buckets de 1000 números (os itens do IA): dentro de
+        # cada degrau de justiça e tipo, a posição `rn` é a ordem do recurso no seu
+        # bucket (mais novo = 1). Ordenar por `rn` antes do bucket pega o mais novo
+        # de cada bucket em rodízio, do bucket mais alto ao mais baixo, em vez de
+        # esgotar um item (e estourar a ração por item do IA) antes de abrir o
+        # próximo. Chave sem número fica sem bucket e vai por último.
         results = conn.execute(
-            f"SELECT * FROM discovered_resources WHERE {where} "
-            "ORDER BY ultima_tentativa ASC NULLS FIRST, "
+            "WITH p AS (SELECT *, "
             "TRY_CAST(NULLIF(regexp_extract(chave, '(\\d+)$', 1), '') AS BIGINT) "
-            "DESC NULLS LAST, url ASC LIMIT ?",
+            "AS _num FROM discovered_resources WHERE " + where + "), "
+            "b AS (SELECT *, CASE WHEN _num > 0 THEN (_num - 1) // 1000 "
+            "WHEN _num IS NOT NULL THEN 0 END AS _bucket FROM p), "
+            "r AS (SELECT *, row_number() OVER (PARTITION BY ente, fonte, "
+            "tipo_documento, _bucket, (ultima_tentativa IS NULL) "
+            "ORDER BY _num DESC NULLS LAST, url ASC) AS _rn FROM b) "
+            "SELECT * EXCLUDE (_num, _bucket, _rn) FROM r "
+            "ORDER BY ultima_tentativa ASC NULLS FIRST, "
+            "CASE WHEN _num IS NULL THEN 1 ELSE 0 END, _rn ASC, "
+            "_bucket DESC NULLS LAST, _num DESC NULLS LAST, url ASC LIMIT ?",
             params,
         ).fetchall()
         columns = [desc[0] for desc in (conn.description or [])]
         return [dict(zip(columns, row)) for row in results]
+
+    def count_pending_in_range(
+        self, ente: str, fonte: str, tipo: str, start: int, end: int
+    ) -> int:
+        """Recursos ``pending`` que mapeiam para o item de range ``[start, end]``.
+
+        O item do IA é função de ``(ente, fonte, tipo, número)``; a chave
+        ``{tipo}-{número}`` e a mesma extração numérica da ordenação de
+        :meth:`get_pending_resources` definem a pertença.
+        """
+        row = (
+            self.connect()
+            .execute(
+                "SELECT count(*) FROM discovered_resources WHERE status = 'pending' "
+                "AND ente = ? AND fonte = ? AND regexp_matches(chave, ?) "
+                "AND TRY_CAST(NULLIF(regexp_extract(chave, '(\\d+)$', 1), '') "
+                "AS BIGINT) BETWEEN ? AND ?",
+                [ente, fonte, f"^{re.escape(tipo)}-\\d+$", start, end],
+            )
+            .fetchone()
+        )
+        return int(row[0]) if row else 0
 
     def get_downloaded_resources(
         self, ente: str, fonte: str, limit: int = 100

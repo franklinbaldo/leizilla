@@ -144,7 +144,9 @@ data/                # local DuckDB + artifacts (gitignored)
 - **ADR-0016 — batched harvest.** Amends ADR-0004 for the queue harvest: direct
   fetch at the per-host limit, Save Page Now requested in the background
   (best-effort provenance), one `ia upload --no-derive` per ~25 captures per IA
-  item, one derive per item at the end of the run. Resource status changes only
+  item; the derive is requested at the end of the run only for items with no pending
+  resource left, and a per-item IA throttle (`bucket_tasks_queued`) defers that item
+  instead of stopping the run. Resource status changes only
   after the flush that contains the file; `ia-rejected` is terminal.
 - **ADR-0011 — identity-keyed navigable catalog; identity is evidence, not an
   ingestion gate.** The raw IA item is a navigable range bucket per `(ente, fonte,
@@ -231,7 +233,7 @@ manifest exists.
 | `CRAWLER_DELAY` / `CRAWLER_RETRIES` / `CRAWLER_TIMEOUT` | crawler tuning (ms/count/ms) | `2000` / `3` / `30000` |
 | `HARVEST_BATCH_SIZE` | captures per `ia upload` flush, per IA item (ADR-0016) | `25` |
 | `HARVEST_MAX_SECONDS` | harvest stops fetching after this long and ends with flush + derive (`0` = no budget) | `0` |
-| `HARVEST_WAYBACK_SAVE` / `HARVEST_DERIVE` | `0` turns off the background Save Page Now / the end-of-run derive request | `1` / `1` |
+| `HARVEST_WAYBACK_SAVE` / `HARVEST_DERIVE` | `0` turns off the background Save Page Now / the end-of-run derive requests | `1` / `1` |
 | `LOG_LEVEL` | CLI root logger level (`leizilla.cli:main`) — without this, `logger.info`/`logger.debug` in `discovery.py`/`parser.py`/`publisher.py` produce no output at all, in CI or locally | `INFO` |
 
 See `.env.example`. Permissions for the Claude Code assistant live in

@@ -111,3 +111,57 @@ produção:
   endereçados por conteúdo: a recaptura reusa o mesmo nome.
 - O OCR de um item passa a chegar em rajada, ao fim da execução, não documento a
   documento.
+
+## Adendo 2026-11-16 — o que a produção mediu e duas regras novas
+
+**Medido** (execuções agendadas de 2026-11-15 e 2026-11-16, run 43837226213):
+
+- Cada captura levou **12–13 s** (lei: 560 capturas em 7300 s, parada pelo orçamento
+  de 2 h), não os ~6 s estimados.
+- O IA limita também **por item**: `Please reduce your request rate. -
+  bucket_tasks_queued exceeds rationed amount` (27 vezes em decreto), distinto do
+  limite da conta (`total_tasks_queued`, visto em 2026-11-14). Como a fila é ordenada
+  do número mais novo para o mais antigo, todos os uploads iam para um único item,
+  `decreto_32001-33000`, e a colheita parou depois de 125 capturas.
+- Esse item tinha o derive pedido no dia anterior ainda na fila (`queued`, 219 PDFs, 0
+  `_djvu.txt`) mais de 20 horas depois. Novos uploads se empilham atrás dele: era o
+  risco do dia 2 (suposição 2 acima).
+- Um tipo (lc) gastou as 1000 tentativas em 404 de URLs adivinhadas que uma estratégia
+  de descoberta já removida deixara na fila. Custo único, mas esgotou o limite.
+
+**Regras novas**
+
+1. *Item com fila cheia não para a colheita.* A mensagem do IA é classificada
+   (`ia_throttle_scope`): `bucket_tasks_queued` é da ração do item; `total_tasks_queued`
+   ou mensagem sem marcador é da conta. No caso do item, ele é marcado como adiado
+   nesta execução, suas capturas em buffer voltam a `pending`, e os recursos seguintes
+   que mapeiam para ele não são baixados da fonte nem contam como tentativa ou falha
+   (contador `adiados`); os demais itens seguem. Limite da conta continua encerrando.
+2. *Derive só com o item terminado.* Ao fim da execução, o derive de um item que
+   recebeu arquivos só é pedido se nenhum recurso `pending` da fila mapear para ele
+   (`count_pending_in_range`); senão fica "derive adiado". Item que a execução tocou
+   sem subir nada (já preservado, 404 confirmado) e ficou sem pendências também recebe
+   o derive. Item adiado por fila cheia nunca recebe. `HARVEST_DERIVE=0` desliga tudo.
+3. *Sequência de inexistentes.* 50 resultados 404/410 confirmados seguidos, sem nenhuma
+   captura na execução, encerram a colheita. Não há coluna de proveniência em
+   `discovered_resources`, então isto limita o desperdício a 50 por execução em vez de
+   removê-lo; cada 404 já é terminal e a próxima execução segue adiante.
+
+4. *Rodízio entre itens.* A fila pendente (`get_pending_resources`) passa a intercalar
+   os buckets de 1000 números: dentro do degrau "nunca tentado antes de retentado", pega
+   o mais novo de cada bucket em turnos, do bucket mais alto ao mais baixo, em vez de
+   esgotar um item antes do próximo. Isso espalha os uploads (e a ração por item).
+   Bucket adiado por throttle simplesmente é pulado no rodízio.
+5. *Mais tempo por dia.* `HARVEST_MAX_SECONDS` 7200 → 16200 (4,5 h) por tipo, limite
+   1000 → 3000 e quatro execuções por dia (02:00, 08:00, 14:00, 20:00 UTC). Conta do
+   teto de 360 min: ~5 min de setup, ~10 de descoberta, 270 de colheita e ~20-30 de
+   encerramento (fetch em voo, flush, derive) ≈ 315 min no pior caso, ~45 de folga. O
+   grupo de concorrência enfileira, não cancela, mas guarda uma única execução
+   pendente (uma terceira substitui a pendente mais velha); `max-parallel: 1` vale por
+   execução e execuções não se sobrepõem. O OCR do IA pode esperar (decisão do dono): o
+   derive só sai com o item terminado.
+
+**Ainda suposto**: que o derive pedido ao fim de um item completo termina em tempo
+razoável e libera os uploads seguintes; que a ração por item se esvazia quando o derive
+do item termina; que o derive adiado é pedido numa execução posterior (depende de a
+fila do item esvaziar, não de um agendamento).
