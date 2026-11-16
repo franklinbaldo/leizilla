@@ -428,7 +428,8 @@ def test_harvest_takes_the_newest_norms_first(
 
     _harvest(temp_db, pub, limit=2, batch_size=25)
 
-    assert [c.target.numero for c in uploaded_captures(pub)] == [31250, 31249]
+    # newest of each bucket in turn: 31250 (bucket 31xxx), then 900 (bucket 0xxx)
+    assert [c.target.numero for c in uploaded_captures(pub)] == [31250, 900]
 
 
 def test_status_changes_only_after_the_flush_that_holds_the_file(
@@ -555,7 +556,9 @@ def test_throttled_flush_stops_the_harvest_and_stops_hitting_the_source(
     stats = _harvest(temp_db, pub, fetch=fetch, limit=10, batch_size=2)
 
     assert stats["aborted"] == "ia-throttled"
-    assert len(fetched) == 2  # nothing more is taken from the source after the trip
+    # the trip happens at the flush of the 2nd capture of 31xxx (3rd fetch, since
+    # buckets alternate); nothing more is taken from the source after it
+    assert len(fetched) == 3
     assert pub.upload_raw_batch.call_count == 1  # and IA is not asked again
     assert set(_statuses(temp_db).values()) == {"pending"}
     pub.request_derive.assert_not_called()
@@ -705,6 +708,49 @@ def test_pending_queue_is_newest_first_but_never_tried_still_wins(
         "decreto-09000",  # retried: least recently tried first
         "decreto-31250",
     ]
+
+
+def test_pending_queue_interleaves_range_buckets_newest_first(
+    temp_db: DuckDBStorage,
+) -> None:
+    for n in (31250, 31249, 31248, 30010, 30009, 5, 31001, 1000, 1001):
+        temp_db.insert_resource(_resource(n))
+    conn = temp_db.connect()
+    # a retried resource keeps its place after every never-tried one
+    conn.execute(
+        "UPDATE discovered_resources SET ultima_tentativa = ? WHERE chave = ?",
+        ["2026-11-14 00:00:00", "decreto-31248"],
+    )
+
+    order = [r["chave"] for r in temp_db.get_pending_resources(limit=20)]
+
+    assert order == [
+        "decreto-31250",  # bucket 31001-32000, newest
+        "decreto-30010",  # bucket 30001-31000, newest
+        "decreto-01001",  # bucket 1001-2000
+        "decreto-01000",  # bucket 1-1000
+        "decreto-31249",  # second of each bucket, highest bucket first
+        "decreto-30009",
+        "decreto-00005",  # second of the 1-1000 bucket
+        "decreto-31001",  # third of the 31xxx bucket (31248 was retried)
+        "decreto-31248",  # retried: after everything never tried
+    ]
+
+
+def test_iteration_never_repeats_a_url_while_buckets_rotate(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    for n in (31250, 31249, 31248, 30010, 30009, 29001):
+        temp_db.insert_resource(_resource(n))
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    batch_ok(pub)
+
+    stats = _harvest(temp_db, pub, limit=10, batch_size=25)
+
+    numbers = [c.target.numero for c in uploaded_captures(pub)]
+    assert sorted(numbers) == sorted({31250, 31249, 31248, 30010, 30009, 29001})
+    assert len(numbers) == 6 and stats["success"] == 6
 
 
 def test_pending_queue_orders_by_number_not_by_text(temp_db: DuckDBStorage) -> None:
@@ -966,7 +1012,7 @@ def test_workflow_keeps_ia_uploads_serial_and_bounds_the_harvest_in_time() -> No
         budget = harvest_step.split('HARVEST_MAX_SECONDS: "')[1].split('"')[0]
         # the harvest must end on its own well inside the 360-minute job limit
         assert "timeout-minutes: 360" in job
-        assert 0 < int(budget) <= 240 * 60
+        assert 0 < int(budget) <= 270 * 60
 
 
 # ------------------------------------- per-item throttle, derive timing, absent streak
@@ -1029,7 +1075,12 @@ def test_per_item_throttle_defers_that_item_and_the_run_continues(
 
     assert stats["aborted"] is None
     # only the first flush of ITEM was fetched/attempted; 31248/31247 are deferred
-    assert [u.rsplit("/", 1)[1] for u in fetched[:2]] == ["D31250.pdf", "D31249.pdf"]
+    # buckets alternate: 31250, 30010, then 31249 completes ITEM's first flush
+    assert [u.rsplit("/", 1)[1] for u in fetched[:3]] == [
+        "D31250.pdf",
+        "D30010.pdf",
+        "D31249.pdf",
+    ]
     assert not any(u.endswith(("D31248.pdf", "D31247.pdf")) for u in fetched)
     assert stats["deferred"] == 2 and stats["deferred-items"] == [ITEM]
     assert stats["success"] == 2  # the other item was harvested
@@ -1295,6 +1346,20 @@ def test_cli_fails_when_everything_was_deferred_by_item_throttling() -> None:
         result = CliRunner().invoke(app, ["harvest"])
 
     assert result.exit_code == 1
+
+
+def test_workflow_runs_four_times_a_day_with_a_budget_that_fits_the_job_timeout() -> (
+    None
+):
+    text = (REPO / ".github/workflows/discover-harvest.yml").read_text()
+    for hour in (2, 8, 14, 20):
+        assert f'cron: "0 {hour} * * *"' in text
+    assert text.count('HARVEST_MAX_SECONDS: "16200"') == 2
+    assert "inputs.limit || '3000'" in text and 'default: "3000"' in text
+    # 4.5 h of harvest leaves >= 45 min of the 360 min job for setup and the flush
+    assert 16200 + 45 * 60 <= 360 * 60
+    # overlapping runs queue behind the singleton group instead of cancelling it
+    assert "cancel-in-progress: false" in text
 
 
 # ------------------------------------------- end to end: real publisher, fake `ia` CLI

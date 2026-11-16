@@ -130,11 +130,25 @@ class DuckDBStorage:
         # O número é o sufixo numérico da chave ("decreto-31250" → 31250); chave
         # sem número (área de espera) vai por último, e a URL desempata para a
         # ordem ser determinística.
+        # Intercalado entre os buckets de 1000 números (os itens do IA): dentro de
+        # cada degrau de justiça e tipo, a posição `rn` é a ordem do recurso no seu
+        # bucket (mais novo = 1). Ordenar por `rn` antes do bucket pega o mais novo
+        # de cada bucket em rodízio, do bucket mais alto ao mais baixo, em vez de
+        # esgotar um item (e estourar a ração por item do IA) antes de abrir o
+        # próximo. Chave sem número fica sem bucket e vai por último.
         results = conn.execute(
-            f"SELECT * FROM discovered_resources WHERE {where} "
-            "ORDER BY ultima_tentativa ASC NULLS FIRST, "
+            "WITH p AS (SELECT *, "
             "TRY_CAST(NULLIF(regexp_extract(chave, '(\\d+)$', 1), '') AS BIGINT) "
-            "DESC NULLS LAST, url ASC LIMIT ?",
+            "AS _num FROM discovered_resources WHERE " + where + "), "
+            "b AS (SELECT *, CASE WHEN _num > 0 THEN (_num - 1) // 1000 "
+            "WHEN _num IS NOT NULL THEN 0 END AS _bucket FROM p), "
+            "r AS (SELECT *, row_number() OVER (PARTITION BY ente, fonte, "
+            "tipo_documento, _bucket, (ultima_tentativa IS NULL) "
+            "ORDER BY _num DESC NULLS LAST, url ASC) AS _rn FROM b) "
+            "SELECT * EXCLUDE (_num, _bucket, _rn) FROM r "
+            "ORDER BY ultima_tentativa ASC NULLS FIRST, "
+            "CASE WHEN _num IS NULL THEN 1 ELSE 0 END, _rn ASC, "
+            "_bucket DESC NULLS LAST, _num DESC NULLS LAST, url ASC LIMIT ?",
             params,
         ).fetchall()
         columns = [desc[0] for desc in (conn.description or [])]

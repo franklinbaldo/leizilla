@@ -147,6 +147,20 @@ produção:
    `discovered_resources`, então isto limita o desperdício a 50 por execução em vez de
    removê-lo; cada 404 já é terminal e a próxima execução segue adiante.
 
+4. *Rodízio entre itens.* A fila pendente (`get_pending_resources`) passa a intercalar
+   os buckets de 1000 números: dentro do degrau "nunca tentado antes de retentado", pega
+   o mais novo de cada bucket em turnos, do bucket mais alto ao mais baixo, em vez de
+   esgotar um item antes do próximo. Isso espalha os uploads (e a ração por item).
+   Bucket adiado por throttle simplesmente é pulado no rodízio.
+5. *Mais tempo por dia.* `HARVEST_MAX_SECONDS` 7200 → 16200 (4,5 h) por tipo, limite
+   1000 → 3000 e quatro execuções por dia (02:00, 08:00, 14:00, 20:00 UTC). Conta do
+   teto de 360 min: ~5 min de setup, ~10 de descoberta, 270 de colheita e ~20-30 de
+   encerramento (fetch em voo, flush, derive) ≈ 315 min no pior caso, ~45 de folga. O
+   grupo de concorrência enfileira, não cancela, mas guarda uma única execução
+   pendente (uma terceira substitui a pendente mais velha); `max-parallel: 1` vale por
+   execução e execuções não se sobrepõem. O OCR do IA pode esperar (decisão do dono): o
+   derive só sai com o item terminado.
+
 **Ainda suposto**: que o derive pedido ao fim de um item completo termina em tempo
 razoável e libera os uploads seguintes; que a ração por item se esvazia quando o derive
 do item termina; que o derive adiado é pedido numa execução posterior (depende de a
