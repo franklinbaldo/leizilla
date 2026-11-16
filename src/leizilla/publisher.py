@@ -1000,6 +1000,49 @@ _IA_UPLOAD_ERROR_KEY_RE = re.compile(r"error uploading (\S+?):")
 _IA_THROTTLED_RE = re.compile(
     r"reduce your request rate|total_tasks_queued|slow ?down", re.IGNORECASE
 )
+# Fila de tarefas da conta cheia (ADR-0019, upload do reocr): o IA só esvazia a fila
+# em minutos a dezenas de minutos, então quem opta pela espera longa (``IaQueueWait``)
+# espera por ela. Separado de ``_IA_THROTTLED_RE`` de propósito: alargar aquele
+# mudaria a classificação ``ia-throttled`` do harvest.
+_IA_QUEUE_FULL_RE = re.compile(
+    r"total_tasks_queued exceeds global_limit"
+    r"|bucket_tasks_queued exceeds rationed amount",
+    re.IGNORECASE,
+)
+# Esperas entre tentativas quando a fila está cheia: 60, 120, 240 s e depois 300 s.
+_IA_QUEUE_WAIT_STEPS_S: tuple[float, ...] = (60.0, 120.0, 240.0, 300.0)
+
+
+@dataclass
+class IaQueueWait:
+    """Orçamento de espera por fila cheia do IA (opt-in, usado só pelo reocr).
+
+    Um objeto por release: as duas chamadas (item datado e ``-latest``) gastam do
+    mesmo orçamento, então o total de espera fica limitado ao ``budget_s``.
+    """
+
+    budget_s: float
+    waited_s: float = 0.0
+    steps: int = 0
+
+    @property
+    def remaining_s(self) -> float:
+        return max(0.0, self.budget_s - self.waited_s)
+
+    def take(self) -> Optional[float]:
+        """Próxima espera em segundos, ou ``None`` se o orçamento acabou."""
+        remaining = self.remaining_s
+        if remaining <= 0:
+            return None
+        step = _IA_QUEUE_WAIT_STEPS_S[min(self.steps, len(_IA_QUEUE_WAIT_STEPS_S) - 1)]
+        delay = min(step, remaining)
+        self.steps += 1
+        self.waited_s += delay
+        return delay
+
+
+def _is_queue_full(stderr: str) -> bool:
+    return _IA_QUEUE_FULL_RE.search(stderr) is not None
 
 
 @dataclass(frozen=True)
@@ -1186,6 +1229,7 @@ class InternetArchivePublisher:
         max_attempts: int = _IA_UPLOAD_MAX_ATTEMPTS,
         base_delay: float = _IA_UPLOAD_BASE_DELAY_S,
         max_delay: float = _IA_UPLOAD_MAX_DELAY_S,
+        queue_wait: Optional[IaQueueWait] = None,
     ) -> "subprocess.CompletedProcess[str]":
         """Roda ``ia upload ...`` com espaçamento + retry exponencial (ADR-0008).
 
@@ -1219,31 +1263,46 @@ class InternetArchivePublisher:
         self._upload_rate_limiter(_IA_RATE_LIMIT_KEY)
         env = _ia_subprocess_env(self.access_key, self.secret_key)
         cfg_path = env.get("IA_CONFIG_FILE") if env else None
+        short_attempt = 0
         try:
-            for attempt in range(1, _IA_UPLOAD_MAX_ATTEMPTS + 1):
+            while True:
                 try:
                     return subprocess.run(
                         args, capture_output=True, text=True, check=True, env=env
                     )
                 except subprocess.CalledProcessError as e:
                     stderr = e.stderr or ""
+                    if queue_wait is not None and _is_queue_full(stderr):
+                        # Espera longa e limitada (reocr): não conta nas tentativas
+                        # curtas abaixo; acaba quando o orçamento acaba.
+                        wait_s = queue_wait.take()
+                        if wait_s is None:
+                            raise
+                        logger.warning(
+                            "IA com fila cheia; nova tentativa em %.0f s "
+                            "(restam %d min)",
+                            wait_s,
+                            round(queue_wait.remaining_s / 60),
+                        )
+                        time.sleep(wait_s)
+                        continue
+                    short_attempt += 1
                     if (
-                        attempt == max_attempts
+                        short_attempt >= max_attempts
                         or _IA_PDF_REJECTED_RE.search(stderr)
                         or not _RETRYABLE_IA_ERROR_RE.search(stderr)
                     ):
                         raise
-                    delay = min(max_delay, base_delay * (2 ** (attempt - 1)))
+                    delay = min(max_delay, base_delay * (2 ** (short_attempt - 1)))
                     delay += random.uniform(0, delay * 0.25)  # jitter
                     logger.warning(
                         "ia upload: erro transiente (tentativa %d/%d), retry em %.1fs: %s",
-                        attempt,
+                        short_attempt,
                         max_attempts,
                         delay,
                         stderr.strip()[-200:],
                     )
                     time.sleep(delay)
-            raise AssertionError("unreachable — loop always returns or raises")
         finally:
             if cfg_path is not None:
                 Path(cfg_path).unlink(missing_ok=True)
@@ -2701,11 +2760,15 @@ class InternetArchivePublisher:
         ente: str,
         version: int = 0,
         publish_latest: bool = True,
+        queue_wait_minutes: float = 0.0,
     ) -> Dict[str, Any]:
         """Upload ``reocr.parquet`` + ``dataset_meta.json`` para IA (ADR-0019).
 
         Itens ``leizilla-reocr-{ente}-v{version}-{revision}`` (imutável) e
         ``-latest`` (ponteiro), no mesmo desenho de ``upload_textos``.
+
+        ``queue_wait_minutes`` > 0 espera a fila de tarefas do IA esvaziar (até esse
+        total, somando os dois itens); 0 mantém o recuo curto de sempre.
         """
         return self._upload_table_dataset(
             table="reocr",
@@ -2717,6 +2780,7 @@ class InternetArchivePublisher:
             ente=ente,
             version=version,
             publish_latest=publish_latest,
+            queue_wait_minutes=queue_wait_minutes,
         )
 
     def _upload_table_dataset(
@@ -2730,6 +2794,7 @@ class InternetArchivePublisher:
         ente: str,
         version: int,
         publish_latest: bool,
+        queue_wait_minutes: float = 0.0,
     ) -> Dict[str, Any]:
         if not self.access_key or not self.secret_key:
             return {"success": False, "error": "IA credentials not configured"}
@@ -2746,6 +2811,15 @@ class InternetArchivePublisher:
         ia_id = item_id_fn(ente, version, revision)
         latest_id = item_id_fn(ente, version, _DATASET_LATEST_SUFFIX)
         row_count = dataset_meta.get("row_count")
+        # Um orçamento para os dois itens: a espera total fica limitada ao pedido.
+        queue_wait = (
+            IaQueueWait(queue_wait_minutes * 60.0) if queue_wait_minutes > 0 else None
+        )
+
+        # Só repassa ``queue_wait`` quando há espera: as demais chamadas ficam idênticas.
+        wait_kw: dict[str, Any] = (
+            {"queue_wait": queue_wait} if queue_wait is not None else {}
+        )
 
         def _upload(item_id: str, files: list[Path], title: str, desc: str) -> None:
             self._run_ia_upload(
@@ -2769,7 +2843,8 @@ class InternetArchivePublisher:
                     f"coverage:{_entity_coverage(ente)}",
                     "--metadata",
                     f"description:{desc}",
-                ]
+                ],
+                **wait_kw,
             )
 
         def _failure(item_id: str, exc: Exception) -> Dict[str, Any]:

@@ -1124,6 +1124,12 @@ def cmd_reocr(
     upload: bool = typer.Option(
         False, "--upload", help="Publica reocr.parquet no IA (precisa de IA_*_KEY)"
     ),
+    upload_wait_minutes: float = typer.Option(
+        45.0,
+        "--upload-wait-minutes",
+        help="Com a fila de tarefas do IA cheia, espera até este total (min, somando "
+        "os dois itens) antes de desistir; 0 = recuo curto de sempre",
+    ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
@@ -1145,6 +1151,9 @@ def cmd_reocr(
         raise typer.Exit(1)
     if max_pages < 1 or (limit is not None and limit < 1) or version < 0:
         echo("--max-pages/--limit devem ser >= 1 e --version >= 0")
+        raise typer.Exit(1)
+    if upload_wait_minutes < 0:
+        echo("--upload-wait-minutes deve ser >= 0")
         raise typer.Exit(1)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -1186,7 +1195,9 @@ def cmd_reocr(
         )
         echo(
             f"Fila: {stats.examinadas} normas com texto · {stats.nao_fecham} não "
-            f"fecham · {stats.ja_tentadas} já tentadas · {stats.na_fila} na fila"
+            f"fecham · {stats.ja_tentadas} já tentadas · {stats.na_fila} na fila "
+            f"({stats.fila_com_artigos} com artigos lidos primeiro · "
+            f"{stats.fila_sem_artigos} sem artigos)"
         )
         if dry_run:
             for item in queue[: limit or 20]:
@@ -1239,7 +1250,11 @@ def cmd_reocr(
     )
     try:
         result = publisher.InternetArchivePublisher().upload_reocr(
-            output, meta, ente, version
+            output,
+            meta,
+            ente,
+            version,
+            queue_wait_minutes=upload_wait_minutes,
         )
     except ValueError as e:
         echo(f"Upload falhou: {e}")
@@ -1252,11 +1267,14 @@ def cmd_reocr(
     if latest_pointer.get("success"):
         echo(f"Ponteiro latest atualizado: {latest_pointer['ia_url']}")
     else:
+        # O -latest é o que o build-textos lê: sem ele o run não está concluído.
         echo(
-            "Aviso: ponteiro latest falhou "
-            f"({latest_pointer.get('error', 'erro desconhecido')}) — "
-            "release imutável publicada normalmente."
+            "Upload incompleto: o ponteiro latest não foi atualizado "
+            f"({latest_pointer.get('error', 'erro desconhecido')}). A release "
+            f"imutável {result['ia_url']} existe, mas o build-textos continua "
+            "lendo o latest anterior; rode de novo para atualizá-lo."
         )
+        raise typer.Exit(1)
 
 
 @app.command("consolidate")

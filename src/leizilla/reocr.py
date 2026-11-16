@@ -118,6 +118,9 @@ class ReocrStats:
     #: Não fecham mas já tentadas com o mesmo PDF + motor (ou grandes demais).
     ja_tentadas: int = 0
     na_fila: int = 0
+    #: Da fila, quantas já leem ao menos 1 artigo próprio no texto do IA (vão primeiro).
+    fila_com_artigos: int = 0
+    fila_sem_artigos: int = 0
     tentadas: int = 0
     aceitas: int = 0
     rejeitadas: int = 0
@@ -208,7 +211,9 @@ def select_queue(
 
     Entra quem tem texto, ``pdf_url`` e ``sha256_fonte`` e cuja leitura
     (``read_hierarchy``) não fecha. Sai quem já foi tentado com o mesmo PDF e o
-    mesmo motor (aceito ou rejeitado). Ordem: ``texto_id``. Cada linha devolvida
+    mesmo motor (aceito ou rejeitado). Ordem: primeiro quem lê ao menos 1 artigo
+    próprio no texto do IA (o caso do re-OCR-piloto: a leitura já está parcial), depois
+    quem lê zero; dentro de cada classe, ``texto_id``. Nenhum é descartado. Cada linha devolvida
     ganha ``_artigos_ia``/``_fecha_ia`` (medidas do texto de entrada).
     """
     stats = stats or ReocrStats()
@@ -227,7 +232,11 @@ def select_queue(
             stats.ja_tentadas += 1
             continue
         queue.append({**row, "_artigos_ia": n_own, "_fecha_ia": fecha})
+    # sort é estável: dentro de cada classe a ordem por texto_id é preservada.
+    queue.sort(key=lambda r: r["_artigos_ia"] == 0)
     stats.na_fila = len(queue)
+    stats.fila_com_artigos = sum(1 for r in queue if r["_artigos_ia"] >= 1)
+    stats.fila_sem_artigos = len(queue) - stats.fila_com_artigos
     return queue
 
 
