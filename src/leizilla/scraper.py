@@ -448,7 +448,7 @@ class _RawBatcher:
                 continue
             reason = str(result.get("reason") or "upload-failed")
             if reason == "ia-rejected":
-                self._record_rejected(entry)
+                self._record_rejected(entry, str(result.get("rejection") or ""))
                 continue
             batch_failure = reason
             if reason == "ia-throttled":
@@ -501,18 +501,25 @@ class _RawBatcher:
             }
         )
 
-    def _record_rejected(self, entry: _Staged) -> None:
+    def _record_rejected(self, entry: _Staged, rejection: str = "") -> None:
         # Terminal e distinto de 'failed': o IA recusou o conteúdo deste PDF
-        # ("error checking pdf file"); get_pending_resources() não o re-seleciona.
+        # ("error checking pdf file" ou "pdf file looks like spam");
+        # get_pending_resources() não o re-seleciona. URL e motivo ficam no banco
+        # (coluna ``motivo``) para uma estratégia especial futura (ADR-0011); nada
+        # é apagado do IA. Não conta para _MAX_CONSECUTIVE_FLUSH_FAILURES.
+        kind = rejection or "pdf-check"
+        reason = f"ia-rejected: {kind}"
         print(
             f"[WARN] IA recusou o PDF de {entry.chave} ({entry.url}): "
-            "error checking pdf file — marcado ia-rejected",
+            f"{kind} — marcado ia-rejected",
             file=sys.stderr,
         )
-        self.storage.update_resource_status(entry.url, "ia-rejected")
+        self.storage.update_resource_status(entry.url, "ia-rejected", motivo=kind)
         self.stats["ia-rejected"] += 1
+        if kind == "spam":
+            self.stats["ia-rejected-spam"] += 1
         self.stats["items"].append(
-            {"status": "ia-rejected", "chave": entry.chave, "reason": "ia-rejected"}
+            {"status": "ia-rejected", "chave": entry.chave, "reason": reason}
         )
 
     def _record_failure(self, entry: _Staged, reason: str, error: str) -> None:
@@ -621,6 +628,7 @@ def harvest_pending_resources(
         "robots-blocked": 0,
         "already-preserved": 0,
         "ia-rejected": 0,
+        "ia-rejected-spam": 0,
         "flushes": 0,
         "derive-requested": 0,
         "derive-failed": [],
@@ -636,7 +644,7 @@ def harvest_pending_resources(
     # banco local recém-criado gastaria a execução inteira revendo o que já existe.
     attempts = 0
     preserved_cache: Dict[str, Optional[set[str]]] = {}
-    rate_limiter = make_rate_limiter()
+    rate_limiter = make_rate_limiter(config.HARVEST_HOST_INTERVAL_S)
     # Índice acumulado por item de range neste lote (caminho HTML, upload unitário);
     # o caminho PDF usa o cache do batcher, com a mesma finalidade.
     index_cache: Dict[str, str] = {}

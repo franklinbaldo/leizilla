@@ -36,6 +36,12 @@ HARVEST_WAYBACK_SAVE = os.getenv("HARVEST_WAYBACK_SAVE", "1") not in ("0", "fals
 # morta pelo teto do job com capturas no buffer.
 HARVEST_DERIVE = os.getenv("HARVEST_DERIVE", "1") not in ("0", "false", "")
 HARVEST_MAX_SECONDS = float(os.getenv("HARVEST_MAX_SECONDS", "0") or 0)
+# Intervalo mínimo (s) entre batidas da colheita no mesmo host da fonte (ADR-0008:
+# ~1 req/s). Com N jobs paralelos no mesmo host, use N x 1.0 para manter ~1 req/s no
+# total (ADR-0016, adendo).
+HARVEST_HOST_INTERVAL_S = max(
+    0.1, float(os.getenv("HARVEST_HOST_INTERVAL_S", "1.0") or 1.0)
+)
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 TEMP_DIR.mkdir(parents=True, exist_ok=True)

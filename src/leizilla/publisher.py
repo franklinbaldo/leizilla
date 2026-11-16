@@ -993,7 +993,13 @@ _IA_BATCH_MAX_DELAY_S = 300.0
 _IA_BATCH_S3_RETRIES = 5
 _IA_BATCH_S3_SLEEP_S = 30
 # O IA recusou o conteúdo do PDF. Repetir não muda o resultado: é permanente.
-_IA_PDF_REJECTED_RE = re.compile(r"error checking pdf file", re.IGNORECASE)
+# Duas mensagens observadas em produção: "error checking pdf file" (PDF inválido) e
+# "Uploaded content is unacceptable. - pdf file looks like spam" (2026-11-16, PDFs
+# válidos de ~250-500 KB). As duas seguem o mesmo caminho (recusa por arquivo).
+_IA_PDF_SPAM_RE = re.compile(r"pdf file looks like spam", re.IGNORECASE)
+_IA_PDF_REJECTED_RE = re.compile(
+    r"error checking pdf file|pdf file looks like spam", re.IGNORECASE
+)
 # Formato impresso por internetarchive.Item.upload_file em modo verbose:
 # " error uploading {key}: {msg}" — a chave é o nome do arquivo dentro do item.
 _IA_UPLOAD_ERROR_KEY_RE = re.compile(r"error uploading (\S+?):")
@@ -1043,6 +1049,23 @@ class IaQueueWait:
 
 def _is_queue_full(stderr: str) -> bool:
     return _IA_QUEUE_FULL_RE.search(stderr) is not None
+
+
+# Ração por item estourada ("bucket_tasks_queued exceeds rationed amount"): a fila
+# daquele item só esvazia em minutos a horas; esperar na própria chamada não ajuda.
+_IA_ITEM_RATION_RE = re.compile(r"bucket_tasks_queued", re.IGNORECASE)
+
+
+def _is_item_ration(stderr: str) -> bool:
+    return (
+        _IA_ITEM_RATION_RE.search(stderr) is not None
+        and "total_tasks_queued" not in stderr
+    )
+
+
+def _rejection_kind(stderr: str) -> str:
+    """``"spam"`` ou ``"pdf-check"``: qual recusa por conteúdo o IA devolveu."""
+    return "spam" if _IA_PDF_SPAM_RE.search(stderr) else "pdf-check"
 
 
 @dataclass(frozen=True)
@@ -1230,6 +1253,7 @@ class InternetArchivePublisher:
         base_delay: float = _IA_UPLOAD_BASE_DELAY_S,
         max_delay: float = _IA_UPLOAD_MAX_DELAY_S,
         queue_wait: Optional[IaQueueWait] = None,
+        fail_fast_item_ration: bool = False,
     ) -> "subprocess.CompletedProcess[str]":
         """Roda ``ia upload ...`` com espaçamento + retry exponencial (ADR-0008).
 
@@ -1257,8 +1281,13 @@ class InternetArchivePublisher:
 
         ``max_attempts``/``base_delay``/``max_delay`` deixam o flush de lote
         (ADR-0016) recuar por mais tempo que o upload unitário. Um PDF recusado
-        pelo IA ("error checking pdf file") nunca é repetido, mesmo que o resto
-        do stderr case um padrão transitório.
+        pelo IA ("error checking pdf file", "looks like spam") nunca é repetido,
+        mesmo que o resto do stderr case um padrão transitório.
+
+        ``fail_fast_item_ration`` (colheita, ADR-0016): a ração por item
+        (``bucket_tasks_queued``) propaga na hora, sem os recuos de minutos — o
+        chamador adia o item e segue para os outros. O limite da conta
+        (``total_tasks_queued``) mantém os recuos.
         """
         self._upload_rate_limiter(_IA_RATE_LIMIT_KEY)
         env = _ia_subprocess_env(self.access_key, self.secret_key)
@@ -1286,6 +1315,8 @@ class InternetArchivePublisher:
                         )
                         time.sleep(wait_s)
                         continue
+                    if fail_fast_item_ration and _is_item_ration(stderr):
+                        raise
                     short_attempt += 1
                     if (
                         short_attempt >= max_attempts
@@ -1463,8 +1494,10 @@ class InternetArchivePublisher:
         flush inteiro (índice incluído) terminou bem; em falha cada resultado
         traz ``reason``:
 
-        - ``ia-rejected`` — o IA recusou aquele PDF ("error checking pdf file").
-          Permanente: o arquivo sai do lote e o restante é reenviado;
+        - ``ia-rejected`` — o IA recusou aquele PDF ("error checking pdf file" ou
+          "pdf file looks like spam"; ``rejection`` = ``pdf-check`` | ``spam``).
+          Permanente: o arquivo sai do lote e o restante é reenviado (``--checksum``
+          pula o que já subiu) e o ``index.csv`` sai nesse reenvio;
         - ``ia-throttled`` — o IA pediu para reduzir a taxa e os recuos se
           esgotaram. O chamador deve parar a colheita;
         - ``ia-unavailable`` — sem credenciais ou sem o CLI ``ia``;
@@ -1521,6 +1554,9 @@ class InternetArchivePublisher:
                     culprit = self._rejected_capture(stderr, remaining, names)
                     if culprit is not None:
                         fail([culprit], "ia-rejected", stderr[-500:])
+                        rejected = results[culprit]
+                        if rejected is not None:
+                            rejected["rejection"] = _rejection_kind(stderr)
                         remaining.remove(culprit)
                         continue
                     # Não deu para saber qual arquivo: isola um por flush, para
@@ -1684,6 +1720,7 @@ class InternetArchivePublisher:
                 max_attempts=_IA_BATCH_MAX_ATTEMPTS,
                 base_delay=_IA_BATCH_BASE_DELAY_S,
                 max_delay=_IA_BATCH_MAX_DELAY_S,
+                fail_fast_item_ration=True,
             )
 
     def request_derive(self, item_id: str) -> bool:
