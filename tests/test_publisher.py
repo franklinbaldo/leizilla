@@ -284,6 +284,7 @@ class TestUploadParsed:
         assert xml_arg is not None
         meta_arg = next((a for a in call_args if a.endswith("parsed_meta.json")), None)
         assert meta_arg is not None
+        assert "--no-derive" in call_args
 
     def test_xml_content_written_to_file(self):
         pub = self._publisher()

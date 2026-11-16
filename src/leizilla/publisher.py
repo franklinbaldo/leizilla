@@ -2377,6 +2377,7 @@ class InternetArchivePublisher:
                         ia_id_parsed,
                         str(xml_path),
                         str(meta_path),
+                        "--no-derive",
                         "--metadata",
                         f"title:{titulo}",
                         "--metadata",
@@ -2448,7 +2449,9 @@ class InternetArchivePublisher:
                 encoding="utf-8",
             )
             try:
-                self._run_ia_upload(["ia", "upload", ia_id_old, str(meta_path)])
+                self._run_ia_upload(
+                    ["ia", "upload", ia_id_old, str(meta_path), "--no-derive"]
+                )
                 return {
                     "success": True,
                     "ia_id": ia_id_old,
@@ -2533,6 +2536,7 @@ class InternetArchivePublisher:
                         ia_id,
                         str(parquet_dst),
                         str(meta_path),
+                        "--no-derive",
                         "--metadata",
                         f"title:Leizilla Dataset {ente.upper()} v{version} "
                         f"({effective_revision})",
@@ -2622,6 +2626,7 @@ class InternetArchivePublisher:
                     str(parquet_dst),
                     str(meta_path),
                     str(latest_json_path),
+                    "--no-derive",
                     "--metadata",
                     f"title:Leizilla Dataset {ente.upper()} v{version} "
                     "(latest pointer)",
@@ -2691,6 +2696,7 @@ class InternetArchivePublisher:
                     "upload",
                     item_id,
                     *[str(f) for f in files],
+                    "--no-derive",
                     "--metadata",
                     f"title:{title}",
                     "--metadata",
@@ -2814,7 +2820,9 @@ class InternetArchivePublisher:
                 encoding="utf-8",
             )
             try:
-                self._run_ia_upload(["ia", "upload", ia_id, str(coverage_path)])
+                self._run_ia_upload(
+                    ["ia", "upload", ia_id, str(coverage_path), "--no-derive"]
+                )
                 return {
                     "success": True,
                     "ia_id": ia_id,
@@ -2847,7 +2855,9 @@ class InternetArchivePublisher:
 
         ia_id = f"leizilla-dataset-{ente}-v{version}-{_DATASET_LATEST_SUFFIX}"
         try:
-            self._run_ia_upload(["ia", "upload", ia_id, *(str(f) for f in files)])
+            self._run_ia_upload(
+                ["ia", "upload", ia_id, *(str(f) for f in files), "--no-derive"]
+            )
         except FileNotFoundError:
             return {
                 "success": False,

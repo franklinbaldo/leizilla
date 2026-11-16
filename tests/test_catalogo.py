@@ -424,6 +424,7 @@ class TestReleaseCatalogoCli:
                 "completeness.parquet",
                 "completeness.json",
                 "relacoes.parquet",
+                "--no-derive",
             ]
         ]
 

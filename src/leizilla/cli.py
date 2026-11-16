@@ -1605,6 +1605,45 @@ def cmd_release_catalogo(
     echo(f"Catálogo publicado: {result['ia_url']}")
 
 
+@app.command("catalog-snapshot-pick")
+def cmd_catalog_snapshot_pick(
+    candidates: list[Path] = typer.Argument(
+        ..., help="Snapshots candidatos (.json ou .json.gz), na ordem de desempate"
+    ),
+    output: Path = typer.Option(..., "--output", help="Onde gravar o escolhido"),
+) -> None:
+    """Escolher o snapshot do catálogo com mais listas anuais e copiá-lo para ``--output``.
+
+    Candidatos inexistentes ou ilegíveis são ignorados. Empate fica com o primeiro
+    dado. Sem nenhum candidato utilizável, nada é gravado e o comando sai com 0.
+    """
+    import shutil
+
+    from leizilla import completeness as comp
+
+    usable: list[tuple[int, int, Path]] = []
+    for index, candidate in enumerate(candidates):
+        if not candidate.exists():
+            echo(f"  {candidate}: ausente — ignorado")
+            continue
+        try:
+            years = comp.count_catalog_snapshot_years(candidate)
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            echo(f"  {candidate}: ilegível ({type(e).__name__}) — ignorado")
+            continue
+        echo(f"  {candidate}: {years} lista(s)")
+        usable.append((years, index, candidate))
+
+    if not usable:
+        echo("Nenhum snapshot do catálogo utilizável — leitura a partir do zero.")
+        return
+
+    years, _, chosen = max(usable, key=lambda item: (item[0], -item[1]))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(chosen, output)
+    echo(f"Snapshot escolhido: {chosen} ({years} lista(s)) -> {output}")
+
+
 @app.command("doctor")
 def cmd_doctor() -> None:
     """Verificar pré-requisitos de produção (RFC-0004): credenciais, dados, rede.

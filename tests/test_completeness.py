@@ -969,6 +969,7 @@ class TestCli:
                 "completeness.json",
                 "relacoes.parquet",
                 "completeness_catalog.json.gz",
+                "--no-derive",
             ]
         ]
 
@@ -977,3 +978,111 @@ class TestCli:
     ) -> None:
         assert self._run(tmp_path, "--fonte", "assembleia").exit_code == 1
         assert self._run(tmp_path, "--fetch-years", "abc").exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# catalog-snapshot-pick (2026-11-16): escolhe o snapshot com mais listas anuais
+# ---------------------------------------------------------------------------
+
+
+def _snapshot_bytes(n_pages: int, marker: str = "") -> bytes:
+    pages = [
+        {"tipo": "lei", "ano": 2000 + i, "url": f"http://x/{marker}{i}"}
+        for i in range(n_pages)
+    ]
+    payload = {
+        "leizilla_catalog_version": comp.CATALOG_VERSION,
+        "ente": "ro",
+        "fonte": "casacivil",
+        "pages": pages,
+    }
+    return json.dumps(payload).encode("utf-8")
+
+
+def test_count_catalog_snapshot_years_counts_pages(tmp_path: Path) -> None:
+    path = tmp_path / "snap.json"
+    path.write_bytes(_snapshot_bytes(3))
+    assert comp.count_catalog_snapshot_years(path) == 3
+
+
+def test_count_catalog_snapshot_years_zero_for_unknown_version(tmp_path: Path) -> None:
+    path = tmp_path / "snap.json"
+    path.write_bytes(json.dumps({"leizilla_catalog_version": -1}).encode("utf-8"))
+    assert comp.count_catalog_snapshot_years(path) == 0
+
+
+def test_count_catalog_snapshot_years_raises_on_corrupt_gzip(tmp_path: Path) -> None:
+    path = tmp_path / "snap.json.gz"
+    path.write_bytes(b"not gzip at all")
+    with pytest.raises(OSError):
+        comp.count_catalog_snapshot_years(path)
+
+
+def test_pick_chooses_snapshot_with_most_years(tmp_path: Path) -> None:
+    small = tmp_path / "ia.json"
+    big = tmp_path / "cache.json"
+    small.write_bytes(_snapshot_bytes(1))
+    big.write_bytes(_snapshot_bytes(3, "big"))
+    out = tmp_path / "out" / "completeness_catalog.json"
+    result = CliRunner().invoke(
+        app, ["catalog-snapshot-pick", str(small), str(big), "--output", str(out)]
+    )
+    assert result.exit_code == 0, result.output
+    assert out.read_bytes() == big.read_bytes()
+    assert "3 lista(s)" in result.output
+
+
+def test_pick_ignores_missing_and_corrupt_candidates(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.json.gz"
+    corrupt = tmp_path / "corrupt.json.gz"
+    corrupt.write_bytes(b"garbage")
+    good = tmp_path / "good.json"
+    good.write_bytes(_snapshot_bytes(2))
+    out = tmp_path / "completeness_catalog.json"
+    result = CliRunner().invoke(
+        app,
+        [
+            "catalog-snapshot-pick",
+            str(missing),
+            str(corrupt),
+            str(good),
+            "--output",
+            str(out),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert out.read_bytes() == good.read_bytes()
+    assert "ausente" in result.output
+    assert "ilegível" in result.output
+
+
+def test_pick_tie_goes_to_first_candidate(tmp_path: Path) -> None:
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    first.write_bytes(_snapshot_bytes(2, "first"))
+    second.write_bytes(_snapshot_bytes(2, "second"))
+    out = tmp_path / "completeness_catalog.json"
+    result = CliRunner().invoke(
+        app, ["catalog-snapshot-pick", str(first), str(second), "--output", str(out)]
+    )
+    assert result.exit_code == 0, result.output
+    assert out.read_bytes() == first.read_bytes()
+
+
+def test_pick_without_candidates_writes_nothing_and_exits_zero(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "completeness_catalog.json.gz"
+    result = CliRunner().invoke(
+        app,
+        [
+            "catalog-snapshot-pick",
+            str(tmp_path / "a.json.gz"),
+            str(tmp_path / "b.json.gz"),
+            "--output",
+            str(out),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert not out.exists()
+    assert "Nenhum snapshot do catálogo utilizável" in result.output

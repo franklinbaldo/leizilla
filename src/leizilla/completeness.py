@@ -274,6 +274,16 @@ def load_catalog_snapshot(path: Path) -> dict[tuple[str, int], YearPage]:
     return pages
 
 
+def count_catalog_snapshot_years(path: Path) -> int:
+    """Quantas listas anuais o snapshot traz (0 se a versão é desconhecida).
+
+    Usa o mesmo leitor de ``load_catalog_snapshot``. Levanta ``OSError`` ou
+    ``ValueError`` (inclui ``json.JSONDecodeError``/``gzip.BadGzipFile``) quando o
+    arquivo não pode ser lido: quem chama decide se ignora o candidato.
+    """
+    return len(load_catalog_snapshot(path))
+
+
 def write_catalog_snapshot(catalog: Catalog, path: Path) -> int:
     """Grava as páginas conhecidas do catálogo; devolve quantas foram gravadas.
 
