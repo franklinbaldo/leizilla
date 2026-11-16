@@ -8,7 +8,7 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Dict, Optional, cast
+from typing import Any, Dict, Optional, cast
 
 import typer
 from typer import echo
@@ -920,6 +920,14 @@ def cmd_build_textos(
         "--allow-partial",
         help="Grava o Parquet e sai com 0 mesmo com falhas de leitura ou --limit",
     ),
+    reocr_path: Optional[Path] = typer.Option(
+        None,
+        "--reocr",
+        help=(
+            "reocr.parquet (ADR-0019): o texto de um re-OCR aceito substitui o do "
+            "IA. Ausente ou ilegível: sem sobreposição (fail-open)"
+        ),
+    ),
 ) -> None:
     """Construir a camada de texto (tabela textos, ADR-0015) a partir do IA.
 
@@ -944,15 +952,31 @@ def cmd_build_textos(
             raise typer.Exit(1)
         prev_rows = textlayer.read_textos_parquet(previous)
 
+    accepted = None
+    if reocr_path is not None:
+        if reocr_path.exists():
+            from leizilla import reocr as reocr_mod
+
+            accepted = reocr_mod.load_accepted(reocr_path)
+            echo(f"Re-OCR: {len(accepted)} texto(s) aceito(s) em {reocr_path}")
+        else:
+            echo(f"Re-OCR indisponível ({reocr_path}) — sem sobreposição.")
+
     echo(f"Construindo textos: ente={ente} fontes={','.join(fonte_list)}...")
     rows, stats = textlayer.build_textos(
-        ente, fonte_list, sleep_s=sleep_s, limit=limit, previous=prev_rows
+        ente,
+        fonte_list,
+        sleep_s=sleep_s,
+        limit=limit,
+        previous=prev_rows,
+        reocr=accepted,
     )
     echo(
         f"  {stats.itens} itens · {stats.identidades} identidades · "
         f"{stats.com_texto} com texto · {stats.baixados} baixados · "
         f"{stats.reaproveitados} reaproveitados · {stats.mantidos} mantidos "
-        f"(OCR em refação) · {len(rows)} linhas · "
+        f"(OCR em refação) · {stats.reocr_aplicados} com re-OCR · "
+        f"{len(rows)} linhas · "
         f"{sum(1 for r in rows if r['artigos_fecham'])} com artigos fechando"
     )
     for failure in stats.failures[:20]:
@@ -1060,6 +1084,170 @@ def cmd_release_textos(
         echo(f"Upload falhou: {result.get('error', 'erro desconhecido')}")
         raise typer.Exit(1)
     echo(f"Textos publicados: {result['ia_url']} ({row_count} linhas)")
+    latest_pointer = result.get("latest_pointer") or {}
+    if latest_pointer.get("success"):
+        echo(f"Ponteiro latest atualizado: {latest_pointer['ia_url']}")
+    else:
+        echo(
+            "Aviso: ponteiro latest falhou "
+            f"({latest_pointer.get('error', 'erro desconhecido')}) — "
+            "release imutável publicada normalmente."
+        )
+
+
+@app.command("reocr")
+def cmd_reocr(
+    ente: str = typer.Option("ro", "--ente", help="Ente federativo"),
+    limit: Optional[int] = typer.Option(
+        None, "--limit", help="Máximo de normas a tentar nesta execução"
+    ),
+    max_pages: int = typer.Option(
+        40, "--max-pages", help="PDFs com mais páginas são pulados (e contados)"
+    ),
+    output: Path = typer.Option(
+        Path("reocr.parquet"), "--output", help="reocr.parquet"
+    ),
+    version: int = typer.Option(0, "--version", help="Versão do dataset"),
+    textos: Optional[Path] = typer.Option(
+        None,
+        "--textos",
+        help="textos.parquet local (default: baixa o publicado no IA)",
+    ),
+    previous: Optional[Path] = typer.Option(
+        None,
+        "--previous",
+        help="reocr.parquet anterior (default: baixa o publicado no IA, se houver)",
+    ),
+    sleep_s: float = typer.Option(
+        1.0, "--sleep", help="Pausa entre downloads de PDF do IA (mínimo 1 s)"
+    ),
+    upload: bool = typer.Option(
+        False, "--upload", help="Publica reocr.parquet no IA (precisa de IA_*_KEY)"
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Só calcula e mostra a fila: não baixa PDF, não faz OCR, não grava",
+    ),
+) -> None:
+    """Re-OCR direcionado (ADR-0019): OCR próprio só onde o leitor não fecha.
+
+    Fila = normas com texto no `textos` publicado cujo `read_hierarchy` não fecha
+    os artigos. Para cada uma: PDF do IA → poppler → Kreuzberg+PaddleOCR → portão
+    determinístico (fecha e não perde artigos). Aceito ou rejeitado, a tentativa
+    vira uma linha de `reocr.parquet`; o texto do IA nunca é alterado. Requer o
+    extra `reocr` (`uv sync --extra reocr`) e poppler-utils.
+    """
+    from leizilla import completeness, publisher, reocr, textlayer
+
+    if sleep_s < reocr.MIN_SLEEP_S:
+        echo(f"--sleep deve ser >= {reocr.MIN_SLEEP_S} s (recebido: {sleep_s})")
+        raise typer.Exit(1)
+    if max_pages < 1 or (limit is not None and limit < 1) or version < 0:
+        echo("--max-pages/--limit devem ser >= 1 e --version >= 0")
+        raise typer.Exit(1)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        textos_path = textos
+        if textos_path is None:
+            textos_path = Path(tmp) / "textos.parquet"
+            if not completeness.fetch_published_textos(ente, version, textos_path):
+                echo("textos.parquet publicado indisponível — nada a fazer.")
+                raise typer.Exit(1)
+        elif not textos_path.exists():
+            echo(f"Arquivo não encontrado: {textos_path}")
+            raise typer.Exit(1)
+
+        attempts: list[dict[str, Any]] = []
+        previous_path = previous
+        if previous_path is None:
+            previous_path = Path(tmp) / "reocr-previous.parquet"
+            try:
+                if not reocr.fetch_published_reocr(ente, version, previous_path):
+                    previous_path = None  # nunca publicado: histórico vazio
+            except OSError as e:
+                echo(f"reocr.parquet anterior ilegível ({e}) — abortando.")
+                raise typer.Exit(1)
+        elif not previous_path.exists():
+            echo(f"Arquivo não encontrado: {previous_path}")
+            raise typer.Exit(1)
+        if previous_path is not None:
+            attempts = reocr.read_reocr_parquet(previous_path)
+
+        stats = reocr.ReocrStats()
+        text_rows = list(textlayer.read_textos_parquet(textos_path).values())
+        kz_version = reocr.installed_kreuzberg_version()
+        queue = reocr.select_queue(
+            text_rows,
+            attempts,
+            kreuzberg_version=kz_version,
+            max_pages=max_pages,
+            stats=stats,
+        )
+        echo(
+            f"Fila: {stats.examinadas} normas com texto · {stats.nao_fecham} não "
+            f"fecham · {stats.ja_tentadas} já tentadas · {stats.na_fila} na fila"
+        )
+        if dry_run:
+            for item in queue[: limit or 20]:
+                echo(f"  {item['texto_id']} (artigos lidos: {item['_artigos_ia']})")
+            echo("Dry-run: nenhum PDF baixado, nenhum OCR, nada gravado.")
+            return
+        if not queue:
+            echo("Fila vazia — nada a fazer.")
+            return
+        if kz_version == "ausente":
+            echo("Kreuzberg não instalado — rode `uv sync --extra reocr`.")
+            raise typer.Exit(1)
+
+        new_rows = reocr.run_reocr(
+            queue, stats=stats, limit=limit, max_pages=max_pages, sleep_s=sleep_s
+        )
+        echo(
+            f"Tentadas {stats.tentadas}: {stats.aceitas} aceitas · "
+            f"{stats.rejeitadas} rejeitadas ({stats.grandes} acima de "
+            f"{max_pages} páginas)"
+        )
+        for row in new_rows:
+            echo(
+                f"  {row['texto_id']}: {row['motivo']} "
+                f"(artigos {row['artigos_ia']} -> {row['artigos_novo']}, "
+                f"{row['paginas']} pág., {row['segundos']} s)"
+            )
+        for failure in stats.failures[:20]:
+            echo(f"  Falha: {failure}")
+        if not new_rows:
+            echo("Nenhuma tentativa registrada — nada a gravar.")
+            if stats.failures:
+                raise typer.Exit(1)
+            return
+
+        merged = reocr.merge_attempts(attempts, new_rows)
+        reocr.write_reocr_parquet(merged, output)
+        echo(f"Parquet escrito em {output} ({len(merged)} tentativas no histórico)")
+
+    if not upload:
+        return
+    problems = reocr.validate_reocr_parquet(output)
+    if problems:
+        for problem in problems[:20]:
+            echo(f"  Violação: {problem}")
+        echo(f"Gate de release falhou: {len(problems)} violação(ões) do contrato.")
+        raise typer.Exit(1)
+    meta = reocr.build_reocr_meta(
+        output, ente, version, publisher._dataset_revision(), publisher.get_git_sha()
+    )
+    try:
+        result = publisher.InternetArchivePublisher().upload_reocr(
+            output, meta, ente, version
+        )
+    except ValueError as e:
+        echo(f"Upload falhou: {e}")
+        raise typer.Exit(1)
+    if not result.get("success"):
+        echo(f"Upload falhou: {result.get('error', 'erro desconhecido')}")
+        raise typer.Exit(1)
+    echo(f"Re-OCR publicado: {result['ia_url']} ({meta['row_count']} linhas)")
     latest_pointer = result.get("latest_pointer") or {}
     if latest_pointer.get("success"):
         echo(f"Ponteiro latest atualizado: {latest_pointer['ia_url']}")
@@ -1375,8 +1563,6 @@ def cmd_completeness(
     nunca conta como "zero normas".
     """
     import json as _json
-    import tempfile
-
     from leizilla import completeness as comp
     from leizilla.publisher import get_git_sha
 
@@ -1545,8 +1731,6 @@ def cmd_release_catalogo(
     ``completeness.json`` já publicado) antes de enviar ao item `-latest` do dataset.
     """
     import json as _json
-    import tempfile
-
     from leizilla import catalogo, relacoes
     from leizilla import completeness as comp
     from leizilla.publisher import InternetArchivePublisher

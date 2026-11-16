@@ -254,6 +254,14 @@ def captures_by_identity(index_csv: str) -> dict[tuple[str, int], list[dict[str,
 TEXT_LAYER_CONVERSION = "pdf-to-hocr (camada de texto do PDF, sem OCR)"
 
 
+#: Valor de ``ocr_motor`` quando o texto da linha é um re-OCR direcionado aceito
+#: (ADR-0019) e não o ``_djvu.txt`` do IA. ``ocr_modulo_versao`` carrega a versão do
+#: Kreuzberg, ``ocr_parametros`` os parâmetros e ``ocr_derivado_em`` a data da
+#: tentativa; ``sha1_texto_ia`` fica vazio (o texto não é o do IA) e ``texto_url``
+#: continua apontando para o ``_djvu.txt`` original.
+REOCR_MOTOR = "kreuzberg+paddleocr (re-OCR direcionado, ADR-0019)"
+
+
 def _converted_text_layer(pdf_entry: dict[str, Any]) -> Optional[str]:
     """``TEXT_LAYER_CONVERSION`` se o PDF de origem é um "Text PDF" no IA."""
     return TEXT_LAYER_CONVERSION if pdf_entry.get("format") == "Text PDF" else None
@@ -283,6 +291,8 @@ class BuildStats:
     #: Linhas do release anterior mantidas porque o texto não está no IA agora
     #: (derive em refação) e o arquivo de origem não mudou.
     mantidos: int = 0
+    #: Linhas cujo texto foi trocado por um re-OCR aceito (ADR-0019).
+    reocr_aplicados: int = 0
     truncated: bool = False
     failures: list[str] = field(default_factory=list)
 
@@ -429,6 +439,43 @@ def _keep_previous(
     return refresh_anchors(old)
 
 
+def apply_reocr_overlay(
+    rows: list[dict[str, Any]], accepted: dict[str, dict[str, Any]]
+) -> int:
+    """Troca, in loco, o texto das linhas que têm re-OCR aceito (ADR-0019).
+
+    ``accepted`` é ``texto_id`` → linha aceita de ``reocr.parquet``. Só vale se o
+    ``sha256_fonte`` do re-OCR é o do arquivo de origem da linha: PDF novo, texto
+    do IA de novo. O que muda é o texto e o que deriva dele; a identidade, o elo
+    com o PDF e ``texto_url`` (o ``_djvu.txt`` original) ficam. Devolve quantas
+    linhas foram trocadas.
+    """
+    applied = 0
+    for row in rows:
+        hit = accepted.get(str(row["texto_id"]))
+        if hit is None or hit.get("sha256_fonte") != row.get("sha256_fonte"):
+            continue
+        text = str(hit["texto"])
+        anchors, closes, last = article_anchors(text)
+        row.update(
+            ocr_motor=REOCR_MOTOR,
+            ocr_modulo_versao=hit.get("kreuzberg_version"),
+            ocr_parametros=hit.get("parametros"),
+            ocr_derivado_em=hit.get("tentado_em"),
+            sha1_texto_ia=None,
+            sha256_texto=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            num_caracteres=len(text),
+            artigos_fecham=closes,
+            artigos_total=len(anchors),
+            artigos_ultimo=last,
+            ancoras=json.dumps(anchors, ensure_ascii=False, separators=(",", ":")),
+            trecho=make_trecho(text),
+            texto=text,
+        )
+        applied += 1
+    return applied
+
+
 def build_textos(
     ente: str,
     fontes: list[str],
@@ -437,8 +484,16 @@ def build_textos(
     limit: Optional[int] = None,
     previous: Optional[dict[str, dict[str, Any]]] = None,
     fetch: Optional[Fetcher] = None,
+    reocr: Optional[dict[str, dict[str, Any]]] = None,
 ) -> tuple[list[dict[str, Any]], BuildStats]:
-    """Constrói as linhas de ``textos`` de um ente (todas as fontes pedidas)."""
+    """Constrói as linhas de ``textos`` de um ente (todas as fontes pedidas).
+
+    ``reocr`` (opcional) são os re-OCRs aceitos (``reocr.load_accepted``): quando há,
+    o texto aceito de uma norma substitui o do IA. Sem ele, o comportamento é o de
+    sempre. Uma linha com texto sobreposto não é reaproveitada de ``previous``
+    (seu ``sha1_texto_ia`` é vazio): o texto do IA é baixado de novo e a
+    sobreposição reaplicada, o que também desfaz uma sobreposição que deixou de valer.
+    """
     stats = BuildStats()
     rows: list[dict[str, Any]] = []
     for fonte in fontes:
@@ -454,6 +509,8 @@ def build_textos(
                 fetch=fetch,
             )
         )
+    if reocr:
+        stats.reocr_aplicados = apply_reocr_overlay(rows, reocr)
     rows.sort(key=lambda r: str(r["texto_id"]))
     return rows, stats
 

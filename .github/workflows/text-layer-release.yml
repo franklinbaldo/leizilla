@@ -53,14 +53,24 @@ jobs:
             -o /tmp/textos-previous.parquet \
           || { rm -f /tmp/textos-previous.parquet; echo "Sem release anterior de textos — construção completa."; }
 
+      # ADR-0019: re-OCRs aceitos (reocr.yml) sobrepõem o texto do IA. Fail-open: sem
+      # o dataset a construção é a de sempre.
+      - name: Fetch reocr.parquet (se houver)
+        run: |
+          curl -fsSL "https://archive.org/download/leizilla-reocr-${{ inputs.ente || 'ro' }}-v${{ inputs.dataset_version || '0' }}-latest/reocr.parquet" \
+            -o /tmp/reocr.parquet \
+          || { rm -f /tmp/reocr.parquet; echo "Sem reocr.parquet — sem sobreposição de re-OCR."; }
+
       - name: Build textos.parquet
         run: |
           PREVIOUS_FLAG=""
           if [ -f /tmp/textos-previous.parquet ]; then PREVIOUS_FLAG="--previous /tmp/textos-previous.parquet"; fi
+          REOCR_FLAG=""
+          if [ -f /tmp/reocr.parquet ]; then REOCR_FLAG="--reocr /tmp/reocr.parquet"; fi
           uv run leizilla build-textos \
             --ente "${{ inputs.ente || 'ro' }}" \
             --output /tmp/textos.parquet \
-            $PREVIOUS_FLAG
+            $PREVIOUS_FLAG $REOCR_FLAG
 
       - name: Preserve candidate Parquet
         if: always()

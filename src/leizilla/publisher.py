@@ -19,7 +19,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from leizilla import config
 from leizilla import storage as storage_module
@@ -331,6 +331,15 @@ def textos_item_identifier(ente: str, version: int, revision: str) -> str:
     uma tabela nunca interfere no da outra.
     """
     return f"leizilla-textos-{ente}-v{version}-{revision}"
+
+
+def reocr_item_identifier(ente: str, version: int, revision: str) -> str:
+    """Item IA do re-OCR direcionado (ADR-0019): ``leizilla-reocr-{ente}-v{N}-{rev}``.
+
+    Mesmo desenho de ``textos_item_identifier``: ``revision`` é um timestamp de
+    release imutável ou ``latest`` (ponteiro mutável).
+    """
+    return f"leizilla-reocr-{ente}-v{version}-{revision}"
 
 
 def fetch_published_textos_row_count(
@@ -2673,6 +2682,55 @@ class InternetArchivePublisher:
         itens ``leizilla-dataset-*`` de ``versoes``. ``dataset_meta`` vem de
         ``textlayer.build_textos_meta`` e carrega ``revision`` e ``row_count``.
         """
+        return self._upload_table_dataset(
+            table="textos",
+            what="da camada de texto (tabela textos: texto OCR não estruturado, "
+            "verbatim)",
+            item_id_fn=textos_item_identifier,
+            parquet_path=parquet_path,
+            dataset_meta=dataset_meta,
+            ente=ente,
+            version=version,
+            publish_latest=publish_latest,
+        )
+
+    def upload_reocr(
+        self,
+        parquet_path: Path,
+        dataset_meta: Dict[str, Any],
+        ente: str,
+        version: int = 0,
+        publish_latest: bool = True,
+    ) -> Dict[str, Any]:
+        """Upload ``reocr.parquet`` + ``dataset_meta.json`` para IA (ADR-0019).
+
+        Itens ``leizilla-reocr-{ente}-v{version}-{revision}`` (imutável) e
+        ``-latest`` (ponteiro), no mesmo desenho de ``upload_textos``.
+        """
+        return self._upload_table_dataset(
+            table="reocr",
+            what="de tentativas de re-OCR direcionado (tabela reocr: texto só nas "
+            "aceitas)",
+            item_id_fn=reocr_item_identifier,
+            parquet_path=parquet_path,
+            dataset_meta=dataset_meta,
+            ente=ente,
+            version=version,
+            publish_latest=publish_latest,
+        )
+
+    def _upload_table_dataset(
+        self,
+        *,
+        table: str,
+        what: str,
+        item_id_fn: Callable[[str, int, str], str],
+        parquet_path: Path,
+        dataset_meta: Dict[str, Any],
+        ente: str,
+        version: int,
+        publish_latest: bool,
+    ) -> Dict[str, Any]:
         if not self.access_key or not self.secret_key:
             return {"success": False, "error": "IA credentials not configured"}
         if version < 0:
@@ -2685,8 +2743,8 @@ class InternetArchivePublisher:
                 f"revision must match {_DATASET_REVISION_RE}, got {revision!r}"
             )
 
-        ia_id = textos_item_identifier(ente, version, revision)
-        latest_id = textos_item_identifier(ente, version, _DATASET_LATEST_SUFFIX)
+        ia_id = item_id_fn(ente, version, revision)
+        latest_id = item_id_fn(ente, version, _DATASET_LATEST_SUFFIX)
         row_count = dataset_meta.get("row_count")
 
         def _upload(item_id: str, files: list[Path], title: str, desc: str) -> None:
@@ -2702,7 +2760,7 @@ class InternetArchivePublisher:
                     "--metadata",
                     "mediatype:data",
                     "--metadata",
-                    f"subject:leis;leizilla;{ente};parquet;textos",
+                    f"subject:leis;leizilla;{ente};parquet;{table}",
                     "--metadata",
                     "creator:leizilla-etl",
                     "--metadata",
@@ -2723,7 +2781,7 @@ class InternetArchivePublisher:
             return {"success": False, "error": error, "ia_id": item_id}
 
         with tempfile.TemporaryDirectory() as tmp:
-            parquet_dst = Path(tmp) / "textos.parquet"
+            parquet_dst = Path(tmp) / f"{table}.parquet"
             shutil.copy2(str(parquet_path), str(parquet_dst))
             meta_path = Path(tmp) / "dataset_meta.json"
             meta_path.write_text(
@@ -2733,9 +2791,8 @@ class InternetArchivePublisher:
                 _upload(
                     ia_id,
                     [parquet_dst, meta_path],
-                    f"Leizilla Textos {ente.upper()} v{version} ({revision})",
-                    f"Release imutável (revisão {revision}) da camada de texto "
-                    f"(tabela textos: texto OCR não estruturado, verbatim) das "
+                    f"Leizilla {table.capitalize()} {ente.upper()} v{version} ({revision})",
+                    f"Release imutável (revisão {revision}) {what} das "
                     f"normas do ente {ente.upper()}, gerada pelo projeto Leizilla. "
                     f"Contém {row_count} linhas.",
                 )
@@ -2759,7 +2816,7 @@ class InternetArchivePublisher:
                         "identifier": ia_id,
                         "ia_url": f"https://archive.org/details/{ia_id}",
                         "parquet_url": (
-                            f"https://archive.org/download/{ia_id}/textos.parquet"
+                            f"https://archive.org/download/{ia_id}/{table}.parquet"
                         ),
                         "revision": revision,
                         "generated_at": dataset_meta.get("generated_at"),
@@ -2776,8 +2833,8 @@ class InternetArchivePublisher:
                 _upload(
                     latest_id,
                     [parquet_dst, meta_path, latest_json_path],
-                    f"Leizilla Textos {ente.upper()} v{version} (latest pointer)",
-                    f"Ponteiro MUTÁVEL para a release corrente da camada de texto "
+                    f"Leizilla {table.capitalize()} {ente.upper()} v{version} (latest pointer)",
+                    f"Ponteiro MUTÁVEL para a release corrente {what} "
                     f"{ente.upper()} v{version} — não cite este item; cite {ia_id} "
                     f"(ver latest.json).",
                 )
