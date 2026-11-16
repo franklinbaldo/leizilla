@@ -63,9 +63,14 @@ class DuckDBStorage:
             status VARCHAR DEFAULT 'pending',
             data_descoberta TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             ultima_tentativa TIMESTAMP,
-            wayback_snapshot VARCHAR
+            wayback_snapshot VARCHAR,
+            motivo VARCHAR
         )
         """)
+        # Bancos antigos (cache do workflow) não têm a coluna de motivo.
+        conn.execute(
+            "ALTER TABLE discovered_resources ADD COLUMN IF NOT EXISTS motivo VARCHAR"
+        )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_resources_status ON discovered_resources(status)"
         )
@@ -188,10 +193,22 @@ class DuckDBStorage:
         return [dict(zip(columns, row)) for row in results]
 
     def update_resource_status(
-        self, url: str, status: str, wayback_snapshot: Optional[str] = None
+        self,
+        url: str,
+        status: str,
+        wayback_snapshot: Optional[str] = None,
+        motivo: Optional[str] = None,
     ) -> None:
+        """Atualiza status/tentativa; ``motivo`` (ex.: ``spam``) guarda o porquê."""
         conn = self.connect()
         now = datetime.now()
+        if motivo is not None:
+            conn.execute(
+                "UPDATE discovered_resources SET status = ?, motivo = ?, "
+                "ultima_tentativa = ? WHERE url = ?",
+                [status, motivo, now, url],
+            )
+            return
         if wayback_snapshot:
             conn.execute(
                 "UPDATE discovered_resources SET status = ?, wayback_snapshot = ?, ultima_tentativa = ? WHERE url = ?",

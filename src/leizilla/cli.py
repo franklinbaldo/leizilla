@@ -151,7 +151,8 @@ def cmd_harvest(
         # ADR-0016: lotes, derive único, PDFs recusados e Save Page Now assíncrono.
         echo(
             "  Recusados pelo IA (PDF inválido, não serão retentados): "
-            f"{stats.get('ia-rejected', 0)}"
+            f"{stats.get('ia-rejected', 0)} "
+            f"(spam: {stats.get('ia-rejected-spam', 0)})"
         )
         derive_failed = stats.get("derive-failed") or []
         echo(
