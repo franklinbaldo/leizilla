@@ -29,6 +29,7 @@ on:
 
 permissions:
   contents: read
+  issues: write # notify-run-failure
 
 concurrency:
   group: reocr

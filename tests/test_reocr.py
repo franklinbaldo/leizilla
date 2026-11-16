@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import sys
+import urllib.error
 from pathlib import Path
 from typing import Any, Optional
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -544,3 +545,44 @@ def test_upload_reocr_uses_dedicated_items(tmp_path: Path) -> None:
     ]
     assert all("--no-derive" in c for c in calls)
     assert any(a.endswith("reocr.parquet") for a in calls[0])
+
+
+def _http_error(code: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("u", code, "x", None, None)  # type: ignore[arg-type]
+
+
+def test_fetch_published_reocr_503_on_missing_item_is_first_run(
+    tmp_path: Path,
+) -> None:
+    """IA answers 503, not 404, to /download/ of an item that never existed."""
+    meta = MagicMock()
+    meta.__enter__.return_value.read.return_value = b"{}"
+    with patch(
+        "leizilla.reocr.urllib.request.urlopen",
+        side_effect=[_http_error(503), meta],
+    ):
+        assert reocr.fetch_published_reocr("ro", 0, tmp_path / "r.parquet") is False
+
+
+def test_fetch_published_reocr_503_on_existing_item_aborts(tmp_path: Path) -> None:
+    meta = MagicMock()
+    meta.__enter__.return_value.read.return_value = b'{"files": []}'
+    with (
+        patch(
+            "leizilla.reocr.urllib.request.urlopen",
+            side_effect=[_http_error(503), meta],
+        ),
+        pytest.raises(OSError, match="HTTP 503"),
+    ):
+        reocr.fetch_published_reocr("ro", 0, tmp_path / "r.parquet")
+
+
+def test_fetch_published_reocr_metadata_unreachable_aborts(tmp_path: Path) -> None:
+    with (
+        patch(
+            "leizilla.reocr.urllib.request.urlopen",
+            side_effect=[_http_error(503), urllib.error.URLError("down")],
+        ),
+        pytest.raises(OSError, match="HTTP 503"),
+    ):
+        reocr.fetch_published_reocr("ro", 0, tmp_path / "r.parquet")
