@@ -597,6 +597,107 @@ def test_final_clause_flags_a_text_cut_short() -> None:
     assert whole["closes"] and whole["final_clause"]
 
 
+# --- the last article can be lost, not only the middle of the chain ---------------
+SIX_ARTICLES = "".join(
+    f"Art. {n}º Texto do artigo {n} com algum conteúdo.\n" for n in range(1, 7)
+)
+
+
+def test_lost_last_marker_before_the_closing_sentence_keeps_the_norm_open() -> None:
+    # Seven articles in print; the seventh marker is unreadable ("Art. T."). The chain
+    # 1..6 is perfect, so numbering alone closes it. The closing sentence sits on a line
+    # with garbage where Art. 7 should be.
+    text = (
+        SIX_ARTICLES
+        + "Art. T. Esta Lei Complementar entra em vigor na data de sua publicação."
+    )
+    report = read_hierarchy(text)
+    assert report["final_clause"]
+    assert not report["final_clause_placed"]
+    assert not report["levels"]["artigo"]["closes"]
+    assert not report["closes"]
+
+
+def test_split_marker_before_revogacao_is_read_as_article_four() -> None:
+    # "A r/t." then "49 - Revogam-se ...": the marker split across two lines. With the
+    # chain 1..3 the 49 reads as 4º, so the revogação opens an article the reader read.
+    text = (
+        "Art. 1º Fica criado.\nArt. 2º Texto dois.\nArt. 3º Texto três.\n"
+        "A r/t.\n49 - Revogam-se as disposições em contrário."
+    )
+    report = read_hierarchy(text)
+    assert _node(report, "art-4")["raw"] == "A r/t.\n49"
+    assert report["final_clause_placed"]
+    assert report["closes"]
+
+
+def test_unread_article_word_after_the_last_article_keeps_the_norm_open() -> None:
+    text = SIX_ARTICLES + "Art. T. Os recursos correrão à conta do orçamento."
+    report = read_hierarchy(text)
+    assert not report["tail_clean"]
+    assert not report["closes"]
+
+
+def test_numbered_line_for_the_next_article_keeps_the_norm_open() -> None:
+    # "7 - " is the next article number, unread; the reader does not read bare numbers.
+    text = SIX_ARTICLES + "7 - Revogam-se as disposições em contrário."
+    report = read_hierarchy(text)
+    assert not report["tail_clean"]
+    assert not report["closes"]
+
+
+def test_numbered_line_that_is_not_the_next_article_is_left_alone() -> None:
+    text = SIX_ARTICLES + "9 - Outro item qualquer."
+    report = read_hierarchy(text)
+    assert report["tail_clean"]
+    assert report["closes"]
+
+
+@pytest.mark.parametrize(
+    "closing",
+    [
+        "Art. 7º Esta Lei entra em vigor na data de sua publicação.",
+        "Art. 7º Revogam-se as disposições em contrário.",
+        "Art.\n7º - Esta Lei entra em vigor na data de sua publicação.",
+        "Art. 7º\nEsta Lei entra em vigor na data de sua publicação.",
+        "§ 1º Esta Lei entra em vigor na data de sua publicação.",
+        "§ único. Esta Lei entra em vigor na data de sua publicação.",
+        "(NR)\nEsta Lei entra em vigor na data de sua publicação.",
+    ],
+)
+def test_closing_sentence_placed_at_an_article_still_closes(closing: str) -> None:
+    report = read_hierarchy(SIX_ARTICLES + closing)
+    assert report["final_clause_placed"]
+    assert report["closes"]
+
+
+def test_closing_phrase_mid_paragraph_still_closes() -> None:
+    # Prose wrapped so that a line opens with a few words before the phrase.
+    text = (
+        "Art. 1º Fica criado o programa\n"
+        "data em que esta Lei entrar em vigor, observado o prazo.\n"
+        "Art. 2º Esta Lei entra em vigor na data de sua publicação."
+    )
+    report = read_hierarchy(text)
+    assert report["final_clause_placed"]
+    assert report["closes"]
+
+
+def test_closing_sentence_inside_a_quoted_block_is_not_judged() -> None:
+    # The quoted text of another norm carries a line that would fail the placement
+    # check; it belongs to the quotation, not to the host.
+    text = (
+        "Art. 1º A Lei nº 5 passa a vigorar com a seguinte redação:\n"
+        '"Art. 2º Texto citado.\n'
+        'Art. T. Esta Lei entra em vigor na data de sua publicação."\n'
+        "Art. 2º Os recursos correrão.\n"
+        "Art. 3º Esta Lei entra em vigor na data de sua publicação."
+    )
+    report = read_hierarchy(text)
+    assert report["final_clause_placed"]
+    assert report["closes"]
+
+
 # --- articles ---------------------------------------------------------------------
 def test_garbled_article_word_is_read_in_a_single_gap() -> None:
     # "Apt." stands in for a garbled word the reader does not recognise ("Ait." is now a
