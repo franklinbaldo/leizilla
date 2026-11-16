@@ -202,3 +202,60 @@ def test_suffix_candidate_does_not_invent_a_chain_break() -> None:
     assert [a["number"] for a in report["articles"]] == [1, 2, 3]
     assert all(a["suffix"] is None for a in report["articles"])
     assert report["closes"]
+
+
+def test_stray_e_opening_a_line_does_not_make_a_citation_of_the_article() -> None:
+    # lei-00460 and decreto-lei-00044: a lone "e" glyph above the last article. Read as
+    # a citation, "Art. 6º" was dropped and the norm closed one article short.
+    text = "Art. 1º Fica.\nArt. 2º Vigora.\n\ne Art. 3º - Revogam-se as disposições."
+    report = read_articles(text)
+    assert [a["status"] for a in report["articles"]] == ["own", "own", "own"]
+    assert report["closes"]
+
+
+def test_stray_e_before_a_blank_gap_is_read_as_the_article() -> None:
+    # decreto-lei-00044: "e" on its own line, two blank lines, then "Art. 29." (2º).
+    text = "Art. 19. Fica autorizado.\ne\n\n\nArt. 29. As garantias das operações."
+    report = read_articles(text)
+    assert [a["number"] for a in report["articles"]] == [1, 2]
+
+
+def test_citation_after_a_word_on_the_same_line_is_still_a_reference() -> None:
+    text = (
+        "Art. 1º Fica.\nAs regras do Art. 5º e Art. 6º da Constituição.\n"
+        "Art. 2º Esta Lei entra em vigor."
+    )
+    report = read_articles(text)
+    assert [a["status"] for a in report["articles"]] == [
+        "own",
+        "reference",
+        "reference",
+        "own",
+    ]
+    assert report["closes"]
+
+
+def test_bare_article_word_with_number_three_digits_glued_ordinal() -> None:
+    # lei-00054: "Art." on its own line, then "109" for "10º" (the º read as a 9).
+    lines = [f"Art. {n}º Texto {n}." for n in range(1, 10)]
+    text = "\n".join(lines) + "\nArt.\n\n109 - Esta Lei entra em vigor."
+    report = read_articles(text)
+    assert report["articles"][-1]["number"] == 10
+    assert report["closes"]
+
+
+def test_three_digit_article_with_glued_ordinal_pair_is_the_one_digit_article() -> None:
+    # lei-00325 and lei-00426: "Art. 220" and "Art. 290" are "Art. 2º".
+    for number in ("220", "290"):
+        text = f"Art. 1º Fica.\n Art. {number} - Esta Lei entra em vigor."
+        report = read_articles(text)
+        assert [a["number"] for a in report["articles"]] == [1, 2], number
+        assert report["closes"], number
+
+
+def test_article_word_with_separator_glyph_is_a_marker() -> None:
+    # lei-00086: "Art»" then the number on the next line.
+    text = "Art. 1º Fica.\nArt»\n2º Vigora.\nArt. 3º Esta Lei entra em vigor."
+    report = read_articles(text)
+    assert [a["number"] for a in report["articles"]] == [1, 2, 3]
+    assert report["closes"]
