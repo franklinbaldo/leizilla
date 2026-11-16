@@ -272,6 +272,7 @@ class TestUploadDataset:
             pub.upload_dataset(p, "ro", 0, row_count=1, git_sha=None)
         call_args = mock_run.call_args_list[0][0][0]
         assert "mediatype:data" in call_args
+        assert "--no-derive" in call_args
 
     def test_sidecar_json_is_uploaded(self, tmp_path: Path) -> None:
         """dataset_meta.json deve estar no comando ia upload."""
@@ -403,6 +404,7 @@ class TestUploadCoverage:
             result = pub.upload_coverage({"ente": "ro"}, "ro", 0)
         call_args = mock_run.call_args_list[0][0][0]
         assert "leizilla-dataset-ro-v0-latest" in call_args
+        assert "--no-derive" in call_args
         assert result["ia_id"] == "leizilla-dataset-ro-v0-latest"
         assert (
             result["ia_url"]
@@ -600,3 +602,75 @@ class TestReleaseDatasetBenchmark:
             result = _runner.invoke(app, ["release-dataset", str(p), "--dry-run"])
         assert "RFC sobre split" in result.output
         assert "2+" in result.output
+
+
+class TestNoDeriveOnDatasetUploads:
+    """Uploads a itens de dataset não pedem derive (ver ADR-0016 e o runbook do catálogo).
+
+    Cada upload de item de dataset dispara um derive no IA que é inútil para
+    Parquet/JSON e bloqueia uploads posteriores na fila do item. Só o upload de
+    PDFs brutos (``upload_raw``) mantém o derive.
+    """
+
+    def test_completeness_upload_passes_no_derive(self, tmp_path: Path) -> None:
+        pub = _publisher()
+        f = tmp_path / "completeness.json"
+        f.write_text("{}", encoding="utf-8")
+        with patch("subprocess.run", return_value=MagicMock(returncode=0)) as m:
+            result = pub.upload_completeness([f], "ro", 0)
+        call_args = m.call_args_list[0][0][0]
+        assert result["success"] is True
+        assert "--no-derive" in call_args
+        assert call_args[2] == "leizilla-dataset-ro-v0-latest"
+
+    def test_latest_pointer_upload_passes_no_derive(self, tmp_path: Path) -> None:
+        p = _make_parquet(tmp_path)
+        pub = _publisher()
+        with (
+            patch("leizilla.publisher._get_git_sha", return_value=None),
+            patch("subprocess.run", return_value=MagicMock(returncode=0)) as m,
+        ):
+            pub.upload_dataset(p, "ro", 0, row_count=1, git_sha=None)
+        latest_calls = [
+            c[0][0]
+            for c in m.call_args_list
+            if "leizilla-dataset-ro-v0-latest" in c[0][0]
+        ]
+        assert latest_calls, "latest pointer upload not issued"
+        assert all("--no-derive" in c for c in latest_calls)
+
+    def test_textos_upload_passes_no_derive(self, tmp_path: Path) -> None:
+        pub = _publisher()
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str]) -> MagicMock:
+            calls.append(args)
+            return MagicMock(returncode=0)
+
+        p = _make_parquet(tmp_path)
+        meta = {"revision": "20261114t000000z", "row_count": 1}
+        with patch.object(pub, "_run_ia_upload", side_effect=fake_run):
+            pub.upload_textos(p, meta, "ro", 0)
+        assert calls, "textos upload not issued"
+        assert all("--no-derive" in c for c in calls)
+
+    def test_raw_upload_keeps_derive(self, tmp_path: Path) -> None:
+        """upload_raw continua sem --no-derive: PDFs precisam do derive."""
+        pub = _publisher()
+        pdf_bytes = b"PDF content for derive check"
+        pdf_path = tmp_path / "LC42.pdf"
+        pdf_path.write_bytes(pdf_bytes)
+        lei_data = {
+            "ente": "ro",
+            "fonte": "casacivil",
+            "chave": "lc-00042",
+            "url_original": "http://ditel.casacivil.ro.gov.br/COTEL/Livros/Files/LC42.pdf",
+        }
+        with (
+            patch("leizilla.publisher._fetch_existing_index", return_value=None),
+            patch("subprocess.run", return_value=MagicMock(returncode=0)) as m,
+        ):
+            res = pub.upload_raw(pdf_path, lei_data, pdf_bytes, fetched_from="wayback")
+        assert res["success"] is True
+        args = m.call_args[0][0]
+        assert "--no-derive" not in args

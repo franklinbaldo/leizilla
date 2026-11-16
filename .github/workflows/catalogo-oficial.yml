@@ -53,12 +53,35 @@ jobs:
 
       # Fail-open: sem snapshot anterior a leitura recomeça do zero (limitada por
       # --max-fetch), em vez de falhar a rodada.
-      - name: Fetch previous catalog snapshot (se houver)
+      - name: Fetch previous catalog snapshot from IA (se houver)
         run: |
           mkdir -p /tmp/leizilla-catalogo
           curl -fsSL "https://archive.org/download/leizilla-dataset-${{ inputs.ente || 'ro' }}-v${{ inputs.dataset_version || '0' }}-latest/completeness_catalog.json.gz" \
-            -o /tmp/leizilla-catalogo/completeness_catalog.json.gz \
-          || { rm -f /tmp/leizilla-catalogo/completeness_catalog.json.gz; echo "Sem snapshot anterior do catálogo — leitura a partir do zero."; }
+            -o /tmp/leizilla-catalogo/snapshot-ia.json.gz \
+          || { rm -f /tmp/leizilla-catalogo/snapshot-ia.json.gz; echo "Sem snapshot anterior do catálogo no IA."; }
+
+      # Adicionado em 2026-11-16. O IA não garante leitura-após-escrita: um upload
+      # aceito pode ficar enfileirado atrás de outra tarefa do próprio item (um derive,
+      # na rodada de 2026-11-16) e a rodada seguinte relê o snapshot antigo. Por isso o
+      # snapshot também fica no cache do Actions, gravado ao fim de cada execução
+      # (mesmo em dry-run), e a escolha abaixo usa o que tiver mais listas anuais.
+      - name: Restore catalog snapshot cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/leizilla-catalogo/snapshot-cache.json.gz
+          key: catalogo-snapshot-${{ inputs.ente || 'ro' }}-${{ github.run_id }}
+          restore-keys: |
+            catalogo-snapshot-${{ inputs.ente || 'ro' }}-
+
+      # Adicionado em 2026-11-16: escolhe entre o snapshot do IA e o do cache o que
+      # tiver mais listas anuais (empate: o do IA). Sem nenhum, não cria o arquivo e a
+      # leitura começa do zero.
+      - name: Pick the larger catalog snapshot (IA ou cache)
+        run: |
+          uv run leizilla catalog-snapshot-pick \
+            /tmp/leizilla-catalogo/snapshot-ia.json.gz \
+            /tmp/leizilla-catalogo/snapshot-cache.json.gz \
+            --output /tmp/leizilla-catalogo/completeness_catalog.json.gz
 
       - name: Build catalog + relations
         run: |
@@ -109,6 +132,25 @@ jobs:
             --ente "${{ inputs.ente || 'ro' }}" \
             --version "${{ inputs.dataset_version || '0' }}" \
             $ALLOW_LOWER_FLAG
+
+      # Adicionado em 2026-11-16: copia o snapshot reconstruído para o caminho do cache
+      # e o grava. Roda sempre (inclusive em dry-run e após falha de release), para que
+      # o progresso de leitura não se perca mesmo sem publicação.
+      - name: Stage rebuilt catalog snapshot for cache
+        if: ${{ always() }}
+        run: |
+          if [ -f /tmp/leizilla-catalogo/completeness_catalog.json.gz ]; then
+            cp /tmp/leizilla-catalogo/completeness_catalog.json.gz /tmp/leizilla-catalogo/snapshot-cache.json.gz
+          else
+            echo "Sem snapshot reconstruído para gravar no cache."
+          fi
+
+      - name: Save catalog snapshot cache
+        if: ${{ always() }}
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/leizilla-catalogo/snapshot-cache.json.gz
+          key: catalogo-snapshot-${{ inputs.ente || 'ro' }}-${{ github.run_id }}
 
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}
