@@ -523,6 +523,28 @@ Regras:
   texto não vazio, âncoras dentro do texto, e piso de linhas do item `-latest` de `textos`.
   Os gates de `versoes` não mudam.
 
+### 3.5.1 Tabela `reocr` — tentativas de re-OCR direcionado (ADR-0019)
+
+Uma linha por tentativa `(norma, PDF, motor)`; publicada em `leizilla-reocr-{ente}-v{N}-{revision}` e `-latest` (`reocr.parquet`). Só as linhas **aceitas** carregam `texto`; as rejeitadas ficam como registro.
+
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| `texto_id`, `ente`, `fonte`, `tipo`, `numero` | VARCHAR/INTEGER | identidade da norma, como em `textos` |
+| `ia_item`, `pdf_url` | VARCHAR | PDF preservado de onde veio |
+| `sha256_fonte` | VARCHAR | sha256 da captura no `index.csv`; chave do elo com `textos.sha256_fonte` |
+| `sha256_pdf` | VARCHAR | sha256 dos bytes baixados (deve ser igual ao anterior; senão rejeita `pdf-sha256-diverge`) |
+| `paginas` | INTEGER | páginas do PDF |
+| `engine`, `engine_version`, `kreuzberg_version`, `parametros` | VARCHAR | motor (`paddleocr`), modelos, versão do Kreuzberg e parâmetros |
+| `aceito` | BOOLEAN | passou no portão |
+| `motivo` | VARCHAR | `aceito`, `nao-fecha`, `menos-artigos`, `pdf-sha256-diverge`, `excede-max-paginas`, `ocr-vazio`, `ocr-falhou` |
+| `artigos_ia`, `artigos_novo` | INTEGER | artigos próprios lidos por `read_hierarchy` antes/depois |
+| `fecha_ia`, `fecha_novo` | BOOLEAN | nível dos artigos fecha, antes/depois |
+| `segundos` | DOUBLE | tempo da tentativa |
+| `tentado_em` | VARCHAR | ISO 8601 UTC |
+| `sha256_texto`, `num_caracteres`, `texto` | VARCHAR/INTEGER | só nas aceitas; `texto` NULL nas rejeitadas |
+
+Sobreposição em `textos`: o texto aceito substitui o do IA quando `sha256_fonte` confere; a origem fica em `textos.ocr_motor` (`kreuzberg+paddleocr (re-OCR direcionado, ADR-0019)`), com a versão do Kreuzberg em `ocr_modulo_versao` e `sha1_texto_ia` vazio.
+
 ### 3.6 Tabela `completude` — livro-razão contra o índice oficial
 
 Responde "quanto da legislação da fonte está no acervo, e exatamente o que falta?". O

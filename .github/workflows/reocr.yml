@@ -1,0 +1,87 @@
+name: Re-OCR direcionado (reocr) — OCR próprio só onde o leitor não fecha
+
+# ADR-0019: para as normas cujo `read_hierarchy` não fecha os artigos sobre o OCR do
+# Internet Archive, baixa o PDF preservado, rasteriza (poppler) e relê com Kreuzberg +
+# PaddleOCR. O texto novo só vale se passar no portão determinístico (fecha e não perde
+# artigos); aceito ou rejeitado, a tentativa vira uma linha de reocr.parquet, publicado
+# em itens próprios (leizilla-reocr-{ente}-v{N}-{revision} + -latest). O texto do IA
+# nunca é alterado: o build-textos do dia seguinte (text-layer-release.yml, 05:13 UTC)
+# lê o -latest e sobrepõe o texto aceito.
+on:
+  schedule:
+    # Depois do release da camada de texto (05:13 UTC): o texto-base já reflete o
+    # acervo de hoje, e o build de amanhã aplica o que este run aceitar.
+    - cron: "27 6 * * *"
+  workflow_dispatch:
+    inputs:
+      ente:
+        description: "Ente federativo"
+        default: "ro"
+      limit:
+        description: "Máximo de normas a tentar nesta execução"
+        default: "60"
+      max_pages:
+        description: "PDFs com mais páginas são pulados (e contados)"
+        default: "40"
+      upload:
+        description: "Se 'true', publica reocr.parquet no IA; senão só constrói"
+        default: "false"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reocr
+  cancel-in-progress: false
+
+jobs:
+  reocr:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      # poppler rasteriza respeitando /Rotate (o OCR do Kreuzberg lê PDFs girados de
+      # cabeça para baixo). Já vem na imagem do runner; o apt só garante.
+      - name: Install poppler
+        run: sudo apt-get install -y --no-install-recommends poppler-utils
+
+      - run: uv sync --frozen --extra dev --extra reocr
+
+      # Modelos ONNX do PaddleOCR que o Kreuzberg baixa na primeira leitura (~20 MB).
+      - name: Cache PaddleOCR models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/kreuzberg
+          key: kreuzberg-paddleocr-${{ runner.os }}-4.10
+
+      - name: Re-OCR (fila → PDF → Kreuzberg+PaddleOCR → portão)
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          UPLOAD_FLAG=""
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.upload }}" = "true" ]; then UPLOAD_FLAG="--upload"; fi
+          uv run leizilla reocr \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --limit "${{ inputs.limit || '60' }}" \
+            --max-pages "${{ inputs.max_pages || '40' }}" \
+            --output /tmp/reocr.parquet \
+            $UPLOAD_FLAG
+
+      - name: Preserve candidate Parquet
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reocr-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/reocr.parquet
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "reocr / reocr"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
