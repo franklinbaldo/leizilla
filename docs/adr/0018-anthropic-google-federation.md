@@ -59,3 +59,14 @@ Anthropic rule or the Jatoba VM service account: those serve other workloads.
 
 References: [Google deployment pipeline federation](https://cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines),
 [Anthropic Google federation](https://platform.claude.com/docs/en/manage-claude/wif-providers/gcp).
+
+## Acceptance evidence — 2026-11-16
+
+- [PR #355](https://github.com/franklinbaldo/leizilla/pull/355), merged as `defd27df5dcf800cb5f3337326530ed9866ed2c7`.
+- [Linux CI](https://github.com/franklinbaldo/leizilla/actions/runs/43922882595): 1459 passed, 12 skipped; lint, format, mypy, and DAG checks passed.
+- [Live authentication](https://github.com/franklinbaldo/leizilla/actions/runs/43923440613): two fresh identity/exchange cycles; models access and free token counting succeeded (14 input tokens each).
+- [Teacher plan](https://github.com/franklinbaldo/leizilla/actions/runs/43923564065): `step=plan`, `limit=1`, `tipo=lei`, completed successfully. No paid submit or harvest change.
+
+Renewal scheduling and failure cleanup were tested offline with a simulated
+clock; the live smoke forced two immediate identity/exchange cycles rather than
+waiting for a one-hour Google token to expire.
