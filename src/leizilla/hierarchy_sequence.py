@@ -981,24 +981,16 @@ def _article_numbers(text: str, start: int) -> list[int]:
     return article_readings(m.group("num"), m.group("ord") is not None)
 
 
-def _glued_suffix(m: re.Match[str]) -> str | None:
-    """A letter suffix only when glued ("Art. 8º-A"), not "Art. 8º - A lei"."""
-    suffix = m.group("suffix")
-    if suffix is None:
-        return None
-    return suffix if re.search(r"\S-[A-Z]\Z", m.group(0)) else None
-
-
 def _article_marker_end(text: str, start: int, fallback: int) -> tuple[int, str | None]:
     """End of an article marker proper, and its letter suffix if it really has one.
 
-    The article candidate pattern swallows " - A" in "Art. 2º - A lei"; that "A" is the
-    first word of the caput, not a suffix.
+    The suffix rule ("Art. 8º-A" yes, "Art. 2º - A lei" no) lives in
+    ``ARTICLE_CANDIDATE``, so both readers agree on it.
     """
     m = ARTICLE_CANDIDATE.match(text, start)
     if m is None:
         return fallback, None
-    suffix = _glued_suffix(m)
+    suffix = m.group("suffix")
     if suffix is not None:
         return m.end(), suffix
     return (m.end("ord") if m.group("ord") is not None else m.end("num")), None

@@ -29,10 +29,25 @@ from typing import Sequence, TypedDict
 # "Art" + optional separator + number-like token. The token allows the letters OCR
 # substitutes for digits (I, l for 1; O for 0). Whitespace may include line breaks:
 # typewritten scans come out one word per line.
+#
+# The prefix: "Art"/"ART"/"Artigo"/"ARTIGO" (lowercase "art." stays a mid-sentence
+# citation, never a marker), plus OCR variants. "Ait", "Alt" only count at the start of
+# a line and only before a number-like token, so "Alto Paraíso" and "Alta Floresta" are
+# not markers; "A r/t." is OCR for "Art.".
+#
+# The letter suffix ("Art. 5º-A") is a single capital glued to the number by a hyphen
+# and followed by a non-letter that ends the marker: ".", ":", a dash, end of line, or a
+# dash after spaces. "Art. 2º - A Comissão" and "Art. 25-O Tesoureiro" are a separator
+# plus the first word of the caput, not a suffix.
 ARTICLE_CANDIDATE = re.compile(
-    r"\b(?:Art|AH|Arl|Aft)\s*[.,:]?\s*(?P<num>[0-9IlO]{1,4})"
+    r"(?:"
+    r"\b(?:ART(?:IGO)?|Art(?:igo)?|AH|Arl|Aft)"
+    r"|(?<![^\n])[ \t]*(?:Ait|Alt)(?=\.?\s*[0-9Il])"
+    r"|\bA\s?r/t(?=\.?\s*[0-9Il])"
+    r")"
+    r"\s*[.,:]?\s*(?P<num>[0-9IlO]{1,4})"
     r"(?P<ord>\s?[ºo°ªQ^?])?"
-    r"(?:\s?-\s?(?P<suffix>[A-Z])\b)?"
+    r"(?:-(?P<suffix>[A-Z])(?=[.:\-–—]|[ \t]*[\-–—]|[ \t]*(?:\n|\Z)))?"
 )
 _OCR_DIGITS = str.maketrans({"I": "1", "l": "1", "O": "0"})
 # Digits the ordinal indicator is misread as when glued to the number ("4º" -> "42").

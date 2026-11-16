@@ -599,16 +599,18 @@ def test_final_clause_flags_a_text_cut_short() -> None:
 
 # --- articles ---------------------------------------------------------------------
 def test_garbled_article_word_is_read_in_a_single_gap() -> None:
-    text = "Art. 1º Fica.\nAit. 2o. Esta Lei entra em vigor.\nArt. 3º Revogam-se."
+    # "Apt." stands in for a garbled word the reader does not recognise ("Ait." is now a
+    # marker in its own right, see test_ait_and_alt_at_line_start_are_article_markers).
+    text = "Art. 1º Fica.\nApt. 2o. Esta Lei entra em vigor.\nArt. 3º Revogam-se."
     report = read_hierarchy(text)
     second = _node(report, "art-2")
-    assert second["raw"].startswith("Ait.")
+    assert second["raw"].startswith("Apt.")
     assert second["corrected"]
     assert report["closes"]
 
 
 def test_two_garbled_candidates_in_a_gap_are_left_alone() -> None:
-    text = "Art. 1º Fica.\nAit. 2o. Um.\nApt. 20 Outro.\nArt. 3º Revogam-se."
+    text = "Art. 1º Fica.\nApt. 2o. Um.\nApt. 20 Outro.\nArt. 3º Revogam-se."
     report = read_hierarchy(text)
     assert not report["levels"]["artigo"]["closes"]
 
@@ -673,3 +675,12 @@ def test_large_document_is_read_in_reasonable_time() -> None:
     assert report["levels"]["alinea"]["nodes"] == 4600
     assert report["closes"]
     assert elapsed < 20, f"{elapsed:.1f}s for {len(text)} characters"
+
+
+def test_ait_with_unreadable_number_is_read_in_a_single_gap() -> None:
+    # "Ait. T" for "Art. 2º": no number to read, but it is the only candidate between
+    # 1 and 3, so the sequence reads it (the article reader leaves "T" alone).
+    report = read_hierarchy("Art. 1º Fica.\nAit. T Esta Lei.\nArt. 3º Vigora.")
+    second = _node(report, "art-2")
+    assert second["raw"].startswith("Ait. T")
+    assert second["corrected"]
