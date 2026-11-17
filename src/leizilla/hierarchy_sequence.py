@@ -1500,6 +1500,41 @@ def _tail_article(
     }
 
 
+_FORMULA_END = re.compile(
+    r"(?:Lei|Decreto|Resolu\S*|decreta|promulga)\s*[:;.]?\s*$", re.IGNORECASE
+)
+
+
+def _quote_under_amending_host(text: str, articles: list[ArticleRead]) -> None:
+    """Read a leftover marker inside an amending host article as quoted text.
+
+    An article whose own text speaks the vocabulary of an amendment ("passa a vigorar
+    com a seguinte redação", "acrescido") quotes other articles; one the chain could
+    not place, after that vocabulary and before the next own article, is one of them
+    whose quotation marks were lost.
+    """
+    host: ArticleRead | None = None
+    top = max(
+        (a["number"] for a in articles if a["status"] == "own" and a["number"]),
+        default=0,
+    )
+    for art in articles:
+        if art["status"] == "own":
+            host = art
+        elif art["status"] == "unexplained" and host is not None:
+            readings = _article_numbers(text, art["start"])
+            before = text[max(0, art["start"] - 20) : art["start"]]
+            if (
+                readings
+                and (
+                    min(readings) > top
+                    or not (_QUOTE_CHAR.search(before) or _FORMULA_END.search(before))
+                )
+                and _AMEND_CUE.search(text, host["start"], art["start"])
+            ):
+                art["status"] = "quoted"
+
+
 def find_body_end(text: str, last_article_start: int) -> int:
     """Where the articulated body stops: the closing formula or the first annex."""
     m = _BODY_END.search(text, last_article_start)
@@ -1650,6 +1685,7 @@ def read_hierarchy(text: str) -> HierarchyReport:
     builder.masked = masked
     all_articles, gap_articles = _fill_article_gaps(text, second["articles"], masked)
 
+    _quote_under_amending_host(text, all_articles)
     own = [a for a in all_articles if a["status"] == "own"]
     own_numbers = {a["number"] for a in own if a["number"] is not None}
     last_article = max(own_numbers, default=0)

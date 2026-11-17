@@ -1173,3 +1173,49 @@ def test_lone_marker_over_debris_fills_a_single_gap() -> None:
         "Art. 3º Esta Lei entra em vigor na data de sua publicação.\n"
     )
     assert _own_numbers(read_hierarchy(text)) == [1, 2, 3]
+
+
+# --- tournament round 6 -------------------------------------------------------------
+# lei-00952 / lc-00164 and others: an amending host quotes whole articles without any
+# quotation mark; the ones the chain cannot place are quoted text, not lost markers.
+def test_unplaced_far_ahead_marker_under_an_amending_host_is_quoted() -> None:
+    text = (
+        "Art. 1º Os artigos abaixo passam a vigorar com a seguinte redação:\n"
+        "Art. 181 - A autoridade que tiver ciência de irregularidade é obrigada a"
+        " promover a sua apuração.\n"
+        "Art. 182 - Haverá uma Comissão Permanente de Sindicância.\n"
+        "Art. 2º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    report = read_hierarchy(text)
+    assert _own_numbers(report) == [1, 2]
+    assert report["levels"]["artigo"]["unexplained"] == 0
+    assert report["levels"]["artigo"]["closes"]
+
+
+def test_far_ahead_marker_under_a_host_without_amending_words_stays_unexplained() -> (
+    None
+):
+    # Guard: no amendment vocabulary in the host article, so a stray far-ahead marker
+    # is still reported as unexplained (a possible lost marker), not hidden.
+    text = (
+        "Art. 1º Fica criado o conselho.\n"
+        "Art. 181 - A autoridade que tiver ciência de irregularidade.\n"
+        "Art. 2º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    report = read_hierarchy(text)
+    assert report["levels"]["artigo"]["unexplained"] == 1
+    assert not report["closes"]
+
+
+def test_repeated_number_right_after_a_closing_mark_is_still_a_host_article() -> None:
+    # Guard (lei-00297): "Art. 2º" repeating a number right after the closing quote is
+    # the host's own article, never folded into the quote.
+    text = (
+        "Art. 1º O decreto passa a vigorar com a seguinte redação:\n"
+        "Art. 2º - As promoções serão por merecimento, conforme o conceito"
+        " profissional.\n"
+        'com aproveitamento".\n\n'
+        "Art. 2º - Fica alterado o artigo.\n"
+        "Art. 3º - Esta Lei entra em vigor.\n"
+    )
+    assert _own_numbers(read_hierarchy(text))[-2:] == [2, 3]
