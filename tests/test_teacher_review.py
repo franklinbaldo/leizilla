@@ -1663,7 +1663,7 @@ class TestWorkflow:
         for new in ("mode", "select", "ids_file", "canary_share", "canary_ids_file"):
             assert new in inputs
         assert inputs["mode"]["default"] == "label"
-        assert inputs["mode"]["options"] == ["label", "review"]
+        assert inputs["mode"]["options"] == ["label", "review", "mark"]
 
     def test_authentication_and_permissions_are_untouched(self) -> None:
         wf = self._wf()
