@@ -79,7 +79,9 @@ página depois do corpo).
 
 `art ⊃ par | inc | ali | item`; `par ⊃ inc | ali | item`; `inc ⊃ ali | item`;
 `ali ⊃ item`. Organizacionais aninham de fora para dentro (parte, liv, tit, cap, sec,
-subsec) e contêm artigos. `ruido`, `ref` e `nota` cabem em qualquer lugar. A fonte da
+subsec) e contêm artigos. `ruido`, `ref` e `nota` cabem em qualquer lugar; `anexo`
+cabe também dentro de um dispositivo (tabela entre dois parágrafos de um artigo, o
+caso do documento que o modo mark do professor monta; o leitor não o emite). A fonte da
 verdade é `marcacao.children_allowed`; `tests/test_marcacao.py` compara o XSD com ela.
 
 ### Sobreposição
