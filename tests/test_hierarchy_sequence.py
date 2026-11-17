@@ -1270,3 +1270,168 @@ def test_lowercase_art_inside_prose_is_not_article_one() -> None:
         "Art. 2º - Esta Lei entra em vigor.\n"
     )
     assert 1 not in _own_numbers(read_hierarchy(text))
+
+
+# --- tournament round 8: closure checks and the unread-marker count -----------------
+def _closes(text: str) -> bool:
+    return bool(read_hierarchy(text)["levels"]["artigo"]["closes"])
+
+
+_BODY = "Art. 1º - Fica criado o cargo.\nArt. 2º - Fica criado o fundo.\n"
+
+
+# lei-00351 (740b585a): the ordinal sign of the last article read as "s" ("3s -").
+def test_ordinal_sign_read_as_a_letter_does_not_hide_the_last_article() -> None:
+    text = (
+        _BODY
+        + "Art.\n3s - Revogam-se as disposições em contrário.\n\nPalácio do Governo\n"
+    )
+    assert _closes(text)
+
+
+def test_ordinal_letter_without_a_marker_still_leaves_the_norm_open() -> None:
+    # The marker itself was lost: only "3s -" is left before the closing sentence.
+    text = (
+        _BODY
+        + "\n\n3s - Revogam-se as disposições em contrário.\n\nPalácio do Governo\n"
+    )
+    assert not _closes(text)
+
+
+# decreto-lei-00008 (unlabelled): an inciso "III- Somente apos ..." is not a garbled
+# article word, whatever caput word follows it.
+def test_roman_numeral_item_is_not_read_as_a_garbled_article() -> None:
+    text = (
+        "Art. 1º - Fica criado o cargo.\nArt. 2º - A promoção obedecerá:\n"
+        "II- No caso de merecimento, sera votado lista tríplice;\n\n"
+        "III- Somente apos 2 (dois) anos de exercício, podera o Juiz ser promovido.\n"
+        "Art. 4º - Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2, 4]
+    assert not _closes(text)
+
+
+# 339656dd: "exceto em relação ao\nart. 1º que surtirá efeitos" cites an article.
+def test_citation_broken_across_lines_after_the_last_article_is_not_a_lost_marker() -> (
+    None
+):
+    text = _BODY + (
+        "Art. 3º Este Decreto entra em vigor na data de sua publicação, exceto em"
+        " relação ao\nart. 1º que surtirá efeitos a partir de 1º de janeiro.\n\n"
+        "Palácio do Governo do Estado\n"
+    )
+    assert _closes(text)
+
+
+# lei-00255 (0d68149f): "Al 15 de dezembro de 1989" is the date of a signature.
+def test_signature_date_after_the_last_article_is_not_an_article_marker() -> None:
+    text = _BODY + (
+        "Art. 3º - Revogam-se as disposições em contrário.\n\n"
+        "Al 15 de dezembro de 1989\n\nDeputado\n"
+    )
+    assert _closes(text)
+
+
+# lei-00401 (a05e2daf): "4.\n\nPROCESSO" in an annex table is not "4 - Revogam-se".
+def test_number_on_its_own_line_before_a_table_header_is_not_a_lost_article() -> None:
+    text = _BODY + (
+        "Art. 3º - Esta Lei entra em vigor na data de sua publicação.\n\n"
+        "4.\n\n\nPROCESSO\nDISCRIMINAÇÃO\n"
+    )
+    assert _closes(text)
+
+
+# decreto-lei-00002 (a9d24943): "09. Secretaria de Estado" in a budget table.
+def test_zero_padded_table_row_is_not_the_next_article() -> None:
+    text = (
+        "Art. 1º - Fica criado o cargo.\nArt. 2º - Fica criado o fundo.\n"
+        "Art. 3º - Revogam-se as disposições em contrário.\n\n"
+        "03. Secretaria de Estado do Trabalho\n"
+        "04. Secretaria de Estado da Agricultura\n"
+    )
+    assert _closes(text)
+
+
+def test_article_number_opener_after_the_last_article_still_blocks_closure() -> None:
+    text = _BODY + "Art. 3º - Fica criado o prazo.\n\n4 - Revogam-se as disposições.\n"
+    assert not _closes(text)
+
+
+# lei-00862 (07edf7c8): the legislative signature line ends the body.
+def test_legislative_signature_line_ends_the_articulated_body() -> None:
+    text = _BODY + (
+        "Art. 3º - Revogam-se as disposições em contrário.\n"
+        "ASSEMBLÉIA LEGISLATIVA, 20 de dezembro de 1999.\n\n"
+        "À\n\n/\nAL\nMH)\n"
+    )
+    assert _closes(text)
+
+
+# lc-00096 (ea427b24): an annex heading cites an article in the middle of a line.
+def test_article_cited_inside_an_annex_heading_does_not_leave_the_norm_open() -> None:
+    text = _BODY + (
+        "Art. 3º - Esta Lei entra em vigor na data de sua publicação.\n\n"
+        "Palácio do Governo do Estado de Rondônia\n\n"
+        "ANEXO IV\nTABELAS SALARIAIS\nLC No 67/92 - ART. 6o\n"
+    )
+    assert _closes(text)
+
+
+def test_article_opening_a_line_after_the_body_still_leaves_the_norm_open() -> None:
+    text = _BODY + (
+        "Art. 3º - Esta Lei entra em vigor na data de sua publicação.\n\n"
+        "Palácio do Governo do Estado de Rondônia\n\nANEXO\n\n"
+        "Art. 2° O cargo é privativo de servidor.\n"
+    )
+    assert not _closes(text)
+
+
+# lc-01063 (e26a6a32): a message before the enacting formula quotes proposed articles.
+def test_marker_before_the_first_own_article_is_not_an_unread_article() -> None:
+    text = (
+        "MENSAGEM. A proposta prevê o seguinte, que segue:\n\n"
+        "Art. 9°. Somente poderão ser credenciadas como consignatárias as associações.\n\n"
+        "A ASSEMBLÉIA LEGISLATIVA decreta:\n\n"
+        + _BODY
+        + "Art. 3º - Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    assert _closes(text)
+
+
+# --- tournament round 9 -------------------------------------------------------------
+# lei-00740 (43aa8c7c): a stray quotation mark glued to the closing article.
+def test_stray_quotation_mark_before_the_closing_article_does_not_open_a_block() -> (
+    None
+):
+    text = (
+        "Art. 1º - Fica o Poder Executivo autorizado a adotar as providências.\n"
+        "Art. 2º - Esta Lei entra em vigor na data de sua publicação.\n\n"
+        "“Art. 3º - Revogam-se as disposições em contrário.\n\n"
+        "Palácio do Governo do Estado de Rondônia\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2, 3]
+    assert _closes(text)
+
+
+def test_quotation_mark_before_an_article_that_is_closed_stays_a_quote() -> None:
+    text = (
+        "Art. 1º - Fica alterado o artigo 3º da Lei nº 5, que passa a vigorar com a"
+        " seguinte redação:\n“Art. 3º - Revogam-se as disposições em contrário.”\n"
+        "Art. 2º - Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2]
+
+
+# lei-00578 (a3ef0197): "Art. 10-0 Art. 69 da Lei nº 435" cites the article it amends.
+def test_amended_article_cited_as_the_caput_subject_is_not_an_unread_article() -> None:
+    text = (
+        "Faço saber que a Assembléia Legislativa decreta e eu sanciono a seguinte"
+        " Lei:\n\n\nArt. 10-0 Art. \n69 \nda \nLei \nnQ \n435, \nde \n\n\n"
+        "29 de setembro de \n1992, \npassa a vigorar com a seguinte redação: \n\n\n"
+        '"Art. \n6Q \n- \nOs membros do Conselho farão jus a uma gratificação.\n\n\n'
+        '§ 3Q - Integra, ainda, o Conselho um Secretário-Geral."\n\n\n'
+        "Art. \n2° \n- Esta Lei entra em vigor na data de sua publicação.\n\n\n"
+        "Art. 3° - Revogam-se as disposições em contrário.\n"
+    )
+    assert _unexplained(read_hierarchy(text)) == []
+    assert _closes(text)
