@@ -115,3 +115,29 @@ texto. Com a leitura atual, a sequência fecha em 1689 das 2115 normas (79,9%).
   que uma troca futura seja rastreável.
 - Extrair ano, data ou ementa do texto não estruturado, e estender âncoras a parágrafos,
   incisos e alíneas (frente `boundary-decision-parser`).
+
+## Adendo 2026-11-17 — fecha e âncoras vêm do leitor de hierarquia
+
+`artigos_fecham`, `artigos_total`, `artigos_ultimo` e `ancoras` deixam de derivar de
+`article_sequence.read_articles` e passam a derivar de `hierarchy_sequence.read_hierarchy`
+(nível dos artigos). `artigos_fecham` é `hierarchy_sequence.article_closes`, a mesma função
+que o placar do ratchet (`scripts/compare_teacher_reader.py`) e os portões do re-OCR
+(`textlayer.read_closure`) usam: uma só noção de "fecha" no código. `ancoras` mantém o
+formato e o significado (`ini`/`fim` = marcador do artigo, code points); um artigo recuperado
+de uma frase de encerramento sem marcador ganha âncora que começa na frase, com `fim` na
+primeira palavra. O contrato do Parquet (`TEXTOS_SCHEMA`) não muda; `read_articles` continua
+no código, usado internamente pelo leitor de hierarquia, mas nenhuma coluna publicada depende
+dele diretamente.
+
+Motivo, medido: com o marcador do último artigo apagado, `read_articles` ainda declarava a
+norma fechada em 358 de 364 casos; `read_hierarchy` tem checagens de fim de norma e é o leitor
+guardado pelo ratchet.
+
+Números sobre a camada publicada de 2026-11-17 (2192 normas), com o código atual: ambos
+fecham 1821; só a hierarquia fecha 240; só o leitor antigo fecha 7; nenhum fecha 124. Das 7
+que perdem a bandeira, 5 o leitor antigo fechava lendo um artigo citado como se fosse da norma
+ou um texto sem a parte final (lei 392, 595, 748, 1315, 1417), 1 é recusa por cautela do
+leitor novo (lei 1698: anexo orçamentário faz a cauda parecer ter um artigo não lido) e 1 é
+incerta (lei 529). Nas 15 normas amostradas (semente 3) das que só a hierarquia fecha, 14 estão
+certas e 1 é incerta (lei 1691, "Art. 3º" impresso duas vezes). Custo: mediana 1,1 ms por texto
+(p95 9 ms, máx. 373 ms) contra 0,28 ms do leitor antigo; 6,8 s para os 2086 textos em cache.

@@ -118,6 +118,106 @@ def test_article_anchors_point_at_verbatim_markers() -> None:
     ]
 
 
+_HEAD = (
+    "Art. 1º - Fica criado o órgão de controle.\n"
+    "Art. 2º - Os recursos serão aplicados na forma da lei.\n"
+    "Art. 3º - O órgão prestará contas anualmente.\n"
+)
+_VIGENCIA = "Esta Lei entra em vigor na data de sua publicação.\n"
+_REVOGACAO = "Revogam-se as disposições em contrário.\n"
+
+
+def test_fecha_follows_the_hierarchy_reader_not_the_article_only_reader() -> None:
+    from leizilla.article_sequence import read_articles
+
+    # Last article's marker deleted while the closing sentence follows: the
+    # article-only reader still sees 1..4 and closes; the hierarchy reader has
+    # end-of-norm checks and refuses (ADR-0015, adendo 2026-11-17).
+    text = _HEAD + "Art. 4º - " + _VIGENCIA + _REVOGACAO
+    assert read_articles(text)["closes"] is True
+    anchors, closes, _ = textlayer.article_anchors(text)
+    assert closes is False
+    row = textlayer.build_row(
+        ente="ro",
+        fonte="casacivil",
+        tipo="lei",
+        numero=9,
+        rendicao="r",
+        sha256_fonte="s",
+        capturado_em="2026-01-01",
+        ia_item="i",
+        pdf_name="p.pdf",
+        texto_name="t.txt",
+        text_bytes=text.encode(),
+    )
+    assert row["artigos_fecham"] is False
+
+
+def test_orphan_closing_sentence_is_recovered_as_a_valid_anchor() -> None:
+    text = _HEAD + _VIGENCIA
+    anchors, closes, last = textlayer.article_anchors(text)
+    assert closes is True and last == 4
+    assert [a["n"] for a in anchors] == [1, 2, 3, 4]
+    recovered = anchors[-1]
+    assert text[recovered["ini"] : recovered["fim"]] == "Esta"
+    assert 0 <= recovered["ini"] < recovered["fim"] <= len(text)
+    row = textlayer.refresh_anchors(
+        {**{k: None for k in textlayer.TEXTOS_SCHEMA}, "texto": text}
+    )
+    assert row["artigos_total"] == 4 and row["artigos_ultimo"] == 4
+    assert json.loads(row["ancoras"]) == anchors
+
+
+_SYNTHETIC = [
+    _HEAD + "Art. 4º - " + _VIGENCIA + "Art. 5º - " + _REVOGACAO,
+    _HEAD + _VIGENCIA,
+    _HEAD + _VIGENCIA + "\n" + _REVOGACAO,
+    _HEAD,
+    "Art. 1º - Único artigo da norma.\n",
+    "texto sem artigos\n",
+    "",
+    "Art. 1º - Altera a Lei:\n“Art. 2º - texto citado.”\nArt. 2º - " + _VIGENCIA,
+    "𝔘 " + _HEAD + _VIGENCIA,
+]
+
+
+@pytest.mark.parametrize("text", _SYNTHETIC)
+def test_anchors_are_valid_for_every_synthetic_norm(text: str) -> None:
+    anchors, closes, last = textlayer.article_anchors(text)
+    previous_end = 0
+    for a in anchors:
+        assert previous_end <= a["ini"] < a["fim"] <= len(text)
+        previous_end = a["fim"]
+    assert last == max((a["n"] for a in anchors), default=0)
+    if closes:
+        assert [a["n"] for a in anchors] == list(range(1, len(anchors) + 1))
+
+
+def test_one_closure_function_serves_text_layer_scoreboard_and_gates() -> None:
+    import sys
+
+    from leizilla import hierarchy_sequence as hs
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    try:
+        import compare_teacher_reader as cmp
+    finally:
+        sys.path.pop(0)
+
+    assert cmp.article_closes is hs.article_closes
+    for text in _SYNTHETIC:
+        report = hs.read_hierarchy(text)
+        _, closes, _ = textlayer.article_anchors(text)
+        assert closes is hs.article_closes(report)
+        assert textlayer.read_closure(text) == hs.article_closure(text)
+        group = cmp.compare_norm(
+            {"item": "i", "txt_name": "t", "uuid5": "u", "tipo": "lei", "numero": 1},
+            [],
+            text,
+        )
+        assert group["reader_closes_articles"] is closes
+
+
 def test_build_one_row_per_norm_newest_capture_with_text() -> None:
     ia = _default_ia()
     rows, stats = _build(ia)
