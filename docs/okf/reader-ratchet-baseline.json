@@ -231,6 +231,7 @@
     "leizilla_ro_casacivil_decreto_10001-11000/c76e8d9a",
     "leizilla_ro_casacivil_decreto_10001-11000/c7ae170c",
     "leizilla_ro_casacivil_decreto_10001-11000/c8ea9ec1",
+    "leizilla_ro_casacivil_decreto_10001-11000/c954a4b2",
     "leizilla_ro_casacivil_decreto_10001-11000/caa23c86",
     "leizilla_ro_casacivil_decreto_10001-11000/cd7a6c77",
     "leizilla_ro_casacivil_decreto_10001-11000/cf4b0ffe",
@@ -407,6 +408,7 @@
     "leizilla_ro_casacivil_lc_0001-1000/96f55545",
     "leizilla_ro_casacivil_lc_0001-1000/97861555",
     "leizilla_ro_casacivil_lc_0001-1000/9adca09b",
+    "leizilla_ro_casacivil_lc_0001-1000/9b30bf00",
     "leizilla_ro_casacivil_lc_0001-1000/9b755ba9",
     "leizilla_ro_casacivil_lc_0001-1000/9df7c0a5",
     "leizilla_ro_casacivil_lc_0001-1000/9e191231",
@@ -420,6 +422,7 @@
     "leizilla_ro_casacivil_lc_0001-1000/a5eb4256",
     "leizilla_ro_casacivil_lc_0001-1000/a6228394",
     "leizilla_ro_casacivil_lc_0001-1000/a7056665",
+    "leizilla_ro_casacivil_lc_0001-1000/aa1b8e1e",
     "leizilla_ro_casacivil_lc_0001-1000/ad1aa404",
     "leizilla_ro_casacivil_lc_0001-1000/ad4649fc",
     "leizilla_ro_casacivil_lc_0001-1000/b11967e8",
@@ -488,6 +491,7 @@
     "leizilla_ro_casacivil_lc_0001-1000/fa6c1cb2",
     "leizilla_ro_casacivil_lc_0001-1000/fbcf3227",
     "leizilla_ro_casacivil_lc_0001-1000/fccf9c42",
+    "leizilla_ro_casacivil_lc_0001-1000/fe38326a",
     "leizilla_ro_casacivil_lc_0001-1000/fe9838a8",
     "leizilla_ro_casacivil_lc_0001-1000/feeebd48",
     "leizilla_ro_casacivil_lc_0001-1000/ff17daea",
@@ -681,6 +685,7 @@
     "leizilla_ro_casacivil_lei_0001-1000/43e0e273",
     "leizilla_ro_casacivil_lei_0001-1000/43e21639",
     "leizilla_ro_casacivil_lei_0001-1000/43f0e67a",
+    "leizilla_ro_casacivil_lei_0001-1000/441ee8c7",
     "leizilla_ro_casacivil_lei_0001-1000/446d8860",
     "leizilla_ro_casacivil_lei_0001-1000/44c5af29",
     "leizilla_ro_casacivil_lei_0001-1000/44cfcb85",
@@ -819,6 +824,7 @@
     "leizilla_ro_casacivil_lei_0001-1000/71ffcf4f",
     "leizilla_ro_casacivil_lei_0001-1000/72614d4c",
     "leizilla_ro_casacivil_lei_0001-1000/728eb9db",
+    "leizilla_ro_casacivil_lei_0001-1000/7396ab43",
     "leizilla_ro_casacivil_lei_0001-1000/73e23e07",
     "leizilla_ro_casacivil_lei_0001-1000/74ab83b7",
     "leizilla_ro_casacivil_lei_0001-1000/74b380c4",
@@ -941,6 +947,7 @@
     "leizilla_ro_casacivil_lei_0001-1000/9ee1ad2f",
     "leizilla_ro_casacivil_lei_0001-1000/9ef0fef1",
     "leizilla_ro_casacivil_lei_0001-1000/9f2fa2f3",
+    "leizilla_ro_casacivil_lei_0001-1000/9f411c76",
     "leizilla_ro_casacivil_lei_0001-1000/9fda24f4",
     "leizilla_ro_casacivil_lei_0001-1000/9fef176c",
     "leizilla_ro_casacivil_lei_0001-1000/a02533ae",
@@ -1097,6 +1104,7 @@
     "leizilla_ro_casacivil_lei_0001-1000/d52d1945",
     "leizilla_ro_casacivil_lei_0001-1000/d535b567",
     "leizilla_ro_casacivil_lei_0001-1000/d550c10d",
+    "leizilla_ro_casacivil_lei_0001-1000/d55d3c7a",
     "leizilla_ro_casacivil_lei_0001-1000/d591ba76",
     "leizilla_ro_casacivil_lei_0001-1000/d598e453",
     "leizilla_ro_casacivil_lei_0001-1000/d5b751d5",
@@ -1330,6 +1338,7 @@
     "leizilla_ro_casacivil_lei_1001-2000/327629d7",
     "leizilla_ro_casacivil_lei_1001-2000/32cd1e64",
     "leizilla_ro_casacivil_lei_1001-2000/330a0fa6",
+    "leizilla_ro_casacivil_lei_1001-2000/33592ad9",
     "leizilla_ro_casacivil_lei_1001-2000/336b5175",
     "leizilla_ro_casacivil_lei_1001-2000/33cb6a1c",
     "leizilla_ro_casacivil_lei_1001-2000/34fba57d",
@@ -1784,10 +1793,10 @@
     "leizilla_ro_casacivil_lei_1001-2000/ffccf04f"
   ],
   "counts": {
-    "agree_closed": 1782,
-    "agree_open": 95,
+    "agree_closed": 1791,
+    "agree_open": 96,
     "disagree_closed": 1,
-    "disagree_open": 201,
+    "disagree_open": 191,
     "teacher_inconsistent": 7
   },
   "date": "2026-11-17",
@@ -1807,6 +1816,33 @@
       "forced": false,
       "reader_commit": "7fa04eeaffff4e5dca34111aaabb5974b397373e",
       "reason": "initial baseline"
+    },
+    {
+      "counts": {
+        "agree_closed": 1791,
+        "agree_open": 96,
+        "disagree_closed": 1,
+        "disagree_open": 191,
+        "teacher_inconsistent": 7
+      },
+      "date": "2026-11-17",
+      "entered_agree_closed": [
+        "leizilla_ro_casacivil_decreto_10001-11000/c954a4b2",
+        "leizilla_ro_casacivil_lc_0001-1000/9b30bf00",
+        "leizilla_ro_casacivil_lc_0001-1000/aa1b8e1e",
+        "leizilla_ro_casacivil_lc_0001-1000/fe38326a",
+        "leizilla_ro_casacivil_lei_0001-1000/441ee8c7",
+        "leizilla_ro_casacivil_lei_0001-1000/7396ab43",
+        "leizilla_ro_casacivil_lei_0001-1000/9f411c76",
+        "leizilla_ro_casacivil_lei_0001-1000/d55d3c7a",
+        "leizilla_ro_casacivil_lei_1001-2000/33592ad9"
+      ],
+      "entered_disagree_closed": [],
+      "forced": false,
+      "left_agree_closed": [],
+      "left_disagree_closed": [],
+      "reader_commit": "0fb4d91b49c2020ee0abb851dcbf8f33db37bffd",
+      "reason": "tournament round 1: promoted art-dash, Arte/Arts/Arto, Ar./Ari., slash garble, ARt. marker"
     }
   ],
   "labels": {
@@ -1819,7 +1855,7 @@
     "prompt_version": "teacher-labels-v1",
     "source": "teacher-batch-labels artifact of run 43937274430 (expires 2027-02-14T19:14:38Z)"
   },
-  "reader_commit": "7fa04eeaffff4e5dca34111aaabb5974b397373e",
+  "reader_commit": "0fb4d91b49c2020ee0abb851dcbf8f33db37bffd",
   "reader_last_change": "cb4afb49b6435547e941cd09bcfec6520ac9c558",
   "schema_version": 1
 }
