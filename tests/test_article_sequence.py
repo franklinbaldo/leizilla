@@ -259,3 +259,95 @@ def test_article_word_with_separator_glyph_is_a_marker() -> None:
     report = read_articles(text)
     assert [a["number"] for a in report["articles"]] == [1, 2, 3]
     assert report["closes"]
+
+
+def _after_chain(line: str, number: int) -> str:
+    """Ordinary articles 1..number-1 followed by ``line``, so the chain can reach it."""
+    head = "".join(f"Art. {n}º Fica.\n" for n in range(1, number))
+    return head + line
+
+
+def test_dash_glued_article_marker_is_read_in_sequence() -> None:
+    # Round 1 (a1d6e070, 9f411c76, d55d3c7a): "Art- 13-0 débito" after article 12.
+    report = read_articles(_after_chain("Art- 13-O débito bancário.", 13))
+    assert report["articles"][-1]["raw"] == "Art- 13"
+    assert report["articles"][-1]["number"] == 13
+    assert report["articles"][-1]["status"] == "own"
+
+
+def test_dash_marker_with_space_or_no_digit_is_not_an_article() -> None:
+    assert read_articles("Art-Gastro do projeto.")["articles"] == []
+    assert read_articles("Art - 5 do projeto.")["articles"] == []
+
+
+def test_dash_marker_cited_inside_a_sentence_stays_a_reference() -> None:
+    report = read_articles("Nos termos do Art-5 da Lei, o servidor responde.")
+    assert report["articles"][0]["status"] == "reference"
+
+
+@pytest.mark.parametrize(
+    ("line", "number"),
+    [
+        # Round 1 (9dd8b414, ab54e259): "Arto", "Arts", "Arte" for "Art." before a number.
+        ("Arto 6º - As alíquotas do IPVA são:", 6),
+        ("Arts 7º - O imposto de que trata esta Lei é", 7),
+        ("Arte 5º - A base de cálculo do imposto é o valor", 5),
+    ],
+)
+def test_garbled_article_word_before_a_number_is_a_marker(
+    line: str, number: int
+) -> None:
+    article = read_articles(_after_chain(line, number))["articles"][-1]
+    assert article["status"] == "own"
+    assert article["number"] == number
+
+
+def test_garbled_article_word_without_a_number_is_not_a_marker() -> None:
+    # d8978969: "Arte e Revogam-se as disposições em contrário." is prose.
+    assert (
+        read_articles("Arte e Revogam-se as disposições em contrário.")["articles"]
+        == []
+    )
+    assert read_articles("Parte 3 do Edital de licitação.")["articles"] == []
+
+
+def test_ar_dot_and_ari_dot_garbles_are_article_markers() -> None:
+    # aa1b8e1e: "Ar. Io - Fica criada"; fe38326a: "Ari. 1° Ficaacrescido".
+    first = read_articles("Ar. Io - Fica criada a Agência de Defesa Sanitária.")
+    assert first["articles"][0]["number"] == 1
+    assert first["articles"][0]["status"] == "own"
+    second = read_articles(_after_chain("Ari. 4° Fica acrescido o § 3o.", 4))
+    assert second["articles"][-1]["number"] == 4
+    assert second["articles"][-1]["status"] == "own"
+
+
+def test_ar_word_without_number_or_a_longer_name_is_not_a_marker() -> None:
+    assert read_articles("Ariquemes tem 3 distritos.")["articles"] == []
+    assert read_articles("Ar. Fica criada a Agência.")["articles"] == []
+
+
+def test_slash_garbled_article_marker_is_read_in_sequence() -> None:
+    # aa1b8e1e "\Art/12" and c954a4b2 "X rt/4º Este Decreto entra em vigor".
+    report = read_articles(_after_chain("X rt/4º Este Decreto entra em vigor.", 4))
+    assert report["articles"][-1]["number"] == 4
+    assert report["articles"][-1]["status"] == "own"
+    report = read_articles(_after_chain("\\Art/12 Compreendem as seguintes.", 12))
+    assert report["articles"][-1]["number"] == 12
+    assert report["articles"][-1]["status"] == "own"
+
+
+def test_slash_without_a_number_is_not_a_marker() -> None:
+    assert read_articles("Consulte o Art/Doc anexo ao processo.")["articles"] == []
+
+
+def test_mixed_case_art_word_with_number_on_next_line_is_a_marker() -> None:
+    # lei-00315 441ee8c7: "ARt." then "9 - Revogam-se" on the next line.
+    text = _after_chain("ARt.\n9 - Revogam-se as disposições em contrário.", 9)
+    report = read_articles(text)
+    assert report["articles"][-1]["raw"].startswith("ARt.")
+    assert report["articles"][-1]["number"] == 9
+    assert report["articles"][-1]["status"] == "own"
+
+
+def test_mixed_case_art_inside_a_word_is_not_a_marker() -> None:
+    assert read_articles("PARt. 5 do regimento interno.")["articles"] == []

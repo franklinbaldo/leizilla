@@ -41,11 +41,15 @@ from typing import Sequence, TypedDict
 # plus the first word of the caput, not a suffix.
 ARTICLE_CANDIDATE = re.compile(
     r"(?:"
-    r"\b(?:ART(?:IGO)?|Art(?:igo)?|AH|Arl|Aft)"
+    r"\b(?:ART(?:IGO)?|ARt|Art(?:igo)?|AH|Arl|Aft)"
+    r"|\bArt[eos](?=\.?\s*[0-9IlO])"
     r"|(?<![^\n])[ \t]*(?:Ait|Alt)(?=\.?\s*[0-9Il])"
     r"|\bA\s?r/t(?=\.?\s*[0-9Il])"
+    r"|\bAri?(?=\.\s*[0-9IlO])"
+    r"|\\?\bArt/(?=\s*[0-9IlO])"
+    r"|\bX\s?rt/(?=\s*[0-9IlO])"
     r")"
-    r"\s*[.,:;»«„“”\"'^™_]{0,3}\s*(?P<num>[0-9IlO]{1,4})"
+    r"(?:\s*[.,:;»«„“”\"'^™_]{0,3}\s*|-\s?(?=[0-9IlO]))(?P<num>[0-9IlO]{1,4})"
     r"(?P<ord>\s?[ºo°ªQ^?])?"
     r"(?:-(?P<suffix>[A-Z])(?=[.:\-–—]|[ \t]*[\-–—]|[ \t]*(?:\n|\Z)))?"
 )
