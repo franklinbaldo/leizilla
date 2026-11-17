@@ -19,6 +19,13 @@ on:
       - "scripts/reader_ratchet.py"
       - "docs/okf/reader-ratchet-baseline.json"
       - "docs/okf/teacher-label-errata.json"
+      # gate por nível (job `levels`): referência commitada, sem rede
+      - "src/leizilla/marcacao.py"
+      - "scripts/compare_mark_reader.py"
+      - "scripts/reader_ratchet_levels.py"
+      - "docs/okf/mark-ratchet-baseline.json"
+      - "docs/okf/mark-reference-errata.json"
+      - "docs/okf/mark-reference/**"
   workflow_dispatch:
 
 permissions:
@@ -78,3 +85,21 @@ jobs:
             --labels "$RUNNER_TEMP/labels" \
             --texts "$RUNNER_TEMP/texts" \
             --textos-parquet "$RUNNER_TEMP/textos.parquet"
+
+  levels:
+    # Gate por nível (art par inc ali item) contra os documentos marcados do modo mark
+    # (docs/okf/reader-ratchet.md, "Gate por nível"). A referência está no repositório
+    # (docs/okf/mark-reference/), então não há download nem rede: ~2 s.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen --extra dev
+
+      - name: Check por nível — placar e comparação com a linha de base
+        run: uv run python scripts/reader_ratchet_levels.py check

@@ -129,6 +129,49 @@ ao prompt do professor (`prompt_version` `teacher-labels-v1`): um exemplo ou uma
 regra nova, com nova versão de prompt num novo lote de rótulos. Os rótulos antigos
 não são reescritos.
 
+## Gate por nível (art par inc ali item)
+
+O gate acima só cobre o nível `art`, contra o professor do modo `label`. Abaixo do artigo
+o leitor tem defeitos conhecidos e a referência é o **documento marcado do modo `mark`**
+([teacher-mark.md](teacher-mark.md)) das 300 normas de
+`review-samples/mark-reference-2026-11.txt`. A referência pode ter erros: a catraca só
+trava o que **já concorda**; o que discorda fica de fora até ser resolvido, e uma regra
+que discorda da referência e está certa vira uma errata, não uma rejeição.
+
+`scripts/reader_ratchet_levels.py` (job `levels` de `reader-ratchet.yml`, ~2 s, sem rede):
+
+```bash
+uv run scripts/reader_ratchet_levels.py check
+uv run scripts/reader_ratchet_levels.py update [--force --reason "texto"]
+uv run scripts/reader_ratchet_levels.py build-reference --run COLLECT_DIR   # raro
+```
+
+- **Referência** (`docs/okf/mark-reference/`, ~470 KB): `reference.json` (por norma, as
+  linhas `[tipo, número, sufixo, citado, offset]` do documento marcado, a variante usada
+  --- a reparada quando o conversor fez uma ---, as suspeitas que sobram e o sha256 do
+  texto) e `texts.json.gz` (`sha256 -> texto`, os textos do próprio manifesto da coleta
+  `44200532103`; legislação pública). Os documentos XML completos estão só no artifact
+  `teacher-batch-labels` dessa coleta (expira em 90 dias); as linhas bastam para o gate.
+- **Unidade** = (norma, nível). `agree` quando os dispositivos do leitor no nível (próprios e
+  citados) pareiam um a um com os da referência, com mesmo número, sufixo e estado
+  (`compare_mark_reader.pair_devices`). Normas com suspeita e níveis que a referência não
+  tem na norma ficam **fora** do gate.
+- **Regra**: FAIL se uma unidade da linha de base (`docs/okf/mark-ratchet-baseline.json`,
+  lista `agree` por nível) deixou de ser `agree` (ou a norma não é mais comparável: sha256
+  do texto diferente) ou se há errata stale. PASS imprime a tabela (unidades e dispositivos
+  `agree`/`misses`/`extra`/`number`/`status`/`kind`) e as unidades que entraram.
+  `update` recusa quando o `check` falharia, salvo `--force --reason`; errata stale
+  nunca é forçável.
+- **Errata da referência** (`docs/okf/mark-reference-errata.json`, mesmo molde de
+  `teacher-label-errata.json`): `{"schema_version": 1, "corrections": [...]}`; cada uma tem
+  `norm` (`texto_id`), `text_sha256`, `op` (`add_device`: `kind`, `n`, `sufixo`, `quoted`;
+  `remove_device`; `set_device`: `set` com `n`/`sufixo`/`quoted`; as duas últimas acham o
+  dispositivo por `kind` + `line` (+ `n` se houver mais de um)), `line` (1-based),
+  `evidence` (trecho literal da linha; no `add_device` é o marcador e dá o offset),
+  `reason`, `verified_by`, `date`. Vale só com o sha256 e a evidência batendo; senão é
+  stale e o `check` falha. Só depois de ler o texto e ver que a referência errou; nunca
+  para fazer uma regra passar.
+
 ## Conjunto de avaliação (held-out)
 
 Um conjunto de rótulos separado, com `label_set` diferente de `main`

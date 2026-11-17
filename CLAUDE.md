@@ -230,7 +230,9 @@ manifest exists.
 - `reader-ratchet.yml` gates the rule-based reader against the teacher labels:
   `scripts/reader_ratchet.py check` fails if an `agree_closed` norm in
   `docs/okf/reader-ratchet-baseline.json` leaves, or a new `disagree_closed`
-  appears (see `docs/okf/reader-ratchet.md`).
+  appears (see `docs/okf/reader-ratchet.md`); its `levels` job runs
+  `scripts/reader_ratchet_levels.py check` (per-level gate below article level against
+  the committed mark-mode reference, offline, ~2 s).
 
 ## Conventions
 
