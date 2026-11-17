@@ -1570,3 +1570,180 @@ def test_replay_feeds_saved_raw_results_through_the_current_converter(
     summary = replay_mark.replay(manifest_path, raw, tmp_path / "out")
     assert summary["states"]["ok"] == 3 and summary["marks_dropped"] == 0
     assert (tmp_path / "out" / "anchors.jsonl").is_file()
+
+
+# --- compare_mark_reader: the reader against mark mode, per level -------------------
+SUB_TEXT = (
+    "LEI Nº 5\nDispõe.\n"  # 1-2
+    "Art. 1º - Caput:\n"  # 3
+    "I - um;\nII - dois:\n"  # 4-5
+    "a) alfa;\nb) beta;\n"  # 6-7
+    "§ 1º - Primeiro.\n"  # 8
+)
+
+
+def _mark_run(tmp_path: Path, text: str, response: List[Dict[str, Any]]) -> Path:
+    plan = _plan([text])
+    entries = [
+        _entry(
+            plan.requests[0].custom_id,
+            [{"id": "N01", "marks": response}],
+        )
+    ]
+    tm.collect_mark(_Fake(entries), _manifest(plan), tmp_path)
+    return tmp_path
+
+
+def test_compare_mark_reader_finds_a_clean_agreement_and_each_defect(
+    tmp_path: Path,
+) -> None:
+    import compare_mark_reader as cmr
+
+    perfect = simulate_mark.simulate(
+        _plan([SUB_TEXT]), seed="s", shift_rate=0, accent_rate=0
+    )[0]
+    body = json.loads(perfect[0]["result"]["message"]["content"][0]["text"])
+    marks = body["norms"][0]["marks"]
+    run = _mark_run(tmp_path / "ok", SUB_TEXT, marks)
+    result = cmr.compare_run(run)
+    clean = result["clean"]
+    assert clean["art/own"]["agree"] == 1 and clean["inc/own"]["agree"] == 2
+    assert clean["ali/own"]["agree"] == 2 and clean["par/own"]["agree"] == 1
+    assert all(c[d] == 0 for c in clean.values() for d in cmr.DEFECTS), (
+        "the reader and a perfect model agree"
+    )
+    assert result["norms_with_flags"] == 0 and result["patterns_by_shape"] == []
+    # the model adds an inciso the reader does not have, and drops the reader's alínea
+    odd = [m for m in marks if m["k"] != "ali" or m["t"] != "b)"]
+    odd.append(_mark(8, "inc", 1, "§ 1º", "9"))  # an inciso on the "§" line
+    odd = [m for m in odd if not (m["k"] == "par" and m["n"] == "1")]
+    result = cmr.compare_run(_mark_run(tmp_path / "odd", SUB_TEXT, odd))
+    clean = result["clean"]
+    assert clean["ali/own"]["reader_extra"] == 1
+    # the reader's § on line 8 against the model's inciso there: a kind difference
+    assert clean["inc/own"]["kind_differs"] == 1
+    kinds = {(p["defect"], p["level"]) for p in result["patterns_by_shape"]}
+    assert ("reader_extra", "ali") in kinds and ("kind_differs", "inc") in kinds
+
+
+def test_compare_mark_reader_sets_suspect_norms_apart_and_can_use_the_repair(
+    tmp_path: Path,
+) -> None:
+    import compare_mark_reader as cmr
+
+    plan = _plan([ALT_TEXT])
+    entries, _ = simulate_mark.simulate(plan, seed="s", shift_rate=0, accent_rate=0)
+    body = json.loads(entries[0]["result"]["message"]["content"][0]["text"])
+    for mark in body["norms"][0]["marks"]:
+        if mark["k"] == "alteracao":
+            mark["le"] = mark["l"]  # cut before its closing quote
+    entries[0]["result"]["message"]["content"][0]["text"] = json.dumps(body)
+    tm.collect_mark(_Fake(entries), _manifest(plan), tmp_path)
+    as_is = cmr.compare_run(tmp_path, variant="as-is")
+    assert as_is["norms_with_flags"] == 1 and as_is["clean"] == {}
+    assert as_is["flagged"]["art/own"]["mark_devices"] == 4
+    fixed = cmr.compare_run(tmp_path, variant="repaired")
+    assert fixed["norms_with_flags"] == 0 and fixed["repaired_norms"]
+    assert fixed["clean"]["art/own"]["mark_devices"] == 3
+    assert fixed["own_article_closure"] == {"repaired: closes=True": 1}
+
+
+def test_marker_shapes_and_pairing_rules() -> None:
+    import compare_mark_reader as cmr
+
+    assert cmr.marker_shape("inc", "III -") == "R -"
+    assert cmr.marker_shape("inc", "Il -") == "R~ -"
+    assert cmr.marker_shape("inc", "II \n-") == "R -"
+    assert cmr.marker_shape("par", "§ 12") == "§ 9"
+    assert cmr.marker_shape("par", "§2o.") == cmr.marker_shape("par", "§ 2º.").replace(
+        " ", ""
+    )
+    assert cmr.marker_shape("par", "s 2o -") == "§~ 9º -"
+    assert cmr.marker_shape("par", "§ Io.") == "§ 9~º."
+    assert cmr.marker_shape("par", "Parágrafo único") == "Parágrafo único"
+    assert cmr.teacher_number("inc", {"n": "3", "sufixo": ""}) == "III"
+    assert cmr.teacher_number("art", {"n": "5", "sufixo": "A"}) == "5-A"
+
+
+def _dev(
+    kind: str, n: str, line: int, offset: int, quoted: bool = False
+) -> Dict[str, Any]:
+    return {
+        "kind": kind,
+        "n": n,
+        "sufixo": "",
+        "quoted": quoted,
+        "marker": n,
+        "offset": offset,
+        "line": line,
+        "path": f"{kind}-{n}",
+    }
+
+
+def test_pairing_order_and_outcomes() -> None:
+    import compare_mark_reader as cmr
+
+    mark = [
+        _dev("ali", "a", 5, 50),
+        _dev("ali", "b", 5, 60),  # same line, the reader has one alínea only
+        _dev("inc", "2", 7, 80),  # the reader says 3
+        _dev("par", "1", 9, 100),  # the reader says it is quoted
+        _dev("item", "1", 11, 120),  # the reader says inc, same line
+        _dev("art", "9", 20, 200),  # the reader has nothing
+    ]
+    reader = [
+        _dev("ali", "a", 5, 50),
+        _dev("inc", "3", 7, 80),
+        _dev("par", "1", 9, 100, quoted=True),
+        _dev("inc", "1", 11, 120),
+        _dev("par", "4", 30, 300),  # extra
+    ]
+    pairs, m_only, r_only = cmr.pair_devices(mark, reader)
+    out = cmr.classify_pairs(pairs, m_only, r_only)
+    by_defect = {tuple(o["defects"]) for o in out}
+    assert by_defect == {
+        (),
+        ("number_differs",),
+        ("status_differs",),
+        ("kind_differs",),
+        ("reader_misses",),
+        ("reader_extra",),
+    }
+    assert sum(1 for o in out if o["defects"] == []) == 1
+    assert len(out) == 7  # 6 mark devices (the kind pair counts once) + 1 extra
+
+
+def test_select_mark_reference_is_stratified_and_deterministic() -> None:
+    import select_mark_reference as smr
+
+    rows = []
+    for i in range(120):
+        rows.append(
+            {
+                "id": f"n{i:03d}",
+                "tipo": "lei" if i % 4 else "decreto",
+                "nonblank": i + 5,
+                "quoted": i % 6 == 0,
+                "teacher_text": True,
+                "sub_disagree": i % 5 == 0,
+            }
+        )
+    smr.assign_terciles(rows)
+    assert {r["tercile"] for r in rows} == set(smr.TERCILES)
+    args = dict(count=40, seed="s", include=["n001", "n002"], min_sub=10, min_quoted=8)
+    first = smr.select(rows, **args)  # type: ignore[arg-type]
+    again = smr.select(rows, **args)  # type: ignore[arg-type]
+    assert [r["id"] for r in first] == [r["id"] for r in again]
+    ids = {r["id"] for r in first}
+    assert len(first) == 40 and {"n001", "n002"} <= ids
+    assert sum(1 for r in first if r["sub_disagree"]) >= 10
+    assert sum(1 for r in first if r["quoted"]) >= 8
+    assert {r["tipo"] for r in first} == {"lei", "decreto"}
+
+
+def test_reference_sample_file_is_valid() -> None:
+    from leizilla import teacher_review as tr
+
+    ids = tr.read_ids_file(ROOT / "docs/okf/review-samples/mark-reference-2026-11.txt")
+    pilot = tr.read_ids_file(ROOT / "docs/okf/review-samples/mark-pilot-2026-11.txt")
+    assert len(ids) == 300 and len(set(ids)) == 300 and set(pilot) <= set(ids)

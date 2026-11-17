@@ -80,10 +80,12 @@ def load_anchors(path: Path) -> list[dict[str, Any]]:
     ]
 
 
-def load_documents(root: Path) -> dict[str, tuple[str, str]]:
-    """``texto_id`` -> ``(xml, text)`` for every marked document under ``marked/``."""
+def load_documents(root: Path, sub: str = "marked") -> dict[str, tuple[str, str]]:
+    """``texto_id`` -> ``(xml, text)`` for every marked document under ``marked/``
+    (``sub="marked-repaired"``: the repaired variants, which exist only for norms the
+    converter repaired)."""
     docs: dict[str, tuple[str, str]] = {}
-    base = root / "marked"
+    base = root / sub
     if not base.is_dir():
         return docs
     for path in sorted(base.rglob("*.xml")):
