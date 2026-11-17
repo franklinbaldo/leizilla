@@ -419,3 +419,17 @@ export function agruparRelacoes(
     }));
   return { ativas: montar(ativas, VERBO_ATIVO), passivas: montar(passivas, VERBO_PASSIVO) };
 }
+
+/**
+ * A camada de texto (`textos`) é a fonte da verdade sobre "há texto": uma norma com linha
+ * de texto não vazia é legível, mesmo que o catálogo publicado antes dessa linha ainda diga
+ * `legivel = false`. Só sobe as flags, nunca as rebaixa. `textoIds` são os `texto_id` que
+ * têm texto (ver `getTextoIdsComTexto` em db.ts).
+ */
+export function comCamadaDeTexto<T extends Pick<CatalogoRow, 'norma_id' | 'legivel' | 'com_texto'>>(
+  row: T,
+  textoIds: ReadonlySet<string>,
+): T {
+  if (!textoIds.has(row.norma_id)) return row;
+  return { ...row, legivel: true, com_texto: true };
+}

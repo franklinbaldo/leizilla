@@ -4,7 +4,7 @@
   // de artigo só dividem o texto em trechos com id, e só quando a sequência fecha.
   import { getStructuredLeiId, getTexto, type TextoRow } from '../../lib/db';
   import { formatDate, formatEnte, iaDetailsUrl, leiTitle, leiUrl, withBase } from '../../lib/format';
-  import { paragrafos, parseAncoras, segmentar } from '../../lib/textos';
+  import { ocrEhProprio, paragrafos, parseAncoras, segmentar } from '../../lib/textos';
   import DatasetUnavailable from '../DatasetUnavailable.svelte';
 
   // `embedded`: a página da norma (catálogo oficial) já mostra o título; aqui só o texto.
@@ -29,6 +29,8 @@
       : [],
   );
   const artigos = $derived(segmentos.filter((s) => s.id !== null));
+  // OCR feito pelo próprio Leizilla (ADR-0019), quando o IA não tem texto deste documento.
+  const ocrProprio = $derived(row ? ocrEhProprio(row.ocr_motor) : false);
 
   $effect(() => {
     let cancelled = false;
@@ -125,6 +127,12 @@
         em dispositivos ainda não foi validada. Em caso de dúvida, vale o documento
         original.
       </p>
+      {#if ocrProprio}
+        <p>
+          Este texto foi feito pelo OCR do próprio Leizilla, porque o Internet Archive
+          ainda não tem texto deste documento.
+        </p>
+      {/if}
       <p class="acoes">
         <a href={row.pdf_url} target="_blank" rel="noopener noreferrer">
           Abrir o PDF original no Internet Archive

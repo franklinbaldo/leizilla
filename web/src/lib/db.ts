@@ -853,6 +853,18 @@ export async function getTexto(textoId: string): Promise<TextoRow | null> {
   return rows[0] ?? null;
 }
 
+/** Dos `textoIds` pedidos, os que têm texto não vazio na camada de texto. */
+export async function getTextoIdsComTexto(textoIds: string[]): Promise<Set<string>> {
+  if (textoIds.length === 0 || !(await textosAvailable())) return new Set();
+  const marcas = textoIds.map(() => '?').join(', ');
+  const rows = await runSql<{ texto_id: string }>(
+    `SELECT texto_id FROM textos WHERE texto_id IN (${marcas}) AND length(texto) > 0`,
+    textoIds,
+    (r) => (r as { toJSON(): { texto_id: string } }).toJSON(),
+  );
+  return new Set(rows.map((r) => r.texto_id));
+}
+
 /** lei_id da versão estruturada que cita este raw_id como fonte, se houver. */
 export async function getStructuredLeiId(textoId: string): Promise<string | null> {
   const rows = await runSql<{ lei_id: string }>(
