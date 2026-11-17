@@ -25,12 +25,20 @@ Line numbers follow the teacher's convention: 1-based indexes into
 ``text.split("\\n")``. Reader offsets are converted with the same rule.
 
     uv run scripts/compare_teacher_reader.py --labels LABELS_DIR --texts TEXTS_DIR \\
-        --out OUT_DIR [--textos-parquet PATH] [--limit N]
+        --out OUT_DIR [--textos-parquet PATH] [--limit N] [--errata PATH | --no-errata]
 
 The texts cache is laid out as ``TEXTS_DIR/{item}/{txt_name}`` and stores the
 UTF-8 bytes of the text the teacher hashed. Norms whose text could not be fetched
 are listed in ``TEXTS_DIR/_missing.txt`` so that a re-run does not call the network
 for them again.
+
+Errata (``docs/okf/teacher-label-errata.json`` by default, ``--errata PATH``;
+``--no-errata`` compares the teacher labels as they are): corrections to the
+teacher's article labels, each bound to the sha256 of the text it was verified
+against. A correction is applied to a norm's labels before the comparison only when
+its ``text_sha256`` matches and its evidence text is on the recorded line. Any other
+correction is *stale*: it is not applied, it is counted and listed, and the ratchet
+gate fails on it. See ``docs/okf/reader-ratchet.md``.
 
 Outputs in ``--out``: ``groups.csv`` (one row per norm), ``details.jsonl`` (the
 per-norm differences), ``summary.json`` and ``summary.md``.
@@ -45,8 +53,9 @@ import csv
 import hashlib
 import json
 import re
+import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
@@ -55,6 +64,26 @@ import duckdb
 from leizilla.hierarchy_sequence import read_hierarchy
 from leizilla.teacher_batch import NormRef, fetch_text
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_ERRATA = REPO_ROOT / "docs" / "okf" / "teacher-label-errata.json"
+ERRATA_SCHEMA_VERSION = 1
+# ``remove_label`` is reserved for a later correction; unknown ops are rejected.
+ERRATA_OPS: tuple[str, ...] = ("add_own_article", "set_number", "set_quoted")
+ERRATA_COMMON_FIELDS: tuple[str, ...] = (
+    "norm",
+    "text_sha256",
+    "op",
+    "line",
+    "evidence",
+    "reason",
+    "verified_by",
+    "date",
+)
+ERRATA_OP_FIELDS: dict[str, tuple[str, ...]] = {
+    "add_own_article": ("number", "suffix"),
+    "set_number": ("number", "suffix"),
+    "set_quoted": ("quoted",),
+}
 MIN_INTERVAL_S = 1.0
 GROUPS: tuple[str, ...] = (
     "agree_closed",
@@ -429,6 +458,206 @@ def read_missing(texts_dir: Path) -> set[str]:
 
 
 # --------------------------------------------------------------------------
+# Errata: corrections to the teacher's article labels
+# --------------------------------------------------------------------------
+
+REASON_CORR_SHA = "sha256 mismatch"
+REASON_CORR_NOT_FETCHED = "norm not compared: text not fetched"
+REASON_CORR_SHA_NORM = "norm not compared: sha256 mismatch"
+REASON_CORR_NOT_LABELLED = "norm not in the labelled set"
+
+
+class ErrataError(ValueError):
+    """Malformed errata file; reported as a usage error, never ignored."""
+
+
+@dataclass(frozen=True)
+class Errata:
+    path: Path
+    sha256: str  # of the file bytes, recorded in the baseline
+    corrections: tuple[dict[str, Any], ...]
+
+
+def norm_id(header: dict[str, Any]) -> str:
+    """Stable norm id used by errata and the ratchet: ``item/uuid5``."""
+    return f"{header['item']}/{header['uuid5']}"
+
+
+def validate_correction(raw: Any, where: str) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ErrataError(f"{where}: not an object")
+    op = raw.get("op")
+    if op not in ERRATA_OPS:
+        raise ErrataError(
+            f"{where}: unknown op {op!r} (known: {', '.join(ERRATA_OPS)})"
+        )
+    allowed = set(ERRATA_COMMON_FIELDS) | set(ERRATA_OP_FIELDS[str(op)])
+    for name in ERRATA_COMMON_FIELDS:
+        if name not in raw:
+            raise ErrataError(f"{where}: missing field {name!r}")
+    unknown = sorted(set(raw) - allowed)
+    if unknown:
+        raise ErrataError(f"{where}: fields not allowed for {op}: {unknown}")
+
+    def text_field(name: str) -> None:
+        value = raw[name]
+        if not isinstance(value, str) or not value.strip():
+            raise ErrataError(f"{where}: {name} must be a non-empty string")
+
+    norm = raw["norm"]
+    if not isinstance(norm, str) or norm.count("/") != 1:
+        raise ErrataError(f"{where}: norm must be 'item/uuid5'")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(raw["text_sha256"])):
+        raise ErrataError(f"{where}: text_sha256 must be 64 lowercase hex digits")
+    line = raw["line"]
+    if not isinstance(line, int) or isinstance(line, bool) or line < 1:
+        raise ErrataError(f"{where}: line must be an integer >= 1")
+    for name in ("evidence", "reason", "verified_by"):
+        text_field(name)
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(raw["date"])):
+        raise ErrataError(f"{where}: date must be YYYY-MM-DD")
+    if op in ("add_own_article", "set_number"):
+        number = raw.get("number")
+        if not isinstance(number, str) or not re.fullmatch(r"\d+", number):
+            raise ErrataError(f"{where}: number must be a string of digits")
+        suffix = raw.get("suffix")
+        if suffix is not None and not (
+            isinstance(suffix, str) and re.fullmatch(r"[A-Za-z]", suffix)
+        ):
+            raise ErrataError(f"{where}: suffix must be one letter or null")
+    if op == "set_quoted" and not isinstance(raw.get("quoted"), bool):
+        raise ErrataError(f"{where}: quoted must be true or false")
+    return dict(raw)
+
+
+def load_errata(path: Path) -> Errata:
+    if not path.is_file():
+        raise ErrataError(f"errata file not found: {path}")
+    raw_bytes = path.read_bytes()
+    try:
+        data = json.loads(raw_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ErrataError(f"{path}: invalid JSON: {exc}") from exc
+    if not isinstance(data, dict) or data.get("schema_version") != (
+        ERRATA_SCHEMA_VERSION
+    ):
+        raise ErrataError(f"{path}: schema_version must be {ERRATA_SCHEMA_VERSION}")
+    items = data.get("corrections")
+    if not isinstance(items, list):
+        raise ErrataError(f"{path}: corrections must be a list")
+    corrections = tuple(
+        validate_correction(item, f"{path}: corrections[{i}]")
+        for i, item in enumerate(items)
+    )
+    return Errata(
+        path=path,
+        sha256=hashlib.sha256(raw_bytes).hexdigest(),
+        corrections=corrections,
+    )
+
+
+def _corrected_number(correction: dict[str, Any]) -> str:
+    number = str(correction["number"])
+    suffix = correction.get("suffix")
+    return normalize_number(f"{number}-{suffix}" if suffix else number)
+
+
+def _article_labels_at(labels: list[dict[str, Any]], line: int) -> list[dict[str, Any]]:
+    return [
+        lab
+        for lab in labels
+        if lab.get("category") == "artigo" and int(lab["line"]) == line
+    ]
+
+
+def apply_correction(
+    labels: list[dict[str, Any]], correction: dict[str, Any], text: str
+) -> Optional[str]:
+    """Apply one correction to ``labels`` in place.
+
+    Returns None when applied, otherwise the reason it is stale (and nothing changed).
+    """
+    if correction["text_sha256"] != sha256_text(text):
+        return REASON_CORR_SHA
+    lines = text.split("\n")
+    line = int(correction["line"])
+    if line > len(lines):
+        return f"line {line} is past the end of the text ({len(lines)} lines)"
+    if correction["evidence"] not in lines[line - 1]:
+        return "evidence text is not on the recorded line"
+    op = correction["op"]
+    if op == "add_own_article":
+        number = _corrected_number(correction)
+        here = _article_labels_at(labels, line)
+        if any(normalize_number(lab.get("number")) == number for lab in here):
+            return "teacher already labels this article at this line"
+        labels.append(
+            {
+                "record": "label",
+                "line": line,
+                "category": "artigo",
+                "number": number,
+                "quoted": False,
+            }
+        )
+        return None
+    targets = _article_labels_at(labels, line)
+    if len(targets) != 1:
+        return f"expected one teacher article at the line, found {len(targets)}"
+    if op == "set_number":
+        targets[0]["number"] = _corrected_number(correction)
+    else:  # set_quoted
+        targets[0]["quoted"] = bool(correction["quoted"])
+    return None
+
+
+def _correction_ref(correction: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "norm": correction["norm"],
+        "op": correction["op"],
+        "line": correction["line"],
+    }
+
+
+def apply_corrections(
+    labels: list[dict[str, Any]],
+    corrections: Iterable[dict[str, Any]],
+    text: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return (corrected labels, applied refs, stale refs with reasons).
+
+    ``labels`` is not modified; each stale ref says why it was not applied.
+    """
+    working = [dict(lab) for lab in labels]
+    applied: list[dict[str, Any]] = []
+    stale: list[dict[str, Any]] = []
+    for correction in corrections:
+        reason = apply_correction(working, correction, text)
+        if reason is None:
+            applied.append(_correction_ref(correction))
+        else:
+            stale.append({**_correction_ref(correction), "reason": reason})
+    return working, applied, stale
+
+
+def errata_summary(
+    errata: Optional[Errata],
+    applied: list[dict[str, Any]],
+    stale: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "file": str(errata.path) if errata else None,
+        "sha256": errata.sha256 if errata else None,
+        "corrections": len(errata.corrections) if errata else 0,
+        "applied": len(applied),
+        "applied_norms": sorted({str(a["norm"]) for a in applied}),
+        "applied_details": applied,
+        "stale": len(stale),
+        "stale_details": stale,
+    }
+
+
+# --------------------------------------------------------------------------
 # Aggregation and output
 # --------------------------------------------------------------------------
 
@@ -508,6 +737,19 @@ def write_markdown(path: Path, summary: dict[str, Any]) -> None:
         f"- text sources: {summary['text_sources']}",
         f"- teacher_inconsistent flag (any group): "
         f"{summary['teacher_inconsistent_flag_norms']}",
+    ]
+    errata = summary.get("errata") or {}
+    if errata.get("file"):
+        lines.append(
+            f"- errata: {errata['applied']} applied to "
+            f"{len(errata['applied_norms'])} norms, {errata['stale']} stale "
+            f"(of {errata['corrections']}; sha256 `{errata['sha256']}`)"
+        )
+        lines += [
+            f"  - stale: `{d['norm']}` {d['op']} line {d['line']}: {d['reason']}"
+            for d in errata["stale_details"]
+        ]
+    lines += [
         "",
         "## Groups",
         "",
@@ -549,6 +791,15 @@ class Corpus:
     missing_keys: list[str]
     sources: collections.Counter[str]
     ia_requests: int
+    errata: Optional[Errata] = None
+    errata_applied: list[dict[str, Any]] = field(default_factory=list)
+    errata_stale: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _stale_refs(
+    corrections: Iterable[dict[str, Any]], reason: str
+) -> list[dict[str, Any]]:
+    return [{**_correction_ref(c), "reason": reason} for c in corrections]
 
 
 def compare_corpus(
@@ -556,11 +807,14 @@ def compare_corpus(
     texts_dir: Path,
     textos_parquet: Optional[Path] = None,
     ia: Optional[IaFetcher] = None,
+    errata: Optional[Errata] = None,
 ) -> Corpus:
     """Fetch each norm's text (cache, parquet, IA) and compare it with the reader.
 
     Shared by ``run`` and ``scripts/reader_ratchet.py``. Norms whose text is
-    missing or whose sha256 does not match are reported, never compared.
+    missing or whose sha256 does not match are reported, never compared. Errata
+    are applied per norm after its text is verified; every correction ends up
+    either applied or stale.
     """
     texts_dir.mkdir(parents=True, exist_ok=True)
     parquet = ParquetTexts(textos_parquet)
@@ -570,18 +824,36 @@ def compare_corpus(
     mismatches: list[str] = []
     missing_keys: list[str] = []
     rows: list[dict[str, Any]] = []
+    by_norm: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    if errata is not None:
+        for correction in errata.corrections:
+            by_norm[str(correction["norm"])].append(correction)
+    applied_refs: list[dict[str, Any]] = []
+    stale_refs: list[dict[str, Any]] = []
 
     for header, labels in norms:
         key = f"{header['item']}/{header['txt_name']}"
+        corrections = by_norm.get(norm_id(header), [])
         text, source = get_text(header, texts_dir, parquet, missing, fetcher)
         sources[source] += 1
         if text is None:
             missing_keys.append(key)
+            stale_refs += _stale_refs(corrections, REASON_CORR_NOT_FETCHED)
             continue
         if sha256_text(text) != header["text_sha256"]:
             mismatches.append(key)
+            stale_refs += _stale_refs(corrections, REASON_CORR_SHA_NORM)
             continue
+        if corrections:
+            labels, applied, stale = apply_corrections(labels, corrections, text)
+            applied_refs += applied
+            stale_refs += stale
         rows.append(compare_norm(header, labels, text))
+
+    labelled = {norm_id(header) for header, _ in norms}
+    for norm, corrections in by_norm.items():
+        if norm not in labelled:
+            stale_refs += _stale_refs(corrections, REASON_CORR_NOT_LABELLED)
 
     return Corpus(
         rows=rows,
@@ -589,6 +861,9 @@ def compare_corpus(
         missing_keys=missing_keys,
         sources=sources,
         ia_requests=fetcher.requests,
+        errata=errata,
+        errata_applied=applied_refs,
+        errata_stale=stale_refs,
     )
 
 
@@ -599,12 +874,13 @@ def run(
     textos_parquet: Optional[Path] = None,
     limit: int = 0,
     ia: Optional[IaFetcher] = None,
+    errata: Optional[Errata] = None,
 ) -> dict[str, Any]:
     norms = load_labelled_norms(labels_dir)
     if limit:
         norms = norms[:limit]
     out_dir.mkdir(parents=True, exist_ok=True)
-    corpus = compare_corpus(norms, texts_dir, textos_parquet, ia)
+    corpus = compare_corpus(norms, texts_dir, textos_parquet, ia, errata)
     rows = corpus.rows
 
     summary = summarise(
@@ -614,6 +890,9 @@ def run(
         corpus.missing_keys,
         corpus.sources,
         corpus.ia_requests,
+    )
+    summary["errata"] = errata_summary(
+        errata, corpus.errata_applied, corpus.errata_stale
     )
     fields = [
         "identifier",
@@ -658,13 +937,30 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="published textos.parquet, checked before any IA fetch",
     )
     parser.add_argument("--limit", type=int, default=0, help="first N norms only")
+    parser.add_argument(
+        "--errata",
+        type=Path,
+        default=DEFAULT_ERRATA,
+        help="teacher-label errata JSON (default: docs/okf/teacher-label-errata.json)",
+    )
+    parser.add_argument(
+        "--no-errata",
+        action="store_true",
+        help="compare the teacher labels as they are",
+    )
     args = parser.parse_args(argv)
+    try:
+        errata = None if args.no_errata else load_errata(args.errata)
+    except ErrataError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     summary = run(
         args.labels,
         args.texts,
         args.out,
         textos_parquet=args.textos_parquet,
         limit=args.limit,
+        errata=errata,
     )
     print(
         json.dumps(
@@ -674,6 +970,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "skipped_sha_mismatch": summary["skipped_sha_mismatch"],
                 "skipped_missing_text": summary["skipped_missing_text"],
                 "text_sources": summary["text_sources"],
+                "errata": {
+                    "applied": summary["errata"]["applied"],
+                    "stale": summary["errata"]["stale"],
+                },
             },
             ensure_ascii=False,
         )

@@ -50,7 +50,8 @@ uv run scripts/reader_ratchet.py update --labels ... --texts ... \
 ```
 
 `LABELS_DIR` é a raiz de saída do `teacher-batch collect` (contém `labels/` e
-`summary.json`). `update` recusa quando o `check` falharia, a não ser com
+`summary.json`). As errata são aplicadas por padrão (`--errata PATH` troca o arquivo;
+`--no-errata` desliga). `update` recusa quando o `check` falharia, a não ser com
 `--force --reason`. Com `GITHUB_STEP_SUMMARY` definido, o resumo em Markdown vai
 para o resumo do job.
 
@@ -81,6 +82,52 @@ item por execução**, com identificador `leizilla-teacher-labels-ro-<timestamp>
 workflow não consegue localizar um item sem um identificador fixado. O formato
 serviria para o gate depois que um `collect` com `upload_ia=true` for executado e o
 identificador for gravado na linha de base e no workflow.
+
+## Errata dos rótulos do professor
+
+`docs/okf/teacher-label-errata.json` registra correções aos rótulos do professor
+LLM, para os casos em que a leitura do texto mostra que o professor errou e o leitor
+acertou. Sem elas, o gate fica preso num acordo errado: leitor e professor concordam
+numa resposta errada, ou o leitor passa a discordar de um rótulo incompleto.
+
+Formato: `{"schema_version": 1, "corrections": [...]}`. Cada correção tem:
+
+- `norm`: id `item/uuid5`, como aparece no placar e na linha de base;
+- `text_sha256`: sha256 do texto que o professor viu. A correção vale só para esse
+  texto;
+- `op`: `add_own_article` (`line`, `number`, `suffix` opcional), `set_number`
+  (mesmos campos, troca o número do artigo que já está na linha) ou `set_quoted`
+  (`line`, `quoted`). `remove_label` está reservado; op desconhecida é erro;
+- `line`: linha 1-based de `text.split("\n")`, a mesma convenção do placar;
+- `evidence`: a linha crua do texto, citada textualmente (basta conter a evidência);
+- `reason`: uma frase;
+- `verified_by`: `leitura do texto`;
+- `date`: `AAAA-MM-DD`.
+
+Aplicação (`compare_teacher_reader.py`, usada também pelo gate):
+
+- A correção é aplicada aos rótulos da norma antes da comparação **somente** se o
+  `text_sha256` bate com o texto e a `evidence` está na `line`.
+- Caso contrário a correção é **stale**: não é aplicada, é contada e listada (`id`,
+  `op`, `line`, motivo). O `check` falha com exit 1 e `update` recusa, **mesmo com
+  `--force`**. A entrada precisa ser corrigida ou removida, não ignorada.
+- `--no-errata` compara os rótulos como estão, sem correções.
+- O resumo (`summary.json`, chave `errata`, e `summary.md`) diz quantas foram
+  aplicadas, em quais normas, e quantas estão stale. A linha de base grava
+  `labels.errata_applied`, `labels.errata_sha256` e o mesmo número no histórico.
+
+Quando acrescentar uma correção:
+
+- Só depois de ler o texto e confirmar que o professor errou. A linha de evidência
+  é citada no próprio registro.
+- Nunca para fazer uma regra passar. Se o leitor erra, a correção não é o remédio:
+  a norma continua no gate, e o leitor é que se corrige.
+- Uma entrada por erro observado, com motivo.
+
+O errata é um **registro de erros do professor**. Cada padrão recorrente deve voltar
+ao prompt do professor (`prompt_version` `teacher-labels-v1`): um exemplo ou uma
+regra nova, com nova versão de prompt num novo lote de rótulos. Os rótulos antigos
+não são reescritos.
 
 ## Limites
 
