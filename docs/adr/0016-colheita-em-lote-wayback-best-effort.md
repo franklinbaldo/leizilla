@@ -204,3 +204,83 @@ engolia os disparos do cron.
    em 75 min fica `pending` para a execução seguinte (4 por dia). O grupo de concorrência
    continua enfileirando sem cancelar a execução em curso e guardando uma só pendente.
 
+
+## Adendo 2026-11-17 — recusa geral, descoberta redundante, prazo do job
+
+**Medido** (execução 44002214612, três tipos em paralelo; lei 160 capturas, lc 162,
+decreto morto pelo `timeout-minutes` sem resumo):
+
+- **Recusa com outra mensagem.** O IA respondeu `Uploaded content is unacceptable. -
+  Syntax error detected in pdf data...` a `decreto-27996`. A regex só conhecia as duas
+  mensagens anteriores, então o lote de 11 falhou inteiro (`upload-failed`), voltou a
+  `pending` e o culpado nunca foi isolado.
+- **Descoberta de decreto: 42 min** (02:20 a 03:02): índice anual 2 min (46 páginas,
+  ~2,6 s cada com o ritmo de 1 s), `casacivil-index` 2 s, CDX 73 s, `DEC{num}.pdf`
+  **36 min** (2000 HEAD a ~1,1 s cada, 19 achados) e a inserção linha a linha no DuckDB
+  ~2,5 min.
+- **Teto do job.** O orçamento de colheita contava do início da colheita. Com a
+  descoberta de 42 min, o `HARVEST_MAX_SECONDS` de 4500 s terminava às 04:17 e o flush
+  final às 04:20 bateu no `timeout-minutes: 120`. Lei estourou o orçamento em ~630 s no
+  flush final (fim 03:51, parada da busca 03:39).
+- **Banco de descoberta trocado.** O `restore-keys` `discover-db-decreto-` também casa
+  com `discover-db-decreto-lei-`; o decreto restaurou o banco do decreto-lei.
+
+**Regras novas**
+
+1. *Recusa por conteúdo é geral.* Qualquer `Uploaded content is unacceptable` numa linha
+   de arquivo é recusa daquele arquivo (terminal, `ia-rejected`, o restante do lote segue
+   no mesmo flush). O motivo vai para `discovered_resources.motivo`: `spam` |
+   `pdf-syntax` | `pdf-check` | `other: {texto do IA, até 120 caracteres}`. O resumo
+   mantém `(spam: M)` e lista os outros motivos.
+2. *Varredura redundante não roda quando o índice anual está completo.* A estratégia
+   `sequential` com `skip_if_year_index_complete: true` (hoje só `DEC{num}.pdf` de
+   decreto) é pulada quando o `casacivil-year-index` do mesmo tipo leu todos os anos
+   (sem ano com falha, sem bloqueio do robots) **e** a descoberta é operacional (com
+   `storage`). A reconciliação (`storage=None`) segue varrendo. O índice já lista o nome
+   real de cada arquivo `DEC…` (ex.: `DEC31990 - RETIFICADO.pdf`), e o commit 89b4ccc
+   tirou pelo mesmo motivo as varreduras de L, LC e D. Efeito estimado para decreto:
+   ~2050 requisições e ~38 min por execução para ~50 requisições e ~6 min.
+   **Risco aberto**: os 19 achados da varredura `DEC` não foram conferidos um a um contra
+   o índice anual (o banco de produção não está acessível daqui). Se algum número não
+   estiver no índice, ele deixa de ser descoberto; a regra é reversível retirando a flag.
+   Não foi alterado o pacing da descoberta: `_HEAD_RATE_LIMIT_S` (0,5 s) e o índice anual
+   (1 s) não leem `HARVEST_HOST_INTERVAL_S`, então três jobs na descoberta podem somar
+   ~3 req/s no mesmo host. Decidir isso junto com o ADR-0008.
+3. *Prazo do job, não só do teto.* O primeiro passo do job grava
+   `JOB_DEADLINE_EPOCH` (agora + 120 min); a colheita recebe `--job-deadline` e para de
+   buscar 20 min antes do fim (`HARVEST_TAIL_RESERVE_S`), o que cobre o flush final, o
+   derive e o resumo. Com menos de 5 min úteis (`HARVEST_MIN_USEFUL_S`) a colheita nem
+   começa e o resumo sai com `Colheita interrompida cedo: no-time-left`. `HARVEST_MAX_SECONDS`
+   (4500 s) segue como teto. `harvest-single` não muda.
+4. *O resumo sai mesmo se a colheita levantar.* `harvest_pending_resources` preenche
+   o `stats` passado pela CLI no lugar; a CLI imprime `Colheita parcial` no `except`.
+   Um flush que falha já não levanta (é capturado e vira `pending`), então o caso real
+   de perda do resumo foi o `timeout-minutes`, que a regra 3 resolve.
+5. *Banco de descoberta por tipo de verdade.* A chave de cache e o `restore-keys` de
+   `discover-harvest.yml` terminam em `--` (`discover-db-{tipo}--`). Efeito de uma vez
+   só: a primeira execução depois da mudança não acha o banco antigo e refaz a descoberta
+   (os 404 marcados e os `ia-rejected` locais se perdem; `_already_preserved` impede
+   reenvio ao IA). O workflow `discover-harvest-federal.yml` tem o mesmo padrão e não foi
+   alterado.
+
+**Medido, sem mudar código: o que cada captura custa** (logs sem tempo por captura; a
+conta é estimativa). Lei: 160 capturas em 5130 s (~32 s cada), 12 flushes, 38 falhas
+das quais 25 são um flush inteiro perdido (`upload-failed` sem culpado identificado,
+depois de dois `ReadTimeout` do S3 e esperas de 60–150 s), ou seja ~25 capturas já
+baixadas voltaram para `pending`. Lc: 162 em 4635 s (~29 s), 8 flushes, 10 falhas de
+busca, 3 recusas `pdf-check`.
+
+- O piso do limitador por host é ~6 s por captura, não 28: a busca e o Save Page Now
+  dividem o mesmo horário de 3 s por requisição, então cada captura ocupa ~2 slots.
+  A busca espera o slot; o Save Page Now não bloqueia a colheita.
+- Uma busca que falha custa até 3 tentativas de 60 s com backoff (`fetch_bytes_detailed`):
+  ~3 min por falha. As falhas de busca somam talvez 20–30% do tempo de cada tipo.
+- O flush roda **na mesma thread** (`_RawBatcher.add` → `flush`): a colheita fica parada
+  enquanto 25 PDFs, 25 `_meta.json` e o `index.csv` sobem (~51 PUTs). Não dá para
+  separar o tempo de flush do de busca só com estes logs; a estimativa é de 20–40% do
+  tempo total, com as esperas de retry do S3 como a parte visível.
+- Conclusão: o que mais aumentaria a vazão é **subir em segundo plano** (uma thread de
+  upload com fila limitada, enquanto a busca continua). Mudar o pacing não ajuda: a
+  busca já espera o limitador só ~6 s em ~28. Um arquivo por captura aumenta os PUTs
+  (ADR-0016 existe para reduzi-los). Antes de implementar, convém que a colheita
+  registre o tempo de busca, de flush e de espera no resumo, para medir a fatia.

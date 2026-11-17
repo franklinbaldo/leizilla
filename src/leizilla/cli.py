@@ -121,6 +121,71 @@ def cmd_reconcile(
         raise typer.Exit(1)
 
 
+def _echo_harvest_summary(stats: Dict[str, Any], partial: bool = False) -> None:
+    """Resumo da colheita. ``partial`` = a colheita levantou antes de terminar."""
+    echo(
+        "Colheita parcial (levantou antes do fim):"
+        if partial
+        else "Colheita concluída:"
+    )
+    echo(f"  Sucesso: {stats.get('success', 0)}")
+    echo(f"  Falhas: {stats.get('failed', 0)}")
+    echo(f"  Robots bloqueado: {stats.get('robots-blocked', 0)}")
+    echo(f"  Já preservados no IA (pulados): {stats.get('already-preserved', 0)}")
+    # ADR-0016: lotes, derive único, PDFs recusados e Save Page Now assíncrono.
+    echo(
+        "  Recusados pelo IA (PDF inválido, não serão retentados): "
+        f"{stats.get('ia-rejected', 0)} "
+        f"(spam: {stats.get('ia-rejected-spam', 0)})"
+    )
+    for reason, count in sorted((stats.get("ia-rejected-reasons") or {}).items()):
+        if reason != "spam":
+            echo(f"    - {reason}: {count}")
+    derive_failed = stats.get("derive-failed") or []
+    echo(
+        f"  Lotes enviados ao IA: {stats.get('flushes', 0)} | derive pedido: "
+        f"{stats.get('derive-requested', 0)} item(ns), "
+        f"sem derive: {len(derive_failed)}"
+    )
+    for item_id in derive_failed:
+        echo(f"    - sem derive: {item_id} (ia tasks {item_id} --cmd derive.php)")
+    spn = stats.get("wayback-save")
+    if spn:
+        echo(
+            "  Wayback Save Page Now (best-effort): "
+            f"{spn.get('requested', 0)} pedidos, {spn.get('accepted', 0)} aceitos, "
+            f"{spn.get('failed', 0)} falhas, {spn.get('dropped', 0)} descartados"
+        )
+    postponed = stats.get("derive-postponed") or []
+    if postponed:
+        echo(f"  derive adiado: {len(postponed)} item(ns) ainda com pendências")
+        for item_id in postponed:
+            echo(f"    - derive adiado: {item_id}")
+    deferred = stats.get("deferred", 0)
+    if deferred:
+        deferred_items = stats.get("deferred-items") or []
+        echo(
+            f"  adiados (item com fila cheia no IA): {deferred} em "
+            f"{len(deferred_items)} item(ns)"
+        )
+        for item_id in deferred_items:
+            echo(f"    - adiado: {item_id}")
+    if stats.get("aborted"):
+        echo(f"  Colheita interrompida cedo: {stats['aborted']}")
+    if stats.get("failed"):
+        # Issue #297: o resumo dos motivos sai aqui, depois do laço, onde a saída
+        # já se provou confiável em CI (per-item prints não apareceram).
+        from collections import Counter
+
+        reasons = Counter(
+            item.get("reason", "?")
+            for item in stats.get("items", [])
+            if item.get("status") == "failed"
+        )
+        for reason, count in reasons.most_common():
+            echo(f"    - {reason}: {count}")
+
+
 @app.command("harvest")
 def cmd_harvest(
     ente: Optional[str] = typer.Option(
@@ -131,9 +196,17 @@ def cmd_harvest(
         help="Filtrar por tipo de documento (lei, lc, decreto, ec, resolucao, portaria, decreto-lei)",
     ),
     limit: int = typer.Option(100, help="Limite de recursos a processar por execução"),
+    job_deadline: Optional[float] = typer.Option(
+        None,
+        help=(
+            "Instante Unix (s) em que o job do runner morre. A colheita para de "
+            "buscar 20 min antes, para o flush, o derive e o resumo caberem."
+        ),
+    ),
 ) -> None:
     """Consome a fila de resources pendentes no banco e realiza a colheita (harvest)."""
     echo("Iniciando colheita (harvesting) de recursos pendentes...")
+    stats: Dict[str, Any] = {}
     try:
         from leizilla.publisher import InternetArchivePublisher
         from leizilla.scraper import harvest_pending_resources
@@ -142,70 +215,22 @@ def cmd_harvest(
         db = DuckDBStorage()
         pub = InternetArchivePublisher()
 
-        stats = harvest_pending_resources(db, pub, limit=limit, ente=ente, tipo=tipo)
-        echo("Colheita concluída:")
-        echo(f"  Sucesso: {stats['success']}")
-        echo(f"  Falhas: {stats['failed']}")
-        echo(f"  Robots bloqueado: {stats['robots-blocked']}")
-        echo(f"  Já preservados no IA (pulados): {stats.get('already-preserved', 0)}")
-        # ADR-0016: lotes, derive único, PDFs recusados e Save Page Now assíncrono.
-        echo(
-            "  Recusados pelo IA (PDF inválido, não serão retentados): "
-            f"{stats.get('ia-rejected', 0)} "
-            f"(spam: {stats.get('ia-rejected-spam', 0)})"
+        stats = harvest_pending_resources(
+            db,
+            pub,
+            limit=limit,
+            ente=ente,
+            tipo=tipo,
+            stats=stats,
+            job_deadline_epoch=job_deadline,
         )
-        derive_failed = stats.get("derive-failed") or []
-        echo(
-            f"  Lotes enviados ao IA: {stats.get('flushes', 0)} | derive pedido: "
-            f"{stats.get('derive-requested', 0)} item(ns), "
-            f"sem derive: {len(derive_failed)}"
-        )
-        for item_id in derive_failed:
-            echo(f"    - sem derive: {item_id} (ia tasks {item_id} --cmd derive.php)")
-        spn = stats.get("wayback-save")
-        if spn:
-            echo(
-                "  Wayback Save Page Now (best-effort): "
-                f"{spn.get('requested', 0)} pedidos, {spn.get('accepted', 0)} aceitos, "
-                f"{spn.get('failed', 0)} falhas, {spn.get('dropped', 0)} descartados"
-            )
-        postponed = stats.get("derive-postponed") or []
-        if postponed:
-            echo(f"  derive adiado: {len(postponed)} item(ns) ainda com pendências")
-            for item_id in postponed:
-                echo(f"    - derive adiado: {item_id}")
-        deferred = stats.get("deferred", 0)
-        if deferred:
-            deferred_items = stats.get("deferred-items") or []
-            echo(
-                f"  adiados (item com fila cheia no IA): {deferred} em "
-                f"{len(deferred_items)} item(ns)"
-            )
-            for item_id in deferred_items:
-                echo(f"    - adiado: {item_id}")
-        if stats.get("aborted"):
-            echo(f"  Colheita interrompida cedo: {stats['aborted']}")
-        if stats["failed"]:
-            # Issue #297: per-item print()/logger.warning() calls inside the
-            # harvest loop itself produced zero output in a live CI run, for
-            # reasons not yet root-caused. stats["items"] is already built by
-            # harvest_pending_resources regardless — printing its failure
-            # reasons here, once, after the loop fully completes (the same
-            # point where "Sucesso"/"Falhas" above ARE proven to show up
-            # reliably in CI), gives visibility that doesn't depend on
-            # per-iteration output surviving.
-            from collections import Counter
-
-            reasons = Counter(
-                item.get("reason", "?")
-                for item in stats["items"]
-                if item.get("status") == "failed"
-            )
-            for reason, count in reasons.most_common():
-                echo(f"    - {reason}: {count}")
     except Exception as e:
+        # O resumo sai mesmo se a colheita levantar: o que já foi feito precisa ser
+        # visível no log do job.
+        _echo_harvest_summary(stats, partial=True)
         echo(f"Erro: {e}")
         raise typer.Exit(1)
+    _echo_harvest_summary(stats)
     # Uma colheita em que nada foi capturado e houve falha que não é "a fonte
     # confirmou que o documento não existe" não é sucesso: sem isto o job fica
     # verde por semanas sem preservar nada. Um 404 confirmado ("fetch-failed") é

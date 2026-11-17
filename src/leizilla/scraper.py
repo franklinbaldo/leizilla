@@ -509,6 +509,9 @@ class _RawBatcher:
         # é apagado do IA. Não conta para _MAX_CONSECUTIVE_FLUSH_FAILURES.
         kind = rejection or "pdf-check"
         reason = f"ia-rejected: {kind}"
+        reasons: Dict[str, int] = self.stats["ia-rejected-reasons"]
+        family = kind.split(":", 1)[0]
+        reasons[family] = reasons.get(family, 0) + 1
         print(
             f"[WARN] IA recusou o PDF de {entry.chave} ({entry.url}): "
             f"{kind} — marcado ia-rejected",
@@ -600,6 +603,36 @@ class _RawBatcher:
                 self.stats["derive-failed"].append(item_id)
 
 
+# Reserva, antes do fim do job, para o flush final, o derive e o resumo (ADR-0016,
+# adendo 2026-11-17). Medido: o flush final do lei levou ~630 s além do orçamento.
+HARVEST_TAIL_RESERVE_S = 1200.0
+# Orçamento de colheita abaixo disto não compensa começar: sem ele, a execução só
+# gastaria o job com setup e encerramento.
+HARVEST_MIN_USEFUL_S = 300.0
+
+
+def harvest_budget_s(
+    *,
+    cap_s: float,
+    job_deadline_epoch: Optional[float],
+    now_epoch: float,
+    tail_reserve_s: float = HARVEST_TAIL_RESERVE_S,
+) -> Optional[float]:
+    """Segundos que a colheita ainda pode gastar buscando capturas, ou ``None``.
+
+    ``cap_s`` é ``HARVEST_MAX_SECONDS`` (0 = sem teto). ``job_deadline_epoch`` é o
+    instante em que o job do runner morre: a colheita para de buscar
+    ``tail_reserve_s`` antes disso, para que o flush, o derive e o resumo caibam.
+    Devolve o menor dos orçamentos que existirem.
+    """
+    budgets: List[float] = []
+    if cap_s > 0:
+        budgets.append(cap_s)
+    if job_deadline_epoch is not None:
+        budgets.append(job_deadline_epoch - tail_reserve_s - now_epoch)
+    return min(budgets) if budgets else None
+
+
 def harvest_pending_resources(
     storage: DuckDBStorage,
     publisher: InternetArchivePublisher,
@@ -608,6 +641,8 @@ def harvest_pending_resources(
     tipo: Optional[str] = None,
     batch_size: Optional[int] = None,
     wayback_saver: Optional[wayback.BackgroundSaver] = None,
+    stats: Optional[Dict[str, Any]] = None,
+    job_deadline_epoch: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Processa recursos pendentes da tabela discovered_resources (ADR-0016).
 
@@ -621,24 +656,35 @@ def harvest_pending_resources(
 
     Se `ente` for fornecido, processa apenas recursos desse ente.
     Se `tipo` for fornecido, processa apenas recursos desse tipo de documento.
+
+    ``stats``, quando passado, é preenchido **no lugar** (mesmo objeto devolvido):
+    assim quem chama tem o resumo parcial mesmo se a colheita levantar. Com
+    ``job_deadline_epoch`` (instante em que o job morre), a busca para
+    ``HARVEST_TAIL_RESERVE_S`` antes dele; sem orçamento útil, nada é buscado
+    (``aborted = "no-time-left"``).
     """
-    stats: Dict[str, Any] = {
-        "success": 0,
-        "failed": 0,
-        "robots-blocked": 0,
-        "already-preserved": 0,
-        "ia-rejected": 0,
-        "ia-rejected-spam": 0,
-        "flushes": 0,
-        "derive-requested": 0,
-        "derive-failed": [],
-        "derive-postponed": [],
-        "deferred": 0,
-        "deferred-items": [],
-        "aborted": None,
-        "wayback-save": None,
-        "items": [],
-    }
+    if stats is None:
+        stats = {}
+    stats.update(
+        {
+            "success": 0,
+            "failed": 0,
+            "robots-blocked": 0,
+            "already-preserved": 0,
+            "ia-rejected": 0,
+            "ia-rejected-spam": 0,
+            "ia-rejected-reasons": {},
+            "flushes": 0,
+            "derive-requested": 0,
+            "derive-failed": [],
+            "derive-postponed": [],
+            "deferred": 0,
+            "deferred-items": [],
+            "aborted": None,
+            "wayback-save": None,
+            "items": [],
+        }
+    )
     # ``limit`` conta tentativas reais (rede/upload). Recurso que o index.csv do
     # IA mostra já preservado é só marcado e não consome o limite — senão um
     # banco local recém-criado gastaria a execução inteira revendo o que já existe.
@@ -665,14 +711,33 @@ def harvest_pending_resources(
             # o MESMO orçamento por host do fetch direto (ADR-0008).
             source_limiter=rate_limiter,
         )
+    now_epoch = time.time()
+    budget = harvest_budget_s(
+        cap_s=config.HARVEST_MAX_SECONDS,
+        job_deadline_epoch=job_deadline_epoch,
+        now_epoch=now_epoch,
+    )
+    if job_deadline_epoch is not None:
+        left = harvest_budget_s(
+            cap_s=0,
+            job_deadline_epoch=job_deadline_epoch,
+            now_epoch=now_epoch,
+        )
+        if left is not None and left < HARVEST_MIN_USEFUL_S:
+            # Job quase no fim: não há tempo para uma colheita útil. Nada é baixado
+            # (então também não há derive a pedir); o job segue para o cache e o resumo.
+            stats["aborted"] = "no-time-left"
+            print(
+                f"[WARN] colheita pulada: {left:.0f} s até o fim do job, com a "
+                f"reserva de {HARVEST_TAIL_RESERVE_S:.0f} s para o flush "
+                f"(mínimo {HARVEST_MIN_USEFUL_S:.0f} s)",
+                file=sys.stderr,
+            )
+            return stats
     consecutive_transient = 0
     consecutive_absent = 0
     fetched_any = False
-    deadline = (
-        time.monotonic() + config.HARVEST_MAX_SECONDS
-        if config.HARVEST_MAX_SECONDS > 0
-        else None
-    )
+    deadline = time.monotonic() + budget if budget is not None else None
 
     try:
         for res in _iter_pending(storage, limit, ente, tipo):

@@ -996,10 +996,21 @@ _IA_BATCH_S3_SLEEP_S = 30
 # Duas mensagens observadas em produção: "error checking pdf file" (PDF inválido) e
 # "Uploaded content is unacceptable. - pdf file looks like spam" (2026-11-16, PDFs
 # válidos de ~250-500 KB). As duas seguem o mesmo caminho (recusa por arquivo).
-_IA_PDF_SPAM_RE = re.compile(r"pdf file looks like spam", re.IGNORECASE)
+# Forma geral da recusa por conteúdo: "Uploaded content is unacceptable. - {motivo}".
+# Qualquer uma é recusa por arquivo (terminal). Motivos observados: "pdf file looks
+# like spam" (2026-11-16), "Syntax error detected in pdf data" (2026-11-17) e
+# "error checking pdf file" (legado). Motivo desconhecido também é recusa, e o texto
+# do IA é guardado para análise (kind ``other: ...``).
 _IA_PDF_REJECTED_RE = re.compile(
-    r"error checking pdf file|pdf file looks like spam", re.IGNORECASE
+    r"error checking pdf file|uploaded content is unacceptable", re.IGNORECASE
 )
+_IA_PDF_SPAM_RE = re.compile(r"pdf file looks like spam", re.IGNORECASE)
+_IA_PDF_SYNTAX_RE = re.compile(r"syntax error detected in pdf data", re.IGNORECASE)
+_IA_PDF_CHECK_RE = re.compile(r"error checking pdf file", re.IGNORECASE)
+_IA_REJECTION_TEXT_RE = re.compile(
+    r"uploaded content is unacceptable\.?\s*-\s*(?P<text>[^\r\n]*)", re.IGNORECASE
+)
+_REJECTION_TEXT_MAX = 120
 # Formato impresso por internetarchive.Item.upload_file em modo verbose:
 # " error uploading {key}: {msg}" — a chave é o nome do arquivo dentro do item.
 _IA_UPLOAD_ERROR_KEY_RE = re.compile(r"error uploading (\S+?):")
@@ -1064,8 +1075,23 @@ def _is_item_ration(stderr: str) -> bool:
 
 
 def _rejection_kind(stderr: str) -> str:
-    """``"spam"`` ou ``"pdf-check"``: qual recusa por conteúdo o IA devolveu."""
-    return "spam" if _IA_PDF_SPAM_RE.search(stderr) else "pdf-check"
+    """Motivo da recusa por conteúdo do IA, para ``discovered_resources.motivo``.
+
+    ``spam`` | ``pdf-syntax`` | ``pdf-check`` são os motivos conhecidos. Qualquer
+    outro texto após "Uploaded content is unacceptable. -" vira ``other: {texto}``
+    (truncado), para que um motivo novo apareça no banco em vez de sumir.
+    """
+    if _IA_PDF_SPAM_RE.search(stderr):
+        return "spam"
+    if _IA_PDF_SYNTAX_RE.search(stderr):
+        return "pdf-syntax"
+    if _IA_PDF_CHECK_RE.search(stderr):
+        return "pdf-check"
+    match = _IA_REJECTION_TEXT_RE.search(stderr)
+    text = match.group("text").strip() if match else ""
+    if not text:
+        return "other"
+    return f"other: {text[:_REJECTION_TEXT_MAX]}"
 
 
 @dataclass(frozen=True)
@@ -1494,8 +1520,9 @@ class InternetArchivePublisher:
         flush inteiro (índice incluído) terminou bem; em falha cada resultado
         traz ``reason``:
 
-        - ``ia-rejected`` — o IA recusou aquele PDF ("error checking pdf file" ou
-          "pdf file looks like spam"; ``rejection`` = ``pdf-check`` | ``spam``).
+        - ``ia-rejected`` — o IA recusou aquele arquivo ("Uploaded content is
+          unacceptable", ver ``_rejection_kind``; ``rejection`` = ``spam`` |
+          ``pdf-syntax`` | ``pdf-check`` | ``other: ...``).
           Permanente: o arquivo sai do lote e o restante é reenviado (``--checksum``
           pula o que já subiu) e o ``index.csv`` sai nesse reenvio;
         - ``ia-throttled`` — o IA pediu para reduzir a taxa e os recuos se

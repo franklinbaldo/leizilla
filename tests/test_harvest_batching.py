@@ -1019,6 +1019,16 @@ def test_workflow_runs_three_tipos_in_parallel_and_bounds_the_harvest_in_time() 
     job_minutes = int(re.search(r"timeout-minutes: (\d+)", parallel).group(1))  # type: ignore[union-attr]
     assert 0 < budget <= 4500
     assert budget + 40 * 60 <= job_minutes * 60
+    # ADR-0016 adendo 2026-11-17: the harvest also stops in time for the job's own
+    # end. The deadline is recorded by the first step (before checkout/discovery) and
+    # the harvest is handed it, so a slow discovery shortens the harvest, not the job.
+    assert job_minutes == 120
+    assert parallel.index("JOB_DEADLINE_EPOCH=$(( $(date +%s) + 120 * 60 ))") < (
+        parallel.index("uses: actions/checkout@v4")
+    )
+    assert '--job-deadline "${JOB_DEADLINE_EPOCH}"' in harvest_step
+    # the dispatch-one-tipo job keeps its own unbounded-by-deadline shape
+    assert "--job-deadline" not in single
     # the biggest tipos are the first wave
     assert "tipo: [lei, lc, decreto," in parallel
     # politeness (ADR-0008): per-job pacing x parallel jobs keeps ~1 req/s combined
@@ -1613,3 +1623,276 @@ def test_harvest_host_interval_comes_from_config(
     pub = MagicMock()
     _harvest(temp_db, pub, limit=1)
     assert seen == [3.0]
+
+
+# ----------------------------------- ADR-0016 (adendo 2026-11-17): recusa, prazo, resumo
+
+SYNTAX = (
+    "Uploaded content is unacceptable. - Syntax error detected in pdf data. You may "
+    "be able to repair the pdf file with a repair tool, pdftk is one such tool."
+)
+
+
+def test_syntax_error_rejection_is_terminal_and_the_rest_lands(
+    pub: InternetArchivePublisher, ia: FakeIA
+) -> None:
+    captures = [_capture(31250), _capture(31249, b"%PDF-syntax"), _capture(31248)]
+    bad_name = f"decreto-31249_{publisher.uuid5_name(b'%PDF-syntax')}.pdf"
+
+    def syntax(args: List[str]) -> Optional[str]:
+        if bad_name in FakeIA.files(args):
+            return f"{ITEM}:\n error uploading {bad_name}: {SYNTAX}\n"
+        return None
+
+    ia.fail_when(syntax)
+    cache: Dict[str, str] = {}
+    with (
+        patch.object(publisher, "_fetch_existing_index", return_value=None),
+        patch("time.sleep") as sleep,
+    ):
+        results = pub.upload_raw_batch(ITEM, captures, cache)
+
+    assert [r.get("reason") for r in results] == [None, "ia-rejected", None]
+    assert results[1]["rejection"] == "pdf-syntax"
+    sleep.assert_not_called()  # permanent: no backoff, no retry of the same file
+    assert len(ia.uploads) == 2
+    assert bad_name not in ia.files(ia.uploads[1])
+    assert [row["numero"] for row in _index_rows(cache[ITEM])] == ["31250", "31248"]
+
+
+def test_unknown_content_rejection_is_kept_as_other(
+    pub: InternetArchivePublisher, ia: FakeIA
+) -> None:
+    captures = [_capture(31250), _capture(31249, b"%PDF-new")]
+    bad_name = f"decreto-31249_{publisher.uuid5_name(b'%PDF-new')}.pdf"
+
+    def new_reason(args: List[str]) -> Optional[str]:
+        if bad_name in FakeIA.files(args):
+            return (
+                f"{ITEM}:\n error uploading {bad_name}: "
+                "Uploaded content is unacceptable - something new\n"
+            )
+        return None
+
+    ia.fail_when(new_reason)
+    with (
+        patch.object(publisher, "_fetch_existing_index", return_value=None),
+        patch("time.sleep") as sleep,
+    ):
+        results = pub.upload_raw_batch(ITEM, captures, {})
+
+    assert [r.get("reason") for r in results] == [None, "ia-rejected"]
+    assert results[1]["rejection"] == "other: something new"
+    sleep.assert_not_called()
+    assert results[0]["success"] is True
+
+
+@pytest.mark.parametrize(
+    ("stderr", "kind"),
+    [
+        (
+            "error uploading f.pdf: Uploaded content is unacceptable. - pdf file looks like spam",
+            "spam",
+        ),
+        (f"error uploading f.pdf: {SYNTAX}", "pdf-syntax"),
+        (
+            "error uploading f.pdf: Uploaded content is unacceptable. - error checking pdf file",
+            "pdf-check",
+        ),
+        (
+            "error uploading f.pdf: Uploaded content is unacceptable - something new",
+            "other: something new",
+        ),
+        ("error uploading f.pdf: Uploaded content is unacceptable.", "other"),
+    ],
+)
+def test_rejection_kind_classifies_known_and_unknown_reasons(
+    stderr: str, kind: str
+) -> None:
+    assert publisher._rejection_kind(stderr) == kind
+
+
+def test_rejection_kind_truncates_an_unknown_reason() -> None:
+    long = "x" * 500
+    kind = publisher._rejection_kind(f"Uploaded content is unacceptable - {long}")
+    assert kind == "other: " + "x" * 120
+
+
+def test_syntax_rejection_is_stored_with_its_reason_and_counted(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    for n in (31250, 31249):
+        temp_db.insert_resource(_resource(n))
+
+    def upload(
+        item_id: str, captures: List[RawCapture], index_cache: Any = None
+    ) -> Any:
+        return [
+            {"success": False, "reason": "ia-rejected", "rejection": "pdf-syntax"}
+            if c.target.numero == 31249
+            else {"success": True, "ia_url": "u"}
+            for c in captures
+        ]
+
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    pub.upload_raw_batch.side_effect = upload
+
+    stats = _harvest(temp_db, pub, limit=10)
+
+    rows = temp_db.connect().execute(
+        "SELECT chave, status, motivo FROM discovered_resources ORDER BY chave"
+    )
+    assert rows.fetchall() == [
+        ("decreto-31249", "ia-rejected", "pdf-syntax"),
+        ("decreto-31250", "downloaded", None),
+    ]
+    assert stats["ia-rejected"] == 1
+    assert stats["ia-rejected-reasons"] == {"pdf-syntax": 1}
+    assert stats["success"] == 1 and stats["failed"] == 0
+
+
+def test_cli_summary_lists_the_other_rejection_reasons() -> None:
+    stats = {
+        "success": 1,
+        "failed": 0,
+        "robots-blocked": 0,
+        "ia-rejected": 6,
+        "ia-rejected-spam": 3,
+        "ia-rejected-reasons": {"spam": 3, "pdf-syntax": 1, "other": 2},
+        "items": [],
+    }
+    with (
+        patch("leizilla.scraper.harvest_pending_resources", return_value=stats),
+        patch("leizilla.storage.DuckDBStorage"),
+        patch("leizilla.publisher.InternetArchivePublisher"),
+    ):
+        result = CliRunner().invoke(app, ["harvest"])
+    assert ": 6 (spam: 3)" in result.output
+    assert "- pdf-syntax: 1" in result.output
+    assert "- other: 2" in result.output
+    assert "- spam:" not in result.output  # spam is already in the line above
+
+
+def test_budget_is_the_smaller_of_cap_and_time_left_before_the_job_dies() -> None:
+    from leizilla.scraper import HARVEST_TAIL_RESERVE_S, harvest_budget_s
+
+    now = 1_000_000.0
+    job_end = now + 7200  # the job dies two hours from now
+    assert harvest_budget_s(cap_s=4500, job_deadline_epoch=None, now_epoch=now) == 4500
+    assert harvest_budget_s(cap_s=0, job_deadline_epoch=None, now_epoch=now) is None
+    # discovery ate 42 min: 120 - 42 - 20 (reserve) = 58 min, below the 75 min cap
+    left = harvest_budget_s(
+        cap_s=4500, job_deadline_epoch=job_end, now_epoch=now + 42 * 60
+    )
+    assert left == pytest.approx(7200 - 42 * 60 - HARVEST_TAIL_RESERVE_S)
+    assert left < 4500
+    # with nothing spent yet the cap wins
+    assert (
+        harvest_budget_s(cap_s=4500, job_deadline_epoch=job_end, now_epoch=now) == 4500
+    )
+
+
+def test_harvest_with_no_useful_time_left_fetches_nothing(
+    temp_db: DuckDBStorage, fast_source: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time as _time
+
+    monkeypatch.setattr("leizilla.config.HARVEST_MAX_SECONDS", 0.0)
+    temp_db.insert_resource(_resource(31250))
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    fetch = MagicMock(return_value=(b"%PDF-1.4 x", False))
+    # the job dies in 10 min: less than the 20 min reserve, so nothing to spend
+    stats = _harvest(
+        temp_db, pub, fetch=fetch, limit=10, job_deadline_epoch=_time.time() + 600
+    )
+
+    assert stats["aborted"] == "no-time-left"
+    fetch.assert_not_called()
+    pub.upload_raw_batch.assert_not_called()
+    assert _statuses(temp_db) == {"decreto-31250": "pending"}
+
+
+def test_harvest_stops_fetching_in_time_for_the_tail_flush(
+    temp_db: DuckDBStorage, fast_source: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time as _time
+
+    from leizilla.scraper import HARVEST_TAIL_RESERVE_S
+
+    monkeypatch.setattr("leizilla.config.HARVEST_MAX_SECONDS", 0.0)
+    for n in (31250, 31249):
+        temp_db.insert_resource(_resource(n))
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    batch_ok(pub)
+    # 30 min of job left: 10 min of fetching budget after the 20 min reserve
+    stats = _harvest(
+        temp_db,
+        pub,
+        limit=10,
+        job_deadline_epoch=_time.time() + HARVEST_TAIL_RESERVE_S + 600,
+    )
+    assert stats["aborted"] is None
+    assert stats["success"] == 2  # both fit in the 10 min budget and are flushed
+
+
+def test_stats_dict_passed_in_is_filled_even_when_the_harvest_raises(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    temp_db.insert_resource(_resource(31250))
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    stats: Dict[str, Any] = {}
+    boom = MagicMock(side_effect=RuntimeError("source exploded"))
+    with pytest.raises(RuntimeError):
+        _harvest(temp_db, pub, fetch=boom, limit=10, stats=stats)
+    # the caller's dict is the one filled in, so a partial summary is still printable
+    assert stats["success"] == 0 and stats["flushes"] == 0
+    assert stats["aborted"] is None
+
+
+def test_cli_prints_the_summary_when_the_harvest_raises() -> None:
+    def boom(db: Any, pub: Any, **kwargs: Any) -> Dict[str, Any]:
+        kwargs["stats"].update({"success": 2, "failed": 0, "items": []})
+        raise RuntimeError("boom")
+
+    with (
+        patch("leizilla.scraper.harvest_pending_resources", side_effect=boom),
+        patch("leizilla.storage.DuckDBStorage"),
+        patch("leizilla.publisher.InternetArchivePublisher"),
+    ):
+        result = CliRunner().invoke(app, ["harvest"])
+    assert result.exit_code == 1
+    assert "Colheita parcial" in result.output
+    assert "Sucesso: 2" in result.output
+    assert "Erro: boom" in result.output
+
+
+def test_cli_passes_the_job_deadline_to_the_harvest() -> None:
+    stats = {"success": 0, "failed": 0, "items": []}
+    with (
+        patch(
+            "leizilla.scraper.harvest_pending_resources", return_value=stats
+        ) as harvest,
+        patch("leizilla.storage.DuckDBStorage"),
+        patch("leizilla.publisher.InternetArchivePublisher"),
+    ):
+        CliRunner().invoke(app, ["harvest", "--job-deadline", "1700000000"])
+    assert harvest.call_args.kwargs["job_deadline_epoch"] == 1700000000.0
+
+
+def test_cache_restore_prefix_never_matches_another_tipo() -> None:
+    # achado 2026-11-17: "discover-db-decreto-" restored the decreto-lei cache. The
+    # restore prefix must end in a terminator that no other tipo's key can contain.
+    text = (REPO / ".github/workflows/discover-harvest.yml").read_text()
+    prefixes = re.findall(
+        r"^\s+(discover-db-\$\{\{ matrix\.tipo \}\}--)\s*$", text, re.M
+    )
+    assert prefixes == ["discover-db-${{ matrix.tipo }}--"]
+    tipos = ["lei", "lc", "decreto", "ec", "resolucao", "portaria", "decreto-lei"]
+    for tipo in tipos:
+        prefix = f"discover-db-{tipo}--"
+        keys = [f"discover-db-{other}--123" for other in tipos]
+        assert [k.startswith(prefix) for k in keys].count(True) == 1
