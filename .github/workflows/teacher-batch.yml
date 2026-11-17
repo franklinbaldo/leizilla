@@ -9,6 +9,10 @@ name: Teacher Batch — rótulos estruturais por linha
 #   submit  → trava de custo (max_usd obrigatório) + cria o(s) batch(es)
 #   collect → busca os resultados, valida, funde e publica os rótulos
 #
+# Dois modos (input `mode`): `label` (padrão) — o professor rotula cada linha;
+# `review` — o professor audita a leitura do leitor por regras e devolve só os
+# ajustes (src/leizilla/teacher_review.py), com canários de atenção plantados.
+#
 # Estado entre `submit` e `collect`: o manifesto (ids dos batches + mapa
 # custom_id → norma/pedaço) vai num ARTIFACT da execução de submit, com
 # retenção de 30 dias — os resultados de um batch ficam disponíveis por 29
@@ -68,6 +72,25 @@ on:
       label_set:
         description: "plan/submit/collect: nome do conjunto de rótulos (main = ajuste; ex. holdout-2026-11 para o conjunto de avaliação)"
         default: "main"
+      mode:
+        description: "plan/submit: label (o professor rotula cada linha, padrão) ou review (o professor audita a leitura do leitor por regras; conjunto 'review', exclude_labelled é ignorado)"
+        type: choice
+        options: [label, review]
+        default: label
+      select:
+        description: "review, plan/submit: quais normas — all, closed (o leitor fecha) ou open. Com ids_file preenchido, vale o arquivo"
+        type: choice
+        options: [all, closed, open]
+        default: all
+      ids_file:
+        description: "review, plan/submit: nome (sem .txt) de uma lista de texto_id em docs/okf/review-samples/ (ex. eval-2026-11) — vazio = usa select"
+        default: ""
+      canary_share:
+        description: "review, plan/submit: fração de canários (cópias com erro plantado nas etiquetas) — vazio = 0.15; ignorado se canary_ids_file"
+        default: ""
+      canary_ids_file:
+        description: "review, plan/submit: nome (sem .txt) de uma lista de texto_id em docs/okf/review-samples/ que viram canários (ex. eval-2026-11-canaries)"
+        default: ""
 
 permissions:
   contents: read
@@ -107,14 +130,39 @@ jobs:
           IN_TEXT_SOURCE: ${{ inputs.text_source }}
           IN_EXCLUDE: ${{ inputs.exclude_labelled }}
           IN_LABEL_SET: ${{ inputs.label_set }}
+          IN_MODE: ${{ inputs.mode }}
+          IN_SELECT: ${{ inputs.select }}
+          IN_IDS: ${{ inputs.ids_file }}
+          IN_CANARY_IDS: ${{ inputs.canary_ids_file }}
+          IN_CANARY_SHARE: ${{ inputs.canary_share }}
         run: |
           set -euo pipefail
           args=(--effort "$IN_EFFORT" --out "$WORK_DIR/plan.json")
           [ -n "$IN_LIMIT" ] && args+=(--limit "$IN_LIMIT")
           [ -n "$IN_TIPO" ] && args+=(--tipo "$IN_TIPO")
           [ -n "$IN_SEED" ] && args+=(--shuffle-seed "$IN_SEED")
-          args+=(--text-source "$IN_TEXT_SOURCE" --label-set "$IN_LABEL_SET")
-          [ -n "$IN_EXCLUDE" ] && args+=(--exclude-labelled "$IN_EXCLUDE")
+          # Modo review: conjunto 'review' (nunca 'main'), sem --exclude-labelled
+          # (a amostra de avaliação sai do conjunto já rotulado) e listas de
+          # texto_id vindas só de docs/okf/review-samples/<nome>.txt.
+          LS="$IN_LABEL_SET"
+          if [ "$IN_MODE" = "review" ]; then
+            [ "$LS" = "main" ] && LS="review"
+            SEL="$IN_SELECT"
+            if [ -n "$IN_IDS" ]; then
+              [[ "$IN_IDS" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || { echo "::error::ids_file inválido"; exit 1; }
+              SEL="ids-file"
+              args+=(--ids-file "docs/okf/review-samples/$IN_IDS.txt")
+            fi
+            if [ -n "$IN_CANARY_IDS" ]; then
+              [[ "$IN_CANARY_IDS" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || { echo "::error::canary_ids_file inválido"; exit 1; }
+              args+=(--canary-ids-file "docs/okf/review-samples/$IN_CANARY_IDS.txt")
+            elif [ -n "$IN_CANARY_SHARE" ]; then
+              args+=(--canary-share "$IN_CANARY_SHARE")
+            fi
+            args+=(--mode review --select "$SEL")
+          fi
+          args+=(--text-source "$IN_TEXT_SOURCE" --label-set "$LS")
+          [ "$IN_MODE" != "review" ] && [ -n "$IN_EXCLUDE" ] && args+=(--exclude-labelled "$IN_EXCLUDE")
           # Contagem real de tokens numa amostra (endpoint gratuito) para
           # conferir a densidade conservadora usada na estimativa.
           args+=(--count-sample 20)
@@ -173,6 +221,11 @@ jobs:
           IN_TEXT_SOURCE: ${{ inputs.text_source }}
           IN_EXCLUDE: ${{ inputs.exclude_labelled }}
           IN_LABEL_SET: ${{ inputs.label_set }}
+          IN_MODE: ${{ inputs.mode }}
+          IN_SELECT: ${{ inputs.select }}
+          IN_IDS: ${{ inputs.ids_file }}
+          IN_CANARY_IDS: ${{ inputs.canary_ids_file }}
+          IN_CANARY_SHARE: ${{ inputs.canary_share }}
         run: |
           set -euo pipefail
           if [ -z "$IN_MAX_USD" ]; then
@@ -190,8 +243,28 @@ jobs:
           [ -n "$IN_SEED" ] && args+=(--shuffle-seed "$IN_SEED")
           [ -n "$IN_RETRY_RUN" ] && \
             args+=(--retry-failures /tmp/teacher-batch-previous/failures.jsonl)
-          args+=(--text-source "$IN_TEXT_SOURCE" --label-set "$IN_LABEL_SET")
-          [ -n "$IN_EXCLUDE" ] && args+=(--exclude-labelled "$IN_EXCLUDE")
+          # Modo review: conjunto 'review' (nunca 'main'), sem --exclude-labelled
+          # (a amostra de avaliação sai do conjunto já rotulado) e listas de
+          # texto_id vindas só de docs/okf/review-samples/<nome>.txt.
+          LS="$IN_LABEL_SET"
+          if [ "$IN_MODE" = "review" ]; then
+            [ "$LS" = "main" ] && LS="review"
+            SEL="$IN_SELECT"
+            if [ -n "$IN_IDS" ]; then
+              [[ "$IN_IDS" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || { echo "::error::ids_file inválido"; exit 1; }
+              SEL="ids-file"
+              args+=(--ids-file "docs/okf/review-samples/$IN_IDS.txt")
+            fi
+            if [ -n "$IN_CANARY_IDS" ]; then
+              [[ "$IN_CANARY_IDS" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || { echo "::error::canary_ids_file inválido"; exit 1; }
+              args+=(--canary-ids-file "docs/okf/review-samples/$IN_CANARY_IDS.txt")
+            elif [ -n "$IN_CANARY_SHARE" ]; then
+              args+=(--canary-share "$IN_CANARY_SHARE")
+            fi
+            args+=(--mode review --select "$SEL")
+          fi
+          args+=(--text-source "$IN_TEXT_SOURCE" --label-set "$LS")
+          [ "$IN_MODE" != "review" ] && [ -n "$IN_EXCLUDE" ] && args+=(--exclude-labelled "$IN_EXCLUDE")
           uv run python scripts/anthropic_wif.py run -- -m leizilla.teacher_batch submit "${args[@]}" | tee "$WORK_DIR.log"
           {
             echo "## Teacher batch — submit"
@@ -259,10 +332,14 @@ jobs:
           # --allow-failures: normas com falha (recusa, expiração, resposta
           # fora do esquema) são esperadas em escala e ficam em failures.jsonl
           # e no resumo abaixo — não derrubam a coleta das demais.
-          # --label-set: falha se o manifesto for de outro conjunto.
+          # --label-set: falha se o manifesto for de outro conjunto. Manifesto
+          # de review: o conjunto padrão 'main' vira 'review', como no submit.
+          LS="$IN_LABEL_SET"
+          MODE=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("mode", "label"))' "$WORK_DIR/in/manifest.json")
+          if [ "$MODE" = "review" ] && [ "$LS" = "main" ]; then LS="review"; fi
           args=(
             --manifest "$WORK_DIR/in/manifest.json" --out-dir "$WORK_DIR/out"
-            --wait-minutes "$IN_WAIT" --allow-failures --label-set "$IN_LABEL_SET"
+            --wait-minutes "$IN_WAIT" --allow-failures --label-set "$LS"
           )
           [ "$IN_UPLOAD_IA" = "true" ] && args+=(--upload-ia)
           uv run python scripts/anthropic_wif.py run -- -m leizilla.teacher_batch collect "${args[@]}" | tee "$WORK_DIR.log"
@@ -288,6 +365,8 @@ jobs:
           name: teacher-batch-labels
           path: |
             ${{ env.WORK_DIR }}/out/labels
+            ${{ env.WORK_DIR }}/out/reviews
+            ${{ env.WORK_DIR }}/out/review-adjustments.json
             ${{ env.WORK_DIR }}/out/failures.jsonl
             ${{ env.WORK_DIR }}/out/summary.json
             ${{ env.WORK_DIR }}/out/manifest.json
