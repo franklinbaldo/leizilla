@@ -540,19 +540,29 @@ def write_markdown(path: Path, summary: dict[str, Any]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def run(
-    labels_dir: Path,
+@dataclass(frozen=True)
+class Corpus:
+    """Result of comparing every labelled norm; ``rows`` has one entry per norm."""
+
+    rows: list[dict[str, Any]]
+    mismatches: list[str]
+    missing_keys: list[str]
+    sources: collections.Counter[str]
+    ia_requests: int
+
+
+def compare_corpus(
+    norms: list[tuple[dict[str, Any], list[dict[str, Any]]]],
     texts_dir: Path,
-    out_dir: Path,
     textos_parquet: Optional[Path] = None,
-    limit: int = 0,
     ia: Optional[IaFetcher] = None,
-) -> dict[str, Any]:
-    norms = load_labelled_norms(labels_dir)
-    if limit:
-        norms = norms[:limit]
+) -> Corpus:
+    """Fetch each norm's text (cache, parquet, IA) and compare it with the reader.
+
+    Shared by ``run`` and ``scripts/reader_ratchet.py``. Norms whose text is
+    missing or whose sha256 does not match are reported, never compared.
+    """
     texts_dir.mkdir(parents=True, exist_ok=True)
-    out_dir.mkdir(parents=True, exist_ok=True)
     parquet = ParquetTexts(textos_parquet)
     fetcher = ia or IaFetcher()
     missing = read_missing(texts_dir)
@@ -573,8 +583,37 @@ def run(
             continue
         rows.append(compare_norm(header, labels, text))
 
+    return Corpus(
+        rows=rows,
+        mismatches=mismatches,
+        missing_keys=missing_keys,
+        sources=sources,
+        ia_requests=fetcher.requests,
+    )
+
+
+def run(
+    labels_dir: Path,
+    texts_dir: Path,
+    out_dir: Path,
+    textos_parquet: Optional[Path] = None,
+    limit: int = 0,
+    ia: Optional[IaFetcher] = None,
+) -> dict[str, Any]:
+    norms = load_labelled_norms(labels_dir)
+    if limit:
+        norms = norms[:limit]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    corpus = compare_corpus(norms, texts_dir, textos_parquet, ia)
+    rows = corpus.rows
+
     summary = summarise(
-        rows, len(norms), mismatches, missing_keys, sources, fetcher.requests
+        rows,
+        len(norms),
+        corpus.mismatches,
+        corpus.missing_keys,
+        corpus.sources,
+        corpus.ia_requests,
     )
     fields = [
         "identifier",
