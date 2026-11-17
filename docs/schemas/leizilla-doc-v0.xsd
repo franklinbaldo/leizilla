@@ -1,0 +1,435 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Documento marcado v0 — o texto preservado de uma norma, intocado, com tags
+  inseridas. Sem namespace (v0). Ver docs/okf/documento-marcado.md.
+
+  Conteúdo misto em todo lugar: o texto é o conteúdo; as tags só o envolvem.
+  A gramática de níveis (quem cabe dentro de quem) está nos tipos t-*; ela é a
+  mesma de leizilla.marcacao.children_allowed (tests/test_marcacao.py compara os
+  dois).
+
+  O que o XSD NÃO verifica, e leizilla.marcacao.verify verifica:
+    - a invariante do strip: remover todas as tags (e o conteúdo de <nota>) e
+      restaurar <c v="HEX"/> devolve o texto original, caractere a caractere;
+    - sha256-texto da raiz é o do texto;
+    - numeração: forma de n por tipo (arabe; unico só em par; letra em ali),
+      <m> no máximo um por elemento e fora de filhos, elemento vazio só com
+      estado, estado="ausente" só em elemento vazio, mais de um <m>.
+  Elementos que o leitor atual não emite estão declarados mesmo assim: epigrafe,
+  ementa, preambulo, fecho, assinatura, anexo, ref, ruido e os blocos
+  organizacionais (parte, liv, tit, cap, sec, subsec).
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="unqualified" version="0">
+
+  <xs:simpleType name="Numero">
+    <xs:restriction base="xs:token">
+      <xs:pattern value="[0-9]+|unico|[a-z]+"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Sufixo">
+    <xs:restriction base="xs:token">
+      <xs:pattern value="[A-Za-z]{1,3}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Estado">
+    <xs:restriction base="xs:token">
+      <xs:enumeration value="vetado"/>
+      <xs:enumeration value="ausente"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Sha256">
+    <xs:restriction base="xs:token">
+      <xs:pattern value="[0-9a-f]{64}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CodePoint">
+    <xs:restriction base="xs:token">
+      <xs:pattern value="[0-9A-F]{2,6}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- <c v="0C"/>: um code point que XML 1.0 não carrega (ou que o parser
+       reescreveria, como \r); o strip o restaura. -->
+  <xs:element name="c">
+    <xs:complexType>
+      <xs:attribute name="v" type="CodePoint" use="required"/>
+    </xs:complexType>
+  </xs:element>
+
+  <!-- <m>: o marcador como impresso ("Art. 5º", "§ 2º", "III -", "a)"). -->
+  <xs:element name="m">
+    <xs:complexType mixed="true">
+      <xs:sequence>
+        <xs:element ref="c" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <!-- <nota>: o único elemento cujo conteúdo é nosso; o strip o remove. -->
+  <xs:element name="nota">
+    <xs:complexType mixed="true">
+      <xs:sequence>
+        <xs:element ref="c" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attribute name="por" type="xs:token" use="optional"/>
+      <xs:attribute name="tipo" type="xs:token" use="optional"/>
+    </xs:complexType>
+  </xs:element>
+
+  <!-- Tipos de conteúdo por elemento (conteúdo misto; c é permitido em todos). -->
+  <xs:complexType name="t-documento" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="lei"/>
+      <xs:element ref="epigrafe"/>
+      <xs:element ref="ementa"/>
+      <xs:element ref="preambulo"/>
+      <xs:element ref="fecho"/>
+      <xs:element ref="assinatura"/>
+      <xs:element ref="anexo"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="versao" type="xs:token" use="required"/>
+    <xs:attribute name="sha256-texto" type="Sha256" use="required"/>
+    <xs:attribute name="texto-id" type="xs:token" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-lei" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="parte"/>
+      <xs:element ref="liv"/>
+      <xs:element ref="tit"/>
+      <xs:element ref="cap"/>
+      <xs:element ref="sec"/>
+      <xs:element ref="subsec"/>
+      <xs:element ref="art"/>
+      <xs:element ref="epigrafe"/>
+      <xs:element ref="ementa"/>
+      <xs:element ref="preambulo"/>
+      <xs:element ref="fecho"/>
+      <xs:element ref="assinatura"/>
+      <xs:element ref="anexo"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="tipo" type="xs:token" use="optional"/>
+    <xs:attribute name="numero" type="xs:token" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-alteracao" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="parte"/>
+      <xs:element ref="liv"/>
+      <xs:element ref="tit"/>
+      <xs:element ref="cap"/>
+      <xs:element ref="sec"/>
+      <xs:element ref="subsec"/>
+      <xs:element ref="art"/>
+      <xs:element ref="par"/>
+      <xs:element ref="inc"/>
+      <xs:element ref="ali"/>
+      <xs:element ref="item"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="alvo" type="xs:token" use="optional"/>
+    <xs:attribute name="acao" type="xs:token" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-parte" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="m"/>
+      <xs:element ref="liv"/>
+      <xs:element ref="tit"/>
+      <xs:element ref="cap"/>
+      <xs:element ref="sec"/>
+      <xs:element ref="subsec"/>
+      <xs:element ref="art"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="n" type="Numero" use="required"/>
+    <xs:attribute name="sufixo" type="Sufixo" use="optional"/>
+    <xs:attribute name="lido-por" type="xs:token" use="optional"/>
+    <xs:attribute name="corrigido" type="xs:boolean" use="optional"/>
+    <xs:attribute name="estado" type="Estado" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-liv" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="m"/>
+      <xs:element ref="tit"/>
+      <xs:element ref="cap"/>
+      <xs:element ref="sec"/>
+      <xs:element ref="subsec"/>
+      <xs:element ref="art"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="n" type="Numero" use="required"/>
+    <xs:attribute name="sufixo" type="Sufixo" use="optional"/>
+    <xs:attribute name="lido-por" type="xs:token" use="optional"/>
+    <xs:attribute name="corrigido" type="xs:boolean" use="optional"/>
+    <xs:attribute name="estado" type="Estado" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-tit" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="m"/>
+      <xs:element ref="cap"/>
+      <xs:element ref="sec"/>
+      <xs:element ref="subsec"/>
+      <xs:element ref="art"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="n" type="Numero" use="required"/>
+    <xs:attribute name="sufixo" type="Sufixo" use="optional"/>
+    <xs:attribute name="lido-por" type="xs:token" use="optional"/>
+    <xs:attribute name="corrigido" type="xs:boolean" use="optional"/>
+    <xs:attribute name="estado" type="Estado" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-cap" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="m"/>
+      <xs:element ref="sec"/>
+      <xs:element ref="subsec"/>
+      <xs:element ref="art"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="n" type="Numero" use="required"/>
+    <xs:attribute name="sufixo" type="Sufixo" use="optional"/>
+    <xs:attribute name="lido-por" type="xs:token" use="optional"/>
+    <xs:attribute name="corrigido" type="xs:boolean" use="optional"/>
+    <xs:attribute name="estado" type="Estado" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-sec" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="m"/>
+      <xs:element ref="subsec"/>
+      <xs:element ref="art"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="n" type="Numero" use="required"/>
+    <xs:attribute name="sufixo" type="Sufixo" use="optional"/>
+    <xs:attribute name="lido-por" type="xs:token" use="optional"/>
+    <xs:attribute name="corrigido" type="xs:boolean" use="optional"/>
+    <xs:attribute name="estado" type="Estado" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-subsec" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="m"/>
+      <xs:element ref="art"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="n" type="Numero" use="required"/>
+    <xs:attribute name="sufixo" type="Sufixo" use="optional"/>
+    <xs:attribute name="lido-por" type="xs:token" use="optional"/>
+    <xs:attribute name="corrigido" type="xs:boolean" use="optional"/>
+    <xs:attribute name="estado" type="Estado" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-art" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="m"/>
+      <xs:element ref="alteracao"/>
+      <xs:element ref="par"/>
+      <xs:element ref="inc"/>
+      <xs:element ref="ali"/>
+      <xs:element ref="item"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="n" type="Numero" use="required"/>
+    <xs:attribute name="sufixo" type="Sufixo" use="optional"/>
+    <xs:attribute name="lido-por" type="xs:token" use="optional"/>
+    <xs:attribute name="corrigido" type="xs:boolean" use="optional"/>
+    <xs:attribute name="estado" type="Estado" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-par" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="m"/>
+      <xs:element ref="alteracao"/>
+      <xs:element ref="inc"/>
+      <xs:element ref="ali"/>
+      <xs:element ref="item"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="n" type="Numero" use="required"/>
+    <xs:attribute name="sufixo" type="Sufixo" use="optional"/>
+    <xs:attribute name="lido-por" type="xs:token" use="optional"/>
+    <xs:attribute name="corrigido" type="xs:boolean" use="optional"/>
+    <xs:attribute name="estado" type="Estado" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-inc" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="m"/>
+      <xs:element ref="alteracao"/>
+      <xs:element ref="ali"/>
+      <xs:element ref="item"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="n" type="Numero" use="required"/>
+    <xs:attribute name="sufixo" type="Sufixo" use="optional"/>
+    <xs:attribute name="lido-por" type="xs:token" use="optional"/>
+    <xs:attribute name="corrigido" type="xs:boolean" use="optional"/>
+    <xs:attribute name="estado" type="Estado" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-ali" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="m"/>
+      <xs:element ref="alteracao"/>
+      <xs:element ref="item"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="n" type="Numero" use="required"/>
+    <xs:attribute name="sufixo" type="Sufixo" use="optional"/>
+    <xs:attribute name="lido-por" type="xs:token" use="optional"/>
+    <xs:attribute name="corrigido" type="xs:boolean" use="optional"/>
+    <xs:attribute name="estado" type="Estado" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-item" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="m"/>
+      <xs:element ref="alteracao"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="n" type="Numero" use="required"/>
+    <xs:attribute name="sufixo" type="Sufixo" use="optional"/>
+    <xs:attribute name="lido-por" type="xs:token" use="optional"/>
+    <xs:attribute name="corrigido" type="xs:boolean" use="optional"/>
+    <xs:attribute name="estado" type="Estado" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-epigrafe" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t-ementa" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t-preambulo" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t-fecho" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t-assinatura" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t-anexo" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="parte"/>
+      <xs:element ref="liv"/>
+      <xs:element ref="tit"/>
+      <xs:element ref="cap"/>
+      <xs:element ref="sec"/>
+      <xs:element ref="subsec"/>
+      <xs:element ref="art"/>
+      <xs:element ref="par"/>
+      <xs:element ref="inc"/>
+      <xs:element ref="ali"/>
+      <xs:element ref="item"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="n" type="xs:token" use="optional"/>
+  </xs:complexType>
+  <xs:complexType name="t-ruido" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="ruido"/>
+      <xs:element ref="ref"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t-ref" mixed="true">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="c"/>
+      <xs:element ref="nota"/>
+    </xs:choice>
+    <xs:attribute name="alvo" type="xs:token" use="optional"/>
+  </xs:complexType>
+
+  <xs:element name="documento" type="t-documento"/>
+  <xs:element name="lei" type="t-lei"/>
+  <xs:element name="alteracao" type="t-alteracao"/>
+  <xs:element name="parte" type="t-parte"/>
+  <xs:element name="liv" type="t-liv"/>
+  <xs:element name="tit" type="t-tit"/>
+  <xs:element name="cap" type="t-cap"/>
+  <xs:element name="sec" type="t-sec"/>
+  <xs:element name="subsec" type="t-subsec"/>
+  <xs:element name="art" type="t-art"/>
+  <xs:element name="par" type="t-par"/>
+  <xs:element name="inc" type="t-inc"/>
+  <xs:element name="ali" type="t-ali"/>
+  <xs:element name="item" type="t-item"/>
+  <xs:element name="epigrafe" type="t-epigrafe"/>
+  <xs:element name="ementa" type="t-ementa"/>
+  <xs:element name="preambulo" type="t-preambulo"/>
+  <xs:element name="fecho" type="t-fecho"/>
+  <xs:element name="assinatura" type="t-assinatura"/>
+  <xs:element name="anexo" type="t-anexo"/>
+  <xs:element name="ruido" type="t-ruido"/>
+  <xs:element name="ref" type="t-ref"/>
+</xs:schema>

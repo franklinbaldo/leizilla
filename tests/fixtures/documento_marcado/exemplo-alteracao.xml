@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<documento versao="0" sha256-texto="d75ac5e58a0e305628c163cb21f9173cc860f97070f1a03a9697aa1d00b90ff5" texto-id="exemplo-alteracao"><lei tipo="lei" numero="1"><art n="1" lido-por="literal"><m>Art. 1º</m> O art. 15 da Lei nº 10 passa a vigorar com a seguinte redação:
+<alteracao>"<art n="15"><m>Art. 15</m>. Novo texto, A &amp; B &lt; C:
+<inc n="1"><m>I -</m> um;
+  <ali n="a"><m>a)</m> letra;</ali></inc>
+<inc n="2"><m>II -</m> dois."</inc></art></alteracao> (NR)
+<par n="unico" lido-por="literal"><m>Parágrafo único</m>. Regra do hospedeiro.</par></art><c v="0C"/><c v="0D"/>
+<art n="2" lido-por="literal"><nota por="exemplo" tipo="aviso">nota nossa: fora do texto</nota><m>Art. 2º</m> Esta Lei entra em vigor.</art></lei>
+</documento>

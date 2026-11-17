@@ -3349,6 +3349,100 @@ def cmd_wayback_save(
     echo("========================================================================")
 
 
+@app.command("marcar")
+def cmd_marcar(
+    texto_id: Optional[str] = typer.Option(
+        None, "--texto-id", help="Linha do textos.parquet (o texto preservado da norma)"
+    ),
+    text_file: Optional[Path] = typer.Option(
+        None, "--text-file", help="Arquivo de texto UTF-8 (lido byte a byte)"
+    ),
+    textos: Optional[Path] = typer.Option(
+        None,
+        "--textos",
+        help="textos.parquet local para --texto-id (default: baixa o publicado no IA)",
+    ),
+    ente: str = typer.Option("ro", "--ente", help="Ente do textos publicado"),
+    version: int = typer.Option(0, "--version", help="Versão do dataset"),
+    out: Optional[Path] = typer.Option(
+        None, "--out", help="Grava o documento marcado aqui (default: imprime)"
+    ),
+) -> None:
+    """Documento marcado: o texto preservado de uma norma, com tags inseridas.
+
+    O leitor (`read_hierarchy`) dá os dispositivos; `marcacao.build` insere as tags
+    sem tocar um caractere do texto (invariante: remover as tags devolve o texto
+    original, sha256 na raiz). Ver docs/okf/documento-marcado.md.
+    """
+    from leizilla import completeness, marcacao, textlayer
+
+    if (texto_id is None) == (text_file is None):
+        echo("Informe exatamente um entre --texto-id e --text-file.")
+        raise typer.Exit(2)
+    tipo: Optional[str] = None
+    numero: Optional[int] = None
+    ident: Optional[str] = None
+    if text_file is not None:
+        if not text_file.exists():
+            echo(f"Arquivo não encontrado: {text_file}")
+            raise typer.Exit(1)
+        text = text_file.read_bytes().decode("utf-8")
+    else:
+        assert texto_id is not None
+        with tempfile.TemporaryDirectory() as tmp:
+            path = textos
+            if path is None:
+                path = Path(tmp) / "textos.parquet"
+                if not completeness.fetch_published_textos(ente, version, path):
+                    echo("textos.parquet publicado indisponível.")
+                    raise typer.Exit(1)
+            elif not path.exists():
+                echo(f"Arquivo não encontrado: {path}")
+                raise typer.Exit(1)
+            row = textlayer.read_textos_parquet(path).get(texto_id)
+        if row is None or not row.get("texto"):
+            echo(f"texto_id sem texto no textos.parquet: {texto_id}")
+            raise typer.Exit(1)
+        text = str(row["texto"])
+        ident, tipo, numero = texto_id, row.get("tipo"), row.get("numero")
+    xml = marcacao.marcar(text, texto_id=ident, tipo=tipo, numero=numero)
+    problems = marcacao.verify(xml, text)
+    if problems:  # nunca emitir um documento que quebra a invariante
+        for p in problems:
+            echo(f"ERRO: {p}", err=True)
+        raise typer.Exit(1)
+    if out is None:
+        echo(xml, nl=False)
+    else:
+        out.write_bytes(xml.encode("utf-8"))
+        echo(f"Documento marcado gravado em {out} ({len(xml)} caracteres).")
+
+
+@app.command("marcar-verificar")
+def cmd_marcar_verificar(
+    arquivo: Path = typer.Argument(..., help="Documento marcado (XML)"),
+    text_file: Path = typer.Option(
+        ..., "--text-file", help="O texto que o documento deve conter (UTF-8)"
+    ),
+) -> None:
+    """Verifica um documento marcado contra o texto: strip, sha256 e gramática."""
+    from leizilla import marcacao
+
+    for path in (arquivo, text_file):
+        if not path.exists():
+            echo(f"Arquivo não encontrado: {path}")
+            raise typer.Exit(1)
+    xml = arquivo.read_bytes().decode("utf-8")
+    text = text_file.read_bytes().decode("utf-8")
+    problems = marcacao.verify(xml, text)
+    if problems:
+        for p in problems:
+            echo(f"PROBLEMA: {p}")
+        echo(f"{len(problems)} problema(s).")
+        raise typer.Exit(1)
+    echo("OK: strip devolve o texto, sha256 confere, gramática válida.")
+
+
 def main() -> None:
     # Sem isto, nenhum handler chega a ser anexado ao root logger e todo
     # `logger.info`/`logger.debug` do pipeline (discovery.py, parser.py,
