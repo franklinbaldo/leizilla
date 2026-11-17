@@ -810,7 +810,10 @@ class TestCost:
         assert est.norms == len(plan.norms)
         assert 0 < est.estimate_usd < est.ceiling_usd
         # the ceiling assumes 5 adjustments on every norm, the estimate ~39 tokens
-        per_request = [tr.review_max_tokens(len(r.slots)) for r in plan.requests]
+        per_request = [
+            tr.review_max_tokens(len(r.slots), lines=tr._shown_lines(r.slots))
+            for r in plan.requests
+        ]
         assert est.ceiling_output_tokens == sum(per_request)
         assert tr.review_max_tokens(8) >= 3072 + 8 * (15 + 5 * 60)
         assert tr.expected_tokens_per_norm() == 39
@@ -1714,8 +1717,13 @@ class TestBudget:
         assert tr.CEILING_TOKENS_PER_NORM == 465
         assert tr.review_max_tokens(1) == 8192 + per_norm == 10705
         assert tr.review_max_tokens(2) == 8192 + 2 * per_norm == 13218
-        assert tr.review_max_tokens(8) == 16000  # capped
+        assert tr.review_max_tokens(8) == 8192 + 8 * per_norm == 28296
+        assert tr.review_max_tokens(14) == tr.REVIEW_MAX_TOKENS_CAP == 32000  # capped
         assert tr.review_max_tokens(1, cap=5000) == 5000
+        # v3: thinking room per line shown, and a factor for retries
+        assert tr.review_max_tokens(1, lines=100) == 10705 + 100 * 4
+        assert tr.review_max_tokens(1, factor=1.5) == int(10705 * 1.5)
+        assert tr.review_max_tokens(1, lines=10**6) == 32000
 
     def test_every_request_stays_under_the_cap(self) -> None:
         recs = [_record(n) for n in range(1, 13)]
@@ -1818,7 +1826,10 @@ class TestRetry:
         assert len(retry.requests) == len(original) >= 1
         for req in retry.requests:
             assert len(req.slots) == 1 and req.custom_id.startswith("t1-")
-            assert req.max_tokens == tr.review_max_tokens(1)
+            assert req.max_tokens == tr.review_max_tokens(
+                1, lines=tr._shown_lines(req.slots), factor=tr.RETRY_BUDGET_FACTOR
+            )
+            assert req.max_tokens > tr.review_max_tokens(1)
         assert sorted(
             (int(s.chunk.index), s.norm.entry) for r in retry.requests for s in r.slots
         ) == sorted((int(m["chunk"]), m["entry"]) for m in original.values())
@@ -2023,7 +2034,8 @@ class TestHint:
         prompt = tr.REVIEW_SYSTEM_PROMPT
         assert "[?art]" in prompt and "Art. 4o" in prompt
         assert "closes=" not in prompt and "last=" not in prompt
-        assert tr.REVIEW_PROMPT_VERSION == "teacher-review-v2"
+        assert tr.REVIEW_PROMPT_VERSION == "teacher-review-v3"
+        assert "set_node_number" in prompt and "nunca `remove_node` mais" in prompt
 
 
 class TestCanaryChainSplit:
@@ -2122,3 +2134,204 @@ class TestScoreTruncatedAndPartial:
             "downgraded_norms": 1,
             "note": again["dropped"]["note"],
         }
+
+
+# --------------------------------------------------------------------------
+# Review v3 (after run 2): fuzzy evidence, set_node_number, long norms
+# --------------------------------------------------------------------------
+
+
+class TestFuzzyEvidence:
+    def test_punctuation_difference_matches_and_is_recorded_as_fuzzy(self) -> None:
+        shown = "Organizaçao, para fins de controle interno, a coisa."
+        assert tr._evidence_match("Organizaçao para fins de controle", shown) == "fuzzy"
+        assert tr._evidence_match("Organizaçao, para fins", shown) == "lenient"
+
+    def test_ocr_accent_difference_matches(self) -> None:
+        shown = "Parâgrafo único - A multa será de dez UFIR."
+        assert tr._evidence_match("Parágrafo único - A multa", shown) == "fuzzy"
+
+    def test_a_skipped_word_still_does_not_match(self) -> None:
+        # chosen on purpose: the model proves it read THIS line, a missing word is not
+        # a typography difference
+        shown = "O prazo poderã ser eleva do em trinta dias."
+        assert tr._evidence_match("O prazo poderã eleva do em trinta", shown) is None
+        assert not tr._evidence_matches("O prazo poderã eleva do em trinta", shown)
+
+    def test_another_line_and_too_short_folded_evidence_are_refused(self) -> None:
+        assert tr._evidence_match("Art. 9º - Outra coisa", "Art. 1º - A coisa.") is None
+        assert tr._evidence_match("§ - . ;", "Art. 1º - A coisa criada hoje.") is None
+
+    def test_fuzzy_evidence_is_kept_end_to_end_and_flagged(self) -> None:
+        text = _law(6)
+        lines = tb.split_lines(text)
+        meta = _meta_for(text)
+        meta.pop("_plan")
+        line = next(i for i, ln in enumerate(lines, 1) if "entra em vigor" in ln)
+        evidence = lines[line - 1].strip().replace("Art. ", "Art ").replace("-", "")
+        adj = _adj("set_number", line, lines, number="9", evidence=evidence)
+        check = tr.check_entry(
+            {"id": "N01", "verdict": "ajuste", "adjustments": [adj]}, meta
+        )
+        assert check.problems == [] and check.dropped == []
+        assert check.adjustments[0]["evidence_fuzzy"] is True
+
+
+_NODE_TEXT = "\n".join(
+    [
+        "LEI Nº 1 DE 5 DE ABRIL DE 1985",
+        "",
+        "Dispõe sobre a coisa.",
+        "",
+        "Art. 1º - Fica criada a coisa, com as seguintes regras:",
+        "I - primeiro item da lista de regras;",
+        "II - segundo item da lista de regras;",
+        "II - terceiro item que deveria ser III;",
+        "Art. 2º - Esta Lei entra em vigor na data de sua publicação.",
+    ]
+)
+
+
+class TestSetNodeNumber:
+    lines = tb.split_lines(_NODE_TEXT)
+
+    def meta(self) -> Dict[str, Any]:
+        meta = _meta_for(_NODE_TEXT)
+        meta.pop("_plan")
+        return meta
+
+    def _inciso_lines(self, meta: Dict[str, Any]) -> List[int]:
+        return sorted(
+            int(ln)
+            for ln, tags in meta["tags"].items()
+            if any(t[0] == "inciso" for t in tags)
+        )
+
+    def _entry(self, adjustments: List[Dict[str, Any]]) -> Dict[str, Any]:
+        return {"id": "N01", "verdict": "ajuste", "adjustments": adjustments}
+
+    def test_op_and_schema(self) -> None:
+        assert "set_node_number" in tr.OPS
+        enum = tr.REVIEW_SCHEMA["properties"]["reviews"]["items"]["properties"][
+            "adjustments"
+        ]["items"]["properties"]["op"]["enum"]
+        assert "set_node_number" in enum
+        assert tr.REVIEW_SCHEMA_VERSION == "2"
+
+    def test_valid_renumbering_of_one_tag(self) -> None:
+        meta = self.meta()
+        third = self._inciso_lines(meta)[-1]
+        adj = _adj("set_node_number", third, self.lines, level="inciso", number="III")
+        check = tr.check_entry(self._entry([adj]), meta)
+        assert check.problems == [] and check.dropped == []
+        got = check.adjustments[0]
+        assert got["op"] == "set_node_number" and got["number"] == "III"
+        assert got["level"] == "inciso" and "from_pair" not in got
+
+    def test_the_same_number_a_missing_tag_and_no_number_are_dropped(self) -> None:
+        meta = self.meta()
+        first, second = self._inciso_lines(meta)[:2]
+        art = next(i for i, ln in enumerate(self.lines, 1) if ln.startswith("Art. 2"))
+        for adj, why in (
+            (
+                _adj("set_node_number", second, self.lines, level="inciso", number="2"),
+                "already the tag's",
+            ),
+            (
+                _adj(
+                    "set_node_number", second, self.lines, level="inciso", number="II"
+                ),
+                "already the tag's",
+            ),
+            (
+                _adj("set_node_number", art, self.lines, level="inciso", number="1"),
+                "expected one inciso tag",
+            ),
+            (
+                _adj("set_node_number", first, self.lines, level="inciso", number=None),
+                "number is missing",
+            ),
+            (
+                _adj("set_node_number", first, self.lines, level=None, number="1"),
+                "level must be one of",
+            ),
+        ):
+            check = tr.check_entry(self._entry([adj]), meta)
+            assert check.adjustments == [], why
+            assert any(why in d["reason"] for d in check.dropped), why
+
+    def test_remove_plus_add_on_the_same_line_is_one_renumbering(self) -> None:
+        meta = self.meta()
+        third = self._inciso_lines(meta)[-1]
+        pair = [
+            _adj("remove_node", third, self.lines, level="inciso"),
+            _adj(
+                "add_node",
+                third,
+                self.lines,
+                level="inciso",
+                number="III",
+                reason="o terceiro é III",
+            ),
+        ]
+        check = tr.check_entry(self._entry(pair), meta)
+        assert check.problems == [] and check.dropped == []
+        assert len(check.adjustments) == 1
+        got = check.adjustments[0]
+        assert got["op"] == "set_node_number" and got["from_pair"] is True
+        assert got["number"] == "III" and got["reason"] == "o terceiro é III"
+
+    def test_remove_and_add_of_different_levels_are_not_a_pair(self) -> None:
+        meta = self.meta()
+        third = self._inciso_lines(meta)[-1]
+        mixed = [
+            _adj("remove_node", third, self.lines, level="inciso"),
+            _adj("add_node", third, self.lines, level="alinea", number="a"),
+        ]
+        check = tr.check_entry(self._entry(mixed), meta)
+        assert sorted(a["op"] for a in check.adjustments) == ["add_node", "remove_node"]
+
+    def test_sub_level_renumbering_does_not_touch_the_article_set(self) -> None:
+        arts = [[5, "1", False], [9, "2", False]]
+        adj = {"op": "set_node_number", "line": 7, "level": "inciso", "number": "I"}
+        assert tr.apply_adjustments(arts, [adj]) == [(5, "1", False), (9, "2", False)]
+        assert "set_node_number" not in tr.ERRATA_OPS | tr.ARTICLE_OPS
+
+
+class TestLongNorms:
+    def _long(self, n_articles: int) -> str:
+        lines = ["LEI Nº 9", "Dispõe sobre a coisa."]
+        for n in range(1, n_articles + 1):
+            lines.append(f"Art. {n}º - A Secretaria regulamentará a matéria {n}.")
+        lines.append("Porto Velho, 1985.")
+        return "\n".join(lines)
+
+    def test_a_long_norm_is_cut_by_lines_into_smaller_parts(self) -> None:
+        text = self._long(1000)  # ~1000 non-blank lines, ~55 KB
+        plan = _plan([_record(1, text)])
+        norm = plan.norms[0]
+        assert len(norm.chunks) >= 3
+        assert all(len(c.owned) <= tr.REVIEW_MAX_LINES for c in norm.chunks)
+        assert sum(len(c.owned) for c in norm.chunks) == len(
+            [ln for ln in norm.lines if ln.strip()]
+        )
+
+    def test_budget_grows_with_the_lines_shown_and_the_ceiling_stays_honest(
+        self,
+    ) -> None:
+        plan = _plan([_record(1, self._long(1000)), _record(2, _law(6))])
+        spec = tb.MODELS["claude-haiku-5-5"]
+        est = tr.estimate_review_cost(plan, spec, "medium", True)
+        assert est.ceiling_output_tokens == sum(r.max_tokens for r in plan.requests)
+        big = max(plan.requests, key=lambda r: tr._shown_lines(r.slots))
+        small = min(plan.requests, key=lambda r: tr._shown_lines(r.slots))
+        assert big.max_tokens > small.max_tokens
+        assert all(r.max_tokens <= tr.REVIEW_MAX_TOKENS_CAP for r in plan.requests)
+        # the old single-part ceiling (10,705) now grows with the lines of the part
+        assert big.max_tokens == 10705 + 4 * tr._shown_lines(big.slots)
+
+    def test_each_retry_depth_gets_more_room(self) -> None:
+        one = tr.review_max_tokens(1, lines=300)
+        d1 = tr.review_max_tokens(1, lines=300, factor=tr.RETRY_BUDGET_FACTOR)
+        d2 = tr.review_max_tokens(1, lines=300, factor=tr.RETRY_BUDGET_FACTOR**2)
+        assert one < d1 < d2 <= tr.REVIEW_MAX_TOKENS_CAP

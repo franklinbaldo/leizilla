@@ -11,11 +11,12 @@ norma; ~75% do custo é saída. No modo `review` o leitor (`read_hierarchy`) lê
 o modelo recebe várias normas com a leitura embutida em etiquetas (`[art 5]`,
 `[art 5 Q]`, `[§ 2]`, `[inc III]`, `[ali a]`, `[item 1]`) e devolve **uma entrada por
 norma**: `ok` ou `ajuste` com operações (`add_own_article`, `remove_article`,
-`set_number`, `set_quoted`, `add_node`, `remove_node`), cada uma com linha, evidência
+`set_number`, `set_quoted`, `add_node`, `remove_node`, `set_node_number`), cada uma com linha, evidência
 (a linha, até 80 caracteres) e motivo. Código: `src/leizilla/teacher_review.py`.
 
-Prompt `teacher-review-v2` (`REVIEW_PROMPT_VERSION`); a v1 é a da primeira execução
-(2026-11, ver "Primeira execução" abaixo).
+Prompt `teacher-review-v3` (`REVIEW_PROMPT_VERSION`, esquema 2); a v1 é a da primeira
+execução (2026-11, ver "Primeira execução" abaixo), a v3 vem da pontuação da segunda
+(ver "Revisão v3").
 
 ## Contrato
 
@@ -52,15 +53,15 @@ Prompt `teacher-review-v2` (`REVIEW_PROMPT_VERSION`); a v1 é a da primeira exec
   `--shuffle-seed`); norma maior que o orçamento vai sozinha; maior que `--max-chars`
   (20 000) é partida com a lógica do modo `label`, uma requisição por parte, com nota
   do último artigo próprio e de bloco citado aberto.
-- Orçamento de resposta (`review_max_tokens`): 8 192 + (2 048 de pensamento + 465 de
-  ajuste) por norma da requisição, no máximo 16 000. Medição de uma execução (240
+- Orçamento de resposta (`review_max_tokens`, v3 acima): 8 192 + (2 048 de pensamento + 465 de
+  ajuste) por norma da requisição + 4 por linha mostrada, no máximo 32 000 (era 16 000, sem as linhas). Medição de uma execução (240
   requisições, `claude-haiku-5-5`, effort medium): 2 070 tokens de saída por
   requisição, ~95% pensamento; o teto antigo (3 072 + 465 por norma) truncou 61 de
   240. O teto de custo (`ceiling`) é a soma dos `max_tokens`, um limite superior
   honesto; a estimativa usa 2 070 por requisição mais o esperado por norma, limitado a
   cada `max_tokens`. A estimativa mede só effort medium; para os outros, usa o maior
   entre 2 070 e a tabela de pensamento. O `ModelSpec` não tem campo de limite de saída;
-  16 000 fica bem abaixo do que o modelo aceita, mas isso não é verificado aqui.
+  32 000 fica bem abaixo do que o modelo aceita, mas isso não é verificado aqui.
 - Canários: cópias de normas que o leitor fecha, com **um erro plantado nas etiquetas**
   (nunca no texto): `drop_last`, `drop_middle`, `renumber`, `flip_quoted`, `spurious`.
   No máximo um por requisição. `collect` pontua `caught` / `partly` / `missed` /
@@ -74,6 +75,39 @@ Prompt `teacher-review-v2` (`REVIEW_PROMPT_VERSION`); a v1 é a da primeira exec
   candidatos de normas reais, **não aplicados**); com `upload_ia` publica em
   `leizilla-teacher-labels-ro-review-<revisão>`.
 - O conjunto `main` é recusado no modo review (o padrão é `review`).
+
+## Revisão v3 (depois da pontuação da segunda execução)
+
+Três correções, sem mudar o que o `review` mede:
+
+1. **Evidência tolerante** (`_evidence_match`). Quando a regra lenient da v2 falha, aceita
+   a evidência dobrada (acento, caixa, espaços e pontuação fora; `NFKD`), como trecho da
+   linha ou como começo de uma evidência mais longa, com no mínimo 10 caracteres dobrados
+   (ou a linha inteira, se menor). O ajuste fica com `evidence_fuzzy: true`. Casos
+   perdidos na execução 2: `Organizaçao para` contra `Organizaçao, para` (passa);
+   `Parágrafo` contra o OCR `Parâgrafo` (passa); `poderã ser eleva` contra a linha
+   `poderã eleva` (**não** passa, de propósito: a palavra a menos não é diferença de
+   tipografia e a evidência existe para provar que o modelo leu aquela linha).
+2. **Renumerar nível inferior**: operação `set_node_number` (`level`, `number`): a linha
+   tem exatamente uma etiqueta do nível e o número dela está errado (o inciso `II` que
+   devia ser `I`, norma 74e9a7e2 L770). Número igual ao da etiqueta (aceita `2` para
+   `II`, `b` para `2`) é descartado. Um `remove_node` mais um `add_node` do MESMO nível na
+   MESMA linha, uma vez cada, vira um único `set_node_number` (`from_pair: true`, número,
+   evidência e motivo do `add_node`); antes só o `remove` valia. Não mexe no conjunto de
+   artigos nem entra nas operações de errata.
+3. **Normas longas**: 3 de 240 requisições bateram no teto de 10 705 tokens (decreto-lei
+   47, 2 736 linhas em 2 partes). Agora (a) a parte também é limitada em linhas
+   (`REVIEW_MAX_LINES` = 500 linhas não vazias, além dos 20 000 caracteres): as normas
+   mais longas viram mais partes, menores; (b) `max_tokens` ganha 4 tokens por linha
+   mostrada (`REVIEW_TOKENS_PER_LINE`); (c) o teto sobe de 16 000 para 32 000
+   (`REVIEW_MAX_TOKENS_CAP`; o modelo aceita bem mais, o teto é guarda de custo; um
+   `--max-tokens-cap` no padrão do `label` vale como "não informado"); (d) o reenvio dá
+   1,5 vez mais espaço por nível de reenvio (reenviar com o mesmo teto bateria no mesmo
+   limite). O teto de custo continua a soma dos `max_tokens`. Efeito no plano da
+   avaliação (197 normas + 100 canários, os mesmos insumos, `claude-haiku-5-5`, effort
+   medium, texto local): 227 requisições, estimativa US$ 0,27, teto US$ 0,91 antes;
+   289 requisições (39 normas partidas, antes 22), estimativa US$ 0,32, teto US$ 1,20
+   depois.
 
 ## Reenvio de requisições truncadas
 
