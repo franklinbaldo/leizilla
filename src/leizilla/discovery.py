@@ -13,6 +13,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Callable
 
+from leizilla import config as _config
 from leizilla.storage import DuckDBStorage
 
 logger = logging.getLogger(__name__)
@@ -228,6 +229,16 @@ class WaybackCdxDiscovery:
 
 
 _HEAD_RATE_LIMIT_S = 0.5
+
+
+def _host_pace(base_s: float) -> float:
+    """Intervalo entre acessos ao host da fonte, escalado pelos jobs em paralelo.
+
+    ``HARVEST_HOST_INTERVAL_S`` vale 1.0 num job só e N quando N jobs rodam em
+    paralelo contra o mesmo host (ADR-0008/0016); a descoberta respeita o mesmo
+    fator da colheita, senão N jobs somam N vezes a taxa combinada.
+    """
+    return base_s * max(1.0, _config.HARVEST_HOST_INTERVAL_S)
 
 
 def _head_check_status(url: str, timeout: float = 10.0) -> Optional[bool]:
@@ -626,8 +637,8 @@ class SequentialDiscovery:
                     return None, True
 
                 elapsed = time.monotonic() - last_head_time
-                if elapsed < _HEAD_RATE_LIMIT_S:
-                    time.sleep(_HEAD_RATE_LIMIT_S - elapsed)
+                if elapsed < _host_pace(_HEAD_RATE_LIMIT_S):
+                    time.sleep(_host_pace(_HEAD_RATE_LIMIT_S) - elapsed)
                 if _budget_exhausted():
                     return None, True
 
@@ -750,7 +761,7 @@ class CasacivilIndexDiscovery:
             # "wayback.fetch_bytes" abstraction for live domains.
             import time
 
-            time.sleep(1.0)  # rate limit
+            time.sleep(_host_pace(1.0))  # rate limit
             try:
                 req = urllib.request.Request(
                     self.url, headers={"User-Agent": "leizilla-crawler/0.1"}
@@ -1099,6 +1110,9 @@ class CasacivilYearIndexDiscovery:
         )
         self.ente = ente
         self.fonte = fonte
+        # True só depois de um run() que leu todos os anos e não foi bloqueado pelo
+        # robots: aí o índice é o inventário completo do tipo (ver discover_resources).
+        self.complete = False
 
     def _allowed(self, url: str) -> bool:
         from leizilla.scraper import robots
@@ -1133,7 +1147,7 @@ class CasacivilYearIndexDiscovery:
             if not self._allowed(url):
                 logger.error(f"robots.txt bloqueou {url}")
                 return resources
-            time.sleep(_YEAR_INDEX_RATE_LIMIT_S)
+            time.sleep(_host_pace(_YEAR_INDEX_RATE_LIMIT_S))
             html_content = self._fetch(url)
             if html_content is None:
                 failed_years.append(ano)
@@ -1143,6 +1157,7 @@ class CasacivilYearIndexDiscovery:
                     html_content, url, self.tipo, self.ente, self.fonte
                 )
             )
+        self.complete = not failed_years
         logger.info(
             f"CasacivilYearIndex Discovery concluído: {len(resources)} recursos "
             f"(tipo={self.tipo}); anos com falha: {failed_years or 'nenhum'}"
@@ -1372,6 +1387,12 @@ def discover_resources(
     """
     manifest = load_manifest(ente)
     out: List[Dict[str, Any]] = []
+    # (fonte, tipo) cujo índice anual oficial rodou inteiro neste discover: as
+    # estratégias marcadas com ``skip_if_year_index_complete`` daquele tipo são
+    # redundantes (o índice já lista o nome real de cada arquivo) e não rodam.
+    # Só vale com ``storage`` (caminho operacional): a reconciliação, que
+    # re-deriva tudo com storage=None, segue varrendo como antes.
+    covered: set[tuple[str, str]] = set()
     for f, fonte_cfg in manifest.get("fontes", {}).items():
         if fonte is not None and f != fonte:
             continue
@@ -1382,12 +1403,27 @@ def discover_resources(
                     f"Estratégia '{discovery_cfg.get('strategy')}' não suportada."
                 )
                 continue
-            if tipo is not None:
-                cfg_tipo = _discovery_cfg_tipo(discovery_cfg)
-                if cfg_tipo is not None and cfg_tipo != tipo:
-                    continue
+            cfg_tipo = _discovery_cfg_tipo(discovery_cfg)
+            if tipo is not None and cfg_tipo is not None and cfg_tipo != tipo:
+                continue
+            if (
+                storage is not None
+                and discovery_cfg.get("skip_if_year_index_complete")
+                and cfg_tipo is not None
+                and (f, cfg_tipo) in covered
+            ):
+                logger.info(
+                    f"Pulando {discovery_cfg.get('strategy')} para {ente}/{f} "
+                    f"tipo={cfg_tipo}: índice anual completo já cobre o tipo"
+                )
+                continue
             try:
-                out.extend(strategy_cls(discovery_cfg, ente, f).run(storage))
+                strategy = strategy_cls(discovery_cfg, ente, f)
+                out.extend(strategy.run(storage))
+                if isinstance(strategy, CasacivilYearIndexDiscovery) and (
+                    strategy.complete
+                ):
+                    covered.add((f, strategy.tipo))
             except Exception as e:
                 logger.error(
                     f"Falha na estratégia '{discovery_cfg.get('strategy')}' "

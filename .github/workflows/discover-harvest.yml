@@ -113,9 +113,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: data/leizilla.duckdb
-          key: discover-db-${{ inputs.tipo }}-${{ github.run_id }}
+          key: discover-db-${{ inputs.tipo }}--${{ github.run_id }}
           restore-keys: |
-            discover-db-${{ inputs.tipo }}-
+            discover-db-${{ inputs.tipo }}--
 
       - name: Discover — ${{ inputs.tipo }}
         env:
@@ -148,7 +148,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: data/leizilla.duckdb
-          key: discover-db-${{ inputs.tipo }}-${{ github.run_id }}
+          key: discover-db-${{ inputs.tipo }}--${{ github.run_id }}
 
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}
@@ -202,22 +202,33 @@ jobs:
         tipo: [lei, lc, decreto, ec, resolucao, portaria, decreto-lei]
 
     steps:
+      # Instante em que este job morre (timeout-minutes abaixo, a partir de agora).
+      # Gravado logo no início, antes de descoberta e colheita: a colheita reserva o
+      # fim do job para o flush, o derive e o resumo (ADR-0016, adendo 2026-11-17).
+      - name: Marca o prazo do job
+        run: echo "JOB_DEADLINE_EPOCH=$(( $(date +%s) + 120 * 60 ))" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
 
       - name: Restore discovered-resources DB cache
+        # O '--' final na chave é o terminador: sem ele, o prefixo "discover-db-decreto-"
+        # também casava com "discover-db-decreto-lei-" e o decreto restaurava o banco
+        # do decreto-lei (achado 2026-11-17, run 44002214612).
         uses: actions/cache/restore@v4
         with:
           path: data/leizilla.duckdb
-          key: discover-db-${{ matrix.tipo }}-${{ github.run_id }}
+          key: discover-db-${{ matrix.tipo }}--${{ github.run_id }}
           restore-keys: |
-            discover-db-${{ matrix.tipo }}-
+            discover-db-${{ matrix.tipo }}--
 
       - name: Discover — ${{ matrix.tipo }}
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+          # A descoberta bate no mesmo host da colheita: mesmo fator de ritmo
+          # (3 jobs em paralelo), senão as varreduras somam ~3x a taxa do ADR-0008.
+          HARVEST_HOST_INTERVAL_S: "3.0"
         run: |
           uv run leizilla discover \
             --ente "${{ inputs.ente || 'ro' }}" \
@@ -228,7 +239,9 @@ jobs:
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-          # Teto de tempo da colheita (s): ver a conta no topo do arquivo.
+          # Teto da colheita (s). O tempo efetivo é o menor entre este teto e o que
+          # sobra até o prazo do job (--job-deadline, menos 20 min de reserva para
+          # flush/derive/resumo): uma descoberta lenta encurta a colheita, não o job.
           HARVEST_MAX_SECONDS: "4500"
           # 3 jobs em paralelo no mesmo host: 3 s cada = ~1 req/s no total.
           HARVEST_HOST_INTERVAL_S: "3.0"
@@ -236,7 +249,8 @@ jobs:
           uv run leizilla harvest \
             --ente "${{ inputs.ente || 'ro' }}" \
             --tipo "${{ matrix.tipo }}" \
-            --limit "${{ inputs.limit || '3000' }}"
+            --limit "${{ inputs.limit || '3000' }}" \
+            --job-deadline "${JOB_DEADLINE_EPOCH}"
 
       - name: Save discovered-resources DB cache
         # Depois da colheita, e mesmo se ela falhar: o que a colheita marca
@@ -247,7 +261,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: data/leizilla.duckdb
-          key: discover-db-${{ matrix.tipo }}-${{ github.run_id }}
+          key: discover-db-${{ matrix.tipo }}--${{ github.run_id }}
 
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}
