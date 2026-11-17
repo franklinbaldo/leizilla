@@ -129,6 +129,29 @@ ao prompt do professor (`prompt_version` `teacher-labels-v1`): um exemplo ou uma
 regra nova, com nova versão de prompt num novo lote de rótulos. Os rótulos antigos
 não são reescritos.
 
+## Conjunto de avaliação (held-out)
+
+Um conjunto de rótulos separado, com `label_set` diferente de `main`
+(ex. `holdout-2026-11`), existe para **medir** o leitor. Regras:
+
+- As regras do leitor **nunca** são ajustadas olhando para esse conjunto. Se o
+  leitor erra nele, a correção é uma regra geral, validada no conjunto `main`, e só
+  depois se mede de novo.
+- O gate e a linha de base continuam usando somente o conjunto `main`. O conjunto
+  held-out não entra no `check` nem no `update`.
+- Para medir, compare com o diretório de rótulos do conjunto e grave numa pasta de
+  saída própria, para não misturar com o placar do `main`:
+
+  ```bash
+  uv run scripts/compare_teacher_reader.py --labels <diretório held-out> \
+      --texts <cache de textos> --out <pasta de saída própria> \
+      --textos-parquet <textos.parquet>
+  ```
+
+- Os rótulos do held-out excluem as normas já rotuladas no `main` (`--exclude-labelled`),
+  então os dois conjuntos não se sobrepõem. O nome do conjunto fica no manifesto,
+  no `summary.json`, em cada cabeçalho de norma e no identificador do item do IA.
+
 ## Limites
 
 - Uma norma que deixa de ser comparada conta como saída de `agree_closed`. É a

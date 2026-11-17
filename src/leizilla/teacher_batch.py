@@ -58,6 +58,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
+import duckdb
 import typer
 
 from leizilla import publisher
@@ -324,6 +325,22 @@ DEFAULT_HEAD_LINES = 10
 _UNIDENTIFIED_SUFFIX = "_unidentified"
 _USER_AGENT = "leizilla-crawler/0.1"
 
+# Text sources: ``ia`` downloads one ``_djvu.txt`` per norm (slow); ``textos``
+# reads the published text layer (one parquet, every text, including texts made
+# by the project's own OCR that have no ``_djvu.txt``). The text sent to the model
+# is the same string in both cases, so the label headers match either way.
+TEXT_SOURCES: tuple[str, ...] = ("ia", "textos")
+DEFAULT_TEXTOS_URL = (
+    "https://archive.org/download/leizilla-textos-ro-v0-latest/textos.parquet"
+)
+LABELS_ARCHIVE = "labels.tar.gz"
+# Label set name: ``main`` is the tuning set; any other name (e.g. a held-out set)
+# is kept apart in the manifest, the summary, the headers and the IA identifier.
+DEFAULT_LABEL_SET = "main"
+_LABEL_SET_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
+_IA_ITEM_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
+_UUID5_RE = re.compile(r"^[0-9a-f]{8}$")
+
 
 class TeacherBatchError(RuntimeError):
     """A condition that must stop the step (cost guard, bad manifest, ...)."""
@@ -348,6 +365,11 @@ class NormRef:
     @property
     def key(self) -> str:
         return f"{self.item}/{self.uuid5}"
+
+    @property
+    def ident(self) -> tuple[str, str]:
+        """Norm identity as the label headers record it: ``(item, uuid5)``."""
+        return (self.item, self.uuid5)
 
     @property
     def stem(self) -> str:
@@ -494,6 +516,202 @@ def fetch_text(
 
 
 # --------------------------------------------------------------------------
+# Text source ``textos``: the published text layer (one parquet)
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TextoRecord:
+    ref: NormRef
+    text: str
+    text_sha256: str
+    ocr_motor: Optional[str]
+
+
+@dataclass
+class TextosCorpus:
+    file_sha256: str
+    records: List[TextoRecord] = field(default_factory=list)
+    skipped: Dict[str, int] = field(default_factory=dict)
+
+
+def _url_basename(url: str) -> str:
+    return url.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+
+
+def uuid5_from_filename(name: str) -> Optional[str]:
+    """The uuid5 the pipeline puts in a raw file name.
+
+    ``lei-00331_672fe440_djvu.txt`` and ``decreto-32194_faa3b3e6.pdf`` give
+    ``672fe440`` and ``faa3b3e6``; ``000001_df90ea45_djvu.txt`` gives ``df90ea45``.
+    Same rule as ``enumerate_norms``, which keys norms by ``index.csv`` uuid5.
+    """
+    for suffix in ("_djvu.txt", ".pdf"):
+        if name.endswith(suffix):
+            candidate = name[: -len(suffix)].rsplit("_", 1)[-1]
+            return candidate if _UUID5_RE.match(candidate) else None
+    return None
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load_textos(path: Path) -> TextosCorpus:
+    """Read the published ``textos.parquet`` into norm refs with their text.
+
+    Identity is ``(ia_item, uuid5)``, the label header's ``(item, uuid5)``: taken
+    from ``texto_url`` when it names the raw ``_djvu.txt``, else from ``pdf_url``
+    (re-OCR rows have no djvu). ``txt_name`` is that file name; for pdf-only rows
+    it is the pdf name with ``_djvu.txt`` in place of ``.pdf`` (a label only, never
+    fetched from IA on this path). The text is hashed exactly as ``build_plan``
+    hashes it, so the header ``text_sha256`` is the one the comparison script
+    checks. A row whose declared ``sha256_texto`` disagrees with its text is
+    skipped and counted, never labelled.
+    """
+    corpus = TextosCorpus(file_sha256=_file_sha256(path))
+    con = duckdb.connect()
+    try:
+        rows = con.execute(
+            "select ia_item, fonte, tipo, numero, texto_url, pdf_url, sha256_texto, "
+            "ocr_motor, texto from read_parquet(?) where texto is not null "
+            "order by ia_item, tipo, numero, texto_id",
+            [str(path)],
+        ).fetchall()
+    finally:
+        con.close()
+
+    seen: set[tuple[str, str]] = set()
+
+    def skip(reason: str) -> None:
+        corpus.skipped[reason] = corpus.skipped.get(reason, 0) + 1
+
+    for item, fonte, tipo, numero, texto_url, pdf_url, declared, motor, text in rows:
+        if not (item and tipo and numero is not None):
+            skip("incomplete_row")
+            continue
+        if texto_url:
+            txt_name = _url_basename(texto_url)
+        elif pdf_url:
+            txt_name = Path(_url_basename(pdf_url)).stem + "_djvu.txt"
+        else:
+            skip("no_identity")
+            continue
+        uuid5 = uuid5_from_filename(txt_name)
+        if uuid5 is None:
+            skip("no_identity")
+            continue
+        sha = hashlib.sha256(str(text).encode("utf-8")).hexdigest()
+        if declared is not None and declared != sha:
+            skip("sha_mismatch")
+            continue
+        ident = (str(item), uuid5)
+        if ident in seen:
+            raise TeacherBatchError(f"textos: duplicate identity {ident}")
+        seen.add(ident)
+        ref = NormRef(
+            item=str(item),
+            fonte=str(fonte or ""),
+            tipo=str(tipo),
+            numero=int(numero),
+            uuid5=uuid5,
+            txt_name=txt_name,
+        )
+        corpus.records.append(
+            TextoRecord(
+                ref=ref,
+                text=str(text),
+                text_sha256=sha,
+                ocr_motor=str(motor) if motor is not None else None,
+            )
+        )
+    return corpus
+
+
+def _download_to(url: str, dest: Path, *, retries: int = 3) -> None:
+    """Download a whole file; raises ``TeacherBatchError`` after ``retries``."""
+    for attempt in range(1, retries + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                dest.write_bytes(resp.read())
+            return
+        except (urllib.error.URLError, OSError) as exc:
+            logger.warning("download %s failed (%d/%d): %s", url, attempt, retries, exc)
+            if attempt < retries:
+                time.sleep(2.0 * attempt)
+    raise TeacherBatchError(f"download failed after {retries} attempts: {url}")
+
+
+# --------------------------------------------------------------------------
+# Exclusion of norms already labelled
+# --------------------------------------------------------------------------
+
+
+def _label_headers(root: Path) -> List[Dict[str, Any]]:
+    """Header records of every norm file under ``root`` (failures.jsonl skipped)."""
+    headers: List[Dict[str, Any]] = []
+    for path in sorted(root.rglob("*.jsonl")):
+        if path.name == "failures.jsonl":
+            continue
+        with path.open(encoding="utf-8") as fh:
+            first = fh.readline()
+        if not first.strip():
+            continue
+        header = json.loads(first)
+        if header.get("record") == "norm":
+            headers.append(header)
+    return headers
+
+
+def _fetch_label_headers(item: str) -> List[Dict[str, Any]]:
+    """Headers from the ``labels.tar.gz`` of an IA item, extracted to a temp dir."""
+    url = download_url(item, LABELS_ARCHIVE)
+    with tempfile.TemporaryDirectory() as tmp:
+        archive = Path(tmp) / LABELS_ARCHIVE
+        extracted = Path(tmp) / "labels"
+        extracted.mkdir()
+        _download_to(url, archive)
+        try:
+            with tarfile.open(archive, "r:gz") as tar:
+                tar.extractall(extracted, filter="data")
+        except tarfile.TarError as exc:
+            raise TeacherBatchError(f"{url}: unreadable archive ({exc})") from exc
+        return _label_headers(extracted)
+
+
+def load_label_index(source: str) -> LabelIndex:
+    """``(item, uuid5)`` -> set of ``text_sha256`` of every label on record.
+
+    ``source`` is a local labels directory or an IA item holding
+    ``labels.tar.gz``. Every label file counts, whatever its label set.
+    """
+    local = Path(source)
+    if local.is_dir():
+        headers = _label_headers(local)
+    elif _IA_ITEM_RE.match(source):
+        headers = _fetch_label_headers(source)
+    else:
+        raise TeacherBatchError(
+            f"--exclude-labelled {source!r} is neither a directory nor an IA item"
+        )
+    index: LabelIndex = {}
+    for header in headers:
+        ident = (str(header["item"]), str(header["uuid5"]))
+        index.setdefault(ident, set()).add(str(header["text_sha256"]))
+    return index
+
+
+def check_label_set(name: str) -> str:
+    if not _LABEL_SET_RE.match(name):
+        raise TeacherBatchError(
+            f"label_set {name!r} must be lowercase letters, digits and hyphens "
+            "(max 32 chars)"
+        )
+    return name
+
+
+# --------------------------------------------------------------------------
 # Chunking
 # --------------------------------------------------------------------------
 
@@ -629,11 +847,40 @@ class Plan:
     empty: List[str] = field(default_factory=list)
     fetch_failed: List[str] = field(default_factory=list)
     enumeration_errors: List[str] = field(default_factory=list)
+    # Exclusion against existing labels (only when --exclude-labelled is given).
+    available: int = 0
+    labelled_excluded: List[str] = field(default_factory=list)
+    # Selected norm key -> "new_norm" | "new_text" (new text of a labelled norm).
+    status: Dict[str, str] = field(default_factory=dict)
+    # Selected norm key -> OCR motor of its text (provenance of the text).
+    ocr_motor: Dict[str, Optional[str]] = field(default_factory=dict)
+    # Where the texts and the exclusion came from; recorded in the manifest.
+    sources: Dict[str, Any] = field(default_factory=dict)
 
 
 def max_tokens_for(chunk: Chunk, cap: int = MAX_TOKENS_CAP) -> int:
     """Enough for a label on every owned line plus thinking, never above ``cap``."""
     return min(cap, MAX_TOKENS_BASE + TOKENS_PER_LABEL * len(chunk.owned))
+
+
+LabelIndex = Dict[tuple[str, str], set[str]]
+
+
+def label_status(
+    ident: tuple[str, str], text_sha256: str, labelled: Optional[LabelIndex]
+) -> Optional[str]:
+    """Classify one norm text against the existing labels.
+
+    ``None`` without an index. ``excluded``: a label exists for the same identity
+    and the same text sha256. ``new_text``: labelled norm whose text changed (e.g.
+    re-OCR replaced it), so it is selected. ``new_norm``: never labelled.
+    """
+    if labelled is None:
+        return None
+    shas = labelled.get(ident)
+    if shas is None:
+        return "new_norm"
+    return "excluded" if text_sha256 in shas else "new_text"
 
 
 def build_plan(
@@ -645,12 +892,19 @@ def build_plan(
     context_lines: int = DEFAULT_CONTEXT_LINES,
     head_lines: int = DEFAULT_HEAD_LINES,
     max_tokens_cap: int = MAX_TOKENS_CAP,
+    labelled: Optional[LabelIndex] = None,
 ) -> Plan:
     plan = Plan()
     for seq, ref in enumerate(norms):
         text = load_text(ref)
         if text is None:
             plan.fetch_failed.append(ref.key)
+            continue
+        plan.available += 1
+        text_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        status = label_status(ref.ident, text_sha, labelled)
+        if status == "excluded":
+            plan.labelled_excluded.append(ref.key)
             continue
         lines = split_lines(text)
         chunks = chunk_document(
@@ -664,7 +918,8 @@ def build_plan(
             plan.empty.append(ref.key)
             continue
         plan.norms.append(ref)
-        text_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if status is not None:
+            plan.status[ref.key] = status
         for chunk in chunks:
             custom_id = f"t{seq:06d}-{ref.uuid5}-c{chunk.index:04d}"
             if not _CUSTOM_ID_RE.match(custom_id):
@@ -923,11 +1178,14 @@ def build_manifest(
     cache: bool,
     max_usd: float,
     guard: str,
+    label_set: str = DEFAULT_LABEL_SET,
 ) -> Dict[str, Any]:
     return {
         "manifest_version": MANIFEST_VERSION,
         "created_at": _now(),
         "ente": ente,
+        "label_set": label_set,
+        "sources": plan.sources,
         "model": estimate.model,
         "effort": effort,
         "prompt_cache": cache,
@@ -1332,6 +1590,7 @@ def collect_results(
         by_norm.setdefault((meta["item"], meta["uuid5"]), []).append(custom_id)
 
     provenance = {
+        "label_set": manifest.get("label_set", DEFAULT_LABEL_SET),
         "model": manifest["model"],
         "effort": manifest.get("effort"),
         "prompt_version": manifest["prompt_version"],
@@ -1454,6 +1713,7 @@ def collect_results(
         "measured_usd": measured,
         "measured_usd_per_request": round(measured / answered, 6) if answered else None,
         "estimate": manifest.get("estimate"),
+        "sources": manifest.get("sources", {}),
         "not_labelled_at_submit": {
             "enumeration_errors": manifest.get("enumeration_errors", []),
             "fetch_failed": manifest.get("fetch_failed", []),
@@ -1470,10 +1730,13 @@ def collect_results(
 # --------------------------------------------------------------------------
 
 
-def ia_identifier(ente: str, revision: str) -> str:
+def ia_identifier(ente: str, revision: str, label_set: str = DEFAULT_LABEL_SET) -> str:
     """Immutable item per collection run — never overwrites an earlier one
-    (same rule as dataset releases, issue #175)."""
-    return f"leizilla-teacher-labels-{ente.lower()}-{revision}"
+    (same rule as dataset releases, issue #175). Label sets other than ``main``
+    get their own name in the identifier, so they cannot be mistaken for it."""
+    if label_set == DEFAULT_LABEL_SET:
+        return f"leizilla-teacher-labels-{ente.lower()}-{revision}"
+    return f"leizilla-teacher-labels-{ente.lower()}-{label_set}-{revision}"
 
 
 def upload_to_ia(
@@ -1483,17 +1746,20 @@ def upload_to_ia(
     the manifest as one IA data item, through the same ``ia upload`` wrapper
     (pacing, retry, credentials) the rest of the pipeline uses."""
     ente = str(summary["ente"])
+    label_set = str(summary.get("label_set", DEFAULT_LABEL_SET))
     effective_revision = revision or datetime.now(tz=timezone.utc).strftime(
         "%Y%m%dt%H%M%Sz"
     )
-    ia_id = ia_identifier(ente, effective_revision)
+    ia_id = ia_identifier(ente, effective_revision, label_set)
+    set_suffix = "" if label_set == DEFAULT_LABEL_SET else f" [{label_set}]"
     with tempfile.TemporaryDirectory() as tmp:
         archive = Path(tmp) / "labels.tar.gz"
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(out_dir / "labels", arcname="labels")
         description = (
             f"Rótulos estruturais por linha (gold de professor, revisão "
-            f"{effective_revision}) de normas do ente {ente.upper()}, gerados "
+            f"{effective_revision}, conjunto {label_set}) de normas do ente "
+            f"{ente.upper()}, gerados "
             f"pelo projeto Leizilla sobre o texto OCR do Internet Archive. "
             f"{summary['norms_ok']} normas, {summary['labels']} rótulos. "
             f"Proveniência completa em summary.json."
@@ -1507,11 +1773,12 @@ def upload_to_ia(
             str(out_dir / "summary.json"),
             str(out_dir / "manifest.json"),
             "--metadata",
-            f"title:Leizilla Teacher Labels {ente.upper()} ({effective_revision})",
+            f"title:Leizilla Teacher Labels {ente.upper()}{set_suffix} "
+            f"({effective_revision})",
             "--metadata",
             "mediatype:data",
             "--metadata",
-            f"subject:leis;leizilla;{ente};labels;gold",
+            f"subject:leis;leizilla;{ente};labels;gold;{label_set}",
             "--metadata",
             "creator:leizilla-teacher-batch",
             "--metadata",
@@ -1578,36 +1845,150 @@ def _prepare(
     max_chars: int,
     max_tokens_cap: int,
     fetch_delay: float,
+    text_source: str = "ia",
+    textos: Optional[Path] = None,
+    exclude_labelled: Optional[str] = None,
 ) -> Plan:
-    enumeration = enumerate_norms(ente, _split_csv(fonte) or [], _split_csv(tipo))
-    norms = select_norms(
-        enumeration.norms,
-        limit=limit,
-        shuffle_seed=shuffle_seed,
-        only_keys=_read_failure_keys(retry_failures),
-    )
-    typer.echo(
-        f"{len(enumeration.norms)} norms with OCR text found, {len(norms)} selected"
-    )
-
-    def load(ref: NormRef) -> Optional[str]:
-        cached = (
-            cache_dir is not None and (cache_dir / ref.item / ref.txt_name).is_file()
+    if text_source not in TEXT_SOURCES:
+        raise TeacherBatchError(f"text_source must be one of {', '.join(TEXT_SOURCES)}")
+    labelled = load_label_index(exclude_labelled) if exclude_labelled else None
+    only_keys = _read_failure_keys(retry_failures)
+    if text_source == "textos":
+        corpus = _load_textos_corpus(textos)
+        texts = {r.ref.key: r for r in corpus.records}
+        # Exclusion happens before --limit, so a pilot limit counts new norms.
+        pool: List[NormRef] = []
+        pre_excluded: List[str] = []
+        for record in corpus.records:
+            status = label_status(record.ref.ident, record.text_sha256, labelled)
+            if status == "excluded":
+                pre_excluded.append(record.ref.key)
+            else:
+                pool.append(record.ref)
+        norms = select_norms(
+            pool, limit=limit, shuffle_seed=shuffle_seed, only_keys=only_keys
         )
-        text = fetch_text(ref, cache_dir)
-        if not cached and fetch_delay > 0:
-            time.sleep(fetch_delay)
-        return text
+        typer.echo(
+            f"{len(corpus.records)} texts in textos.parquet"
+            + (f", skipped {corpus.skipped}" if corpus.skipped else "")
+            + f"; {len(norms)} selected"
+        )
 
-    plan = build_plan(
-        norms,
-        load,
-        max_lines=max_lines,
-        max_chars=max_chars,
-        max_tokens_cap=max_tokens_cap,
-    )
-    plan.enumeration_errors = list(enumeration.errors)
+        def load_textos_text(ref: NormRef) -> Optional[str]:
+            return texts[ref.key].text
+
+        plan = build_plan(
+            norms,
+            load_textos_text,
+            max_lines=max_lines,
+            max_chars=max_chars,
+            max_tokens_cap=max_tokens_cap,
+            labelled=labelled,
+        )
+        plan.available = len(corpus.records)
+        plan.labelled_excluded = pre_excluded + plan.labelled_excluded
+        plan.ocr_motor = {ref.key: texts[ref.key].ocr_motor for ref in plan.norms}
+        plan.sources = {
+            "text_source": "textos",
+            "textos": {
+                "file_sha256": corpus.file_sha256,
+                "texts": len(corpus.records),
+                "skipped": corpus.skipped,
+            },
+        }
+    else:
+        enumeration = enumerate_norms(ente, _split_csv(fonte) or [], _split_csv(tipo))
+        norms = select_norms(
+            enumeration.norms,
+            limit=limit,
+            shuffle_seed=shuffle_seed,
+            only_keys=only_keys,
+        )
+        typer.echo(
+            f"{len(enumeration.norms)} norms with OCR text found, {len(norms)} selected"
+        )
+
+        def load(ref: NormRef) -> Optional[str]:
+            cached = (
+                cache_dir is not None
+                and (cache_dir / ref.item / ref.txt_name).is_file()
+            )
+            text = fetch_text(ref, cache_dir)
+            if not cached and fetch_delay > 0:
+                time.sleep(fetch_delay)
+            return text
+
+        # ia: the text must be fetched to compare its sha256, so exclusion runs
+        # after the fetch and only the selected norms are downloaded.
+        plan = build_plan(
+            norms,
+            load,
+            max_lines=max_lines,
+            max_chars=max_chars,
+            max_tokens_cap=max_tokens_cap,
+            labelled=labelled,
+        )
+        plan.enumeration_errors = list(enumeration.errors)
+        plan.available = len(enumeration.norms)
+        plan.sources = {"text_source": "ia"}
+    if labelled is not None:
+        plan.sources["exclude_labelled"] = {
+            "source": exclude_labelled,
+            "labelled_norms": len(labelled),
+            "labelled_texts": sum(len(s) for s in labelled.values()),
+        }
     return plan
+
+
+def _load_textos_corpus(path: Optional[Path]) -> TextosCorpus:
+    """Local ``--textos`` parquet, or the published one downloaded to a temp dir."""
+    if path is not None:
+        return load_textos(path)
+    with tempfile.TemporaryDirectory() as tmp:
+        local = Path(tmp) / "textos.parquet"
+        _download_to(DEFAULT_TEXTOS_URL, local)
+        return load_textos(local)
+
+
+def _selection_breakdown(plan: Plan) -> Dict[str, Any]:
+    """Counts of the selected norms by status, tipo and OCR motor."""
+    by_status: Dict[str, int] = {}
+    by_tipo: Dict[str, int] = {}
+    by_motor: Dict[str, int] = {}
+    for ref in plan.norms:
+        status = plan.status.get(ref.key, "all")
+        by_status[status] = by_status.get(status, 0) + 1
+        by_tipo[ref.tipo] = by_tipo.get(ref.tipo, 0) + 1
+        # textos: the motor recorded per row (None = not recorded). ia: no motor,
+        # the text is the IA's own _djvu.txt.
+        if plan.sources.get("text_source") == "ia":
+            motor = "ia-djvu"
+        else:
+            motor = plan.ocr_motor.get(ref.key) or "(not recorded)"
+        by_motor[motor] = by_motor.get(motor, 0) + 1
+    return {
+        "by_status": dict(sorted(by_status.items())),
+        "by_tipo": dict(sorted(by_tipo.items())),
+        "by_ocr_motor": dict(sorted(by_motor.items())),
+    }
+
+
+def _echo_selection(plan: Plan) -> None:
+    breakdown = _selection_breakdown(plan)
+    if plan.status:
+        status = breakdown["by_status"]
+        split = (
+            f" (new norms {status.get('new_norm', 0)}, new texts of labelled norms "
+            f"{status.get('new_text', 0)})"
+        )
+    else:
+        split = ""
+    typer.echo(
+        f"texts available: {plan.available}; excluded as labelled: "
+        f"{len(plan.labelled_excluded)}; selected: {len(plan.norms)}{split}"
+    )
+    typer.echo(f"selected by tipo: {breakdown['by_tipo']}")
+    typer.echo(f"selected by ocr_motor: {breakdown['by_ocr_motor']}")
 
 
 def _echo_estimate(estimate: CostEstimate) -> None:
@@ -1654,6 +2035,29 @@ _EFFORT = typer.Option("medium", "--effort", help="|".join(EFFORTS))
 _CACHE = typer.Option(
     True, "--prompt-cache/--no-prompt-cache", help="Cache de 1h do prefixo."
 )
+_TEXT_SOURCE = typer.Option(
+    "ia",
+    "--text-source",
+    help="ia: um _djvu.txt por norma no IA (lento). textos: o parquet publicado "
+    "(--textos, ou baixado do IA).",
+)
+_TEXTOS = typer.Option(
+    None,
+    "--textos",
+    help="textos.parquet local (com --text-source textos). Vazio = baixa o publicado.",
+)
+_EXCLUDE_LABELLED = typer.Option(
+    None,
+    "--exclude-labelled",
+    help="Pula normas já rotuladas com o mesmo texto (mesma identidade e sha256). "
+    "Diretório local de rótulos ou item do IA com labels.tar.gz.",
+)
+_LABEL_SET = typer.Option(
+    DEFAULT_LABEL_SET,
+    "--label-set",
+    help="Nome do conjunto de rótulos (main = conjunto de ajuste; outro nome = "
+    "conjunto separado, ex. holdout-2026-11).",
+)
 
 
 def _check_effort(effort: str) -> None:
@@ -1685,27 +2089,36 @@ def plan(
     max_chars: int = _MAX_CHARS,
     max_tokens_cap: int = _MAX_TOKENS_CAP,
     fetch_delay: float = _FETCH_DELAY,
+    text_source: str = _TEXT_SOURCE,
+    textos: Optional[Path] = _TEXTOS,
+    exclude_labelled: Optional[str] = _EXCLUDE_LABELLED,
+    label_set: str = _LABEL_SET,
 ) -> None:
     """Enumera as entradas e estima o custo por modelo. Não envia nada pago."""
     _check_effort(effort)
     try:
         specs = [resolve_model(model)] if model else list(MODELS.values())
+        check_label_set(label_set)
+        built = _prepare(
+            ente=ente,
+            fonte=fonte,
+            tipo=tipo,
+            limit=limit,
+            shuffle_seed=shuffle_seed,
+            cache_dir=cache_dir,
+            retry_failures=None,
+            max_lines=max_lines,
+            max_chars=max_chars,
+            max_tokens_cap=max_tokens_cap,
+            fetch_delay=fetch_delay,
+            text_source=text_source,
+            textos=textos,
+            exclude_labelled=exclude_labelled,
+        )
     except TeacherBatchError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from exc
-    built = _prepare(
-        ente=ente,
-        fonte=fonte,
-        tipo=tipo,
-        limit=limit,
-        shuffle_seed=shuffle_seed,
-        cache_dir=cache_dir,
-        retry_failures=None,
-        max_lines=max_lines,
-        max_chars=max_chars,
-        max_tokens_cap=max_tokens_cap,
-        fetch_delay=fetch_delay,
-    )
+    _echo_selection(built)
     _echo_gaps(built)
     estimates = [estimate_cost(built, spec, effort, prompt_cache) for spec in specs]
     for estimate in estimates:
@@ -1728,6 +2141,12 @@ def plan(
             {
                 "created_at": _now(),
                 "ente": ente,
+                "label_set": label_set,
+                "text_source": text_source,
+                "sources": built.sources,
+                "texts_available": built.available,
+                "excluded_as_labelled": len(built.labelled_excluded),
+                "selection": _selection_breakdown(built),
                 "prompt_version": PROMPT_VERSION,
                 "prompt_sha256": prompt_sha256(),
                 "git_sha": git_sha(),
@@ -1781,11 +2200,16 @@ def submit(
     max_chars: int = _MAX_CHARS,
     max_tokens_cap: int = _MAX_TOKENS_CAP,
     fetch_delay: float = _FETCH_DELAY,
+    text_source: str = _TEXT_SOURCE,
+    textos: Optional[Path] = _TEXTOS,
+    exclude_labelled: Optional[str] = _EXCLUDE_LABELLED,
+    label_set: str = _LABEL_SET,
 ) -> None:
     """Cria o(s) batch(es) depois da trava de custo e grava o manifesto."""
     _check_effort(effort)
     try:
         spec = resolve_model(model)
+        check_label_set(label_set)
         if manifest_path.exists():
             raise TeacherBatchError(
                 f"{manifest_path} already exists: a submit may already have "
@@ -1803,7 +2227,11 @@ def submit(
             max_chars=max_chars,
             max_tokens_cap=max_tokens_cap,
             fetch_delay=fetch_delay,
+            text_source=text_source,
+            textos=textos,
+            exclude_labelled=exclude_labelled,
         )
+        _echo_selection(built)
         _echo_gaps(built)
         if not built.requests:
             raise TeacherBatchError("no requests to submit")
@@ -1823,6 +2251,7 @@ def submit(
             cache=prompt_cache,
             max_usd=max_usd,
             guard=guard,
+            label_set=label_set,
         )
         submit_batches(
             _client(),
@@ -1857,6 +2286,12 @@ def collect(
         help="Sai com 0 mesmo havendo normas com falha (elas ficam em "
         "failures.jsonl de qualquer forma).",
     ),
+    label_set: Optional[str] = typer.Option(
+        None,
+        "--label-set",
+        help="Conjunto esperado. Se informado e diferente do manifesto, nada é "
+        "coletado (evita publicar um holdout como se fosse o conjunto principal).",
+    ),
 ) -> None:
     """Busca os resultados, valida, funde os pedaços e grava um JSONL por norma.
 
@@ -1867,6 +2302,12 @@ def collect(
         manifest = load_manifest(manifest_path)
         if not manifest["batches"]:
             raise TeacherBatchError("manifest has no batch: nothing was submitted")
+        manifest_set = str(manifest.get("label_set", DEFAULT_LABEL_SET))
+        if label_set is not None and check_label_set(label_set) != manifest_set:
+            raise TeacherBatchError(
+                f"--label-set {label_set!r} does not match the manifest's label set "
+                f"{manifest_set!r}; nothing was collected."
+            )
         client = _client()
         ended, status = wait_for_batches(client, manifest, wait_minutes)
         for entry in status:
