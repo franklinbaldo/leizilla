@@ -52,6 +52,16 @@ DISAGREE_OUTCOMES: tuple[str, ...] = (
     "wrong_direction",
     "missed",
     "invalid",
+    "truncated",
+)
+# Outcomes with no usable answer: never counted as agreement or as a fix.
+UNUSABLE_OUTCOMES: tuple[str, ...] = ("invalid", "truncated")
+CANARY_OUTCOMES: tuple[str, ...] = (
+    "caught",
+    "partly",
+    "missed",
+    "invalid",
+    "truncated",
 )
 
 
@@ -148,8 +158,11 @@ def score_norm(review: dict[str, Any], teacher: dict[str, Any]) -> dict[str, Any
     after_gap = len(after ^ t_own)
     verdict = review["verdict"]
     agrees = group in AGREE_GROUPS
-    if verdict == "invalid":
-        outcome = "invalid"
+    if verdict in UNUSABLE_OUTCOMES:
+        outcome = verdict
+    elif review.get("partial"):
+        # Some parts of a chunked norm are missing: its own bucket, not scored.
+        outcome = "partial"
     elif agrees:
         if verdict == "ok":
             outcome = "true_ok"
@@ -172,14 +185,28 @@ def score_norm(review: dict[str, Any], teacher: dict[str, Any]) -> dict[str, Any
         "verdict": verdict,
         "outcome": outcome,
         "unverified": bool(review.get("unverified")),
+        "partial": bool(review.get("partial")),
         "reader_gap": before_gap,
         "gap_after_adjustments": after_gap,
         "adjustments": review["adjustments"],
     }
 
 
+def _recall_row(counts: dict[str, int]) -> dict[str, Any]:
+    n = sum(counts.values())
+    return {
+        "n": n,
+        **{k: counts.get(k, 0) for k in CANARY_OUTCOMES},
+        "recall": round(counts.get("caught", 0) / n, 4) if n else None,
+    }
+
+
 def canary_table(reviews: list[dict[str, Any]]) -> dict[str, Any]:
+    """Recall by planted kind, and split by whether the mutated own-article chain is
+    still gap-free (``chain_intact``: a reviewer can see a gap by reading) or broken.
+    """
     kinds: dict[str, dict[str, int]] = {k: {} for k in CANARY_KINDS}
+    chains: dict[str, dict[str, int]] = {"intact": {}, "broken": {}}
     for review in reviews:
         if not review.get("canary"):
             continue
@@ -187,23 +214,19 @@ def canary_table(reviews: list[dict[str, Any]]) -> dict[str, Any]:
         name = str(review["canary_outcome"])
         kinds.setdefault(kind, {})
         kinds[kind][name] = kinds[kind].get(name, 0) + 1
+        intact = review.get("canary_chain_intact")
+        if intact is not None:
+            bucket = chains["intact" if intact else "broken"]
+            bucket[name] = bucket.get(name, 0) + 1
     table: dict[str, Any] = {}
     total: dict[str, int] = {}
     for kind, counts in kinds.items():
-        n = sum(counts.values())
-        table[kind] = {
-            "n": n,
-            **{k: counts.get(k, 0) for k in ("caught", "partly", "missed", "invalid")},
-            "recall": round(counts.get("caught", 0) / n, 4) if n else None,
-        }
+        table[kind] = _recall_row(counts)
         for k, v in counts.items():
             total[k] = total.get(k, 0) + v
-    n_all = sum(total.values())
-    table["all"] = {
-        "n": n_all,
-        **{k: total.get(k, 0) for k in ("caught", "partly", "missed", "invalid")},
-        "recall": round(total.get("caught", 0) / n_all, 4) if n_all else None,
-    }
+    table["all"] = _recall_row(total)
+    table["chain_intact"] = _recall_row(chains["intact"])
+    table["chain_broken"] = _recall_row(chains["broken"])
     return table
 
 
@@ -229,6 +252,10 @@ def score(
         else:
             scored.append(score_norm(review, teacher))
 
+    partial_rows = [r for r in scored if r["outcome"] == "partial"]
+    scored_ok = [
+        r for r in scored if r["outcome"] not in ("partial", *UNUSABLE_OUTCOMES)
+    ]
     by_group: dict[str, dict[str, int]] = {}
     for row in scored:
         bucket = by_group.setdefault(row["group"], {})
@@ -237,13 +264,17 @@ def score(
         if row["unverified"]:
             bucket["unverified_ok"] = bucket.get("unverified_ok", 0) + 1
 
-    disagree = [r for r in scored if r["group"] not in AGREE_GROUPS]
+    disagree = [
+        r
+        for r in scored
+        if r["group"] not in AGREE_GROUPS and r["outcome"] != "partial"
+    ]
     d_counts = collections.Counter(r["outcome"] for r in disagree)
-    d_valid = [r for r in disagree if r["outcome"] != "invalid"]
+    d_valid = [r for r in disagree if r["outcome"] not in UNUSABLE_OUTCOMES]
     flagged = [r for r in d_valid if r["verdict"] == "ajuste"]
 
     def agree_report(group: str) -> dict[str, Any]:
-        rows = [r for r in scored if r["group"] == group and r["outcome"] != "invalid"]
+        rows = [r for r in scored_ok if r["group"] == group]
         alarms = [r for r in rows if r["verdict"] == "ajuste"]
         return {
             "norms": len(rows),
@@ -284,6 +315,7 @@ def score(
         "reader_disagrees": {
             "norms": len(disagree),
             "invalid": d_counts.get("invalid", 0),
+            "truncated": d_counts.get("truncated", 0),
             "said_ajuste": len(flagged),
             "said_ajuste_rate": (
                 round(len(flagged) / len(d_valid), 4) if d_valid else None
@@ -297,6 +329,21 @@ def score(
             "unverified_ok": sum(
                 1 for r in d_valid if r["verdict"] == "ok" and r["unverified"]
             ),
+        },
+        "partial": {
+            "norms": len(partial_rows),
+            "with_adjustments": sum(
+                1 for r in partial_rows if r["verdict"] == "ajuste"
+            ),
+            "by_group": dict(collections.Counter(r["group"] for r in partial_rows)),
+            "note": "chunked norms with some parts missing: not scored as agreement "
+            "or disagreement",
+        },
+        "dropped": {
+            "adjustments": sum(len(r.get("dropped") or []) for r in reviews),
+            "downgraded_norms": sum(1 for r in reviews if r.get("downgraded")),
+            "note": "adjustments that did not fit the reading (evidence, op, no-op): "
+            "dropped with their reason, the rest of the norm still counts",
         },
         "reader_agrees": {g: agree_report(g) for g in AGREE_GROUPS},
         "canaries": canary_table(reviews),
@@ -377,13 +424,39 @@ def to_markdown(result: dict[str, Any]) -> str:
             )
             lines.append(f"- `{alarm['key']}` [{alarm['outcome']}]: {ops}")
     lines += ["", "## Canary recall by planted kind", ""]
-    lines.append("| kind | n | caught | partly | missed | invalid | recall |")
-    lines.append("|---|---|---|---|---|---|---|")
+    lines.append(
+        "| kind | n | caught | partly | missed | invalid | truncated | recall |"
+    )
+    lines.append("|---|---|---|---|---|---|---|---|")
     for kind, row in result["canaries"].items():
+        if kind in ("chain_intact", "chain_broken"):
+            continue
         lines.append(
             f"| {kind} | {row['n']} | {row['caught']} | {row['partly']} | "
-            f"{row['missed']} | {row['invalid']} | {_pct(row['recall'])} |"
+            f"{row['missed']} | {row['invalid']} | {row['truncated']} | "
+            f"{_pct(row['recall'])} |"
         )
+    intact = result["canaries"]["chain_intact"]
+    broken = result["canaries"]["chain_broken"]
+    lines.append("")
+    lines.append(
+        f"Recall with the mutated own-article chain still gap-free (a reader sees no "
+        f"gap): {_pct(intact['recall'])} of {intact['n']}; with a gap: "
+        f"{_pct(broken['recall'])} of {broken['n']}."
+    )
+    dropped = result["dropped"]
+    lines.append("")
+    lines.append(
+        f"Dropped adjustments (did not fit the reading): {dropped['adjustments']}; "
+        f"norms downgraded from ajuste to ok: {dropped['downgraded_norms']}."
+    )
+    part = result["partial"]
+    if part["norms"]:
+        lines += [
+            "",
+            f"Partial chunked norms (some parts missing): {part['norms']}, of which "
+            f"{part['with_adjustments']} carry adjustments from the valid parts.",
+        ]
     cost = result["cost"]
     lines += ["", "## Cost", ""]
     lines.append(

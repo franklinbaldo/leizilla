@@ -16,9 +16,13 @@ Design notes that are easy to get wrong:
 * **The model never has to echo a long identifier.** Each request numbers its norms
   ``N01``..; the manifest maps the token to the real ``texto_id`` and text sha256.
 * **Silence is never approval.** Every id of a request must be answered exactly
-  once; a missing or duplicated id, an operation on a line that was not listed,
-  evidence that is not on that line, or an operation that does not apply to the
-  tags the model saw make that norm's result INVALID (``failures.jsonl``).
+  once. A missing or duplicated id, a malformed entry, an operation on a line that
+  was not listed, or ``ok`` with adjustments make that norm's result INVALID
+  (``failures.jsonl``). A single adjustment whose evidence is not on its line, whose
+  operation does not fit the tags the model saw, or that changes nothing is DROPPED
+  and recorded with its reason; an ``ajuste`` left with nothing is downgraded to
+  ``ok`` and flagged. A request that ended at ``max_tokens`` (or had no text) is
+  TRUNCATED, not invalid, and can be retried (``--retry-truncated``).
 * **Canaries measure attention.** Norms with a PLANTED error in the reader's tags
   (never in the text) are mixed into the requests; ``collect`` scores whether the
   reviewer caught them. A request whose canary was missed marks the ``ok``
@@ -41,19 +45,24 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, cast
 
 import typer
 
 from leizilla import publisher
 from leizilla import teacher_batch as tb
-from leizilla.hierarchy_sequence import _roman, article_closes, read_hierarchy
+from leizilla.hierarchy_sequence import (
+    _ART_WILD,
+    _roman,
+    article_closes,
+    read_hierarchy,
+)
 
 # --------------------------------------------------------------------------
 # Contract versions and constants
 # --------------------------------------------------------------------------
 
-REVIEW_PROMPT_VERSION = "teacher-review-v1"
+REVIEW_PROMPT_VERSION = "teacher-review-v2"
 REVIEW_SCHEMA_VERSION = "1"
 DEFAULT_REVIEW_LABEL_SET = "review"
 
@@ -119,11 +128,29 @@ RESPONSE_FRAMING_TOKENS = 100
 CEILING_TOKENS_PER_NORM = (
     TOKENS_PER_OK + CEILING_ADJUSTMENTS_PER_NORM * CEILING_TOKENS_PER_ADJUSTMENT
 )
+# Output budget of a review request (2026-11 evaluation, claude-haiku-5-5, effort
+# medium). With the old cap (3072 + 465 per norm) 61 of 240 requests ended with
+# stop_reason=max_tokens and ~95% of the output was thinking. The new cap is
+# base + (thinking room per norm + the per-norm adjustment ceiling), never above
+# REVIEW_MAX_TOKENS_CAP. Haiku 5.5 accepts up to 128K output, so the cap is a
+# cost guard, not a model limit; ``ModelSpec`` carries no output limit field.
+REVIEW_MAX_TOKENS_BASE = 8192
+REVIEW_THINKING_PER_NORM = 2048
+REVIEW_MAX_TOKENS_CAP = 16000
+# Measured output of one request, averaged over the 240 requests of the first
+# review run (a single measurement, at effort medium, ~1.25 norms per request;
+# thinking was ~95% of it). The estimate uses it as the per-request base.
+MEASURED_OUTPUT_TOKENS_PER_REQUEST = 2070
 
 _NUMBER_RE = re.compile(r"^\d{1,4}$")
 _NUMBER_SUFFIX_RE = re.compile(r"^(\d{1,4})\s*-\s*([A-Za-z])$")
 _SUFFIX_RE = re.compile(r"^[A-Za-z]$")
 _CITATION_RE = re.compile(r"\b[Aa]rts?\.?\s*(\d{1,4})")
+# Evidence comparison: typographic quotes and dashes fold to ASCII, and a tag
+# prefix the model copied (``[art 4 Q] ...``) is dropped before comparing.
+_QUOTES = {0x201C: '"', 0x201D: '"', 0x2018: "'", 0x2019: "'"}
+_DASHES = {0x2013: "-", 0x2014: "-", 0x2212: "-"}
+_TAG_PREFIX_RE = re.compile(r"^(\[[^\]]*\]\s*)+")
 
 # --------------------------------------------------------------------------
 # Response schema (structured output; same constraints as LABEL_SCHEMA)
@@ -201,18 +228,14 @@ o 3 e o 5 é o artigo 4; "1Q", "3°", "2-", "Il -" são 1, 3, 2 e o inciso II).
 
 Cada norma começa com uma linha de cabeçalho e termina com `### fim ID`:
 
-`### N03 | lei 123 | reader: 12 own articles, closes=yes, last=12`
+`### N03 | lei 123 | reader: 12 own articles`
 
 - `N03` é o identificador da norma NESTA requisição; use-o na resposta, sem \
 alterar. `lei 123` é o tipo e o número, só para você se situar.
-- `own articles`: quantos artigos próprios o leitor marcou; `last`: o número do \
-último deles, na ordem do texto.
-- `closes`: `yes` quando os artigos próprios do leitor formam a sequência 1..N sem \
-lacuna nem duplicata e o fecho da norma (vigência, revogação) está no lugar. \
-`closes=yes` NÃO prova que a leitura está certa: um artigo no fim cujo marcador o \
-OCR destruiu, uma citação tomada por artigo e uma transcrição de outra lei tomada \
-por artigo próprio também passam. `closes=no` indica que algo na cadeia não \
-encaixa (lacuna, número repetido, fora de ordem): procure onde.
+- `own articles`: quantos artigos próprios o leitor marcou. O cabeçalho não diz se \
+a sequência fecha nem qual é o último artigo: leia você mesmo a sequência de \
+artigos próprios (1..N, na ordem do texto) e procure a lacuna, o número repetido \
+ou a ordem trocada.
 - Partes de norma longa trazem `parte 2/3` no cabeçalho e uma nota com o último \
 artigo próprio antes da parte e se há bloco citado aberto no início dela. Só as \
 linhas de `[linhas a revisar]` podem receber ajuste; `[contexto, somente leitura]` \
@@ -233,12 +256,17 @@ art. 5º da Lei nº 100 passa a vigorar com a seguinte redação:"). Dispositivo
 - a etiqueta aparece antes do texto da linha e aponta para o marcador que \
 começa nela, no início ou no meio da linha; uma linha pode ter mais de uma \
 etiqueta; linha sem etiqueta é linha em que o leitor não viu dispositivo.
+- `[?art]` (sem número) marca uma linha SEM etiqueta que abre com marcador de \
+artigo: o leitor viu um possível artigo e não o tomou. Pode ser artigo perdido, \
+citação, artigo transcrito ou cabeçalho; decida pela sequência e pelo texto, e \
+não trate a marca como erro por si só.
 
 # O que verificar
 
 1. Todo artigo próprio tem etiqueta? Procure linhas que abrem artigo e estão sem \
 `[art N]`: "Art." / "Artigo" sem etiqueta, e também a linha cujo marcador o OCR \
-destruiu. Quando a sequência pede o próximo artigo e a linha abre uma frase \
+destruiu. Uma linha sem etiqueta que abre com `Art. Nº` ou `Artigo N` limpo quase \
+sempre é um artigo que o leitor perdeu: verifique cada uma delas. Quando a sequência pede o próximo artigo e a linha abre uma frase \
 completa de comando (muito comum: "Esta Lei entra em vigor ...", "Revogam-se as \
 disposições em contrário" logo depois do último artigo), ela é um artigo com \
 marcador perdido: `add_own_article` com o número que a sequência pede.
@@ -271,10 +299,14 @@ resultado daquela norma inteira. Cada ajuste tem sempre os oito campos; o que a 
 operação não usa vai como `null`:
 
 - `op`, `line`: a operação e o número da linha (o número antes do TAB);
-- `evidence`: o texto dessa linha, copiado exatamente como listado (sem o número \
-e sem as etiquetas): os primeiros 80 caracteres da linha, no mínimo 15 (ou a linha \
-inteira, se for menor);
+- `evidence`: o texto DESSA linha, copiado como listado (sem o número, sem as \
+etiquetas e sem continuar na linha seguinte): os primeiros 80 caracteres da linha, \
+no mínimo 15 (ou a linha inteira, se for menor);
 - `reason`: no máximo 15 palavras.
+
+Um ajuste cuja evidência não confere com a linha, cuja operação não cabe nas \
+etiquetas mostradas ou que não muda nada é DESCARTADO e registrado; os demais \
+ajustes da norma continuam valendo. Ainda assim, só responda o que você vê.
 
 Operações e campos usados:
 
@@ -284,7 +316,9 @@ etiqueta. `number`: algarismos, sem ordinal ("5"); `suffix`: letra maiúscula do
 - `remove_article` (`number` só se a linha tem duas etiquetas de artigo): a \
 etiqueta de artigo não deveria existir. Não combine com outro ajuste na mesma linha.
 - `set_number` (`number`, `suffix`): a linha tem exatamente uma etiqueta de \
-artigo e o número dela está errado; informe o número certo.
+artigo e o número dela está errado; informe o número certo. Mantenha o algarismo \
+impresso na linha, a não ser que um erro de OCR explique a diferença: `Art. 4o` é \
+o artigo 4, não o 6.
 - `set_quoted` (`quoted`): a linha tem exatamente uma etiqueta de artigo e ela \
 está do lado errado: `true` se o artigo é transcrição de outra norma (passa a \
 ter `Q`), `false` se é próprio (perde o `Q`).
@@ -299,21 +333,21 @@ Não repita a mesma operação na mesma linha.
 Uma requisição com três normas:
 
 ```
-### N01 | lei 7 | reader: 2 own articles, closes=yes, last=2
+### N01 | lei 7 | reader: 2 own articles
 3\tLEI Nº 7 DE 5 DE ABRIL DE 1985
 5\tDispõe sobre a coisa.
 7\t[art 1] Art. 1º - Fica criada a coisa, nos termos do art. 9º da Lei Federal.
 8\t[art 2] Art. 2º - Esta Lei entra em vigor na data de sua publicação.
 10\tPorto Velho, 5 de abril de 1985.
 ### fim N01
-### N02 | lei 8 | reader: 4 own articles, closes=no, last=42
+### N02 | lei 8 | reader: 4 own articles
 4\t[art 1] Art. 1º - Fica criada a coisa.
 5\t[art 2] Art. 2º - O prazo é de 30 dias.
 6\t[art 3] Art. 3º - A coisa será gerida pela Secretaria.
 7\t[art 42] Art. 42 - A Secretaria regulamentará esta Lei.
 9\tRevogam-se as disposições em contrário.
 ### fim N02
-### N03 | lei 9 | reader: 3 own articles, closes=no, last=2
+### N03 | lei 9 | reader: 3 own articles
 5\t[art 1] Art. 1º - O art. 5º da Lei nº 100 passa a vigorar com a seguinte \
 redação:
 6\t[art 5] "Art. 5º - Fica proibido o uso de fogo."
@@ -751,11 +785,22 @@ class ReviewRequest:
         return any(s.norm.canary for s in self.slots)
 
 
+HINT_UNTAGGED_ARTICLE = "[?art] "
+
+
 def _listing(lines: Sequence[str], view: ReaderView, numbers: Iterable[int]) -> str:
+    """Numbered lines with the reader's tags. An UNTAGGED line that opens with the
+    reader's loose article candidate (``_ART_WILD``) gets ``[?art]``: the reader saw
+    an article-like marker and did not take it. The hint is computed from whatever
+    tags the view holds, so a canary that dropped a tag shows it exactly as a real
+    missed article would; the hint neither singles canaries out nor hides them."""
     out = []
     for n in numbers:
+        raw = lines[n - 1]
         tags = "".join(f"[{t.label}] " for t in view.tags.get(n, ()))
-        out.append(f"{n}\t{tags}{lines[n - 1].strip()}")
+        if not tags and _ART_WILD.match(raw.strip()):
+            tags = HINT_UNTAGGED_ARTICLE
+        out.append(f"{n}\t{tags}{raw.strip()}")
     return "\n".join(out)
 
 
@@ -766,12 +811,12 @@ def _last_own_before(view: ReaderView, line: int) -> Optional[str]:
 
 def render_slot(slot: ReviewSlot) -> str:
     norm, chunk = slot.norm, slot.chunk
+    # The header carries no closes/last: they are recomputed from the tags, so with
+    # a planted error they would give the canary away. Only the count is shown.
     s = norm.view.summary()
-    last = s["last"] if s["last"] is not None else "-"
     head = (
         f"### {slot.rid} | {norm.ref.tipo} {norm.ref.numero} | reader: "
-        f"{s['own_articles']} own articles, closes={'yes' if s['closes'] else 'no'}, "
-        f"last={last}"
+        f"{s['own_articles']} own articles"
     )
     parts = []
     if chunk.total > 1:
@@ -936,8 +981,16 @@ class ReviewPlan:
 
 
 def review_max_tokens(n_slots: int, cap: int = tb.MAX_TOKENS_CAP) -> int:
-    """Room for thinking plus, for every norm, 5 adjustments (the ceiling case)."""
-    return min(cap, tb.MAX_TOKENS_BASE + CEILING_TOKENS_PER_NORM * n_slots)
+    """``max_tokens`` of a review request with ``n_slots`` norms.
+
+    Base, plus per norm the thinking room and the adjustment ceiling (5
+    adjustments, the worst case the ceiling prices), never above the cap.
+    """
+    return min(
+        min(cap, REVIEW_MAX_TOKENS_CAP),
+        REVIEW_MAX_TOKENS_BASE
+        + (REVIEW_THINKING_PER_NORM + CEILING_TOKENS_PER_NORM) * n_slots,
+    )
 
 
 def read_ids_file(path: Path) -> List[str]:
@@ -1148,11 +1201,13 @@ def estimate_review_cost(
 ) -> tb.CostEstimate:
     """Same two numbers as ``estimate_cost``, with the review output model.
 
-    Estimate: thinking by effort + framing + ``expected_tokens_per_norm`` per norm
-    (an ``ok`` ~15 tokens, 20% of the norms with 2 adjustments of ~60). Ceiling:
+    Estimate: the measured output of a request (``MEASURED_OUTPUT_TOKENS_PER_REQUEST``)
+    + ``expected_tokens_per_norm`` per norm (an ``ok`` ~15 tokens, 20% of the norms
+    with 2 adjustments of ~60), capped by each request's ``max_tokens``. Ceiling:
     every request spends its whole ``max_tokens``, which assumes 5 adjustments on
     every norm (~90 tokens each), and pays the 1-hour cache write on the prefix
-    with zero hits.
+    with zero hits. The ceiling is an upper bound because output never exceeds
+    ``max_tokens``.
     """
     system_tokens = tb.estimate_tokens(len(REVIEW_SYSTEM_PROMPT), chars_per_token)
     n = len(plan.requests)
@@ -1162,11 +1217,20 @@ def estimate_review_cost(
         for r in plan.requests
     ]
     input_tokens = sum(user_tokens) + system_tokens * n
-    think = tb.THINKING_ESTIMATE[effort] if spec.supports_effort else 0
+    # Per-request base: the measured figure (effort medium). For another effort the
+    # thinking table is used when it is larger, since the measurement says nothing
+    # about it; a model without effort has no thinking to add.
+    if spec.supports_effort:
+        base_out = max(
+            MEASURED_OUTPUT_TOKENS_PER_REQUEST,
+            tb.THINKING_ESTIMATE[effort] + RESPONSE_FRAMING_TOKENS,
+        )
+    else:
+        base_out = MEASURED_OUTPUT_TOKENS_PER_REQUEST
     est_out = sum(
         min(
             r.max_tokens,
-            think + RESPONSE_FRAMING_TOKENS + expected_tokens_per_norm() * len(r.slots),
+            base_out + expected_tokens_per_norm() * len(r.slots),
         )
         for r in plan.requests
     )
@@ -1378,40 +1442,84 @@ def _parse_number(raw: Any, suffix: Any) -> tuple[Optional[str], List[str]]:
     return normalize_article_number(text, sfx.upper() if sfx else None), problems
 
 
-def _line_problem(adj: Dict[str, Any], meta: Dict[str, Any]) -> Optional[str]:
+def _fold(text: str) -> str:
+    """Whitespace-free, quote/dash-normalised form used to compare evidence."""
+    text = text.translate({**_QUOTES, **_DASHES})
+    return re.sub(r"\s+", "", text)
+
+
+def _evidence_matches(evidence: str, shown: str) -> bool:
+    """Lenient evidence check, measured on the 2026-11 run.
+
+    Accepted: the evidence is on the line (whitespace, quotes and dashes folded);
+    the model copied the ``[art 4 Q]`` tag, so the tag prefix is stripped and the
+    rest checked; or the evidence runs past the end of a short line into the next
+    one, and the whole line is its start. The matching part is always at least the
+    whole line or the 15-character minimum, enforced by the caller's length check.
+    """
+    if evidence in shown:
+        return True
+    folded_shown = _fold(shown)
+    if not folded_shown:
+        return False
+    for candidate in (evidence, _TAG_PREFIX_RE.sub("", evidence)):
+        folded = _fold(candidate)
+        if not folded:
+            continue
+        if folded in folded_shown:
+            return True
+        if folded.startswith(folded_shown):
+            return True
+    return False
+
+
+def _line_problem(
+    adj: Dict[str, Any], meta: Dict[str, Any]
+) -> tuple[Optional[str], bool]:
+    """``(problem, structural)`` for the line of one adjustment.
+
+    A line that was not listed is structural (the answer points outside what it
+    was shown); an empty or non-matching evidence is a bad individual adjustment.
+    """
     line = adj["line"]
     shown = meta["lines"].get(str(line))
     if shown is None:
         return (
             f"line {line} is not a listed line to review "
-            f"({meta['first_line']}-{meta['last_line']}, blank lines omitted)"
+            f"({meta['first_line']}-{meta['last_line']}, blank lines omitted)",
+            True,
         )
     evidence = adj["evidence"].strip()
     if not evidence:
-        return f"line {line}: empty evidence"
-    if evidence not in shown:
-        return f"line {line}: evidence is not on the line"
+        return f"line {line}: empty evidence", False
+    if not _evidence_matches(evidence, shown):
+        return f"line {line}: evidence is not on the line", False
     if len(evidence) < min(_MIN_EVIDENCE, len(shown)):
-        return f"line {line}: evidence too short to identify the line"
-    return None
+        return f"line {line}: evidence too short to identify the line", False
+    return None, False
 
 
-def validate_adjustment(
+def _adjustment_check(
     raw: Any, meta: Dict[str, Any], where: str
-) -> tuple[Optional[Dict[str, Any]], List[str]]:
-    """One adjustment against the line list and the tags the model was shown."""
+) -> tuple[Optional[Dict[str, Any]], List[str], bool]:
+    """``(adjustment or None, problems, structural)`` for one raw adjustment.
+
+    ``structural`` problems (wrong shape, unknown op, non-integer line, a line that
+    was not listed) invalidate the whole norm. Other problems mean the adjustment
+    does not fit the reading and is dropped by the caller.
+    """
     if not isinstance(raw, dict) or set(raw) != set(ADJUSTMENT_FIELDS):
-        return None, [f"{where}: wrong shape"]
+        return None, [f"{where}: wrong shape"], True
     op, line = raw["op"], raw["line"]
     if op not in OPS:
-        return None, [f"{where}: unknown op {op!r}"]
+        return None, [f"{where}: unknown op {op!r}"], True
     if isinstance(line, bool) or not isinstance(line, int):
-        return None, [f"{where}: line is not an integer"]
+        return None, [f"{where}: line is not an integer"], True
     if not isinstance(raw["evidence"], str) or not isinstance(raw["reason"], str):
-        return None, [f"{where}: evidence and reason must be strings"]
-    problem = _line_problem(raw, meta)
+        return None, [f"{where}: evidence and reason must be strings"], True
+    problem, structural = _line_problem(raw, meta)
     if problem:
-        return None, [f"{where}: {problem}"]
+        return None, [f"{where}: {problem}"], structural
     tags = _tags_at(meta, line)
     art = [t for t in tags if t[0] == "artigo"]
     out: Dict[str, Any] = {
@@ -1468,32 +1576,63 @@ def validate_adjustment(
             if op == "add_node" and isinstance(raw["number"], str):
                 out["number"] = raw["number"].strip() or None
     if problems:
-        return None, [f"{where}: {p}" for p in problems]
-    return out, []
+        return None, [f"{where}: {p}" for p in problems], False
+    return out, [], False
 
 
-def validate_entry(
-    entry: Any, meta: Dict[str, Any]
-) -> tuple[Optional[str], List[Dict[str, Any]], List[str]]:
-    """``(verdict, adjustments, problems)`` for one answered id."""
+def validate_adjustment(
+    raw: Any, meta: Dict[str, Any], where: str
+) -> tuple[Optional[Dict[str, Any]], List[str]]:
+    """One adjustment against the line list and the tags the model was shown."""
+    adj, problems, _structural = _adjustment_check(raw, meta, where)
+    return adj, problems
+
+
+@dataclass
+class EntryCheck:
+    """One answered id, checked against what its request showed the model."""
+
+    verdict: Optional[str]
+    adjustments: List[Dict[str, Any]]
+    problems: List[str]  # structural: the norm is INVALID
+    dropped: List[Dict[str, Any]] = field(default_factory=list)
+    downgraded: bool = False
+
+
+def check_entry(entry: Any, meta: Dict[str, Any]) -> EntryCheck:
+    """Structural problems invalidate the norm; a bad individual adjustment is
+    DROPPED with its reason; an ``ajuste`` whose adjustments were all dropped is
+    downgraded to ``ok`` (``downgraded``), so nothing is silently accepted."""
     if not isinstance(entry, dict) or set(entry) != {"id", "verdict", "adjustments"}:
-        return None, [], ["wrong shape"]
+        return EntryCheck(None, [], ["wrong shape"])
     verdict, raw_adjustments = entry["verdict"], entry["adjustments"]
     if verdict not in VERDICTS:
-        return None, [], [f"unknown verdict {verdict!r}"]
+        return EntryCheck(None, [], [f"unknown verdict {verdict!r}"])
     if not isinstance(raw_adjustments, list):
-        return None, [], ["adjustments is not an array"]
+        return EntryCheck(None, [], ["adjustments is not an array"])
     if verdict == "ok" and raw_adjustments:
-        return verdict, [], ["verdict ok carries adjustments"]
+        return EntryCheck(verdict, [], ["verdict ok carries adjustments"])
     if verdict == "ajuste" and not raw_adjustments:
-        return verdict, [], ["verdict ajuste carries no adjustment"]
+        return EntryCheck(verdict, [], ["verdict ajuste carries no adjustment"])
     adjustments: List[Dict[str, Any]] = []
     problems: List[str] = []
+    dropped: List[Dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
     for i, raw in enumerate(raw_adjustments):
-        adj, bad = validate_adjustment(raw, meta, f"adjustments[{i}]")
-        problems += bad
+        adj, bad, structural = _adjustment_check(raw, meta, f"adjustments[{i}]")
         if adj is None:
+            if structural:
+                problems += bad
+            else:
+                dropped += [
+                    {
+                        "index": i,
+                        "op": raw.get("op") if isinstance(raw, dict) else None,
+                        "line": raw.get("line") if isinstance(raw, dict) else None,
+                        "reason": msg,
+                    }
+                    for msg in bad
+                ]
             continue
         key = (adj["op"], adj["line"], adj["level"])
         if key in seen:
@@ -1510,7 +1649,19 @@ def validate_entry(
                 f"line {adj['line']}: remove_article conflicts with {adj['op']}"
             )
     adjustments.sort(key=lambda a: (a["line"], a["op"]))
-    return verdict, adjustments, problems
+    downgraded = False
+    if verdict == "ajuste" and not adjustments and dropped and not problems:
+        verdict = "ok"
+        downgraded = True
+    return EntryCheck(verdict, adjustments, problems, dropped, downgraded)
+
+
+def validate_entry(
+    entry: Any, meta: Dict[str, Any]
+) -> tuple[Optional[str], List[Dict[str, Any]], List[str]]:
+    """``(verdict, adjustments, problems)`` for one answered id (see ``check_entry``)."""
+    check = check_entry(entry, meta)
+    return check.verdict, check.adjustments, check.problems
 
 
 def apply_adjustments(
@@ -1553,6 +1704,9 @@ class ReviewRequestOutcome:
     stop_reason: Optional[str] = None
     entries: List[Any] = field(default_factory=list)
     usage: Dict[str, int] = field(default_factory=dict)
+    # Ended at max_tokens, or with no text to parse: the answer was cut (thinking
+    # ate the budget), not wrong. Kept apart from ``invalid`` so it can be retried.
+    truncated: bool = False
 
 
 def interpret_review_result(entry: Any) -> ReviewRequestOutcome:
@@ -1575,6 +1729,7 @@ def interpret_review_result(entry: Any) -> ReviewRequestOutcome:
     )
     if stop_reason != "end_turn":
         outcome.reason = f"stop_reason_{stop_reason}"
+        outcome.truncated = stop_reason == "max_tokens"
         return outcome
     text = next(
         (
@@ -1586,6 +1741,7 @@ def interpret_review_result(entry: Any) -> ReviewRequestOutcome:
     )
     if not isinstance(text, str) or not text.strip():
         outcome.reason = "no_text_block"
+        outcome.truncated = True
         return outcome
     body = text.strip()
     fenced = tb._FENCE_RE.match(body)
@@ -1621,6 +1777,9 @@ class SlotResult:
     verdict: Optional[str] = None
     adjustments: List[Dict[str, Any]] = field(default_factory=list)
     problems: List[str] = field(default_factory=list)
+    truncated: bool = False
+    dropped: List[Dict[str, Any]] = field(default_factory=list)
+    downgraded: bool = False
 
 
 def evaluate_request(
@@ -1631,14 +1790,20 @@ def evaluate_request(
     """Validate every id of one request; silence is never approval.
 
     Returns the slot results and request-level problems (ids the model invented).
+    A request that was cut (``truncated``) gives every slot a truncated result.
     """
     results: List[SlotResult] = []
     extra: List[str] = []
     slots: Dict[str, Dict[str, Any]] = request_meta["slots"]
     if outcome is None or not outcome.ok:
         reason = "missing_result" if outcome is None else str(outcome.reason)
+        cut = outcome is not None and outcome.truncated
         for rid, meta in slots.items():
-            results.append(SlotResult(rid, custom_id, meta, False, problems=[reason]))
+            results.append(
+                SlotResult(
+                    rid, custom_id, meta, False, problems=[reason], truncated=cut
+                )
+            )
         return results, extra
     by_id: Dict[str, List[Any]] = {}
     for entry in outcome.entries:
@@ -1658,36 +1823,102 @@ def evaluate_request(
                 SlotResult(rid, custom_id, meta, False, problems=["duplicate_id"])
             )
             continue
-        verdict, adjustments, problems = validate_entry(found[0], meta)
+        check = check_entry(found[0], meta)
+        valid = not check.problems
         results.append(
             SlotResult(
                 rid,
                 custom_id,
                 meta,
-                not problems,
-                verdict if not problems else None,
-                adjustments if not problems else [],
-                problems,
+                valid,
+                check.verdict if valid else None,
+                check.adjustments if valid else [],
+                check.problems,
+                dropped=check.dropped,
+                downgraded=check.downgraded,
             )
         )
     return results, extra
 
 
-def _merge_entry(
-    slot_results: List[SlotResult],
-) -> tuple[bool, Optional[str], List[Dict[str, Any]], List[str]]:
-    """Merge the parts of one norm: valid only if every part is valid."""
+@dataclass
+class EntryMerge:
+    """One norm (all its parts) after merging.
+
+    ``verdict``: ``ok`` | ``ajuste`` | ``partial`` | ``truncated`` | ``invalid``.
+    ``partial`` (a chunked norm with some parts missing): ``ajuste`` when the valid
+    parts carry adjustments, else ``partial``; never ``ok``.
+    """
+
+    verdict: str
+    valid: bool  # has a usable answer (ok, ajuste or partial)
+    adjustments: List[Dict[str, Any]]
+    problems: List[str]
+    dropped: List[Dict[str, Any]]
+    downgraded: bool
+    partial: bool
+    missing_parts: List[Dict[str, Any]]
+
+
+def _merge_entry(slot_results: List[SlotResult]) -> EntryMerge:
+    """Merge the parts of one norm. Only a norm whose every part is ok is ``ok``."""
     slot_results.sort(key=lambda r: int(r.meta["chunk"]))
-    problems: List[str] = []
-    for r in slot_results:
-        problems += [f"part {int(r.meta['chunk']) + 1}: {p}" for p in r.problems]
-    if problems or not all(r.valid for r in slot_results):
-        return False, None, [], problems or ["invalid"]
+    dropped = [
+        {**d, "part": int(r.meta["chunk"]) + 1} for r in slot_results for d in r.dropped
+    ]
+    downgraded = any(r.downgraded for r in slot_results)
+    valid = [r for r in slot_results if r.valid]
+    missing: List[Dict[str, Any]] = [
+        {
+            "part": int(r.meta["chunk"]) + 1,
+            "status": "truncated" if r.truncated else "invalid",
+            "problems": list(r.problems),
+        }
+        for r in slot_results
+        if not r.valid
+    ]
+    problems = [
+        f"part {m['part']}: {p}"
+        for m in missing
+        for p in cast(List[str], m["problems"])
+    ]
     adjustments = sorted(
-        (a for r in slot_results for a in r.adjustments),
+        (a for r in valid for a in r.adjustments),
         key=lambda a: (a["line"], a["op"]),
     )
-    return True, ("ajuste" if adjustments else "ok"), adjustments, []
+    if not valid:
+        verdict = "truncated" if all(r.truncated for r in slot_results) else "invalid"
+        return EntryMerge(
+            verdict, False, [], problems, dropped, downgraded, False, missing
+        )
+    if not missing:
+        verdict = "ajuste" if adjustments else "ok"
+        return EntryMerge(
+            verdict, True, adjustments, [], dropped, downgraded, False, []
+        )
+    verdict = "ajuste" if adjustments else "partial"
+    return EntryMerge(
+        verdict, True, adjustments, problems, dropped, downgraded, True, missing
+    )
+
+
+def chain_intact(articles: Iterable[Sequence[Any]]) -> bool:
+    """The own article numbers, suffixed ones aside, read 1..N in line order.
+
+    ``articles`` are ``[line, number, quoted]`` triples, as the manifest stores
+    them. Used for the canary recall split: a reviewer can see a gap by reading.
+    """
+    bases: List[int] = []
+    for _line, number, quoted in sorted(articles, key=lambda a: int(a[0])):
+        if quoted:
+            continue
+        number = str(number)
+        if "-" in number:
+            continue
+        if not number.isdigit():
+            return False
+        bases.append(int(number))
+    return bases == list(range(1, len(bases) + 1))
 
 
 def _recall(counts: Dict[str, int]) -> Dict[str, Any]:
@@ -1699,12 +1930,117 @@ def _recall(counts: Dict[str, int]) -> Dict[str, Any]:
     }
 
 
+def combine_manifests(manifest: Dict[str, Any]) -> Dict[str, Any]:
+    """A retry manifest carries its base (the collected manifest it retries) under
+    ``base``. Returns one manifest whose batches are the base's plus its own, whose
+    requests are the base's minus the truncated ones it supersedes, plus its own.
+    A manifest without ``base`` is returned unchanged."""
+    base = manifest.get("base")
+    if base is None:
+        return manifest
+    base = combine_manifests(base)
+    superseded = set((manifest.get("retry") or {}).get("truncated_requests", []))
+    requests = {
+        cid: meta for cid, meta in base["requests"].items() if cid not in superseded
+    }
+    requests.update(manifest["requests"])
+    combined = {k: v for k, v in manifest.items() if k != "base"}
+    combined["requests"] = requests
+    combined["batches"] = [*base["batches"], *manifest["batches"]]
+    combined["superseded"] = sorted({*base.get("superseded", []), *superseded})
+    return combined
+
+
+def build_retry_plan(
+    plan: ReviewPlan, base: Dict[str, Any], *, depth: int, max_tokens_cap: int
+) -> ReviewPlan:
+    """The requests that retry the truncated slots of ``base``, one norm (or one
+    part) per request with the capped budget. ``plan`` must be built from the same
+    inputs as the original submit: every slot is matched by ``(entry, chunk)`` and
+    its text sha256 checked, so a changed input stops the retry instead of mixing
+    two readings."""
+    cids = base.get("truncated_requests")
+    if cids is None:
+        raise tb.TeacherBatchError(
+            "the previous manifest has no truncated_requests: collect it with this "
+            "code first"
+        )
+    if not cids:
+        raise tb.TeacherBatchError("no truncated requests in the previous run")
+    wanted: Dict[tuple[str, int], Dict[str, Any]] = {}
+    for cid in sorted(cids):
+        for meta in base["requests"][cid]["slots"].values():
+            wanted[(str(meta["entry"]), int(meta["chunk"]))] = meta
+    index: Dict[tuple[str, int], tuple[ReviewNorm, tb.Chunk]] = {
+        (norm.entry, chunk.index): (norm, chunk)
+        for norm in plan.norms
+        for chunk in norm.chunks
+    }
+    absent = sorted(k for k in wanted if k not in index)
+    if absent:
+        raise tb.TeacherBatchError(
+            f"{len(absent)} truncated parts are not in this plan (first "
+            f"{absent[:3]}): use the same inputs as the original submit"
+        )
+    requests: List[ReviewRequest] = []
+    for i, key in enumerate(sorted(wanted)):
+        meta = wanted[key]
+        norm, chunk = index[key]
+        if norm.text_sha256 != meta["text_sha256"]:
+            raise tb.TeacherBatchError(
+                f"{key[0]}: the text changed since the original submit; retry refused"
+            )
+        slot = ReviewSlot(norm=norm, chunk=chunk, rid="N01")
+        slot.size = len(render_slot(slot))
+        requests.append(
+            ReviewRequest(
+                custom_id=f"t{depth}-{i:05d}",
+                slots=[slot],
+                user_text=render_request([slot]),
+                max_tokens=review_max_tokens(1, max_tokens_cap),
+            )
+        )
+    return ReviewPlan(
+        requests=requests,
+        norms=plan.norms,
+        sources=plan.sources,
+        selection=plan.selection,
+        empty=list(plan.empty),
+        canary_notes=list(plan.canary_notes),
+        packing=plan.packing,
+    )
+
+
+def attach_retry(
+    manifest: Dict[str, Any], base: Dict[str, Any], *, depth: int, plan: ReviewPlan
+) -> None:
+    """Make ``manifest`` a retry of ``base``: ``collect`` merges the two."""
+    manifest["base"] = base
+    manifest["retry_depth"] = depth
+    manifest["retry"] = {
+        "truncated_requests": list(base["truncated_requests"]),
+        "slots": sum(len(r.slots) for r in plan.requests),
+    }
+
+
+def _dropped_reason(text: str) -> str:
+    """A dropped reason with its numbers and the ``adjustments[i]`` prefix removed,
+    so the same kind of drop groups together in the summary."""
+    return re.sub(r"\d+", "N", re.sub(r"^adjustments\[\d+\]: ", "", text))[:60]
+
+
 def collect_review(
     client: Any, manifest: Dict[str, Any], out_dir: Path
 ) -> Dict[str, Any]:
-    """Fetch, validate, score canaries and write ``reviews/``. Assumes ended batches."""
+    """Fetch, validate, score canaries and write ``reviews/``. Assumes ended batches.
+
+    A retry manifest (``base``) is merged first: its results replace the truncated
+    requests of the base, which are then not validated at all.
+    """
+    manifest = combine_manifests(manifest)
     spec = tb.resolve_model(manifest["model"])
     requests: Dict[str, Dict[str, Any]] = manifest["requests"]
+    superseded = set(manifest.get("superseded", []))
     submitted = {cid for b in manifest["batches"] for cid in b["custom_ids"]}
     outcomes: Dict[str, ReviewRequestOutcome] = {}
     unknown_ids: List[str] = []
@@ -1716,6 +2052,8 @@ def collect_review(
                 dumped = entry.to_dict() if hasattr(entry, "to_dict") else entry
                 raw.write(json.dumps(dumped, ensure_ascii=False, default=str) + "\n")
                 custom_id = str(tb._get(entry, "custom_id"))
+                if custom_id in superseded:
+                    continue
                 if custom_id not in requests:
                     unknown_ids.append(custom_id)
                     continue
@@ -1759,43 +2097,52 @@ def collect_review(
             by_entry.setdefault(str(r.meta["entry"]), []).append(r)
 
     # -- canary outcome per entry, then per request ---------------------------
-    merged: Dict[str, tuple[bool, Optional[str], List[Dict[str, Any]], List[str]]] = {}
+    merged: Dict[str, EntryMerge] = {}
     canary_outcome: Dict[str, str] = {}
     for entry_key, results in by_entry.items():
         merged[entry_key] = _merge_entry(results)
         plan = results[0].meta["canary"]
         if plan is not None:
-            valid, _verdict, adjustments, _problems = merged[entry_key]
-            canary_outcome[entry_key] = score_canary(
-                plan, adjustments if valid else None
-            )
+            m = merged[entry_key]
+            if m.verdict == "truncated":
+                canary_outcome[entry_key] = "truncated"
+            else:
+                usable = m.verdict in ("ok", "ajuste")
+                canary_outcome[entry_key] = score_canary(
+                    plan, m.adjustments if usable else None
+                )
     unverified_requests: set[str] = set()
     for custom_id, results in request_results.items():
         for r in results:
             if r.meta["canary"] is not None and canary_outcome.get(
                 str(r.meta["entry"])
-            ) in ("missed", "invalid"):
+            ) in ("missed", "invalid", "truncated"):
                 unverified_requests.add(custom_id)
 
     # -- write one JSON per entry ---------------------------------------------
     reviews_dir = out_dir / "reviews"
     failures: List[Dict[str, Any]] = []
-    counts = {"ok": 0, "ajuste": 0, "invalid": 0, "unverified": 0}
+    counts = {"ok": 0, "ajuste": 0, "partial": 0, "truncated": 0, "invalid": 0}
+    unverified_count = 0
     canary_counts: Dict[str, Dict[str, int]] = {k: {} for k in CANARY_KINDS}
+    chain_counts: Dict[str, Dict[str, int]] = {"intact": {}, "broken": {}}
     candidate: List[Dict[str, Any]] = []
     reasons: Dict[str, int] = {}
+    dropped_reasons: Dict[str, int] = {}
+    dropped_total = downgraded_total = 0
     adjustments_by_op: Dict[str, int] = {}
     real_total = canary_total = 0
     today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
     for entry_key, results in sorted(by_entry.items()):
         first = results[0].meta
         canary = first["canary"]
-        valid, verdict, adjustments, problems = merged[entry_key]
+        em = merged[entry_key]
         request_ids = sorted({r.custom_id for r in results})
         in_unverified = any(cid in unverified_requests for cid in request_ids)
         has_canary_in_request = any(
             requests[cid].get("has_canary") for cid in request_ids
         )
+        chain = chain_intact(first["reader"]["articles"]) if canary else None
         record: Dict[str, Any] = {
             "record": "review",
             "ente": manifest["ente"],
@@ -1809,17 +2156,20 @@ def collect_review(
             "text_sha256": first["text_sha256"],
             "n_lines": first["n_lines"],
             "reader": first["reader"],
-            "verdict": verdict if valid else "invalid",
-            "adjustments": adjustments,
-            "invalid_reasons": problems,
+            "verdict": em.verdict,
+            "adjustments": em.adjustments,
+            "invalid_reasons": em.problems,
+            "dropped": em.dropped,
+            "downgraded": em.downgraded,
+            "partial": em.partial,
+            "missing_parts": em.missing_parts,
             "canary": canary is not None,
             "canary_plan": canary,
             "canary_outcome": canary_outcome.get(entry_key),
+            "canary_chain_intact": chain,
             "request_ids": request_ids,
             "canary_in_request": bool(has_canary_in_request),
-            "unverified": bool(
-                valid and verdict == "ok" and canary is None and in_unverified
-            ),
+            "unverified": bool(em.verdict == "ok" and canary is None and in_unverified),
             **provenance,
         }
         path = (
@@ -1835,10 +2185,13 @@ def collect_review(
         path.write_text(
             json.dumps(record, indent=1, ensure_ascii=False), encoding="utf-8"
         )
-        if not valid:
-            for p in problems:
-                why = re.sub(r"\d+", "N", re.sub(r"^part \d+: ", "", p))[:60]
-                reasons[why] = reasons.get(why, 0) + 1
+        for d in em.dropped:
+            dropped_total += 1
+            why = _dropped_reason(str(d["reason"]))
+            dropped_reasons[why] = dropped_reasons.get(why, 0) + 1
+        if em.downgraded:
+            downgraded_total += 1
+        if em.verdict in ("invalid", "truncated", "partial"):
             failures.append(
                 {
                     "key": first["key"],
@@ -1846,23 +2199,35 @@ def collect_review(
                     "texto_id": first["texto_id"],
                     "canary": canary is not None,
                     "request_ids": request_ids,
-                    "problems": problems[:10],
+                    "verdict": em.verdict,
+                    "problems": em.problems[:10],
+                    "missing_parts": em.missing_parts,
                 }
             )
+        if em.verdict == "truncated":
+            reasons["truncated"] = reasons.get("truncated", 0) + 1
+        for part in em.missing_parts:
+            if part["status"] == "truncated":
+                reasons["truncated_part"] = reasons.get("truncated_part", 0) + 1
+                continue
+            for problem in part["problems"]:
+                why = re.sub(r"\d+", "N", problem)[:60]
+                reasons[why] = reasons.get(why, 0) + 1
         if canary is not None:
             canary_total += 1
-            bucket = canary_counts[canary["kind"]]
             name = canary_outcome[entry_key]
+            bucket = canary_counts[canary["kind"]]
             bucket[name] = bucket.get(name, 0) + 1
+            chain_bucket = chain_counts["intact" if chain else "broken"]
+            chain_bucket[name] = chain_bucket.get(name, 0) + 1
             continue
         real_total += 1
-        if not valid:
-            counts["invalid"] += 1
-            continue
-        counts[str(verdict)] += 1
+        counts[em.verdict] += 1
         if record["unverified"]:
-            counts["unverified"] += 1
-        for adj in adjustments:
+            unverified_count += 1
+        if not em.valid:
+            continue
+        for adj in em.adjustments:
             adjustments_by_op[adj["op"]] = adjustments_by_op.get(adj["op"], 0) + 1
             candidate.append(
                 {
@@ -1882,7 +2247,7 @@ def collect_review(
     answered_failures = [
         {"request": cid, "reason": o.reason, "detail": o.detail}
         for cid, o in sorted(outcomes.items())
-        if not o.ok
+        if not o.ok and cid not in superseded
     ]
     failures += answered_failures
     with (out_dir / "failures.jsonl").open("w", encoding="utf-8") as fh:
@@ -1908,6 +2273,15 @@ def collect_review(
     for bucket in canary_counts.values():
         for name, n in bucket.items():
             canary_all[name] = canary_all.get(name, 0) + n
+    truncated_requests = sorted(
+        cid
+        for cid, o in outcomes.items()
+        if o.truncated and cid not in superseded and cid in requests
+    )
+    tb.write_json(
+        out_dir / "manifest.json",
+        {**manifest, "truncated_requests": truncated_requests},
+    )
     summary = {
         **provenance,
         "collected_at": tb._now(),
@@ -1915,16 +2289,27 @@ def collect_review(
         "requests_total": len(requests),
         "requests_with_result": len(outcomes),
         "requests_failed": len(answered_failures),
+        "requests_truncated": len(truncated_requests),
+        "truncated_requests": truncated_requests,
         "unknown_custom_ids": sorted(unknown_ids),
         "norms_total": real_total,
         "norms_ok": counts["ok"] + counts["ajuste"],
-        "norms_failed": counts["invalid"],
+        "norms_partial": counts["partial"],
+        "norms_truncated": counts["truncated"],
+        "norms_failed": counts["invalid"] + counts["truncated"] + counts["partial"],
         "verdicts": {"ok": counts["ok"], "ajuste": counts["ajuste"]},
+        "partial": counts["partial"],
+        "truncated": counts["truncated"],
         "invalid": counts["invalid"],
-        "unverified": counts["unverified"],
+        "unverified": unverified_count,
+        "downgraded": downgraded_total,
+        "dropped_adjustments": dropped_total,
+        "dropped_by_reason": dict(sorted(dropped_reasons.items())),
         "adjustments_by_op": dict(sorted(adjustments_by_op.items())),
         "canaries": {"total": canary_total, **_recall(canary_all)},
         "canary_by_kind": canary_by_kind,
+        "canary_recall_chain_intact": _recall(chain_counts["intact"]),
+        "canary_recall_chain_broken": _recall(chain_counts["broken"]),
         "unverified_requests": sorted(unverified_requests),
         "failure_reasons": dict(sorted(reasons.items())),
         "usage": usage_total,
@@ -1942,10 +2327,10 @@ def collect_review(
         "sources": manifest.get("sources", {}),
         "selection": manifest.get("selection", {}),
         "packing": manifest.get("packing", {}),
+        "retry": manifest.get("retry"),
         "not_reviewed_at_submit": {"empty": manifest.get("empty", [])},
     }
     tb.write_json(out_dir / "summary.json", summary)
-    tb.write_json(out_dir / "manifest.json", manifest)
     return summary
 
 
@@ -2197,7 +2582,9 @@ def finish_collect(
     typer.echo(
         f"{summary['norms_ok']}/{summary['norms_total']} norms reviewed "
         f"(ok {summary['verdicts']['ok']}, ajuste {summary['verdicts']['ajuste']}, "
-        f"invalid {summary['invalid']}, unverified {summary['unverified']}); "
+        f"partial {summary['partial']}, truncated {summary['truncated']}, "
+        f"invalid {summary['invalid']}, unverified {summary['unverified']}, "
+        f"dropped adjustments {summary['dropped_adjustments']}); "
         f"canaries {c.get('caught', 0)}/{c['total']} caught "
         f"(recall {c['recall']}), measured US${summary['measured_usd']:.4f}"
     )
@@ -2302,9 +2689,16 @@ def run_submit(
     prompt_cache: bool,
     ente: str,
     label_set: str,
+    retry_truncated: Optional[Path] = None,
     **kwargs: Any,
 ) -> Dict[str, Any]:
-    """The ``submit`` step in review mode: same guard, then the batch(es)."""
+    """The ``submit`` step in review mode: same guard, then the batch(es).
+
+    With ``retry_truncated`` (the collected ``manifest.json`` of an earlier run, which
+    lists ``truncated_requests``) only those norms are sent again, one per request,
+    and the new manifest carries the base so that ``collect`` merges the two.
+    """
+    cap = int(kwargs.get("max_tokens_cap", tb.MAX_TOKENS_CAP))
     plan = prepare_review(
         ente=ente,
         exclude_labelled=kwargs.pop("exclude_labelled"),
@@ -2322,6 +2716,16 @@ def run_submit(
         max_chars=kwargs.pop("max_chars"),
         max_tokens_cap=kwargs.pop("max_tokens_cap"),
     )
+    base: Optional[Dict[str, Any]] = None
+    depth = 0
+    if retry_truncated is not None:
+        base = json.loads(Path(retry_truncated).read_text(encoding="utf-8"))
+        depth = int(base.get("retry_depth", 0)) + 1
+        plan = build_retry_plan(plan, base, depth=depth, max_tokens_cap=cap)
+        typer.echo(
+            f"retry: {len(base['truncated_requests'])} truncated requests of the "
+            f"previous run -> {len(plan.requests)} single-norm requests"
+        )
     echo_review_plan(plan)
     if not plan.requests:
         raise tb.TeacherBatchError("no requests to submit")
@@ -2340,6 +2744,8 @@ def run_submit(
         guard=guard,
         label_set=label_set,
     )
+    if base is not None:
+        attach_retry(manifest, base, depth=depth, plan=plan)
     return submit_review_batches(
         tb._client(),
         plan,
