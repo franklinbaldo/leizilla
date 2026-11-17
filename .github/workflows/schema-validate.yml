@@ -9,6 +9,7 @@ on:
       - "docs/schemas/**"
       - "tests/fixtures/leizilla_xml/**"
       - "tests/fixtures/lexml/**"
+      - "tests/fixtures/documento_marcado/**"
       - "scripts/check_schema_consistency.py"
       - "scripts/leizilla-to-lexml.xsl"
       - "tests/test_schema_consistency.py"
@@ -35,6 +36,15 @@ jobs:
           for f in tests/fixtures/leizilla_xml/*.xml; do
             echo "Validando: $f"
             xmllint --noout --schema docs/schemas/leizilla-v0.1.xsd "$f"
+          done
+
+      - name: Documento marcado (v0) — XSD bem-formado + fixtures validam
+        run: |
+          set -e
+          xmllint --noout docs/schemas/leizilla-doc-v0.xsd
+          for f in tests/fixtures/documento_marcado/*.xml; do
+            echo "Validando: $f"
+            xmllint --noout --schema docs/schemas/leizilla-doc-v0.xsd "$f"
           done
 
       - name: Set up Python
@@ -83,7 +93,7 @@ jobs:
         run: pip install pytest
 
       - name: Consistency checker (testes)
-        run: pytest tests/test_schema_consistency.py -v
+        run: pytest --noconftest tests/test_schema_consistency.py -v
 
       - name: LexML export (testes)
-        run: pytest tests/test_lexml_export.py -v
+        run: pytest --noconftest tests/test_lexml_export.py -v

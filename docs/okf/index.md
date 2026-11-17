@@ -18,6 +18,10 @@ Bundle de conhecimento do Leizilla. Cada arquivo descreve um conceito operaciona
 - [Reader ratchet](reader-ratchet.md) — gate do leitor por regras contra os rótulos do professor; linha de base e procedimento
 - [Teacher batch, modo review](teacher-review.md) — o professor audita a leitura do leitor e devolve só os ajustes; canários, amostra de avaliação, pontuação
 
+## Formatos
+
+- [Documento marcado](documento-marcado.md) — segunda camada XML (v0): o texto preservado com tags inseridas; invariante do strip, elementos, convenções de span, prova no corpus
+
 ## Pipeline
 
 - [Visão geral do pipeline](pipeline/overview.md) — 6 etapas, entradas e saídas
