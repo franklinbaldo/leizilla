@@ -420,3 +420,9 @@ def test_paragraph_sign_ending_a_sentence_does_not_make_the_next_article_a_citat
     text = "Art. 1º O art. 3º passa a ser § 1º.\nArt. 2º Vigora.\n"
     statuses = [a["status"] for a in read_articles(text)["articles"]]
     assert statuses[-1] == "own"
+
+
+def test_truncated_article_word_with_number_on_the_next_line_is_a_marker() -> None:
+    # lei-00433 (4f773c3e): "rt." alone on its line, the number below.
+    text = "Art. 1º Fica criado o fundo.\nrt.\n2º - Esta Lei entra em vigor.\n"
+    assert [a["number"] for a in read_articles(text)["articles"]] == [1, 2]

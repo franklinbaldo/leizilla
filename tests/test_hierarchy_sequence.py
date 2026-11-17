@@ -1219,3 +1219,54 @@ def test_repeated_number_right_after_a_closing_mark_is_still_a_host_article() ->
         "Art. 3º - Esta Lei entra em vigor.\n"
     )
     assert _own_numbers(read_hierarchy(text))[-2:] == [2, 3]
+
+
+# --- tournament round 7 -------------------------------------------------------------
+# lei-01723 (31912f7f): an unmarked quote opens at "Art. 3º-A" and closes at "”"; the
+# host's own Art. 3º and Art. 4º follow it. The lettered article shares the host number.
+def test_unopened_block_starting_with_a_lettered_article_hands_back_the_host_chain() -> (
+    None
+):
+    text = (
+        "Art. 1º. Passam a vigorar os dispositivos adiante enumerados da Lei nº 1.558.\n"
+        "Art. 2º. Ficam acrescentados os dispositivos adiante enumerados à Lei nº 1.558:\n"
+        "Art. 3º-A. O descumprimento de qualquer disposição desta Lei acarretará multa.\n"
+        "Art. 3º-B. O crédito presumido utilizado em desacordo será estornado.\n"
+        "Art. 4º-B. A presente Lei será regulamentada por Decreto do Poder Executivo.”\n\n"
+        "Art. 3º. Fica revogado o parágrafo único do art. 2º da Lei nº 1.558, de 2005.\n"
+        "Art. 4º. Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2, 3, 4]
+
+
+# lei-00633 (78a1ade9): "AME Ão - Esta Lei entra-em vigor" is Art. 4º.
+def test_ruined_opener_with_two_letters_of_junk_fills_a_single_gap() -> None:
+    text = (
+        "Art. 1º - Fica criado o cargo.\nArt. 2º - Fica criado o fundo.\n"
+        "Art. 3º - Fica criado o prazo.\n"
+        "AME Ão - Esta Lei entra-em vigor na data de sua publicação.\n"
+        "Art. 5º - Revogam-se as disposições em contrário.\n"
+        "Art. 6º - Fica criado o comitê.\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2, 3, 4, 5, 6]
+
+
+# lei-00248 (fdf69f51): lowercase "art. 1º" right after the enacting formula, with a
+# citation of another Artigo in the same paragraph.
+def test_lowercase_first_article_after_the_formula_is_article_one() -> None:
+    text = (
+        "nos termos do § 7º do Art. 42 da Constituição Estadual, promulgo a seguinte\n"
+        "Lei:\n\n\n"
+        "art. 1º - O valor de referência do cargo, previsto no Artigo 1º, da Lei"
+        " Complementar nº 24, fica reajustado.\n"
+        "Art. 2º - Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2]
+
+
+def test_lowercase_art_inside_prose_is_not_article_one() -> None:
+    text = (
+        "promulgo a seguinte Lei:\n\nO texto cita o art. 1º da Lei anterior.\n"
+        "Art. 2º - Esta Lei entra em vigor.\n"
+    )
+    assert 1 not in _own_numbers(read_hierarchy(text))

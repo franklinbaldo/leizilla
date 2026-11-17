@@ -189,7 +189,8 @@ _ART_WILD = re.compile(
 # one junk or number-like token, then the first word of a caput.
 _ART_GARBLE = re.compile(
     r"(?m)^[ \t_]*(?P<word>[AÁVaá]?[a-zA-Z]{2,4}[.,:;»«™\-]{0,2}[ \t]*"
-    r"(?:[^\w\s]|[\dIlOo/]{1,3}[ºo°ª]?)?[ \t]*[\-–—=~.]?[ \t]*)"
+    r"(?:[^\w\s]|[\dIlOo/]{1,3}[ºo°ª]?|[A-Za-zÀ-ÿ]{1,2}(?=[ \t]*[\-–—=~.]))?"
+    r"[ \t]*[\-–—=~.]?[ \t]*)"
     r"(?=(?:Esta|Este|Fica|Ficam|Revogam|Revoga|VETAD\w*|Os|As|Cabe|Caber\w*|"
     r"Somente|Para)\b)"
 )
@@ -821,7 +822,9 @@ def _unopened_blocks(
         for pos in range(len(before) - 2, -1, -1):
             if _article_reading(text, before[pos]) == (resume or 0) - 1:
                 first_quoted = before[pos + 1]
-                if _article_reading(text, first_quoted) != resume:
+                head = ARTICLE_CANDIDATE.match(text, first_quoted)
+                lettered = head is not None and head.group("suffix") is not None
+                if lettered or _article_reading(text, first_quoted) != resume:
                     out.append((first_quoted, j + 1, "unopened", True))
                     spans.append((first_quoted, j + 1))
                 break
@@ -1327,6 +1330,8 @@ _ENACTING = re.compile(
 _HEAD_LINE = re.compile(
     r"[ \t]*(?P<word>[^\w\n]{0,2}[AaÁEe][A-Za-zÀ-ÿ]{0,5}\b(?:[^\n]|\n[ \t]*){0,30}?)"
     r"(?=\b(?:[FPTBfptb]i[cç]a[ms]?|autoriz\w*|institu\w*|declar\w*|cria\w*)\b)"
+    # An explicit "art. 1º" in lowercase, which the marker regex leaves to citations.
+    r"|[ \t]*(?P<word2>art\.?[ \t]*1[ºo°][ \t]*[-–—.]?)(?=[ \t]*[A-ZÀ-Ý])"
 )
 
 
@@ -1377,10 +1382,13 @@ def _head_article(
     if any(lo <= line < hi for lo, hi in masked):
         return None
     if any(
-        fend <= a["start"] < first["start"] and a["start"] != line for a in articles
+        fend <= a["start"] < first["start"]
+        and a["start"] != line
+        and a["status"] != "reference"
+        for a in articles
     ):
         return None
-    end = m.end("word")
+    end = m.end("word") if m.group("word") is not None else m.end("word2")
     return {
         "start": line,
         "end": end,
