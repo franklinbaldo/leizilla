@@ -57,6 +57,17 @@ on:
         description: "collect: se 'true', publica os rótulos num item do Internet Archive"
         type: boolean
         default: false
+      text_source:
+        description: "plan/submit: de onde vem o texto — textos (parquet publicado, padrão) ou ia (um _djvu.txt por norma)"
+        type: choice
+        options: [textos, ia]
+        default: textos
+      exclude_labelled:
+        description: "plan/submit: pula normas já rotuladas com o mesmo texto (item do IA com labels.tar.gz) — vazio = não pula"
+        default: "leizilla-teacher-labels-ro-20261117t025437z"
+      label_set:
+        description: "plan/submit/collect: nome do conjunto de rótulos (main = ajuste; ex. holdout-2026-11 para o conjunto de avaliação)"
+        default: "main"
 
 permissions:
   contents: read
@@ -93,12 +104,17 @@ jobs:
           IN_LIMIT: ${{ inputs.limit }}
           IN_TIPO: ${{ inputs.tipo }}
           IN_SEED: ${{ inputs.shuffle_seed }}
+          IN_TEXT_SOURCE: ${{ inputs.text_source }}
+          IN_EXCLUDE: ${{ inputs.exclude_labelled }}
+          IN_LABEL_SET: ${{ inputs.label_set }}
         run: |
           set -euo pipefail
           args=(--effort "$IN_EFFORT" --out "$WORK_DIR/plan.json")
           [ -n "$IN_LIMIT" ] && args+=(--limit "$IN_LIMIT")
           [ -n "$IN_TIPO" ] && args+=(--tipo "$IN_TIPO")
           [ -n "$IN_SEED" ] && args+=(--shuffle-seed "$IN_SEED")
+          args+=(--text-source "$IN_TEXT_SOURCE" --label-set "$IN_LABEL_SET")
+          [ -n "$IN_EXCLUDE" ] && args+=(--exclude-labelled "$IN_EXCLUDE")
           # Contagem real de tokens numa amostra (endpoint gratuito) para
           # conferir a densidade conservadora usada na estimativa.
           args+=(--count-sample 20)
@@ -154,6 +170,9 @@ jobs:
           IN_MAX_USD: ${{ inputs.max_usd }}
           IN_GUARD: ${{ inputs.guard }}
           IN_RETRY_RUN: ${{ inputs.manifest_run_id }}
+          IN_TEXT_SOURCE: ${{ inputs.text_source }}
+          IN_EXCLUDE: ${{ inputs.exclude_labelled }}
+          IN_LABEL_SET: ${{ inputs.label_set }}
         run: |
           set -euo pipefail
           if [ -z "$IN_MAX_USD" ]; then
@@ -171,6 +190,8 @@ jobs:
           [ -n "$IN_SEED" ] && args+=(--shuffle-seed "$IN_SEED")
           [ -n "$IN_RETRY_RUN" ] && \
             args+=(--retry-failures /tmp/teacher-batch-previous/failures.jsonl)
+          args+=(--text-source "$IN_TEXT_SOURCE" --label-set "$IN_LABEL_SET")
+          [ -n "$IN_EXCLUDE" ] && args+=(--exclude-labelled "$IN_EXCLUDE")
           uv run python scripts/anthropic_wif.py run -- -m leizilla.teacher_batch submit "${args[@]}" | tee "$WORK_DIR.log"
           {
             echo "## Teacher batch — submit"
@@ -232,14 +253,16 @@ jobs:
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
           IN_WAIT: ${{ inputs.wait_minutes }}
           IN_UPLOAD_IA: ${{ inputs.upload_ia }}
+          IN_LABEL_SET: ${{ inputs.label_set }}
         run: |
           set -uo pipefail
           # --allow-failures: normas com falha (recusa, expiração, resposta
           # fora do esquema) são esperadas em escala e ficam em failures.jsonl
           # e no resumo abaixo — não derrubam a coleta das demais.
+          # --label-set: falha se o manifesto for de outro conjunto.
           args=(
             --manifest "$WORK_DIR/in/manifest.json" --out-dir "$WORK_DIR/out"
-            --wait-minutes "$IN_WAIT" --allow-failures
+            --wait-minutes "$IN_WAIT" --allow-failures --label-set "$IN_LABEL_SET"
           )
           [ "$IN_UPLOAD_IA" = "true" ] && args+=(--upload-ia)
           uv run python scripts/anthropic_wif.py run -- -m leizilla.teacher_batch collect "${args[@]}" | tee "$WORK_DIR.log"
