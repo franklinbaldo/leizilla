@@ -1,0 +1,45 @@
+# Mark-mode STRESS sample mark-stress-reflow-2026-11: SYNTHETIC re-flowed variants (texto_id~reflow) of 40 pilot norms.
+# Each line is `<pilot texto_id>~reflow`: the text of that norm with runs of non-blank lines joined into 200-400 character
+# lines (newline -> one space, same length), so markers fall at arbitrary columns. Not real OCR layout: only for
+# measuring column accuracy (teacher_mark.reflow_text). Selection: pilot norms with >= 3 reader devices and <= 40000
+# chars, first 40 by sha256('20261118|stress|' + id). Use with the same --shuffle-seed 20261118.
+leizilla-raw-ro-casacivil-lc-00184~reflow
+leizilla-raw-ro-casacivil-lc-00288~reflow
+leizilla-raw-ro-casacivil-lei-00380~reflow
+leizilla-raw-ro-casacivil-lei-01428~reflow
+leizilla-raw-ro-casacivil-lc-00312~reflow
+leizilla-raw-ro-casacivil-lei-00052~reflow
+leizilla-raw-ro-casacivil-lei-01546~reflow
+leizilla-raw-ro-casacivil-lei-01432~reflow
+leizilla-raw-ro-casacivil-lc-00345~reflow
+leizilla-raw-ro-casacivil-lei-00884~reflow
+leizilla-raw-ro-casacivil-lei-00719~reflow
+leizilla-raw-ro-casacivil-lei-01732~reflow
+leizilla-raw-ro-casacivil-lei-01708~reflow
+leizilla-raw-ro-casacivil-lei-00813~reflow
+leizilla-raw-ro-casacivil-lei-00793~reflow
+leizilla-raw-ro-casacivil-decreto-01014~reflow
+leizilla-raw-ro-casacivil-lei-01316~reflow
+leizilla-raw-ro-casacivil-lc-00176~reflow
+leizilla-raw-ro-casacivil-lei-01552~reflow
+leizilla-raw-ro-casacivil-lc-00384~reflow
+leizilla-raw-ro-casacivil-lei-00513~reflow
+leizilla-raw-ro-casacivil-lei-00184~reflow
+leizilla-raw-ro-casacivil-lei-01563~reflow
+leizilla-raw-ro-casacivil-lc-00171~reflow
+leizilla-raw-ro-casacivil-lei-01485~reflow
+leizilla-raw-ro-casacivil-lei-01660~reflow
+leizilla-raw-ro-casacivil-lei-00339~reflow
+leizilla-raw-ro-casacivil-lei-01335~reflow
+leizilla-raw-ro-casacivil-lei-00129~reflow
+leizilla-raw-ro-casacivil-lei-00767~reflow
+leizilla-raw-ro-casacivil-lei-00216~reflow
+leizilla-raw-ro-casacivil-lei-00178~reflow
+leizilla-raw-ro-casacivil-lei-01113~reflow
+leizilla-raw-ro-casacivil-lei-00392~reflow
+leizilla-raw-ro-casacivil-lc-00386~reflow
+leizilla-raw-ro-casacivil-lei-00765~reflow
+leizilla-raw-ro-casacivil-lei-00214~reflow
+leizilla-raw-ro-casacivil-lei-00065~reflow
+leizilla-raw-ro-casacivil-lei-00002~reflow
+leizilla-raw-ro-casacivil-lei-00501~reflow

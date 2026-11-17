@@ -72,7 +72,13 @@ def simulate(
     rng = random.Random(seed)
     responses: dict[str, list[dict[str, Any]]] = {}
     for norm in plan.norms:
-        marks = marcacao.from_hierarchy(norm.text, read_hierarchy(norm.text))
+        # a re-flowed variant: the reader reads the base text; its offsets carry over
+        base = (
+            tm.unflow_text(norm.text, norm.reflow["joined"])
+            if norm.reflow
+            else norm.text
+        )
+        marks = marcacao.from_hierarchy(base, read_hierarchy(base))
         responses[norm.ref.key] = tm.response_from_marks(norm.text, marks)["marks"]
     everything = [(k, i) for k, marks in responses.items() for i in range(len(marks))]
     rng.shuffle(everything)
