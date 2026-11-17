@@ -1,28 +1,44 @@
-name: Re-OCR direcionado (reocr) — OCR próprio só onde o leitor não fecha
+name: Re-OCR direcionado (reocr) — OCR próprio onde o IA não entrega texto útil
 
-# ADR-0019: para as normas cujo `read_hierarchy` não fecha os artigos sobre o OCR do
-# Internet Archive, baixa o PDF preservado, rasteriza (poppler) e relê com Kreuzberg +
-# PaddleOCR. O texto novo só vale se passar no portão determinístico (fecha e não perde
-# artigos); aceito ou rejeitado, a tentativa vira uma linha de reocr.parquet, publicado
-# em itens próprios (leizilla-reocr-{ente}-v{N}-{revision} + -latest). O texto do IA
-# nunca é alterado: o build-textos do dia seguinte (text-layer-release.yml, 05:13 UTC)
-# lê o -latest e sobrepõe o texto aceito.
+# ADR-0019. Duas filas:
+#   nao-fecha  normas com texto do IA que o leitor `read_hierarchy` não fecha; o OCR
+#              próprio só vale se fechar e não perder artigos;
+#   sem-texto  PDFs preservados que o IA ainda não derivou (o derive só é pedido quando
+#              o item não tem mais recurso pendente, ADR-0016) e que não estão em
+#              `textos`; o OCR próprio vale se não for trivial. Quando o IA entregar o
+#              texto, o build-textos usa o do IA (salvo se só o nosso fecha).
+# Cada tentativa vira uma linha de reocr.parquet (coluna `fila`), publicado em itens
+# próprios (leizilla-reocr-{ente}-v{N}-{revision} + -latest). O texto do IA nunca é
+# alterado: o build-textos do dia seguinte (text-layer-release.yml, 05:13 UTC) lê o
+# -latest e aplica o que foi aceito.
+#
+# Vazão: 4 fatias em paralelo (job `shard`, `reocr --shard i/4`: disjuntas e completas,
+# por hash do texto_id). As fatias só fazem OCR e guardam suas tentativas como artefato;
+# o upload é um só, no job `publish` (`reocr-merge`), porque dois uploads no mesmo item
+# do IA competem. Estimativa por fatia: ~100 normas x ~5 páginas x ~3,6 s/página
+# + ~30 s de carga dos modelos + 1 s entre downloads = cerca de 35 a 45 min; o run
+# agendado cobre ~400 normas em menos de 90 min.
 on:
   schedule:
-    # Depois do release da camada de texto (05:13 UTC): o texto-base já reflete o
-    # acervo de hoje, e o build de amanhã aplica o que este run aceitar.
+    # 06:27: depois do release da camada de texto (05:13 UTC) — o texto-base já reflete
+    # o acervo de hoje. 18:41: fora dos horários do discover-harvest (02/08/14/20).
+    # Os dois alimentam o build-textos do dia seguinte.
     - cron: "27 6 * * *"
+    - cron: "41 18 * * *"
   workflow_dispatch:
     inputs:
       ente:
         description: "Ente federativo"
         default: "ro"
       limit:
-        description: "Máximo de normas a tentar nesta execução"
-        default: "60"
+        description: "Máximo de normas a tentar POR FATIA (4 fatias; total das duas filas)"
+        default: "100"
       max_pages:
         description: "PDFs com mais páginas são pulados (e contados)"
         default: "40"
+      queue:
+        description: "nao-fecha | sem-texto | ambas"
+        default: "ambas"
       upload:
         description: "Se 'true', publica reocr.parquet no IA; senão só constrói"
         default: "false"
@@ -36,9 +52,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  reocr:
+  shard:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false # uma fatia que falha não derruba as outras: suas tentativas valem
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -57,17 +77,69 @@ jobs:
           path: ~/.cache/kreuzberg
           key: kreuzberg-paddleocr-${{ runner.os }}-4.10
 
-      - name: Re-OCR (fila → PDF → Kreuzberg+PaddleOCR → portão)
+      # Sem --upload: a fatia só faz OCR. Downloads de PDF do IA sequenciais, >= 1 s
+      # entre eles (o comando recusa --sleep < 1).
+      - name: Re-OCR da fatia (fila → PDF → Kreuzberg+PaddleOCR → portão)
+        run: |
+          uv run leizilla reocr \
+            --ente "${{ inputs.ente || 'ro' }}" \
+            --queue "${{ inputs.queue || 'ambas' }}" \
+            --shard "${{ matrix.shard }}/4" \
+            --limit "${{ inputs.limit || '100' }}" \
+            --max-pages "${{ inputs.max_pages || '40' }}" \
+            --sleep 1.0 \
+            --output /tmp/reocr-shard.parquet
+
+      - name: Preserve shard attempts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reocr-shard-${{ matrix.shard }}
+          path: /tmp/reocr-shard.parquet
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Notify on failure
+        if: ${{ failure() || cancelled() }}
+        uses: ./.github/actions/notify-run-failure
+        with:
+          job-label: "reocr / shard ${{ matrix.shard }}"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    needs: shard
+    # Roda mesmo se uma fatia falhou: as tentativas das outras são válidas.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+
+      - name: Download shard attempts
+        continue-on-error: true # todas as fatias sem artefato: nada a publicar
+        uses: actions/download-artifact@v4
+        with:
+          pattern: reocr-shard-*
+          path: /tmp/shards
+
+      # Junta as fatias com o histórico publicado e faz UM upload (paciente: espera
+      # a fila de tarefas do IA, ver ADR-0019). Sem fatias, não há o que publicar.
+      - name: Merge shards and publish
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
+          SHARDS=$(find /tmp/shards -name '*.parquet' 2>/dev/null | sort)
+          if [ -z "$SHARDS" ]; then
+            echo "Nenhuma fatia produziu tentativas — nada a publicar."
+            exit 0
+          fi
           UPLOAD_FLAG=""
           if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.upload }}" = "true" ]; then UPLOAD_FLAG="--upload"; fi
-          uv run leizilla reocr \
+          uv run leizilla reocr-merge $SHARDS \
             --ente "${{ inputs.ente || 'ro' }}" \
-            --limit "${{ inputs.limit || '60' }}" \
-            --max-pages "${{ inputs.max_pages || '40' }}" \
             --output /tmp/reocr.parquet \
             $UPLOAD_FLAG
 
@@ -84,5 +156,5 @@ jobs:
         if: ${{ failure() || cancelled() }}
         uses: ./.github/actions/notify-run-failure
         with:
-          job-label: "reocr / reocr"
+          job-label: "reocr / publish"
           github-token: ${{ secrets.GITHUB_TOKEN }}
