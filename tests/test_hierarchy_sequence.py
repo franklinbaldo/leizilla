@@ -1435,3 +1435,180 @@ def test_amended_article_cited_as_the_caput_subject_is_not_an_unread_article() -
     )
     assert _unexplained(read_hierarchy(text)) == []
     assert _closes(text)
+
+
+# --- an orphan closing sentence: the last marker lost with the sentence left ---------
+# Mutation of the last own article of norms that close and agree with the teacher
+# (tournament, seed 9): deleting only the "Art. N" token left the reader closing with
+# one article missing in 386 of 400 norms.
+VIGENCIA = "Esta Lei entra em vigor na data de sua publicação."
+REVOGACAO = "Revogam-se as disposições em contrário."
+
+
+def _own_numbers(report: HierarchyReport) -> list[int]:
+    nodes = sorted(report["nodes"], key=lambda n: n["start"])
+    return [
+        n["number"]
+        for n in nodes
+        if n["kind"] == "artigo" and n["status"] == "own" and n["number"] is not None
+    ]
+
+
+def test_orphan_vigencia_after_the_last_article_is_read_as_the_next_article() -> None:
+    report = read_hierarchy(SIX_ARTICLES + " " + VIGENCIA)
+    assert _own_numbers(report) == [1, 2, 3, 4, 5, 6, 7]
+    assert report["orphan_closings"]
+    assert report["final_clause_placed"]
+    assert report["closes"]
+    # The recovered article has no marker to point at: nothing to score against gold.
+    text = SIX_ARTICLES + " " + VIGENCIA
+    assert all(s["end"] > s["start"] for s in marker_spans(text))
+    assert len(marker_spans(text)) == 6
+
+
+def test_orphan_vigencia_then_revogacao_are_the_next_two_articles() -> None:
+    report = read_hierarchy(SIX_ARTICLES + " " + VIGENCIA + "\n - " + REVOGACAO)
+    assert _own_numbers(report) == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert report["closes"]
+
+
+def test_dash_led_revogacao_after_an_own_vigencia_article_is_the_next_article() -> None:
+    # "Art. 7º - Esta Lei ... publicação." then " - Revogam-se ...": lei-00684 shape.
+    text = SIX_ARTICLES + "Art. 7º - " + VIGENCIA + "\n - " + REVOGACAO
+    report = read_hierarchy(text)
+    assert _own_numbers(report) == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert report["closes"]
+
+
+def test_orphan_vigencia_after_a_paragrafo_unico_is_read_as_the_next_article() -> None:
+    # The ambiguous shape, decided: a sentence that is only a closing formula and opens
+    # its line after a sentence end is an article, not the paragraph's second sentence
+    # (no real norm of the 2,257 read has that shape; four have a lost marker).
+    text = SIX_ARTICLES + "Parágrafo único. Fica autorizado o repasse.\n " + VIGENCIA
+    report = read_hierarchy(text)
+    assert _own_numbers(report) == [1, 2, 3, 4, 5, 6, 7]
+    assert report["closes"]
+
+
+def test_orphan_vigencia_after_a_dash_led_unfinished_vigencia_is_still_read() -> None:
+    # OCR scrambled the end of the vigência sentence ("na data / de sua publi"); the
+    # dash-led revogação that follows is still an article of its own.
+    text = (
+        SIX_ARTICLES
+        + "Art. 7º - Esta Lei entra em vigor na data\n\nde sua publi\n\n- "
+        + REVOGACAO
+    )
+    report = read_hierarchy(text)
+    assert _own_numbers(report) == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert report["closes"]
+
+
+def test_two_sentences_of_the_same_last_article_are_not_split_but_refuse() -> None:
+    # "Art. 7º Revogam-se ...\nEsta Lei entra em vigor": one article with two sentences,
+    # or a marker lost in front of the second one; nothing on the line tells them
+    # apart. It never becomes an extra article, and the norm does not claim to close.
+    text = SIX_ARTICLES + "Art. 7º " + REVOGACAO + "\n" + VIGENCIA
+    report = read_hierarchy(text)
+    assert _own_numbers(report) == [1, 2, 3, 4, 5, 6, 7]
+    assert report["closing_ambiguous"]
+    assert not report["final_clause_placed"]
+    assert not report["closes"]
+
+
+def test_closing_sentence_after_a_wrapped_line_is_not_an_article() -> None:
+    # The previous line stops mid-sentence, or a comma carries the sentence on.
+    for lead in (
+        "Art. 7º Ficam revogadas as disposições anteriores, nos termos da\n",
+        "Art. 7º Esta Lei entra em vigor na data de sua publicação,\n",
+    ):
+        text = SIX_ARTICLES + lead + "revogadas as disposições em contrário."
+        report = read_hierarchy(text)
+        assert not report["orphan_closings"], lead
+        assert not report["closing_ambiguous"], lead
+        assert _own_numbers(report) == [1, 2, 3, 4, 5, 6, 7], lead
+        assert report["closes"], lead
+
+
+def test_closing_sentence_inside_quoted_text_is_not_an_article() -> None:
+    text = (
+        SIX_ARTICLES
+        + "Art. 7º O art. 9º da Lei nº 5 passa a vigorar com a seguinte redação:\n"
+        + "“Art. 9º Texto do artigo nove.\n"
+        + VIGENCIA
+        + "” (NR)\n"
+        + "Art. 8º "
+        + VIGENCIA
+    )
+    report = read_hierarchy(text)
+    assert not report["orphan_closings"]
+    assert _own_numbers(report) == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert report["closes"]
+
+
+def test_closing_sentence_after_its_own_marker_line_is_not_an_orphan() -> None:
+    # "Ait. 3o." alone on a line, then the sentence (lei-00955): the marker is the
+    # article; a number line left over from a split marker ("Art.\n42") likewise.
+    for marker in ("Ait. 7o.\n", "Art-\n7,.\n"):
+        report = read_hierarchy(SIX_ARTICLES + marker + REVOGACAO)
+        assert not report["orphan_closings"], marker
+        assert not report["closing_ambiguous"], marker
+
+
+def test_orphan_sentence_with_a_single_word_before_it_is_not_read() -> None:
+    # "Art.\n11\ntrarios.\nRevogam-se ...": the scrambled text of one article.
+    text = SIX_ARTICLES + "Art. 7º\ntrarios.\n" + REVOGACAO
+    assert not read_hierarchy(text)["orphan_closings"]
+
+
+def test_clean_norm_has_no_orphan_closings() -> None:
+    report = read_hierarchy(CLEAN)
+    assert report["orphan_closings"] == []
+    assert not report["closing_ambiguous"]
+
+
+# The permanent adversarial test: lose the marker of the closing article of small
+# synthetic laws and require the reader never to close with that article missing.
+def _law(articles: int, closing: list[str], paragraph: bool) -> tuple[str, list[int]]:
+    body = [f"Art. {n}º Texto do artigo {n} com algum conteúdo." for n in range(1, 4)]
+    if paragraph:
+        body.append("Parágrafo único. Texto do parágrafo do terceiro artigo.")
+    total = 3
+    for sentence in closing:
+        total += 1
+        body.append(f"Art. {total}º - {sentence}")
+    return "\n".join(body) + "\nPalácio do Governo, 7 de abril de 1997.", list(
+        range(1, total + 1)
+    )
+
+
+_LAWS = [
+    _law(3, [VIGENCIA], False),
+    _law(3, [VIGENCIA, REVOGACAO], False),
+    _law(3, [VIGENCIA], True),
+    _law(3, [REVOGACAO, "Esta Lei entra em vigor na data de sua publicação."], True),
+    _law(3, ["Fica o Poder Executivo autorizado a regulamentar.", VIGENCIA], False),
+]
+
+
+@pytest.mark.parametrize("mutation", ["token", "lead", "garbage", "bare_space"])
+@pytest.mark.parametrize("index", range(len(_LAWS)))
+def test_losing_the_last_marker_never_closes_with_the_article_missing(
+    index: int, mutation: str
+) -> None:
+    text, original = _LAWS[index]
+    assert read_hierarchy(text)["closes"]
+    last = f"Art. {original[-1]}º - "
+    pos = text.index(last)
+    if mutation == "token":
+        mutated = text[:pos] + text[pos + len("Art. Xº") :]
+    elif mutation == "lead":
+        mutated = text[:pos] + text[pos + len(last) :]
+    elif mutation == "garbage":
+        mutated = text[:pos] + "xq" + text[pos + len("Art. Xº") :]
+    else:
+        mutated = text[:pos] + text[pos + len("Art. Xº") :].lstrip(" -")
+    report = read_hierarchy(mutated)
+    numbers = _own_numbers(report)
+    if report["closes"]:
+        # Closing is only allowed with every article accounted for, never one short.
+        assert numbers == original, (mutation, numbers)

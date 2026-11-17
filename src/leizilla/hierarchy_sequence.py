@@ -38,7 +38,9 @@ blocks (TÍTULO, CAPÍTULO, Seção) are not nodes; a marker the OCR lost at the
 chain leaves no trace in the numbering. Two placement checks on the article level
 (`final_clause_placed`, `tail_clean`) catch the common shapes of that loss: a closing
 sentence opening a line with no article marker, and an unread article marker after the
-last own article.
+last own article. A closing sentence that opens its line after a sentence end, with its
+marker gone, is read as the next article (`_orphan_closings`); when it could equally be
+the second sentence of the last article the norm stays open instead.
 
 It is a measurement and review aid for the `boundary-decision-parser` research front
 (docs/okf/project-dag.md), not part of the production parser.
@@ -331,6 +333,11 @@ class HierarchyReport(TypedDict):
     # Nothing after the last own article opens as an article the reader did not read
     # ("Art. T." or "49 - Revogam-se" with the next number expected). Part of `closes`.
     tail_clean: bool
+    # Offsets of closing sentences that open a line with their article marker lost,
+    # read as the articles after the last one (see `_orphan_closings`), and whether a
+    # closing sentence could be one of those or the second sentence of its article.
+    orphan_closings: list[int]
+    closing_ambiguous: bool
     closes: bool
 
 
@@ -1705,6 +1712,102 @@ def _final_clause_placed(
     return True
 
 
+# What ends a sentence at the end of a line: a full stop, a semicolon, a colon, a
+# closing quotation mark or the "(NR)" note of an amending law. A line that stops
+# anywhere else is a wrapped sentence, so the next line is not a new article.
+_SENTENCE_END = re.compile(
+    rf"(?:[.;:]|[{re.escape(_QUOTES)}]|\(\s?(?:NR|AC)\s?\))[ \t]*$"
+)
+_WORD = re.compile(r"[^\W\d_]{2,}")
+# A line that is only an article word, as OCR prints it ("Art.", "Art-", "Ait", "Arl").
+_ARTICLE_WORD_LINE = re.compile(r"[AÁaá][A-Za-z]{1,3}[.\-–—,~»:=]{0,2}")
+
+
+def _orphan_closings(
+    text: str,
+    articles: Sequence[ArticleRead],
+    masked: Sequence[tuple[int, int]],
+    hi: int,
+) -> tuple[list[int], bool]:
+    """Offsets of closing sentences that open a line with their article marker lost.
+
+    After the last own article, a vigência/revogação sentence that opens its line (only
+    spacing, punctuation or a dash before it), outside quoted spans, right after a line
+    that ends a sentence, can only be the text of an article whose marker is gone: a
+    closing sentence is never a free paragraph. Several in a row (vigência then
+    revogação) are consecutive articles. Left alone: a sentence that follows a wrapped
+    line (the previous line stops mid-sentence), one that follows its own marker
+    ("Art.\n\n3º") or a marker line with nothing but debris after it, and the second
+    sentence of an article whose first line already holds a closing sentence, when
+    nothing precedes it on its line ("Art. 5º Revogam-se ... contrário.\nEsta Lei
+    entra em vigor"). Returns the offset of the first printed character of each line.
+    """
+    own = [a for a in articles if a["status"] == "own" and a["number"] is not None]
+    if not own:
+        return [], False
+    last = max(own, key=lambda a: a["start"])
+    found: list[int] = []
+    ambiguous = False
+    prev_orphan_line = -1
+    held_line = -1
+    for m in _FINAL_SENTENCE.finditer(text, last["end"], hi):
+        pos = m.start()
+        if any(s <= pos < e for s, e in masked):
+            continue
+        line = text.rfind("\n", 0, pos) + 1
+        prefix = text[line:pos]
+        if (
+            any(ch.isalnum() for ch in prefix)
+            or _QUOTE_CHAR.search(prefix)
+            or _NOTE_MARK.search(prefix)
+        ):
+            continue
+        before = text[:line].rstrip()
+        if len(before) <= last["end"]:
+            continue
+        if not _SENTENCE_END.search(before) and not (
+            # A dash-led line right after an unfinished closing sentence: OCR
+            # scrambled the end of the first one ("entra em vigor na data").
+            any(ch in prefix for ch in "-–—")
+            and not before.endswith((",", "-"))
+            and _FINAL_SENTENCE.search(before, max(last["end"], len(before) - 160))
+        ):
+            continue
+        prev_start = before.rfind("\n") + 1
+        # A short line without a word is the number of a marker the reader did not
+        # read ("Art.\n42\n- Revogam-se"): that marker is the article, not this sentence.
+        if (
+            len(before[prev_start:].strip()) <= 8
+            and not _WORD.search(before[prev_start:])
+            and _ARTICLE_WORD_LINE.fullmatch(
+                before[
+                    before.rfind("\n", 0, max(prev_start - 1, 0)) + 1 : prev_start
+                ].strip()
+            )
+        ):
+            continue
+        chained = prev_start == prev_orphan_line
+        # Words of the article before this sentence: a marker whose number sits on the
+        # next line, or one word of debris, is not an article text that ended.
+        if prev_start == held_line:
+            held_line = line
+            continue
+        if not chained and len(_WORD.findall(text[last["end"] : len(before)])) < 2:
+            continue
+        if (
+            not chained
+            and prefix == ""
+            and prev_start <= last["start"]
+            and _FINAL_SENTENCE.search(before, last["end"])
+        ):
+            held_line = line
+            ambiguous = True
+            continue
+        found.append(line + len(prefix) - len(prefix.lstrip()))
+        prev_orphan_line = line
+    return found, ambiguous
+
+
 def _tail_clean(
     text: str,
     nodes: Sequence[Node],
@@ -1781,6 +1884,32 @@ def read_hierarchy(text: str) -> HierarchyReport:
     _quote_caput_citations(text, all_articles)
     _cited_in_annex(text, all_articles, body_end)
     _before_enacting(all_articles)
+    orphans, ambiguous = _orphan_closings(text, all_articles, masked, body_end)
+    detected = list(orphans)
+    if ambiguous:
+        orphans = []
+    if orphans:
+        nums = {a["number"] for a in all_articles if a["status"] == "own"}
+        top = max((n for n in nums if n is not None), default=0)
+        # Read the lost articles only when the chain was otherwise complete: the
+        # sentence then supplies exactly the numbers that follow it. On a chain that
+        # is open anyway, the reading would add nothing.
+        if all(k in nums for k in range(1, top + 1)) and not any(
+            a["status"] == "unexplained" for a in all_articles
+        ):
+            for k, at in enumerate(orphans, 1):
+                all_articles.append(
+                    {
+                        "start": at,
+                        "end": at,
+                        "raw": "",
+                        "number": top + k,
+                        "suffix": None,
+                        "status": "own",
+                        "corrected": True,
+                    }
+                )
+            gap_articles = gap_articles | frozenset(orphans)
     own = [a for a in all_articles if a["status"] == "own"]
     own_numbers = {a["number"] for a in own if a["number"] is not None}
     last_article = max(own_numbers, default=0)
@@ -1876,8 +2005,9 @@ def read_hierarchy(text: str) -> HierarchyReport:
     final_placed = True
     tail_clean = True
     if own:
-        final_placed = _final_clause_placed(
-            text, nodes, masked, own[0]["start"], body_end
+        final_placed = (
+            _final_clause_placed(text, nodes, masked, own[0]["start"], body_end)
+            and not ambiguous
         )
         tail_clean = _tail_clean(
             text,
@@ -1925,6 +2055,8 @@ def read_hierarchy(text: str) -> HierarchyReport:
         "final_clause": final_clause,
         "final_clause_placed": final_placed,
         "tail_clean": tail_clean,
+        "orphan_closings": detected,
+        "closing_ambiguous": ambiguous,
         # Conservative: every level, in every scope, a full chain and nothing
         # unexplained. Itens are too weakly marked to gate closure. The article level
         # also needs the two tail checks (see `final_clause_placed`, `tail_clean`).
@@ -1949,7 +2081,7 @@ def marker_spans(text: str) -> list[Span]:
     spans: list[Span] = []
     for node in read_hierarchy(text)["nodes"]:
         category = _CATEGORY.get(node["kind"])
-        if category is None or node["status"] != "own":
+        if category is None or node["status"] != "own" or not node["raw"]:
             continue
         end = node["start"] + len(node["raw"])
         spans.append({"category": category, "start": node["start"], "end": end})
