@@ -1,5 +1,7 @@
 """Tests for the identity-keyed raw layer utilities (ADR-0011)."""
 
+import csv
+import io
 from unittest.mock import patch
 
 from leizilla.ia_utils import (
@@ -177,11 +179,10 @@ class TestMergeIndexRow:
         # is what lets identity drop coddoc without losing traceability.
         csv_out = self._row(None, source="http://alro.ro.gov.br/legislacao/leis/7")
         assert "source" in INDEX_COLUMNS
-        assert (
-            csv_out.strip()
-            .splitlines()[1]
-            .endswith(",http://alro.ro.gov.br/legislacao/leis/7")
-        )
+        # ``source`` is no longer the last column (provenance columns follow it), so
+        # read it by name instead of by position.
+        rows = list(csv.DictReader(io.StringIO(csv_out)))
+        assert rows[0]["source"] == "http://alro.ro.gov.br/legislacao/leis/7"
 
     def test_unidentified_same_bytes_different_source_coexist(self):
         # Holding area: identical bytes from two different source URLs must yield
@@ -447,3 +448,139 @@ class TestResolveRawUrl:
         with patch("leizilla.ia_utils._fetch_text", return_value=idx):
             html_url = resolve_raw_url(ia_id, ".html")
             assert html_url and "html1.html" in html_url
+
+
+class TestIaThrottleClassifier:
+    """One classification of IA queue throttles, by scope (ADR-0016 addendum 2026-11-17)."""
+
+    @staticmethod
+    def _scope(text: str):
+        from leizilla.ia_utils import classify_ia_throttle
+
+        return classify_ia_throttle(text)
+
+    def test_the_three_known_messages(self):
+        item = "Please reduce your request rate. - bucket_tasks_queued exceeds rationed amount"
+        key = "Please reduce your request rate. - accesskey_tasks_queued exceeds rationed amount"
+        total = (
+            "Please reduce your request rate. - total_tasks_queued exceeds global_limit"
+        )
+        assert self._scope(item) == "item"
+        assert self._scope(key) == "account"
+        assert self._scope(total) == "account"
+
+    def test_unknown_queue_marker_is_account_scope(self):
+        # conservative: a ration we have not seen is treated as the whole account
+        assert self._scope("x: foo_tasks_queued exceeds rationed amount") == "account"
+        assert self._scope("foo_bar_tasks_queued exceeds y") == "account"
+
+    def test_mixed_markers_are_account_scope(self):
+        assert (
+            self._scope("bucket_tasks_queued exceeds a; total_tasks_queued exceeds b")
+            == "account"
+        )
+
+    def test_plain_rate_limit_is_account_scope_without_a_queue_marker(self):
+        from leizilla.ia_utils import is_ia_queue_full
+
+        text = "Please reduce your request rate."
+        assert self._scope(text) == "account"
+        assert not is_ia_queue_full(text)
+        assert is_ia_queue_full("accesskey_tasks_queued exceeds rationed amount")
+
+    def test_not_a_throttle(self):
+        from leizilla.ia_utils import is_ia_queue_full
+
+        for text in ("", "error uploading x.pdf: connection reset by peer", "denied"):
+            assert self._scope(text) is None
+            assert not is_ia_queue_full(text)
+        assert self._scope(None) is None
+
+
+class TestProvenanceColumns:
+    OLD_INDEX = (
+        "tipo,numero,rendicao,formato,uuid5,sha256,captured_at,source\n"
+        "lei,5120,,pdf,aaaa1111,h1,2026-05-30T00:00:00+00:00,http://x/L5120.pdf\n"
+    )
+
+    def test_columns_are_appended_after_source(self):
+        from leizilla.ia_utils import PROVENANCE_COLUMNS
+
+        assert INDEX_COLUMNS[:8] == [
+            "tipo",
+            "numero",
+            "rendicao",
+            "formato",
+            "uuid5",
+            "sha256",
+            "captured_at",
+            "source",
+        ]
+        assert PROVENANCE_COLUMNS == [
+            "fetched_from",
+            "wayback_url",
+            "wayback_timestamp",
+            "wayback_blocked_robots",
+            "user_agent",
+        ]
+
+    def test_old_file_without_the_columns_reads_and_merges(self):
+        from leizilla.ia_utils import lookup_current, merge_index_row
+
+        # new code reading an old file: absent columns read as empty
+        cur = lookup_current(self.OLD_INDEX, "lei", 5120)
+        assert cur is not None and cur["source"] == "http://x/L5120.pdf"
+        assert cur["fetched_from"] == "" and cur["user_agent"] == ""
+        merged = merge_index_row(
+            self.OLD_INDEX,
+            tipo="lei",
+            numero=5121,
+            rendicao="",
+            formato="pdf",
+            uuid5="bbbb2222",
+            sha256="h2",
+            provenance={"fetched_from": "source-direct", "user_agent": "ua/1"},
+        )
+        rows = list(csv.DictReader(io.StringIO(merged)))
+        assert rows[0]["fetched_from"] == ""  # old row: unknown, not invented
+        assert rows[1]["fetched_from"] == "source-direct"
+        assert rows[1]["wayback_url"] == "" and rows[1]["user_agent"] == "ua/1"
+        assert merged.splitlines()[0] == ",".join(INDEX_COLUMNS)
+
+    def test_new_file_read_by_old_code_keeps_identity_and_loses_only_the_new_columns(
+        self,
+    ):
+        # Old code reads by name (csv.DictReader/row.get) so the extra columns are
+        # ignored; when old code REWRITES the index (merge_index_row/remove_index_rows
+        # of the old INDEX_COLUMNS) it emits only its 8 columns: the provenance
+        # columns of every row are dropped, identity/sha/source are kept.
+        from leizilla.ia_utils import merge_index_row
+
+        new = merge_index_row(
+            None,
+            tipo="lei",
+            numero=1,
+            rendicao="",
+            formato="pdf",
+            uuid5="u1",
+            sha256="s1",
+            provenance={"fetched_from": "wayback"},
+        )
+        old_columns = INDEX_COLUMNS[:8]
+        rewritten = [
+            {c: r.get(c, "") for c in old_columns}
+            for r in csv.DictReader(io.StringIO(new))
+        ]
+        assert rewritten[0]["sha256"] == "s1" and "fetched_from" not in rewritten[0]
+
+    def test_recapturing_the_same_bytes_is_still_a_no_op(self):
+        from leizilla.ia_utils import merge_index_row
+
+        kw = dict(
+            tipo="lei", numero=1, rendicao="", formato="pdf", uuid5="u1", sha256="s1"
+        )
+        first = merge_index_row(None, provenance={"fetched_from": "wayback"}, **kw)
+        again = merge_index_row(
+            first, provenance={"fetched_from": "source-direct"}, **kw
+        )
+        assert again == first

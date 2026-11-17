@@ -377,7 +377,7 @@ def test_upload_textos_publishes_release_and_latest(tmp_path: Path) -> None:
     pub.access_key, pub.secret_key = "k", "s"
     calls: list[list[str]] = []
 
-    def fake_run(args: list[str]) -> "subprocess.CompletedProcess[str]":
+    def fake_run(args: list[str], **_: Any) -> "subprocess.CompletedProcess[str]":
         calls.append(args)
         return subprocess.CompletedProcess(args, 0, "", "")
 

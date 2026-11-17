@@ -619,3 +619,35 @@ def test_cli_purge_failure_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.exit_code == 1
     purge = fake_cls.return_value.purge_capture_leftovers
     assert purge.call_args.kwargs["dry_run"] is False
+
+
+def test_refile_works_for_a_capture_from_the_batched_harvest_without_sidecar(
+    archive: FakeArchive,
+) -> None:
+    # ADR-0016 addendum 2026-11-17: the batched harvest writes no _meta.json; its
+    # provenance sits in index.csv columns. The refile reads the row by name, so the
+    # extra columns are harmless, and the cleanup still names the PDF and the index
+    # (``ia delete`` ignores a listed name the item does not have, and only fails
+    # when NO listed name matches).
+    row = {
+        **_row(304012),
+        "fetched_from": "source-direct",
+        "user_agent": "leizilla-crawler/0.1",
+        "wayback_blocked_robots": "false",
+    }
+    archive.wrong_index = _index([row])
+    archive.item_files = {WRONG_FILE, "index.csv"}  # no sidecar in the item
+
+    result = _refile(archive)
+
+    assert result["success"] is True
+    delete = archive.ia_calls[-1]
+    assert delete[:3] == ["ia", "delete", WRONG_ITEM]
+    assert WRONG_FILE in delete and "index.csv" in delete
+
+
+def test_refile_still_works_for_a_capture_with_a_sidecar(archive: FakeArchive) -> None:
+    archive.item_files = {WRONG_FILE, WRONG_META, "index.csv"}
+    result = _refile(archive)
+    assert result["success"] is True
+    assert WRONG_META in archive.ia_calls[-1]

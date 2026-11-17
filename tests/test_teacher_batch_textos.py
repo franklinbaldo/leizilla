@@ -516,7 +516,7 @@ class TestLabelSet:
             (out / name).write_text("{}")
         seen: List[List[str]] = []
 
-        def fake_upload(self: Any, args: List[str]) -> None:
+        def fake_upload(self: Any, args: List[str], **_: Any) -> None:
             seen.append(args)
 
         summary = {

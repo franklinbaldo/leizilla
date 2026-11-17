@@ -629,6 +629,14 @@ QUEUE_FULL = (
     "Please reduce your request rate. - total_tasks_queued exceeds global_limit"
 )
 BUCKET_FULL = "error: bucket_tasks_queued exceeds rationed amount"
+# 2026-11-17: the ration of the ACCESS KEY (the whole account); the patient upload did
+# not engage because only the two strings above were recognised.
+ACCESSKEY_FULL = (
+    "Please reduce your request rate. - accesskey_tasks_queued exceeds rationed amount"
+)
+UNKNOWN_FULL = (
+    "Please reduce your request rate. - foo_tasks_queued exceeds rationed amount"
+)
 RESET = "connection reset by peer"
 
 
@@ -658,6 +666,19 @@ def test_queue_full_is_waited_out_within_the_budget() -> None:
     assert run.call_count == 3
     assert _sleeps(sleep) == [60.0, 120.0]
     assert budget.waited_s == 180.0
+
+
+@pytest.mark.parametrize("message", [ACCESSKEY_FULL, UNKNOWN_FULL])
+def test_accesskey_and_unknown_queue_full_are_waited_out_too(message: str) -> None:
+    budget = publisher.IaQueueWait(budget_s=3600)
+    outcomes = [_ia_fail(message), MagicMock()]
+    with (
+        patch("leizilla.publisher.subprocess.run", side_effect=outcomes) as run,
+        patch("leizilla.publisher.time.sleep") as sleep,
+    ):
+        _pub()._run_ia_upload(["ia", "upload", "x"], queue_wait=budget)
+    assert run.call_count == 2
+    assert _sleeps(sleep) == [60.0]
 
 
 def test_queue_full_gives_up_when_the_budget_is_exhausted() -> None:

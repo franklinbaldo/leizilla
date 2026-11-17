@@ -251,3 +251,85 @@ class TestSourceMatchesDiscoveryURL:
         with patch("leizilla.publisher._resolve_uuid5_and_index", side_effect=_capture):
             _pub().upload_raw(pdf, lei_data, b"x")
         assert captured["source"] == "http://alro/files/L99.pdf"
+
+
+class TestReconcileProvenance:
+    """Captures from the batched harvest have no ``_meta.json`` (ADR-0016 addendum
+    2026-11-17): reconcile must promote them with and without the sidecar."""
+
+    @staticmethod
+    def _holding_with_provenance() -> str:
+        return merge_index_row(
+            None,
+            tipo="",
+            numero=None,
+            rendicao="",
+            formato="pdf",
+            uuid5="abcd1234",
+            sha256="h1",
+            source="http://alro.ro.gov.br/legislacao/leis/99",
+            provenance={
+                "fetched_from": "wayback",
+                "wayback_url": "https://web.archive.org/web/2026/x",
+                "wayback_timestamp": "20261115120000",
+                "wayback_blocked_robots": "false",
+                "user_agent": "leizilla-crawler/0.1",
+            },
+        )
+
+    def _promote(self, sidecar: bool):
+        import urllib.error
+
+        def fake_bytes(item_id, filename):
+            if filename.endswith("_meta.json"):
+                if not sidecar:
+                    raise urllib.error.HTTPError(
+                        "u",
+                        404,
+                        "Not Found",
+                        None,
+                        None,  # type: ignore[arg-type]
+                    )
+                return b'{"leizilla_meta_version": "0.1"}'
+            return b"PDF-bytes"
+
+        uploads: list[tuple[str, str, object]] = []
+
+        def fake_upload(range_id, content, filename, index_csv, *a):
+            uploads.append((range_id, index_csv, a[-1]))
+            return True
+
+        pub = _pub()
+        with (
+            patch("leizilla.publisher._fetch_item_file_bytes", side_effect=fake_bytes),
+            patch("leizilla.publisher._fetch_existing_index") as mock_idx,
+            patch.object(pub, "_upload_to_range", side_effect=fake_upload),
+            patch.object(pub, "_upload_index_only", return_value=True),
+        ):
+            mock_idx.side_effect = [self._holding_with_provenance(), None]
+            res = pub.reconcile_unidentified(
+                "ro",
+                "assembleia",
+                {"http://alro.ro.gov.br/legislacao/leis/99": ("lei", 99)},
+            )
+        return res, uploads
+
+    def test_promotes_a_capture_without_sidecar_and_carries_the_provenance(self):
+        import csv as _csv
+        import io as _io
+
+        res, uploads = self._promote(sidecar=False)
+        assert res["success"] is True and res["promoted"] == 1
+        range_id, index_csv, meta = uploads[0]
+        assert range_id == "leizilla_ro_assembleia_lei_0001-1000"
+        assert meta is None  # no sidecar to copy
+        row = next(_csv.DictReader(_io.StringIO(index_csv)))
+        assert row["numero"] == "99" and row["fetched_from"] == "wayback"
+        assert row["wayback_timestamp"] == "20261115120000"
+        assert row["user_agent"] == "leizilla-crawler/0.1"
+
+    def test_still_copies_the_sidecar_when_there_is_one(self):
+        res, uploads = self._promote(sidecar=True)
+        assert res["success"] is True and res["promoted"] == 1
+        meta = uploads[0][2]
+        assert meta is not None and meta[0].endswith("_meta.json")

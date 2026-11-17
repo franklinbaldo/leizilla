@@ -130,6 +130,12 @@ def _echo_harvest_summary(stats: Dict[str, Any], partial: bool = False) -> None:
     )
     echo(f"  Sucesso: {stats.get('success', 0)}")
     echo(f"  Falhas: {stats.get('failed', 0)}")
+    requeued = stats.get("requeued", 0)
+    if requeued:
+        # Limite da conta no IA ou prazo do job: o documento está bom, só não subiu.
+        echo(
+            f"  Devolvidas à fila (pending, não são falhas dos documentos): {requeued}"
+        )
     echo(f"  Robots bloqueado: {stats.get('robots-blocked', 0)}")
     echo(f"  Já preservados no IA (pulados): {stats.get('already-preserved', 0)}")
     # ADR-0016: lotes, derive único, PDFs recusados e Save Page Now assíncrono.
@@ -249,6 +255,15 @@ def cmd_harvest(
     if stats.get("deferred") and not stats["success"]:
         # Tudo adiado por fila cheia no IA e nada capturado: não é sucesso.
         echo("Erro: nenhuma captura; recursos adiados por limite de taxa do IA.")
+        raise typer.Exit(1)
+    if stats.get("requeued") and not stats["success"]:
+        # Limite da conta (ia-account-throttled) ou prazo (flush-timeout) sem nenhuma
+        # captura preservada. Com ao menos uma captura a execução é verde: um throttle
+        # não quebra a colheita, só a encerra cedo (o resumo diz o motivo).
+        echo(
+            "Erro: nenhuma captura preservada; "
+            f"{stats['requeued']} devolvida(s) à fila ({stats.get('aborted')})."
+        )
         raise typer.Exit(1)
 
 

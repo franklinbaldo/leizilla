@@ -1787,7 +1787,12 @@ def upload_to_ia(
             f"description:{description}",
         ]
         try:
-            publisher.InternetArchivePublisher()._run_ia_upload(args)
+            publisher.InternetArchivePublisher()._run_ia_upload(
+                args,
+                queue_wait=publisher.IaQueueWait(
+                    publisher._DATASET_QUEUE_WAIT_MIN * 60.0
+                ),
+            )
         except FileNotFoundError:
             return {
                 "success": False,

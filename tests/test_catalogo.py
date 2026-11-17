@@ -402,7 +402,7 @@ class TestReleaseCatalogoCli:
     ) -> None:
         calls: list[list[str]] = []
 
-        def fake_upload(self: Any, args: list[str]) -> None:
+        def fake_upload(self: Any, args: list[str], **_: Any) -> None:
             calls.append([a if i < 3 else Path(a).name for i, a in enumerate(args)])
 
         with (
@@ -437,7 +437,7 @@ class TestReleaseCatalogoCli:
             patch("leizilla.config.IA_SECRET_KEY", "s"),
             patch(
                 "leizilla.publisher.InternetArchivePublisher._run_ia_upload",
-                lambda self, args: None,
+                lambda self, args, **_: None,
             ),
         ):
             result = self._run(files, "--allow-lower-count")
