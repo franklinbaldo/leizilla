@@ -351,3 +351,78 @@ def test_mixed_case_art_word_with_number_on_next_line_is_a_marker() -> None:
 
 def test_mixed_case_art_inside_a_word_is_not_a_marker() -> None:
     assert read_articles("PARt. 5 do regimento interno.")["articles"] == []
+
+
+# --- tournament round 5: words and citations that are not markers -------------------
+@pytest.mark.parametrize(
+    "line",
+    [
+        "ARTIFÍCIOS DE FOGOS 2,0 8.1.7.2",
+        "ARTICULAÇÃO COM A UNIÃO",
+        "ARTISTICO E ARQUEOLÓGICO 80.000",
+    ],
+)
+def test_capitalised_word_starting_with_art_is_not_a_marker(line: str) -> None:
+    # lei-00701, lc-00042, lei-00137: "ART" + "I" read as article 1 of a table heading.
+    assert read_articles(f"Art. 1º Fica criado.\n{line}\n")["articles"][1:] == []
+
+
+def test_capitalised_article_word_with_roman_or_digit_is_still_a_marker() -> None:
+    report = read_articles("ARTIGO 1º Fica criado.\nART. 2º Fica revogado.\n")
+    assert [a["number"] for a in report["articles"]] == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # lei-00xxx: the enacting formula cites the Constitution after a paragraph sign.
+        "nos termos do § 29, Artigo 48, da Constituição do Estado, a seguinte Lei:\n",
+        "nos termos do §70, do Art. 42 da Constituição do Estado, promulgo\n",
+    ],
+)
+def test_citation_after_a_paragraph_sign_is_a_reference(text: str) -> None:
+    articles = read_articles(text)["articles"]
+    assert articles and all(a["status"] == "reference" for a in articles)
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "(Artigo 4º, § 2º, II, da Lei Complementar Federal n. 101/2000)",
+        "(Art. 4º, $ 1º, da Lei Complementar Federal)",
+        "Art. 42 da Constituição Estadual.",
+        "Art. 37, IX, Constituição Federal",
+    ],
+)
+def test_marker_followed_by_a_cited_norm_is_a_reference(citation: str) -> None:
+    text = f"Art. 1º Fica criado o fundo.\nAnexo de metas fiscais {citation}\n"
+    statuses = [a["status"] for a in read_articles(text)["articles"]]
+    assert statuses == ["own", "reference"]
+
+
+def test_amending_caput_subject_citation_is_left_to_the_chain() -> None:
+    # "Art. 1º - 0 Art. 2º da Lei nº 104 passa a ter" (OCR zero) is not rewritten as a reference:
+    # the guard keeps the earlier reading of the subject of an amending caput.
+    text = "Art. 1º - 0 Art. 2º da Lei nº 104, de 20/05/86, passa a ter a seguinte.\n"
+    statuses = [a["status"] for a in read_articles(text)["articles"]]
+    assert "reference" not in statuses[1:]
+
+
+def test_article_opening_with_da_in_its_caput_text_is_kept() -> None:
+    text = "Art. 1º Fica criado o cargo.\nArt. 2º Esta Lei entra em vigor.\n"
+    assert [a["status"] for a in read_articles(text)["articles"]] == ["own", "own"]
+
+
+def test_paragraph_sign_ending_a_sentence_does_not_make_the_next_article_a_citation() -> (
+    None
+):
+    # "...a ser § 1º.\nArt. 2º Vigora." — the period closes the sentence.
+    text = "Art. 1º O art. 3º passa a ser § 1º.\nArt. 2º Vigora.\n"
+    statuses = [a["status"] for a in read_articles(text)["articles"]]
+    assert statuses[-1] == "own"
+
+
+def test_truncated_article_word_with_number_on_the_next_line_is_a_marker() -> None:
+    # lei-00433 (4f773c3e): "rt." alone on its line, the number below.
+    text = "Art. 1º Fica criado o fundo.\nrt.\n2º - Esta Lei entra em vigor.\n"
+    assert [a["number"] for a in read_articles(text)["articles"]] == [1, 2]

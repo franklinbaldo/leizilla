@@ -41,10 +41,11 @@ from typing import Sequence, TypedDict
 # plus the first word of the caput, not a suffix.
 ARTICLE_CANDIDATE = re.compile(
     r"(?:"
-    r"\b(?:ART(?:IGO)?|ARt|Art(?:igo)?|AH|Arl|Aft)"
+    r"\b(?:ART(?:IGO)?(?![IlO])|ARt|Art(?:igo)?|AH|Arl|Aft)"
     r"|\bArt[eos](?=\.?\s*[0-9IlO])"
     r"|(?<![^\n])[ \t]*(?:Ait|Alt)(?=\.?\s*[0-9Il])"
     r"|\bA\s?r/t(?=\.?\s*[0-9Il])"
+    r"|(?<![^\n])[ \t|/_]{0,3}(?:rt|Ant)(?=\.\s*[0-9IlO])"
     r"|\bAri?(?=\.\s*[0-9IlO])"
     r"|\\?\bArt/(?=\s*[0-9IlO])"
     r"|\bX\s?rt/(?=\s*[0-9IlO])"
@@ -63,8 +64,19 @@ _QUOTE_OPEN = re.compile(rf"[{QUOTE_CHARS}]\s*$")
 # ("nos termos do Art. 42 da Constituição"), not a marker. Decided before the chain is
 # built, so a citation can never be absorbed as one of the norm's own articles.
 _REFERENCE_LEFT = re.compile(
-    r"\b(?:d?o|n?o|ao|d?os|n?os|aos|pelos?|e|ou|§\s?\S{1,3})\s+$", re.IGNORECASE
+    r"(?:\b(?:d?o|n?o|ao|d?os|n?os|aos|pelos?|e|ou)|§\s?[^\s.]{1,3}[,;]?)\s+$",
+    re.IGNORECASE,
 )
+# What follows the number of a citation: "Art. 42 da Constituição", "Artigo 4º, § 2º,
+# II, da Lei Complementar Federal", "Art. 37, IX, Constituição Federal". Only
+# paragraph/inciso tokens and numbers may sit between the number and the cited norm.
+_CITES_NORM = re.compile(
+    r"(?:[\s,;.ºo°ª\"'§$\d]|\b[IVXLivxl]{1,4}\b|\b(?:inciso|par[aá]grafo|al[ií]nea|caput|item|e)\b)*"
+    r"(?:\bd[ao]s?\s+(?:Lei|Constitui|Decreto|C[óo]digo|ADCT)|Constitui[çc][ãa]o\s+(?:Federal|Estadual))"
+)
+# "Art. 1º - O Art. 2º da Lei nº 104 passa a ter": the cited article is the subject of
+# an amending caput. Left to the chain, as before (the teacher counts it as an article).
+_CAPUT_SUBJECT = re.compile(r"[-–—.:]\s*[OoQ0]\s+$")
 # A connector that opens its line, after at most three tokens of OCR debris and no
 # word, is a stray glyph ("e" over an article), not the start of a sentence citing the
 # article: "e Art. 6º - Revogam-se" is the last article of a norm.
@@ -130,6 +142,13 @@ def is_reference(text: str, start: int) -> bool:
     The connector before it ("do", "no", "e", "§ 2º") marks a citation, except when the
     connector is a lone glyph opening its line: then the marker is read on its own.
     """
+    cited = ARTICLE_CANDIDATE.match(text, start)
+    if (
+        cited is not None
+        and _CITES_NORM.match(text, cited.end())
+        and not _CAPUT_SUBJECT.search(text[max(0, start - 8) : start])
+    ):
+        return True
     window_start = max(0, start - 12)
     found = _REFERENCE_LEFT.search(text[window_start:start])
     if found is None:

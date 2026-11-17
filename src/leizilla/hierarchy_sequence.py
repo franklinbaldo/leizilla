@@ -184,6 +184,35 @@ _ART_WILD = re.compile(
     r"(?m)^[ \t]*(?P<word>(?:[AÁ][rRtTiIlLpPfFnh]{1,3}s?|[aáà]r[tl]?)\b[.,:;]?"
     r"[ \t]*\n?[ \t]*(?:\d\S{0,3}|[A-Z]{1,2}\b|[Il][oO0]\b))"
 )
+# A line opener that is an article word and number ruined together ("Art. /º - Esta
+# Lei", "rti 2º — Os recursos", "Arta 29 Esta Lei"): a short art-like token, at most
+# one junk or number-like token, then the first word of a caput.
+_ART_GARBLE = re.compile(
+    r"(?m)^[ \t_]*(?P<word>[AÁVaá]?[a-zA-Z]{2,4}[.,:;»«™\-]{0,2}[ \t]*"
+    r"(?:[^\w\s]|[\dIlOo/]{1,3}[ºo°ª]?|[A-Za-zÀ-ÿ]{1,2}(?=[ \t]*[\-–—=~.]))?"
+    r"[ \t]*[\-–—=~.]?[ \t]*)"
+    r"(?=(?:Esta|Este|Fica|Ficam|Revogam|Revoga|VETAD\w*|Os|As|Cabe|Caber\w*|"
+    r"Somente|Para)\b)"
+)
+# The closing caput as OCR runs its words together ("entraem vigorna data").
+_FINAL_LOOSE = re.compile(r"\bentr\w*\s*em\s*vigor|\brevogam-se", re.IGNORECASE)
+_ART_GARBLE_TAIL = re.compile(
+    r"(?m)^[ \t_]*(?P<word>[AÁVaá]?[a-zA-Z]{2,4}[.,:;»«™\-]{0,2}[ \t]*"
+    r"(?:[^\w\s]|[\dIlOo/]{1,3}[ºo°ª]?|e)?[ \t]*[\-–—=~.]?[ \t]*)"
+    r"(?=(?:Esta|Este|Revogam|Revoga)\b)"
+)
+# A caput whose "Art." was lost altogether: "39 - Os vencimentos" (3º glued to its
+# ordinal), "2º Este Decreto". Only read when its number is the one the chain lacks.
+_NUM_CAPUT = re.compile(
+    r"(?m)^[ \t]*(?P<word>(?P<num>\d{1,3})(?:[ \t]?[ºo°ª]|(?=[ \t]*[\-–—.][ \t]))"
+    r"[ \t]*[\-–—.]?[ \t]*)(?=[A-ZÀ-Ý][a-zà-ý])"
+)
+# A bare article word closing its line ("Art.", "Art-", "Art™") whose number is on the
+# next line as OCR debris of at most eight characters and no word ("ÍQ", ":14„").
+_ART_LONE = re.compile(
+    r"(?m)^[ \t]*(?P<word>Art[.,:;»«™„\-]{0,3})[ \t]*\n[ \t]*\n?"
+    r"[ \t]*(?!\S*[^\W\d_]{3})\S{1,8}[ \t]*$"
+)
 _FINAL_CLAUSE = re.compile(r"vigo|revog", re.IGNORECASE)
 _ENUM_LEFT = re.compile(r";\s*(?:(?:e|ou)\s*)?$")
 _LEAD = re.compile(r"\s*[.\-–—:]{0,2}\s*")
@@ -566,12 +595,103 @@ def _is_opening(text: str, k: int) -> bool:
     return (before.isspace() or before in ":(") and not after.isspace()
 
 
+def _is_spaced_opening(text: str, k: int) -> bool:
+    """A straight quote on its own, right before an article marker ('" Art. 1Q')."""
+    before = text[k - 1] if k > 0 else "\n"
+    return (
+        text[k] == '"'
+        and before.isspace()
+        and _CUE_COLON.search(text[max(0, k - 120) : k]) is not None
+        and _ART_HEAD.match(text, k + 1) is not None
+    )
+
+
 def _is_closing(text: str, k: int) -> bool:
     before = text[k - 1] if k > 0 else "\n"
     after = text[k + 1] if k + 1 < len(text) else " "
     if text[k] == "”" and not before.isspace():
         return True
     return not before.isspace() and (after.isspace() or after in ".,;)(")
+
+
+def _article_reading(text: str, pos: int) -> int | None:
+    m = ARTICLE_CANDIDATE.match(text, pos)
+    if m is None:
+        return None
+    readings = article_readings(m.group("num"), m.group("ord") is not None)
+    return readings[0] if readings else None
+
+
+def _resume_after_quote(
+    text: str, limit: int, body_end: int, host_number: int
+) -> int | None:
+    """Closing mark right before the marker that resumes the host chain.
+
+    Stray guillemets and apostrophes in OCR noise unbalance the mark count, so the
+    block's end is found from the other side: the first article marker after the
+    next own one that follows a closing mark, reads as the host number plus one, and
+    is followed by at most two more markers (the norm's closing articles).
+    """
+    for m in ARTICLE_CANDIDATE.finditer(text, limit, body_end):
+        before = text[: m.start()].rstrip()
+        if not before or not _QUOTE_CHAR.match(before[-1]):
+            continue
+        if not _is_closing(text, len(before) - 1):
+            continue
+        if _article_reading(text, m.start()) != host_number + 1:
+            return None
+        rest = len(list(ARTICLE_CANDIDATE.finditer(text, m.end(), body_end)))
+        return len(before) if rest <= 2 else None
+    return None
+
+
+def _extended_close(
+    text: str,
+    k: int,
+    limit: int,
+    body_end: int,
+    later_starts: Sequence[int],
+    host_number: int | None = None,
+) -> int | None:
+    """End of a quote block that closes after the next first-pass own article."""
+    depth = 1
+    close = None
+    for q in _QUOTE_CHAR.finditer(text, k + 1, body_end):
+        j = q.start()
+        if _is_closing(text, j):
+            depth -= 1
+            if depth == 0:
+                close = j + 1
+                break
+        elif _is_opening(text, j):
+            depth += 1
+    if close is None:
+        if host_number is None:
+            return None
+        return _resume_after_quote(text, limit, body_end, host_number)
+    swallowed = {
+        _article_reading(text, s) for s in later_starts if limit <= s < close
+    } - {None}
+    after = ARTICLE_CANDIDATE.search(text, close, body_end)
+    if not swallowed or after is None:
+        return None
+    if after.start() - close > 400:
+        return None
+    resume = _article_reading(text, after.start())
+    # The host's chain resumes right after the block: the first marker after the
+    # closing mark is the host article that follows the one the block hangs from, and
+    # only the norm's closing articles follow it.
+    if (
+        host_number is not None
+        and resume == host_number + 1
+        and resume not in swallowed
+        and len(list(ARTICLE_CANDIDATE.finditer(text, after.end(), body_end))) <= 2
+    ):
+        return close
+    # A short run swallowed: a long one is a second run of the host's own articles.
+    if len(swallowed) > 6:
+        return None
+    return close if resume in swallowed else None
 
 
 def find_quoted_blocks(
@@ -592,7 +712,7 @@ def find_quoted_blocks(
     openings: list[tuple[int, str]] = []
     for m in _QUOTE_CHAR.finditer(text, own_starts[0], body_end):
         k = m.start()
-        if not _is_opening(text, k):
+        if not _is_opening(text, k) and not _is_spaced_opening(text, k):
             continue
         head = _BLOCK_HEAD.match(text, k + 1)
         if head is None and not _CUE_COLON.search(text[max(0, k - 120) : k]):
@@ -635,6 +755,20 @@ def find_quoted_blocks(
                     break
             elif _is_opening(text, j):
                 depth += 1
+        if not closed and idx < len(own_starts):
+            # The block may run past the next "own" article: that article is then a
+            # quoted one that took the host's number. Only when the mark closes the
+            # block and the first article after it repeats a swallowed number.
+            ext = _extended_close(
+                text,
+                k,
+                limit,
+                body_end,
+                own_starts[idx:],
+                _article_reading(text, host_start),
+            )
+            if ext is not None:
+                end, closed = ext, True
         if not closed:
             # "(NR)" ends a rewritten dispositivo even when the mark was lost.
             marks = list(_NR.finditer(text, k, limit))
@@ -644,7 +778,57 @@ def find_quoted_blocks(
             continue
         blocks.append((k, end, opened_by, closed))
         covered = end
+    blocks.extend(_unopened_blocks(text, own_starts, body_end, blocks))
+    blocks.sort()
     return blocks
+
+
+def _unopened_blocks(
+    text: str,
+    own_starts: Sequence[int],
+    body_end: int,
+    blocks: Sequence[tuple[int, int, str, bool]],
+) -> list[tuple[int, int, str, bool]]:
+    """Blocks that lost their opening mark but still close: ``registro”.``
+
+    A closing mark that matches no opening one ends a block quoted from another norm.
+    The host's own chain resumes right after it: the first article marker after the
+    mark repeats the number following one of the host articles before the block. The
+    articles between that host article and the mark are the quoted ones.
+    """
+    out: list[tuple[int, int, str, bool]] = []
+    if not own_starts:
+        return out
+    spans = [(s, e) for s, e, _, _ in blocks]
+    depth = 0
+    for m in _QUOTE_CHAR.finditer(text, own_starts[0], body_end):
+        j = m.start()
+        if any(s <= j < e for s, e in spans):
+            continue
+        if not _is_closing(text, j):
+            if _is_opening(text, j):
+                depth += 1
+            continue
+        if depth > 0:
+            depth -= 1
+            continue
+        after = ARTICLE_CANDIDATE.search(text, j + 1, body_end)
+        if after is None or after.start() - j > 400:
+            continue
+        resume = _article_reading(text, after.start())
+        before = [
+            st for st in own_starts if st < j and not any(s <= st < e for s, e in spans)
+        ]
+        for pos in range(len(before) - 2, -1, -1):
+            if _article_reading(text, before[pos]) == (resume or 0) - 1:
+                first_quoted = before[pos + 1]
+                head = ARTICLE_CANDIDATE.match(text, first_quoted)
+                lettered = head is not None and head.group("suffix") is not None
+                if lettered or _article_reading(text, first_quoted) != resume:
+                    out.append((first_quoted, j + 1, "unopened", True))
+                    spans.append((first_quoted, j + 1))
+                break
+    return out
 
 
 # --- tree builder ---------------------------------------------------------------------
@@ -1025,7 +1209,8 @@ def _fill_article_gaps(
     for a, b in zip(own, own[1:]):
         if a["number"] is None or b["number"] is None:
             continue
-        if b["number"] - a["number"] != 2:
+        absent = b["number"] - a["number"] - 1
+        if absent < 1:
             continue
         between = [
             x for x in out if a["start"] < x["start"] < b["start"] and x is not b
@@ -1033,6 +1218,13 @@ def _fill_article_gaps(
         if any(x["status"] == "own" for x in between):
             continue
         loose = [x for x in between if x["status"] == "unexplained"]
+        loose += [
+            x
+            for x in between
+            if x["status"] == "reference"
+            and _opens_line(text, x["start"])
+            and _reads_as(text, x["start"], a["number"] + 1)
+        ]
         wild = [
             m
             for m in _ART_WILD.finditer(text, a["end"], b["start"])
@@ -1040,6 +1232,59 @@ def _fill_article_gaps(
             and not any(lo <= m.start() < hi for lo, hi in masked)
             and not is_reference(text, m.start("word"))
         ]
+        garbled = [
+            m
+            for m in _ART_GARBLE.finditer(text, a["end"], b["start"])
+            if m.start("word") not in known
+            and m.start("word") not in {w.start("word") for w in wild}
+            and not any(lo <= m.start() < hi for lo, hi in masked)
+            and not is_reference(text, m.start("word"))
+        ]
+        if absent > 1:
+            # Several numbers missing: only a one-to-one match with sharp candidates.
+            if len(loose) + len(wild) == absent:
+                slots: list[tuple[int, ArticleRead | re.Match[str]]] = [
+                    (x["start"], x) for x in loose
+                ] + [(m.start("word"), m) for m in wild]
+                slots.sort(key=lambda it: it[0])
+                for k, (_, item) in enumerate(slots, 1):
+                    if isinstance(item, re.Match):
+                        added.append(
+                            {
+                                "start": item.start("word"),
+                                "end": item.end(),
+                                "raw": text[item.start("word") : item.end()],
+                                "number": a["number"] + k,
+                                "suffix": None,
+                                "status": "own",
+                                "corrected": True,
+                            }
+                        )
+                    else:
+                        item["status"] = "own"
+                        item["number"] = a["number"] + k
+                        item["corrected"] = True
+                        filled.add(item["start"])
+            continue
+        if not loose and not wild:
+            wild = garbled  # only when nothing sharper sits in the gap
+        if not loose and not wild:
+            wild = [
+                m
+                for m in _ART_LONE.finditer(text, a["end"], b["start"])
+                if m.start("word") not in known
+                and not any(lo <= m.start() < hi for lo, hi in masked)
+            ]
+        if not loose and not wild:
+            wild = [
+                m
+                for m in _NUM_CAPUT.finditer(text, a["end"], b["start"])
+                if m.start("word") not in known
+                and not any(lo <= m.start() < hi for lo, hi in masked)
+                and not _after_bare_word(text, m.start("word"))
+                and a["number"] + 1
+                in article_readings(m.group("num"), "º" in m.group("word"))
+            ]
         if len(loose) + len(wild) != 1:
             continue
         if loose:
@@ -1060,9 +1305,242 @@ def _fill_article_gaps(
                     "corrected": True,
                 }
             )
+    head = _head_article(text, out, masked, known)
+    if head is not None:
+        if head["start"] in known:
+            filled.add(head["start"])
+        else:
+            added.append(head)
+    tail = _tail_article(text, out, masked, known)
+    if tail is not None:
+        if tail["start"] in known:
+            filled.add(tail["start"])
+        else:
+            added.append(tail)
     out.extend(added)
     out.sort(key=lambda x: x["start"])
     return out, frozenset(filled | {x["start"] for x in added})
+
+
+_ENACTING = re.compile(
+    r"(?:\bLei(?:\s+Complementar)?|Decreto|Resolu\S+|decreta|promulga)"
+    r"\s*[:;.,]?[ \t]*\n",
+    re.IGNORECASE,
+)
+_HEAD_LINE = re.compile(
+    r"[ \t]*(?P<word>[^\w\n]{0,2}[AaÁEe][A-Za-zÀ-ÿ]{0,5}\b(?:[^\n]|\n[ \t]*){0,30}?)"
+    r"(?=\b(?:[FPTBfptb]i[cç]a[ms]?|autoriz\w*|institu\w*|declar\w*|cria\w*)\b)"
+    # An explicit "art. 1º" in lowercase, which the marker regex leaves to citations.
+    r"|[ \t]*(?P<word2>art\.?[ \t]*1[ºo°][ \t]*[-–—.]?)(?=[ \t]*[A-ZÀ-Ý])"
+)
+
+
+_KNOWN_HEAD = re.compile(r"(?P<word>Art[^\n]{0,3}\n?[^\n]{0,6})")
+
+
+def _head_article(
+    text: str,
+    articles: list[ArticleRead],
+    masked: Sequence[tuple[int, int]],
+    known: set[int],
+) -> ArticleRead | None:
+    """Read the unreadable opening line after the enacting formula as Art. 1.
+
+    "Seguinte Lei:" is followed by "Art. 1º - Fica ..."; when OCR ruins the article
+    word and its number ("Apt. Lo pica O Governo", "Ages NO — Ficas instituido") the
+    chain starts at 2. If that line, the first one after the formula, carries an
+    article-like opener and the verb of an opening caput, the sequence reads it as 1.
+    """
+    own = [a for a in articles if a["status"] == "own" and a["number"] is not None]
+    if not own or own[0]["number"] != 2:
+        return None
+    first = own[0]
+    line = fend = -1
+    m = None
+    for f in reversed(list(_ENACTING.finditer(text, 0, first["start"]))):
+        pos = f.end()
+        while pos < first["start"] and text[pos] in " \t\n":
+            pos += 1
+        m = _HEAD_LINE.match(text, pos)
+        if m is None and pos in known:
+            # A marker the number reader already saw but could not place ("Art.\nI5"):
+            # right after the formula it needs no caput verb to be the first article.
+            m = _KNOWN_HEAD.match(text, pos)
+        if m is not None and m.end() <= first["start"]:
+            line, fend = pos, f.end()
+            break
+    if m is None or line < 0:
+        return None
+    if line in known:
+        loose = [a for a in articles if a["start"] == line]
+        if len(loose) != 1 or loose[0]["status"] != "unexplained":
+            return None
+        loose[0]["status"] = "own"
+        loose[0]["number"] = 1
+        loose[0]["corrected"] = True
+        return loose[0]
+    if any(lo <= line < hi for lo, hi in masked):
+        return None
+    if any(
+        fend <= a["start"] < first["start"]
+        and a["start"] != line
+        and a["status"] != "reference"
+        for a in articles
+    ):
+        return None
+    end = m.end("word") if m.group("word") is not None else m.end("word2")
+    return {
+        "start": line,
+        "end": end,
+        "raw": text[line:end],
+        "number": 1,
+        "suffix": None,
+        "status": "own",
+        "corrected": True,
+    }
+
+
+def _after_bare_word(text: str, pos: int) -> bool:
+    """True when the previous non-blank line is a short debris line ("Art\\.", "t.").
+
+    A number opening a line right after such a line is the number of that lost
+    marker, which `_ART_GARBLE`/`_ART_LONE` own; reading the number line as the
+    article would put the node one line late.
+    """
+    before = text[:pos].rstrip()
+    prev = before[before.rfind("\n") + 1 :].strip()
+    return len(prev) <= 5 and bool(prev)
+
+
+def _opens_line(text: str, pos: int) -> bool:
+    """True when only spacing precedes ``pos`` on its line."""
+    return not text[text.rfind("\n", 0, pos) + 1 : pos].strip()
+
+
+def _reads_as(text: str, pos: int, number: int) -> bool:
+    """True when the literal reading of the marker at ``pos`` is ``number``."""
+    m = ARTICLE_CANDIDATE.match(text, pos)
+    if m is None:
+        return False
+    return number in article_readings(m.group("num"), m.group("ord") is not None)
+
+
+def _tail_article(
+    text: str,
+    articles: list[ArticleRead],
+    masked: Sequence[tuple[int, int]],
+    known: set[int],
+) -> ArticleRead | None:
+    """Read the article marker right before the closing sentence as the next number.
+
+    "Art. T - Revogam-se as disposições" or a lone "Art." over "Esta Lei entra em
+    vigor": after the last own article, exactly one line-start article word (garbled
+    or unnumbered) is followed within a few characters by the closing sentence. The
+    chain only lacks that last number, so the sequence supplies it.
+    """
+    own = [a for a in articles if a["status"] == "own" and a["number"] is not None]
+    if not own:
+        return None
+    last = own[-1]
+    last_number = last["number"]
+    if last_number is None:
+        return None
+    hits: list[tuple[int, int, ArticleRead | None]] = []
+    for x in articles:
+        if x["start"] > last["start"] and x["status"] == "unexplained":
+            hits.append((x["start"], x["end"], x))
+        elif (
+            x["start"] > last["start"]
+            and x["status"] == "reference"
+            and _opens_line(text, x["start"])
+            and _reads_as(text, x["start"], last_number + 1)
+        ):
+            hits.append((x["start"], x["end"], x))
+    for m in _ART_WILD.finditer(text, last["end"]):
+        st = m.start("word")
+        if st not in known and not is_reference(text, st):
+            hits.append((st, m.end(), None))
+    if not hits:
+        hits = [
+            (m.start("word"), m.end(), None)
+            for m in _ART_GARBLE_TAIL.finditer(text, last["end"])
+            if m.start("word") not in known
+        ]
+    if not hits:
+        hits = [
+            (m.start("word"), m.end(), None)
+            for m in _NUM_CAPUT.finditer(text, last["end"])
+            if m.start("word") not in known
+            and any(ch in m.group("word") for ch in "º°ª")
+            and not _after_bare_word(text, m.start("word"))
+            and last_number + 1
+            in article_readings(m.group("num"), "º" in m.group("word"))
+        ]
+    hits = [
+        h
+        for h in hits
+        if not any(lo <= h[0] < hi for lo, hi in masked)
+        and text.rfind("\n", last["end"], h[0]) != -1
+        and not _QUOTE_CHAR.search(text[max(0, h[0] - 12) : h[0]])
+        and not _NR.search(text[max(0, h[0] - 12) : h[0]])
+    ]
+    if len(hits) != 1:
+        return None
+    start, end, loose = hits[0]
+    final = _FINAL_SENTENCE.search(text, end, end + 60) or _FINAL_LOOSE.search(
+        text, end, end + 60
+    )
+    if final is None:
+        return None
+    if loose is not None:
+        loose["status"] = "own"
+        loose["number"] = last_number + 1
+        loose["corrected"] = True
+        return loose
+    return {
+        "start": start,
+        "end": end,
+        "raw": text[start:end],
+        "number": last_number + 1,
+        "suffix": None,
+        "status": "own",
+        "corrected": True,
+    }
+
+
+_FORMULA_END = re.compile(
+    r"(?:Lei|Decreto|Resolu\S*|decreta|promulga)\s*[:;.]?\s*$", re.IGNORECASE
+)
+
+
+def _quote_under_amending_host(text: str, articles: list[ArticleRead]) -> None:
+    """Read a leftover marker inside an amending host article as quoted text.
+
+    An article whose own text speaks the vocabulary of an amendment ("passa a vigorar
+    com a seguinte redação", "acrescido") quotes other articles; one the chain could
+    not place, after that vocabulary and before the next own article, is one of them
+    whose quotation marks were lost.
+    """
+    host: ArticleRead | None = None
+    top = max(
+        (a["number"] for a in articles if a["status"] == "own" and a["number"]),
+        default=0,
+    )
+    for art in articles:
+        if art["status"] == "own":
+            host = art
+        elif art["status"] == "unexplained" and host is not None:
+            readings = _article_numbers(text, art["start"])
+            before = text[max(0, art["start"] - 20) : art["start"]]
+            if (
+                readings
+                and (
+                    min(readings) > top
+                    or not (_QUOTE_CHAR.search(before) or _FORMULA_END.search(before))
+                )
+                and _AMEND_CUE.search(text, host["start"], art["start"])
+            ):
+                art["status"] = "quoted"
 
 
 def find_body_end(text: str, last_article_start: int) -> int:
@@ -1215,6 +1693,7 @@ def read_hierarchy(text: str) -> HierarchyReport:
     builder.masked = masked
     all_articles, gap_articles = _fill_article_gaps(text, second["articles"], masked)
 
+    _quote_under_amending_host(text, all_articles)
     own = [a for a in all_articles if a["status"] == "own"]
     own_numbers = {a["number"] for a in own if a["number"] is not None}
     last_article = max(own_numbers, default=0)
