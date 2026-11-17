@@ -200,6 +200,12 @@ _ART_GARBLE_TAIL = re.compile(
     r"(?:[^\w\s]|[\dIlOo/]{1,3}[ºo°ª]?|e)?[ \t]*[\-–—=~.]?[ \t]*)"
     r"(?=(?:Esta|Este|Revogam|Revoga)\b)"
 )
+# A caput whose "Art." was lost altogether: "39 - Os vencimentos" (3º glued to its
+# ordinal), "2º Este Decreto". Only read when its number is the one the chain lacks.
+_NUM_CAPUT = re.compile(
+    r"(?m)^[ \t]*(?P<word>(?P<num>\d{1,3})(?:[ \t]?[ºo°ª]|(?=[ \t]*[\-–—.][ \t]))"
+    r"[ \t]*[\-–—.]?[ \t]*)(?=[A-ZÀ-Ý][a-zà-ý])"
+)
 _FINAL_CLAUSE = re.compile(r"vigo|revog", re.IGNORECASE)
 _ENUM_LEFT = re.compile(r";\s*(?:(?:e|ou)\s*)?$")
 _LEAD = re.compile(r"\s*[.\-–—:]{0,2}\s*")
@@ -609,8 +615,36 @@ def _article_reading(text: str, pos: int) -> int | None:
     return readings[0] if readings else None
 
 
+def _resume_after_quote(
+    text: str, limit: int, body_end: int, host_number: int
+) -> int | None:
+    """Closing mark right before the marker that resumes the host chain.
+
+    Stray guillemets and apostrophes in OCR noise unbalance the mark count, so the
+    block's end is found from the other side: the first article marker after the
+    next own one that follows a closing mark, reads as the host number plus one, and
+    is followed by at most two more markers (the norm's closing articles).
+    """
+    for m in ARTICLE_CANDIDATE.finditer(text, limit, body_end):
+        before = text[: m.start()].rstrip()
+        if not before or not _QUOTE_CHAR.match(before[-1]):
+            continue
+        if not _is_closing(text, len(before) - 1):
+            continue
+        if _article_reading(text, m.start()) != host_number + 1:
+            return None
+        rest = len(list(ARTICLE_CANDIDATE.finditer(text, m.end(), body_end)))
+        return len(before) if rest <= 2 else None
+    return None
+
+
 def _extended_close(
-    text: str, k: int, limit: int, body_end: int, later_starts: Sequence[int]
+    text: str,
+    k: int,
+    limit: int,
+    body_end: int,
+    later_starts: Sequence[int],
+    host_number: int | None = None,
 ) -> int | None:
     """End of a quote block that closes after the next first-pass own article."""
     depth = 1
@@ -625,7 +659,9 @@ def _extended_close(
         elif _is_opening(text, j):
             depth += 1
     if close is None:
-        return None
+        if host_number is None:
+            return None
+        return _resume_after_quote(text, limit, body_end, host_number)
     swallowed = {
         _article_reading(text, s) for s in later_starts if limit <= s < close
     } - {None}
@@ -634,10 +670,21 @@ def _extended_close(
         return None
     if after.start() - close > 400:
         return None
+    resume = _article_reading(text, after.start())
+    # The host's chain resumes right after the block: the first marker after the
+    # closing mark is the host article that follows the one the block hangs from, and
+    # only the norm's closing articles follow it.
+    if (
+        host_number is not None
+        and resume == host_number + 1
+        and resume not in swallowed
+        and len(list(ARTICLE_CANDIDATE.finditer(text, after.end(), body_end))) <= 2
+    ):
+        return close
     # A short run swallowed: a long one is a second run of the host's own articles.
     if len(swallowed) > 6:
         return None
-    return close if _article_reading(text, after.start()) in swallowed else None
+    return close if resume in swallowed else None
 
 
 def find_quoted_blocks(
@@ -705,7 +752,14 @@ def find_quoted_blocks(
             # The block may run past the next "own" article: that article is then a
             # quoted one that took the host's number. Only when the mark closes the
             # block and the first article after it repeats a swallowed number.
-            ext = _extended_close(text, k, limit, body_end, own_starts[idx:])
+            ext = _extended_close(
+                text,
+                k,
+                limit,
+                body_end,
+                own_starts[idx:],
+                _article_reading(text, host_start),
+            )
             if ext is not None:
                 end, closed = ext, True
         if not closed:
@@ -1178,6 +1232,16 @@ def _fill_article_gaps(
         ]
         if not loose and not wild:
             wild = garbled  # only when nothing sharper sits in the gap
+        if not loose and not wild:
+            wild = [
+                m
+                for m in _NUM_CAPUT.finditer(text, a["end"], b["start"])
+                if m.start("word") not in known
+                and not any(lo <= m.start() < hi for lo, hi in masked)
+                and not _after_bare_word(text, m.start("word"))
+                and a["number"] + 1
+                in article_readings(m.group("num"), "º" in m.group("word"))
+            ]
         if len(loose) + len(wild) != 1:
             continue
         if loose:
@@ -1278,6 +1342,18 @@ def _head_article(
     }
 
 
+def _after_bare_word(text: str, pos: int) -> bool:
+    """True when the previous non-blank line is a short debris line ("Art\\.", "t.").
+
+    A number opening a line right after such a line is the number of that lost
+    marker, which `_ART_GARBLE`/`_ART_LONE` own; reading the number line as the
+    article would put the node one line late.
+    """
+    before = text[:pos].rstrip()
+    prev = before[before.rfind("\n") + 1 :].strip()
+    return len(prev) <= 5 and bool(prev)
+
+
 def _opens_line(text: str, pos: int) -> bool:
     """True when only spacing precedes ``pos`` on its line."""
     return not text[text.rfind("\n", 0, pos) + 1 : pos].strip()
@@ -1328,6 +1404,16 @@ def _tail_article(
             (m.start("word"), m.end(), None)
             for m in _ART_GARBLE_TAIL.finditer(text, last["end"])
             if m.start("word") not in known
+        ]
+    if not hits:
+        hits = [
+            (m.start("word"), m.end(), None)
+            for m in _NUM_CAPUT.finditer(text, last["end"])
+            if m.start("word") not in known
+            and any(ch in m.group("word") for ch in "º°ª")
+            and not _after_bare_word(text, m.start("word"))
+            and last_number + 1
+            in article_readings(m.group("num"), "º" in m.group("word"))
         ]
     hits = [
         h

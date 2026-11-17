@@ -22,6 +22,7 @@
     "leizilla_ro_casacivil_decreto-lei_0001-1000/da58f841",
     "leizilla_ro_casacivil_decreto-lei_0001-1000/f0beb8d3",
     "leizilla_ro_casacivil_decreto_0001-1000/2783b58e",
+    "leizilla_ro_casacivil_decreto_0001-1000/df90ea45",
     "leizilla_ro_casacivil_decreto_10001-11000/003be67b",
     "leizilla_ro_casacivil_decreto_10001-11000/00d53871",
     "leizilla_ro_casacivil_decreto_10001-11000/01fd6811",
@@ -109,6 +110,7 @@
     "leizilla_ro_casacivil_decreto_10001-11000/51df73b5",
     "leizilla_ro_casacivil_decreto_10001-11000/549ac0d3",
     "leizilla_ro_casacivil_decreto_10001-11000/54dd7ca3",
+    "leizilla_ro_casacivil_decreto_10001-11000/55446985",
     "leizilla_ro_casacivil_decreto_10001-11000/56220c15",
     "leizilla_ro_casacivil_decreto_10001-11000/563533f3",
     "leizilla_ro_casacivil_decreto_10001-11000/57d9a39a",
@@ -145,6 +147,7 @@
     "leizilla_ro_casacivil_decreto_10001-11000/6e5ba416",
     "leizilla_ro_casacivil_decreto_10001-11000/6f4c6f85",
     "leizilla_ro_casacivil_decreto_10001-11000/6f9dfe51",
+    "leizilla_ro_casacivil_decreto_10001-11000/70beb760",
     "leizilla_ro_casacivil_decreto_10001-11000/70cd9e48",
     "leizilla_ro_casacivil_decreto_10001-11000/7131cd8a",
     "leizilla_ro_casacivil_decreto_10001-11000/71336f9c",
@@ -422,6 +425,7 @@
     "leizilla_ro_casacivil_lc_0001-1000/9b755ba9",
     "leizilla_ro_casacivil_lc_0001-1000/9df7c0a5",
     "leizilla_ro_casacivil_lc_0001-1000/9e191231",
+    "leizilla_ro_casacivil_lc_0001-1000/9e73dcf0",
     "leizilla_ro_casacivil_lc_0001-1000/9ec1386e",
     "leizilla_ro_casacivil_lc_0001-1000/9eda33ef",
     "leizilla_ro_casacivil_lc_0001-1000/a010c996",
@@ -564,6 +568,7 @@
     "leizilla_ro_casacivil_lei_0001-1000/1030d5c2",
     "leizilla_ro_casacivil_lei_0001-1000/10b3595a",
     "leizilla_ro_casacivil_lei_0001-1000/10d1cf99",
+    "leizilla_ro_casacivil_lei_0001-1000/10e794f4",
     "leizilla_ro_casacivil_lei_0001-1000/11020b2d",
     "leizilla_ro_casacivil_lei_0001-1000/11aef79e",
     "leizilla_ro_casacivil_lei_0001-1000/1223bd0b",
@@ -784,6 +789,7 @@
     "leizilla_ro_casacivil_lei_0001-1000/5d4257f5",
     "leizilla_ro_casacivil_lei_0001-1000/5da47779",
     "leizilla_ro_casacivil_lei_0001-1000/5dcad789",
+    "leizilla_ro_casacivil_lei_0001-1000/5e24ca4d",
     "leizilla_ro_casacivil_lei_0001-1000/5e2fc20c",
     "leizilla_ro_casacivil_lei_0001-1000/5e545bca",
     "leizilla_ro_casacivil_lei_0001-1000/5e58404c",
@@ -1856,10 +1862,10 @@
     "leizilla_ro_casacivil_lei_1001-2000/ffccf04f"
   ],
   "counts": {
-    "agree_closed": 1854,
+    "agree_closed": 1860,
     "agree_open": 103,
     "disagree_closed": 1,
-    "disagree_open": 118,
+    "disagree_open": 112,
     "teacher_inconsistent": 10
   },
   "date": "2026-11-17",
@@ -1987,6 +1993,30 @@
       "left_disagree_closed": [],
       "reader_commit": "4fb9fd451289f1216f59254f87ea3158d8d0c23e",
       "reason": null
+    },
+    {
+      "counts": {
+        "agree_closed": 1860,
+        "agree_open": 103,
+        "disagree_closed": 1,
+        "disagree_open": 112,
+        "teacher_inconsistent": 10
+      },
+      "date": "2026-11-17",
+      "entered_agree_closed": [
+        "leizilla_ro_casacivil_decreto_0001-1000/df90ea45",
+        "leizilla_ro_casacivil_decreto_10001-11000/55446985",
+        "leizilla_ro_casacivil_decreto_10001-11000/70beb760",
+        "leizilla_ro_casacivil_lc_0001-1000/9e73dcf0",
+        "leizilla_ro_casacivil_lei_0001-1000/10e794f4",
+        "leizilla_ro_casacivil_lei_0001-1000/5e24ca4d"
+      ],
+      "entered_disagree_closed": [],
+      "forced": false,
+      "left_agree_closed": [],
+      "left_disagree_closed": [],
+      "reader_commit": "c033cf2f20e4a487f7622852ef79585d311cf328",
+      "reason": null
     }
   ],
   "labels": {
@@ -1999,7 +2029,7 @@
     "prompt_version": "teacher-labels-v1",
     "source": "teacher-batch-labels artifact of run 43937274430 (expires 2027-02-14T19:14:38Z)"
   },
-  "reader_commit": "4fb9fd451289f1216f59254f87ea3158d8d0c23e",
-  "reader_last_change": "4fb9fd451289f1216f59254f87ea3158d8d0c23e",
+  "reader_commit": "c033cf2f20e4a487f7622852ef79585d311cf328",
+  "reader_last_change": "c033cf2f20e4a487f7622852ef79585d311cf328",
   "schema_version": 1
 }
