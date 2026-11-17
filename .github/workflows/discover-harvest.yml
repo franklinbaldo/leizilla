@@ -2,11 +2,14 @@ name: Discover & Harvest (manifest-driven)
 
 on:
   schedule:
-    # Os 7 tipos rodam 3 de cada vez (max-parallel: 3 na matrix abaixo; ADR-0016,
-    # adendo 2026-11-16). O histórico: em 2026-07-14 uma rajada de uploads fez o IA
+    # Os 7 tipos rodam 2 de cada vez (max-parallel: 2 na matrix abaixo; ADR-0016,
+    # adendo 2026-11-17 (2)). O histórico: em 2026-07-14 uma rajada de uploads fez o IA
     # recusar tudo ("Please reduce your request rate") e max-parallel: 2 ainda
-    # deixava ~30% das execuções throttled (#141); desde o ADR-0016 o upload é em
-    # lote por item, e o IA limita por item e por conta, não por processo.
+    # deixava ~30% das execuções throttled (#141); o ADR-0016 passou o upload para
+    # lote por item e, em 2026-11-16, subiu para 3 em paralelo. Em 2026-11-17 o IA
+    # passou a recusar também pela ração da CHAVE de acesso (`accesskey_tasks_queued`,
+    # a conta inteira): 3 colheitas + os uploads de dataset dos outros workflows a
+    # estouravam. Voltou a 2 (e um PUT por captura, não dois: o sidecar saiu).
     # O limite de recursos por job também caiu de 500 para 200 pelo mesmo
     # motivo — rajadas menores, throughput semanal total inalterado (o
     # backlog real por tipo/semana fica bem abaixo do limite de qualquer
@@ -34,16 +37,22 @@ on:
     # Atualização 2026-11-16 (ADR-0016, adendo): quatro execuções por dia, a cada
     # 6 h (02:00, 08:00, 14:00 e 20:00 UTC), e a execução INTEIRA precisa caber
     # nesses 6 h. Antes, 7 tipos em série x 4,5 h de colheita = mais de um dia por
-    # execução, e o grupo de concorrência engolia os disparos seguintes. Agora:
-    # 3 tipos em paralelo (lei, lc, decreto na primeira onda), HARVEST_MAX_SECONDS
-    # = 4500 s (75 min) por tipo. Conta por job, pior caso: checkout + uv sync +
-    # cache ~5 min, descoberta ~10 min, colheita 75 min, fim da execução (fetch em
-    # voo, flush, derive; recuo do IA) ~25 min = ~115 min; timeout-minutes: 120.
-    # Pior caso do workflow: 7 jobs em 3 vagas = 3 ondas x 115 min = 345 min
-    # (~5,75 h) < 360 min. Na prática só lei/lc/decreto têm backlog grande; ec,
-    # resolucao, portaria e decreto-lei terminam em minutos e o total fica em
-    # ~3 h. O ritmo por host da fonte é dividido (HARVEST_HOST_INTERVAL_S=3 por
-    # job x 3 jobs = ~1 req/s no total, ADR-0008).
+    # execução, e o grupo de concorrência engolia os disparos seguintes.
+    #
+    # Atualização 2026-11-17 (adendo (2)): 2 tipos em paralelo (lei e lc na primeira
+    # vaga; decreto entra quando uma delas livra), HARVEST_MAX_SECONDS = 2700 s
+    # (45 min) por tipo, timeout-minutes: 85. Conta por job, pior caso: checkout +
+    # uv sync + cache ~5 min, descoberta ~10 min, colheita 45 min, fim da execução
+    # (fetch em voo, flush, derive, resumo; o flush é limitado pelo prazo do job:
+    # `--job-deadline` menos 3 min) ~25 min = 85 min. Pior caso do workflow: 7 jobs em
+    # 2 vagas = ceil(7/2) = 4 jobs em sequência na vaga mais carregada = 4 x 85 =
+    # 340 min (~5,67 h) < 360 min (folga de 20 min). Com 3 vagas eram 3 x 115 = 345.
+    # Na prática só lei/lc/decreto têm backlog grande; ec, resolucao, portaria e
+    # decreto-lei terminam em minutos e o total fica em ~3 h. O ritmo por host da
+    # fonte é dividido (HARVEST_HOST_INTERVAL_S=2 por job x 2 jobs = ~1 req/s no
+    # total, ADR-0008). A colheita por job cai de 75 para 45 min; a vazão somada por
+    # minuto de relógio não muda (o limite é o ritmo por host), mas cada execução
+    # cobre menos tempo de colheita dos três tipos grandes.
     #
     # Disparo do cron durante uma execução em andamento: o grupo de concorrência
     # (abaixo, cancel-in-progress: false) NÃO cancela a execução em curso; a nova
@@ -185,19 +194,21 @@ jobs:
   harvest-parallel:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.tipo == '')
     runs-on: ubuntu-latest
-    # 5 setup + 10 descoberta + 75 colheita (4500 s) + ~25 encerramento = ~115 min.
-    timeout-minutes: 120
+    # 5 setup + 10 descoberta + 45 colheita (2700 s) + ~25 encerramento = ~85 min.
+    # 7 tipos em 2 vagas = 4 jobs em sequência no pior caso: 4 x 85 = 340 min < 360.
+    timeout-minutes: 85
     strategy:
       fail-fast: false
-      # max-parallel: 3 (ADR-0016, adendo 2026-11-16). Cada tipo grava em itens
+      # max-parallel: 2 (ADR-0016, adendo 2026-11-17 (2)). Cada tipo grava em itens
       # PRÓPRIOS do IA (tipo faz parte do identificador do item), então os jobs não
-      # disputam a ração por item (bucket_tasks_queued); o limite de conta
-      # (total_tasks_queued) é a preocupação, e o upload em lote mantém a taxa de
-      # PUTs bem abaixo dele. Se o IA voltar a recusar por conta, volte a 1.
-      # Politeness (ADR-0008): os 3 jobs batem no mesmo host do governo, então cada
-      # um paceia a 3 s por requisição (HARVEST_HOST_INTERVAL_S) — ~1 req/s somado.
-      # Os tipos grandes (lei, lc, decreto) vêm primeiro: são a primeira onda.
-      max-parallel: 3
+      # disputam a ração por item (bucket_tasks_queued); a ração da CHAVE de acesso
+      # (accesskey_tasks_queued, a conta) é compartilhada por TODOS os jobs e workflows
+      # e foi o que estourou em 2026-11-17 com 3 jobs. Com 2 jobs e um PUT por captura
+      # a taxa de PUTs cai a ~1/3. Se o IA voltar a recusar por conta, volte a 1.
+      # Politeness (ADR-0008): os 2 jobs batem no mesmo host do governo, então cada
+      # um paceia a 2 s por requisição (HARVEST_HOST_INTERVAL_S) — ~1 req/s somado.
+      # Os tipos grandes (lei, lc, decreto) vêm primeiro.
+      max-parallel: 2
       matrix:
         tipo: [lei, lc, decreto, ec, resolucao, portaria, decreto-lei]
 
@@ -206,7 +217,7 @@ jobs:
       # Gravado logo no início, antes de descoberta e colheita: a colheita reserva o
       # fim do job para o flush, o derive e o resumo (ADR-0016, adendo 2026-11-17).
       - name: Marca o prazo do job
-        run: echo "JOB_DEADLINE_EPOCH=$(( $(date +%s) + 120 * 60 ))" >> "$GITHUB_ENV"
+        run: echo "JOB_DEADLINE_EPOCH=$(( $(date +%s) + 85 * 60 ))" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
@@ -227,8 +238,8 @@ jobs:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
           # A descoberta bate no mesmo host da colheita: mesmo fator de ritmo
-          # (3 jobs em paralelo), senão as varreduras somam ~3x a taxa do ADR-0008.
-          HARVEST_HOST_INTERVAL_S: "3.0"
+          # (2 jobs em paralelo), senão as varreduras somam ~2x a taxa do ADR-0008.
+          HARVEST_HOST_INTERVAL_S: "2.0"
         run: |
           uv run leizilla discover \
             --ente "${{ inputs.ente || 'ro' }}" \
@@ -242,9 +253,10 @@ jobs:
           # Teto da colheita (s). O tempo efetivo é o menor entre este teto e o que
           # sobra até o prazo do job (--job-deadline, menos 20 min de reserva para
           # flush/derive/resumo): uma descoberta lenta encurta a colheita, não o job.
-          HARVEST_MAX_SECONDS: "4500"
-          # 3 jobs em paralelo no mesmo host: 3 s cada = ~1 req/s no total.
-          HARVEST_HOST_INTERVAL_S: "3.0"
+          # O flush e o derive finais são limitados ao prazo do job menos 3 min.
+          HARVEST_MAX_SECONDS: "2700"
+          # 2 jobs em paralelo no mesmo host: 2 s cada = ~1 req/s no total.
+          HARVEST_HOST_INTERVAL_S: "2.0"
         run: |
           uv run leizilla harvest \
             --ente "${{ inputs.ente || 'ro' }}" \

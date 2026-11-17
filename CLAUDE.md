@@ -154,8 +154,12 @@ data/                # local DuckDB + artifacts (gitignored)
   after the flush that contains the file; `ia-rejected` (any "Uploaded content is
   unacceptable" on a file: spam, syntax error, or other; reason in
   `discovered_resources.motivo`) is terminal and never aborts the run. The harvest stops
-  fetching 20 min before the job's `--job-deadline` (ADR-0016 addendum 2026-11-17). The 7 tipo jobs run 3 in parallel at
-  `HARVEST_HOST_INTERVAL_S=3` each (~1 req/s combined).
+  fetching 20 min before the job's `--job-deadline` (ADR-0016 addendum 2026-11-17),
+  and each flush/derive is capped by that deadline minus 3 min (`flush-timeout`).
+  An account-wide IA throttle (`accesskey_`/`total_tasks_queued`) ends the run at once
+  (`ia-account-throttled`, captures back to pending). The batched harvest writes one
+  PUT per capture (no `_meta.json`; provenance is in `index.csv` columns). The 7 tipo
+  jobs run 2 in parallel at `HARVEST_HOST_INTERVAL_S=2` each (~1 req/s combined).
 - **ADR-0011 — identity-keyed navigable catalog; identity is evidence, not an
   ingestion gate.** The raw IA item is a navigable range bucket per `(ente, fonte,
   tipo, número)` with content-addressed files inside. **Extracting `(tipo, número)`
