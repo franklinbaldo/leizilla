@@ -976,6 +976,23 @@ def test_reflow_variant_has_its_own_identity_and_the_base_expected_marks() -> No
     assert ceiling > tm.mark_max_tokens([tm.MarkSlot(norm=base, chunk=norm.chunks[0])])
 
 
+def test_reflow_budget_shares_the_expected_marks_over_non_blank_lines() -> None:
+    # OCR texts put a blank line between text lines; the stress run (2026-11-17)
+    # divided by every line, blanks included, and granted about half the marks.
+    base = _long_text(30).replace("\n", "\n\n")
+    record = _record(6, base)
+    variant, meta = tm.reflow_record(record)
+    plan = tm.build_mark_plan([variant], seed="s", reflows={variant.ref.key: meta})
+    (norm,) = plan.norms
+    nonblank = sum(1 for line in norm.lines if line.strip())
+    assert len(norm.lines) > nonblank  # the blanks are still there
+    (slot,) = plan.requests[0].slots
+    assert len(slot.chunk.owned) == nonblank  # unchunked: the whole norm
+    assert tm._slot_marks(slot) == int(norm.expected_marks * 1.5)
+    # a part gets its proportional share of the non-blank lines, not of all lines
+    assert tm._share_marks(norm, 2) == norm.expected_marks * 2 // nonblank
+
+
 def test_ids_file_with_the_reflow_suffix_selects_the_variant(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
