@@ -526,6 +526,8 @@ class TextoRecord:
     text: str
     text_sha256: str
     ocr_motor: Optional[str]
+    # Row id of the text layer (``texto_id``); the review mode selects by it.
+    texto_id: Optional[str] = None
 
 
 @dataclass
@@ -574,8 +576,8 @@ def load_textos(path: Path) -> TextosCorpus:
     try:
         rows = con.execute(
             "select ia_item, fonte, tipo, numero, texto_url, pdf_url, sha256_texto, "
-            "ocr_motor, texto from read_parquet(?) where texto is not null "
-            "order by ia_item, tipo, numero, texto_id",
+            "ocr_motor, texto, texto_id from read_parquet(?) "
+            "where texto is not null order by ia_item, tipo, numero, texto_id",
             [str(path)],
         ).fetchall()
     finally:
@@ -586,7 +588,18 @@ def load_textos(path: Path) -> TextosCorpus:
     def skip(reason: str) -> None:
         corpus.skipped[reason] = corpus.skipped.get(reason, 0) + 1
 
-    for item, fonte, tipo, numero, texto_url, pdf_url, declared, motor, text in rows:
+    for (
+        item,
+        fonte,
+        tipo,
+        numero,
+        texto_url,
+        pdf_url,
+        declared,
+        motor,
+        text,
+        texto_id,
+    ) in rows:
         if not (item and tipo and numero is not None):
             skip("incomplete_row")
             continue
@@ -623,6 +636,7 @@ def load_textos(path: Path) -> TextosCorpus:
                 text=str(text),
                 text_sha256=sha,
                 ocr_motor=str(motor) if motor is not None else None,
+                texto_id=str(texto_id) if texto_id is not None else None,
             )
         )
     return corpus
@@ -2058,11 +2072,115 @@ _EXCLUDE_LABELLED = typer.Option(
     "Diretório local de rótulos ou item do IA com labels.tar.gz.",
 )
 _LABEL_SET = typer.Option(
-    DEFAULT_LABEL_SET,
+    None,
     "--label-set",
-    help="Nome do conjunto de rótulos (main = conjunto de ajuste; outro nome = "
-    "conjunto separado, ex. holdout-2026-11).",
+    help="Nome do conjunto de rótulos (main = conjunto de ajuste, o padrão; outro "
+    "nome = conjunto separado, ex. holdout-2026-11). No modo review o padrão é "
+    "'review' e 'main' é recusado.",
 )
+_MODE = typer.Option(
+    "label",
+    "--mode",
+    help="label: o professor rotula cada linha (padrão). review: o professor "
+    "audita a leitura do leitor por regras e devolve só os ajustes.",
+)
+_SELECT = typer.Option(
+    None,
+    "--select",
+    help="Só modo review: all (padrão) | closed (o leitor fecha) | open | ids-file "
+    "(com --ids-file).",
+)
+_IDS_FILE = typer.Option(
+    None,
+    "--ids-file",
+    help="Só modo review, com --select ids-file: um texto_id por linha.",
+)
+_CANARY_SHARE = typer.Option(
+    None,
+    "--canary-share",
+    help="Só modo review: fração de canários (cópias com erro plantado nas "
+    f"etiquetas), padrão {0.15}.",
+)
+_CANARY_IDS_FILE = typer.Option(
+    None,
+    "--canary-ids-file",
+    help="Só modo review: texto_ids (um por linha) que viram canários, no lugar "
+    "de --canary-share.",
+)
+_REVIEW_BUDGET = typer.Option(
+    None,
+    "--review-budget-chars",
+    help="Só modo review: orçamento de caracteres de texto por requisição "
+    "(padrão 24000).",
+)
+_REVIEW_MAX_NORMS = typer.Option(
+    None,
+    "--review-max-norms",
+    help="Só modo review: máx. de normas por requisição (8).",
+)
+
+
+def _resolve_mode(
+    mode: str,
+    *,
+    select: Optional[str],
+    ids_file: Optional[Path],
+    canary_share: Optional[float],
+    canary_ids_file: Optional[Path],
+    budget: Optional[int],
+    max_norms: Optional[int],
+    label_set: Optional[str],
+) -> str:
+    """Validate ``--mode`` and the review-only options; return the label set.
+
+    The review-only options are refused in label mode instead of being ignored,
+    so a label run can never silently be a different run.
+    """
+    from leizilla import teacher_review
+
+    if mode not in teacher_review.MODES:
+        raise TeacherBatchError(
+            f"--mode must be one of {', '.join(teacher_review.MODES)}"
+        )
+    if mode == "label":
+        given = {
+            "--select": select,
+            "--ids-file": ids_file,
+            "--canary-share": canary_share,
+            "--canary-ids-file": canary_ids_file,
+            "--review-budget-chars": budget,
+            "--review-max-norms": max_norms,
+        }
+        used = [name for name, value in given.items() if value is not None]
+        if used:
+            raise TeacherBatchError(f"{', '.join(used)} only apply with --mode review")
+        return check_label_set(label_set or DEFAULT_LABEL_SET)
+    return teacher_review.check_review_label_set(label_set)
+
+
+def _review_kwargs(
+    *,
+    select: Optional[str],
+    ids_file: Optional[Path],
+    canary_share: Optional[float],
+    canary_ids_file: Optional[Path],
+    budget: Optional[int],
+    max_norms: Optional[int],
+) -> Dict[str, Any]:
+    from leizilla import teacher_review
+
+    return {
+        "select": select or ("ids-file" if ids_file else "all"),
+        "ids_file": ids_file,
+        "canary_share": (
+            teacher_review.DEFAULT_CANARY_SHARE
+            if canary_share is None
+            else canary_share
+        ),
+        "canary_ids_file": canary_ids_file,
+        "budget_chars": budget or teacher_review.DEFAULT_BUDGET_CHARS,
+        "max_norms": max_norms or teacher_review.DEFAULT_MAX_NORMS,
+    }
 
 
 def _check_effort(effort: str) -> None:
@@ -2097,13 +2215,58 @@ def plan(
     text_source: str = _TEXT_SOURCE,
     textos: Optional[Path] = _TEXTOS,
     exclude_labelled: Optional[str] = _EXCLUDE_LABELLED,
-    label_set: str = _LABEL_SET,
+    label_set: Optional[str] = _LABEL_SET,
+    mode: str = _MODE,
+    select: Optional[str] = _SELECT,
+    ids_file: Optional[Path] = _IDS_FILE,
+    canary_share: Optional[float] = _CANARY_SHARE,
+    canary_ids_file: Optional[Path] = _CANARY_IDS_FILE,
+    review_budget_chars: Optional[int] = _REVIEW_BUDGET,
+    review_max_norms: Optional[int] = _REVIEW_MAX_NORMS,
 ) -> None:
     """Enumera as entradas e estima o custo por modelo. Não envia nada pago."""
     _check_effort(effort)
     try:
         specs = [resolve_model(model)] if model else list(MODELS.values())
-        check_label_set(label_set)
+        label_set = _resolve_mode(
+            mode,
+            select=select,
+            ids_file=ids_file,
+            canary_share=canary_share,
+            canary_ids_file=canary_ids_file,
+            budget=review_budget_chars,
+            max_norms=review_max_norms,
+            label_set=label_set,
+        )
+        if mode == "review":
+            from leizilla import teacher_review
+
+            teacher_review.run_plan(
+                specs=specs,
+                effort=effort,
+                prompt_cache=prompt_cache,
+                count_sample=count_sample,
+                out=out,
+                ente=ente,
+                tipo=tipo,
+                limit=limit,
+                shuffle_seed=shuffle_seed,
+                text_source=text_source,
+                textos=textos,
+                exclude_labelled=exclude_labelled,
+                label_set=label_set,
+                max_chars=max_chars,
+                max_tokens_cap=max_tokens_cap,
+                **_review_kwargs(
+                    select=select,
+                    ids_file=ids_file,
+                    canary_share=canary_share,
+                    canary_ids_file=canary_ids_file,
+                    budget=review_budget_chars,
+                    max_norms=review_max_norms,
+                ),
+            )
+            return
         built = _prepare(
             ente=ente,
             fonte=fonte,
@@ -2208,18 +2371,71 @@ def submit(
     text_source: str = _TEXT_SOURCE,
     textos: Optional[Path] = _TEXTOS,
     exclude_labelled: Optional[str] = _EXCLUDE_LABELLED,
-    label_set: str = _LABEL_SET,
+    label_set: Optional[str] = _LABEL_SET,
+    mode: str = _MODE,
+    select: Optional[str] = _SELECT,
+    ids_file: Optional[Path] = _IDS_FILE,
+    canary_share: Optional[float] = _CANARY_SHARE,
+    canary_ids_file: Optional[Path] = _CANARY_IDS_FILE,
+    review_budget_chars: Optional[int] = _REVIEW_BUDGET,
+    review_max_norms: Optional[int] = _REVIEW_MAX_NORMS,
 ) -> None:
     """Cria o(s) batch(es) depois da trava de custo e grava o manifesto."""
     _check_effort(effort)
     try:
         spec = resolve_model(model)
-        check_label_set(label_set)
+        label_set = _resolve_mode(
+            mode,
+            select=select,
+            ids_file=ids_file,
+            canary_share=canary_share,
+            canary_ids_file=canary_ids_file,
+            budget=review_budget_chars,
+            max_norms=review_max_norms,
+            label_set=label_set,
+        )
         if manifest_path.exists():
             raise TeacherBatchError(
                 f"{manifest_path} already exists: a submit may already have "
                 "created (billed) batches. Collect it or choose another path."
             )
+        if mode == "review":
+            from leizilla import teacher_review
+
+            if retry_failures is not None:
+                raise TeacherBatchError(
+                    "--retry-failures is not supported in review mode"
+                )
+            review_manifest = teacher_review.run_submit(
+                spec=spec,
+                manifest_path=manifest_path,
+                max_usd=max_usd,
+                guard=guard,
+                effort=effort,
+                prompt_cache=prompt_cache,
+                ente=ente,
+                tipo=tipo,
+                limit=limit,
+                shuffle_seed=shuffle_seed,
+                text_source=text_source,
+                textos=textos,
+                exclude_labelled=exclude_labelled,
+                label_set=label_set,
+                max_chars=max_chars,
+                max_tokens_cap=max_tokens_cap,
+                **_review_kwargs(
+                    select=select,
+                    ids_file=ids_file,
+                    canary_share=canary_share,
+                    canary_ids_file=canary_ids_file,
+                    budget=review_budget_chars,
+                    max_norms=review_max_norms,
+                ),
+            )
+            for batch in review_manifest["batches"]:
+                typer.echo(f"batch {batch['id']}: {batch['request_count']} requests")
+            typer.echo(f"manifest: {manifest_path}")
+            return
         built = _prepare(
             ente=ente,
             fonte=fonte,
@@ -2323,6 +2539,19 @@ def collect(
         if not ended:
             typer.echo("batches still processing — run collect again later", err=True)
             raise typer.Exit(3)
+        if manifest.get("mode") == "review":
+            from leizilla import teacher_review
+
+            code = teacher_review.finish_collect(
+                client,
+                manifest,
+                out_dir,
+                upload_ia=upload_ia,
+                allow_failures=allow_failures,
+            )
+            if code:
+                raise typer.Exit(code)
+            return
         summary = collect_results(client, manifest, out_dir)
     except TeacherBatchError as exc:
         typer.echo(str(exc), err=True)
