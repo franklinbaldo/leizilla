@@ -31,10 +31,11 @@ import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional
 
 from leizilla import publisher
 from leizilla.article_sequence import read_articles
+from leizilla.hierarchy_sequence import read_hierarchy
 from leizilla.ia_utils import download_url
 
 logger = logging.getLogger(__name__)
@@ -261,6 +262,43 @@ TEXT_LAYER_CONVERSION = "pdf-to-hocr (camada de texto do PDF, sem OCR)"
 #: continua apontando para o ``_djvu.txt`` original.
 REOCR_MOTOR = "kreuzberg+paddleocr (re-OCR direcionado, ADR-0019)"
 
+#: Filas do re-OCR (ADR-0019): ``nao-fecha`` (há texto do IA que o leitor não fecha)
+#: e ``sem-texto`` (PDF preservado sem texto do IA). Linhas de ``reocr.parquet``
+#: anteriores à coluna ``fila`` são ``nao-fecha``.
+FILA_NAO_FECHA = "nao-fecha"
+FILA_SEM_TEXTO = "sem-texto"
+
+FONTE_IA = "ia"
+FONTE_PROPRIA = "propria"
+
+
+def read_closure(text: str) -> tuple[bool, int]:
+    """``(nível dos artigos fecha, nº de artigos próprios)`` segundo o leitor."""
+    report = read_hierarchy(text)
+    own = sum(
+        1 for n in report["nodes"] if n["kind"] == "artigo" and n["status"] == "own"
+    )
+    return bool(report["levels"]["artigo"]["closes"]), own
+
+
+def choose_text_source(ia_text: str, own_text: str) -> str:
+    """Qual texto vale quando uma norma tem o do IA **e** um OCR próprio ``sem-texto``.
+
+    O OCR próprio entrou porque o IA não tinha texto; agora tem. O do IA vence,
+    salvo se o nosso fecha o nível dos artigos e o do IA não (ADR-0019, fila
+    ``sem-texto``). Quatro combinações (IA fecha, nosso fecha):
+
+    - (sim, sim) → IA; (sim, não) → IA; (não, não) → IA;
+    - (não, sim) → nosso.
+
+    Devolve ``FONTE_IA`` ou ``FONTE_PROPRIA``. Determinístico, sem LLM.
+    """
+    ia_closes, _ = read_closure(ia_text)
+    if ia_closes:
+        return FONTE_IA
+    own_closes, _ = read_closure(own_text)
+    return FONTE_PROPRIA if own_closes else FONTE_IA
+
 
 def _converted_text_layer(pdf_entry: dict[str, Any]) -> Optional[str]:
     """``TEXT_LAYER_CONVERSION`` se o PDF de origem é um "Text PDF" no IA."""
@@ -293,6 +331,9 @@ class BuildStats:
     mantidos: int = 0
     #: Linhas cujo texto foi trocado por um re-OCR aceito (ADR-0019).
     reocr_aplicados: int = 0
+    #: Linhas criadas só com o OCR próprio (fila ``sem-texto``): o IA ainda não
+    #: tem ``_djvu.txt`` da norma.
+    reocr_sem_texto: int = 0
     truncated: bool = False
     failures: list[str] = field(default_factory=list)
 
@@ -301,24 +342,34 @@ class BuildStats:
         return not self.failures and not self.truncated
 
 
-def collect_fonte(
+def _iter_identidades(
     ente: str,
     fonte: str,
     *,
     stats: BuildStats,
-    sleep_s: float = DEFAULT_SLEEP_S,
-    limit: Optional[int] = None,
-    previous: Optional[dict[str, dict[str, Any]]] = None,
     fetch: Optional[Fetcher] = None,
-) -> list[dict[str, Any]]:
-    """Linhas de ``textos`` de uma fonte. Sequencial, com pausa entre downloads."""
-    fetch = fetch or http_get
-    rows: list[dict[str, Any]] = []
+) -> Iterator[
+    tuple[
+        str,
+        str,
+        int,
+        list[dict[str, str]],
+        dict[str, dict[str, Any]],
+    ]
+]:
+    """Enumeração das normas preservadas de uma fonte (compartilhada).
+
+    Itens de range por prefixo → ``index.csv`` → arquivos do item. Produz
+    ``(item_id, tipo, numero, capturas, arquivos)`` por identidade, ordenado, e
+    registra falhas e contadores em ``stats``. Quem consome decide o que fazer com
+    cada identidade (``collect_fonte``: linhas de ``textos``; ``collect_sem_texto``:
+    PDFs sem texto do IA).
+    """
     prefix = f"leizilla_{ente.lower()}_{fonte.lower()}_"
     item_ids = publisher.scrape_identifiers(prefix)
     if item_ids is None:
         stats.failures.append(f"{fonte}: falha ao listar itens ({prefix}*)")
-        return rows
+        return
 
     for item_id in sorted(item_ids):
         if item_id.endswith(_UNIDENTIFIED_SUFFIX):
@@ -337,78 +388,205 @@ def collect_fonte(
         if files is None:
             stats.failures.append(f"{item_id}: metadata indisponível")
             continue
-
         for (tipo, numero), candidates in sorted(captures.items()):
-            if limit is not None and len(rows) >= limit:
-                stats.truncated = True
-                return rows
-            chosen = _first_with_text(candidates, files)
-            if chosen is None:
-                # S2 sem S3 agora. Se a norma já esteve legível e os bytes de
-                # origem são os mesmos, o texto continua valendo: o IA apaga o
-                # ``_djvu.txt`` enquanto refaz o derive de um arquivo reenviado
-                # (achado de 2026-11-15: a Lei 1738 sumiu de um release assim).
-                kept = _keep_previous(
-                    (previous or {}).get(texto_id(ente, fonte, tipo, numero)),
-                    candidates,
-                )
-                if kept is not None:
-                    rows.append(kept)
-                    stats.mantidos += 1
-                continue
-            capture, texto_name = chosen
-            stats.com_texto += 1
-            entry = files[texto_name]
-            sha1_ia = str(entry.get("sha1") or "") or None
+            yield item_id, tipo, numero, candidates, files
+
+
+def _pdf_name(
+    capture: dict[str, str], files: dict[str, dict[str, Any]]
+) -> Optional[str]:
+    """Nome do PDF da captura dentro do item (``…{uuid5}.pdf``), se está no item."""
+    suffix = f"{capture['uuid5']}.pdf"
+    names = sorted(n for n in files if n.endswith(suffix) and "/" not in n)
+    return names[0] if names else None
+
+
+def collect_fonte(
+    ente: str,
+    fonte: str,
+    *,
+    stats: BuildStats,
+    sleep_s: float = DEFAULT_SLEEP_S,
+    limit: Optional[int] = None,
+    previous: Optional[dict[str, dict[str, Any]]] = None,
+    fetch: Optional[Fetcher] = None,
+    reocr: Optional[dict[str, dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
+    """Linhas de ``textos`` de uma fonte. Sequencial, com pausa entre downloads."""
+    fetch = fetch or http_get
+    rows: list[dict[str, Any]] = []
+    for item_id, tipo, numero, candidates, files in _iter_identidades(
+        ente, fonte, stats=stats, fetch=fetch
+    ):
+        if limit is not None and len(rows) >= limit:
+            stats.truncated = True
+            return rows
+        chosen = _first_with_text(candidates, files)
+        if chosen is None:
+            # S2 sem S3 agora. Se a norma já esteve legível e os bytes de
+            # origem são os mesmos, o texto continua valendo: o IA apaga o
+            # ``_djvu.txt`` enquanto refaz o derive de um arquivo reenviado
+            # (achado de 2026-11-15: a Lei 1738 sumiu de um release assim).
             tid = texto_id(ente, fonte, tipo, numero)
-
-            old = (previous or {}).get(tid)
-            if (
-                old is not None
-                and sha1_ia is not None
-                and old.get("sha1_texto_ia") == sha1_ia
-                and old.get("sha256_fonte") == capture.get("sha256")
-                and old.get("texto")
-            ):
-                rows.append(refresh_anchors(old))
-                stats.reaproveitados += 1
-                continue
-
-            text_bytes = fetch(download_url(item_id, texto_name))
-            time.sleep(sleep_s)
-            if text_bytes is None:
-                stats.failures.append(f"{item_id}/{texto_name}: download falhou")
-                continue
-            if sha1_ia and hashlib.sha1(text_bytes).hexdigest() != sha1_ia:
-                stats.failures.append(f"{item_id}/{texto_name}: sha1 diverge do IA")
-                continue
-            if not text_bytes.strip():
-                continue  # OCR vazio não é texto legível
-            stats.baixados += 1
-            stem = texto_name[: -len(_DJVU_SUFFIX)]
-            ocr = files.get(f"{stem}{_CHOCR_SUFFIX}", {})
-            rows.append(
-                build_row(
-                    ente=ente,
-                    fonte=fonte,
-                    tipo=tipo,
-                    numero=numero,
-                    rendicao=capture.get("rendicao") or "",
-                    sha256_fonte=capture.get("sha256") or "",
-                    capturado_em=capture.get("captured_at") or "",
-                    ia_item=item_id,
-                    pdf_name=f"{stem}.pdf",
-                    texto_name=texto_name,
-                    text_bytes=text_bytes,
-                    ocr_motor=ocr.get("ocr")
-                    or _converted_text_layer(files.get(f"{stem}.pdf", {})),
-                    ocr_modulo_versao=ocr.get("ocr_module_version"),
-                    ocr_parametros=ocr.get("ocr_parameters"),
-                    ocr_derivado_em=_mtime_iso(entry),
-                    sha1_texto_ia=sha1_ia,
-                )
+            kept = _keep_previous((previous or {}).get(tid), candidates)
+            own = _own_row(
+                ente, fonte, tipo, numero, item_id, candidates, files, (reocr or {})
             )
+            if own is not None and (
+                kept is None or kept.get("ocr_motor") == REOCR_MOTOR
+            ):
+                # Fila ``sem-texto`` (ADR-0019): o IA ainda não tem o texto, o
+                # nosso OCR tem. Se o que se manteria é um texto do IA do release
+                # anterior, ele fica e o overlay decide.
+                rows.append(own)
+                stats.reocr_sem_texto += 1
+            elif kept is not None:
+                rows.append(kept)
+                stats.mantidos += 1
+            continue
+        capture, texto_name = chosen
+        stats.com_texto += 1
+        entry = files[texto_name]
+        sha1_ia = str(entry.get("sha1") or "") or None
+        tid = texto_id(ente, fonte, tipo, numero)
+
+        old = (previous or {}).get(tid)
+        if (
+            old is not None
+            and sha1_ia is not None
+            and old.get("sha1_texto_ia") == sha1_ia
+            and old.get("sha256_fonte") == capture.get("sha256")
+            and old.get("texto")
+        ):
+            rows.append(refresh_anchors(old))
+            stats.reaproveitados += 1
+            continue
+
+        text_bytes = fetch(download_url(item_id, texto_name))
+        time.sleep(sleep_s)
+        if text_bytes is None:
+            stats.failures.append(f"{item_id}/{texto_name}: download falhou")
+            continue
+        if sha1_ia and hashlib.sha1(text_bytes).hexdigest() != sha1_ia:
+            stats.failures.append(f"{item_id}/{texto_name}: sha1 diverge do IA")
+            continue
+        if not text_bytes.strip():
+            continue  # OCR vazio não é texto legível
+        stats.baixados += 1
+        stem = texto_name[: -len(_DJVU_SUFFIX)]
+        ocr = files.get(f"{stem}{_CHOCR_SUFFIX}", {})
+        rows.append(
+            build_row(
+                ente=ente,
+                fonte=fonte,
+                tipo=tipo,
+                numero=numero,
+                rendicao=capture.get("rendicao") or "",
+                sha256_fonte=capture.get("sha256") or "",
+                capturado_em=capture.get("captured_at") or "",
+                ia_item=item_id,
+                pdf_name=f"{stem}.pdf",
+                texto_name=texto_name,
+                text_bytes=text_bytes,
+                ocr_motor=ocr.get("ocr")
+                or _converted_text_layer(files.get(f"{stem}.pdf", {})),
+                ocr_modulo_versao=ocr.get("ocr_module_version"),
+                ocr_parametros=ocr.get("ocr_parameters"),
+                ocr_derivado_em=_mtime_iso(entry),
+                sha1_texto_ia=sha1_ia,
+            )
+        )
     return rows
+
+
+def _own_row(
+    ente: str,
+    fonte: str,
+    tipo: str,
+    numero: int,
+    item_id: str,
+    candidates: list[dict[str, str]],
+    files: dict[str, dict[str, Any]],
+    accepted: dict[str, dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    """Linha de ``textos`` só com o OCR próprio aceito (fila ``sem-texto``).
+
+    Vale se há um re-OCR aceito da fila ``sem-texto`` cujo ``sha256_fonte`` é o de
+    uma captura da norma que está no item. ``texto_url`` e ``sha1_texto_ia`` ficam
+    vazios: não há ``_djvu.txt`` do IA. Rendição e data de captura vêm do
+    ``index.csv``, como nas linhas do IA.
+    """
+    hit = accepted.get(texto_id(ente, fonte, tipo, numero))
+    if hit is None or hit.get("fila") != FILA_SEM_TEXTO or not hit.get("texto"):
+        return None
+    capture = next(
+        (c for c in candidates if c.get("sha256") == hit.get("sha256_fonte")), None
+    )
+    pdf_name = _pdf_name(capture, files) if capture is not None else None
+    if capture is None or pdf_name is None:
+        return None
+    row = build_row(
+        ente=ente,
+        fonte=fonte,
+        tipo=tipo,
+        numero=numero,
+        rendicao=capture.get("rendicao") or "",
+        sha256_fonte=capture.get("sha256") or "",
+        capturado_em=capture.get("captured_at") or "",
+        ia_item=item_id,
+        pdf_name=pdf_name,
+        texto_name="",
+        text_bytes=str(hit["texto"]).encode("utf-8"),
+    )
+    _set_own_text(row, hit)
+    row["texto_url"] = None
+    return row
+
+
+def collect_sem_texto(
+    ente: str,
+    fonte: str,
+    *,
+    stats: BuildStats,
+    com_texto: set[str],
+    fetch: Optional[Fetcher] = None,
+) -> list[dict[str, Any]]:
+    """PDFs preservados sem texto do IA e fora de ``textos`` (fila ``sem-texto``).
+
+    Mesma enumeração de ``collect_fonte``. Uma norma entra se **nenhuma** captura
+    tem ``_djvu.txt`` no item agora e seu ``texto_id`` não está em ``com_texto``
+    (os ``texto_id`` com texto no ``textos`` publicado — o texto "mantido" de um
+    derive em refação conta). A captura escolhida é a mais recente cujo PDF está
+    no item. Cada item: identidade, ``ia_item``, ``pdf_url``, ``sha256_fonte``,
+    ``capturado_em``, ``rendicao``.
+    """
+    out: list[dict[str, Any]] = []
+    for item_id, tipo, numero, candidates, files in _iter_identidades(
+        ente, fonte, stats=stats, fetch=fetch
+    ):
+        tid = texto_id(ente, fonte, tipo, numero)
+        if tid in com_texto or _first_with_text(candidates, files) is not None:
+            continue
+        for capture in candidates:
+            pdf_name = _pdf_name(capture, files)
+            if pdf_name is None or not capture.get("sha256"):
+                continue
+            out.append(
+                {
+                    "texto_id": tid,
+                    "ente": ente.lower(),
+                    "fonte": fonte.lower(),
+                    "tipo": tipo,
+                    "numero": numero,
+                    "ia_item": item_id,
+                    "pdf_url": download_url(item_id, pdf_name),
+                    "sha256_fonte": capture["sha256"],
+                    "capturado_em": capture.get("captured_at") or "",
+                    "rendicao": capture.get("rendicao") or "",
+                }
+            )
+            break
+    return out
 
 
 def _first_with_text(
@@ -439,6 +617,32 @@ def _keep_previous(
     return refresh_anchors(old)
 
 
+def _set_own_text(row: dict[str, Any], hit: dict[str, Any]) -> None:
+    """Põe em ``row`` o texto de um re-OCR aceito e tudo o que deriva dele.
+
+    Identidade, elo com o PDF e ``texto_url`` não mudam. ``ocr_motor`` /
+    ``ocr_modulo_versao`` / ``ocr_parametros`` / ``ocr_derivado_em`` dizem de onde o
+    texto veio; ``sha1_texto_ia`` fica vazio (o texto não é o do IA).
+    """
+    text = str(hit["texto"])
+    anchors, closes, last = article_anchors(text)
+    row.update(
+        ocr_motor=REOCR_MOTOR,
+        ocr_modulo_versao=hit.get("kreuzberg_version"),
+        ocr_parametros=hit.get("parametros"),
+        ocr_derivado_em=hit.get("tentado_em"),
+        sha1_texto_ia=None,
+        sha256_texto=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        num_caracteres=len(text),
+        artigos_fecham=closes,
+        artigos_total=len(anchors),
+        artigos_ultimo=last,
+        ancoras=json.dumps(anchors, ensure_ascii=False, separators=(",", ":")),
+        trecho=make_trecho(text),
+        texto=text,
+    )
+
+
 def apply_reocr_overlay(
     rows: list[dict[str, Any]], accepted: dict[str, dict[str, Any]]
 ) -> int:
@@ -449,29 +653,27 @@ def apply_reocr_overlay(
     do IA de novo. O que muda é o texto e o que deriva dele; a identidade, o elo
     com o PDF e ``texto_url`` (o ``_djvu.txt`` original) ficam. Devolve quantas
     linhas foram trocadas.
+
+    - Fila ``nao-fecha``: o texto aceito já passou no portão contra o do IA e
+      substitui o dele.
+    - Fila ``sem-texto``: o OCR próprio foi aceito quando o IA não tinha texto; se
+      o IA já tem, ``choose_text_source`` decide (o do IA, salvo se só o nosso
+      fecha). Linha que já é o OCR próprio (mesmo ``sha256_texto``) não conta.
     """
     applied = 0
     for row in rows:
         hit = accepted.get(str(row["texto_id"]))
         if hit is None or hit.get("sha256_fonte") != row.get("sha256_fonte"):
             continue
-        text = str(hit["texto"])
-        anchors, closes, last = article_anchors(text)
-        row.update(
-            ocr_motor=REOCR_MOTOR,
-            ocr_modulo_versao=hit.get("kreuzberg_version"),
-            ocr_parametros=hit.get("parametros"),
-            ocr_derivado_em=hit.get("tentado_em"),
-            sha1_texto_ia=None,
-            sha256_texto=hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            num_caracteres=len(text),
-            artigos_fecham=closes,
-            artigos_total=len(anchors),
-            artigos_ultimo=last,
-            ancoras=json.dumps(anchors, ensure_ascii=False, separators=(",", ":")),
-            trecho=make_trecho(text),
-            texto=text,
-        )
+        if row.get("ocr_motor") == REOCR_MOTOR and (
+            row.get("sha256_texto") == hit.get("sha256_texto")
+        ):
+            continue  # já é este texto (linha criada de ``sem-texto``)
+        if hit.get("fila") == FILA_SEM_TEXTO and (
+            choose_text_source(str(row["texto"]), str(hit["texto"])) == FONTE_IA
+        ):
+            continue
+        _set_own_text(row, hit)
         applied += 1
     return applied
 
@@ -489,8 +691,9 @@ def build_textos(
     """Constrói as linhas de ``textos`` de um ente (todas as fontes pedidas).
 
     ``reocr`` (opcional) são os re-OCRs aceitos (``reocr.load_accepted``): quando há,
-    o texto aceito de uma norma substitui o do IA. Sem ele, o comportamento é o de
-    sempre. Uma linha com texto sobreposto não é reaproveitada de ``previous``
+    o texto aceito de uma norma da fila ``nao-fecha`` substitui o do IA; o da fila
+    ``sem-texto`` vira uma linha nova se o IA ainda não tem texto da norma e, se já
+    tem, ``choose_text_source`` decide. Sem ele, o comportamento é o de sempre. Uma linha com texto sobreposto não é reaproveitada de ``previous``
     (seu ``sha1_texto_ia`` é vazio): o texto do IA é baixado de novo e a
     sobreposição reaplicada, o que também desfaz uma sobreposição que deixou de valer.
     """
@@ -507,6 +710,7 @@ def build_textos(
                 limit=remaining,
                 previous=previous,
                 fetch=fetch,
+                reocr=reocr,
             )
         )
     if reocr:

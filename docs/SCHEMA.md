@@ -497,11 +497,11 @@ Contrato em código: `leizilla.textlayer.TEXTOS_SCHEMA`.
 | `capturado_em` | VARCHAR | ISO-8601 da captura do arquivo de origem |
 | `ia_item` | VARCHAR | item de range no IA que preserva o arquivo |
 | `pdf_url` | VARCHAR | URL do PDF preservado no IA |
-| `texto_url` | VARCHAR | URL do `_djvu.txt` de onde o texto veio |
-| `ocr_motor` | VARCHAR | motor e versão do OCR declarados pelo IA (ex. `tesseract 5.3.0-6-g76ae`); NULL se o IA não declarar |
+| `texto_url` | VARCHAR | URL do `_djvu.txt` de onde o texto veio; **NULL** quando a linha só tem o OCR próprio (re-OCR da fila `sem-texto`, §3.5.1) e o IA ainda não derivou o PDF |
+| `ocr_motor` | VARCHAR | motor e versão do OCR declarados pelo IA (ex. `tesseract 5.3.0-6-g76ae`); NULL se o IA não declarar. `kreuzberg+paddleocr (re-OCR direcionado, ADR-0019)` quando o texto é o do re-OCR próprio |
 | `ocr_modulo_versao`, `ocr_parametros` | VARCHAR | versão do módulo de OCR do IA e parâmetros |
 | `ocr_derivado_em` | VARCHAR | ISO-8601 (UTC) da derivação do `_djvu.txt` |
-| `sha1_texto_ia` | VARCHAR | SHA-1 que o IA declara para o `_djvu.txt`, conferido no download |
+| `sha1_texto_ia` | VARCHAR | SHA-1 que o IA declara para o `_djvu.txt`, conferido no download; NULL quando o texto é o do OCR próprio (ADR-0019) |
 | `sha256_texto` | VARCHAR | SHA-256 dos bytes do `_djvu.txt` baixado |
 | `num_caracteres` | INTEGER | tamanho de `texto` em code points |
 | `artigos_fecham` | BOOLEAN | derivado: a sequência de artigos fecha (1..N completa, nada sem explicação) |
@@ -516,6 +516,8 @@ Regras:
   recalculado a cada construção por `leizilla.article_sequence.read_articles`; consumidores
   só devem usar `ancoras` como navegação quando `artigos_fecham` é verdadeiro.
 - Havendo várias capturas da mesma norma, entra a mais recente que já tem `_djvu.txt`.
+- Exceção (ADR-0019, fila `sem-texto`): uma norma preservada que o IA ainda não derivou entra com o texto do re-OCR próprio aceito (`texto_url` e `sha1_texto_ia` NULL, `ocr_motor` do re-OCR). Quando o IA passa a ter o `_djvu.txt`, vale o do IA, salvo se o leitor fecha os artigos só no texto próprio.
+- Consumidores não podem supor `texto_url` nem `sha1_texto_ia` preenchidos.
 - Não há ano nem data do ato: a identidade raw não os carrega.
 - Elo com `versoes`: `texto_id` é o mesmo valor de `versoes.fontes[].ia_id`. Uma norma é
   "só texto" quando seu `texto_id` não aparece em nenhuma linha de `versoes`.
@@ -530,20 +532,21 @@ Uma linha por tentativa `(norma, PDF, motor)`; publicada em `leizilla-reocr-{ent
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | `texto_id`, `ente`, `fonte`, `tipo`, `numero` | VARCHAR/INTEGER | identidade da norma, como em `textos` |
+| `fila` | VARCHAR | `nao-fecha` (há texto do IA que o leitor não fecha) ou `sem-texto` (PDF preservado sem texto do IA e sem linha em `textos`). Linhas publicadas antes da coluna existir são `nao-fecha` |
 | `ia_item`, `pdf_url` | VARCHAR | PDF preservado de onde veio |
 | `sha256_fonte` | VARCHAR | sha256 da captura no `index.csv`; chave do elo com `textos.sha256_fonte` |
 | `sha256_pdf` | VARCHAR | sha256 dos bytes baixados (deve ser igual ao anterior; senão rejeita `pdf-sha256-diverge`) |
 | `paginas` | INTEGER | páginas do PDF |
 | `engine`, `engine_version`, `kreuzberg_version`, `parametros` | VARCHAR | motor (`paddleocr`), modelos, versão do Kreuzberg e parâmetros |
 | `aceito` | BOOLEAN | passou no portão |
-| `motivo` | VARCHAR | `aceito`, `nao-fecha`, `menos-artigos`, `pdf-sha256-diverge`, `excede-max-paginas`, `ocr-vazio`, `ocr-falhou` |
-| `artigos_ia`, `artigos_novo` | INTEGER | artigos próprios lidos por `read_hierarchy` antes/depois |
-| `fecha_ia`, `fecha_novo` | BOOLEAN | nível dos artigos fecha, antes/depois |
+| `motivo` | VARCHAR | `aceito`, `nao-fecha`, `menos-artigos` (só fila `nao-fecha`), `texto-trivial` (só fila `sem-texto`: menos de 150 caracteres não brancos por página em média), `pdf-sha256-diverge`, `excede-max-paginas`, `ocr-vazio`, `ocr-falhou` |
+| `artigos_ia`, `artigos_novo` | INTEGER | artigos próprios lidos por `read_hierarchy` antes/depois (`artigos_ia` NULL na fila `sem-texto`: não havia texto do IA) |
+| `fecha_ia`, `fecha_novo` | BOOLEAN | nível dos artigos fecha, antes/depois (`fecha_ia` NULL na fila `sem-texto`; `fecha_novo` é registrado mas não exigido) |
 | `segundos` | DOUBLE | tempo da tentativa |
 | `tentado_em` | VARCHAR | ISO 8601 UTC |
 | `sha256_texto`, `num_caracteres`, `texto` | VARCHAR/INTEGER | só nas aceitas; `texto` NULL nas rejeitadas |
 
-Sobreposição em `textos`: o texto aceito substitui o do IA quando `sha256_fonte` confere; a origem fica em `textos.ocr_motor` (`kreuzberg+paddleocr (re-OCR direcionado, ADR-0019)`), com a versão do Kreuzberg em `ocr_modulo_versao` e `sha1_texto_ia` vazio.
+Sobreposição em `textos`: na fila `nao-fecha`, o texto aceito substitui o do IA quando `sha256_fonte` confere; na fila `sem-texto`, o texto aceito vira uma linha nova de `textos` enquanto o IA não tem `_djvu.txt` da norma e, depois, vale o do IA salvo se só o nosso fecha os artigos (`textlayer.choose_text_source`); a origem fica em `textos.ocr_motor` (`kreuzberg+paddleocr (re-OCR direcionado, ADR-0019)`), com a versão do Kreuzberg em `ocr_modulo_versao` e `sha1_texto_ia` vazio.
 
 ### 3.6 Tabela `completude` — livro-razão contra o índice oficial
 
@@ -571,8 +574,8 @@ uma linha por norma que o acervo guarda e o índice não lista. Parquet ZSTD
 | `arquivos` | VARCHAR | JSON `[{"nome", "url", "rendicao"}]` dos arquivos listados; `rendicao` ∈ `original`, `compilada`, `revogado`, `retificado`, `outra`, derivada do sufixo do nome |
 | `arquivos_listados`, `arquivos_preservados` | INTEGER | arquivos na lista e quantos deles têm captura no acervo (casados por nome com `index.csv.source`) |
 | `preservada` | BOOLEAN | S2: há captura identificada num item de range do IA |
-| `com_texto` | BOOLEAN | S3: alguma captura tem texto (HTML nativo ou `_djvu.txt`) |
-| `legivel` | BOOLEAN | a norma está na tabela `textos` publicada (§3.5) |
+| `com_texto` | BOOLEAN | S3: alguma captura tem texto (HTML nativo ou `_djvu.txt` do IA) |
+| `legivel` | BOOLEAN | a norma está na tabela `textos` publicada (§3.5) — inclui o texto do re-OCR próprio (ADR-0019, fila `sem-texto`), logo `legivel` pode ser verdadeiro com `com_texto` falso |
 | `estruturada` | BOOLEAN | S4: há item parsed publicado |
 | `ia_item` | VARCHAR | item de range que preserva a norma; NULL se não preservada |
 | `texto_id` | VARCHAR | chave de junção com `textos.texto_id` e `versoes.fontes[].ia_id` (sem o sufixo) |

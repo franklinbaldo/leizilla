@@ -77,6 +77,16 @@ def _no_sleep() -> Any:
         yield
 
 
+@pytest.fixture(autouse=True)
+def _no_ia_enumeration() -> Any:
+    """O padrão do CLI é ``--queue ambas``: sem isto, a fila ``sem-texto`` iria à rede."""
+    with (
+        patch("leizilla.reocr.enumerate_sem_texto", return_value=([], [])),
+        patch("leizilla.reocr.fetch_published_years", return_value={}),
+    ):
+        yield
+
+
 def _queue(rows: list[dict[str, Any]], attempts: Optional[list[Any]] = None) -> Any:
     stats = reocr.ReocrStats()
     queue = reocr.select_queue(rows, attempts or [], kreuzberg_version=KZ, stats=stats)
