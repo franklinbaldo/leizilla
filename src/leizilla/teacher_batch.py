@@ -337,6 +337,7 @@ LABELS_ARCHIVE = "labels.tar.gz"
 # Label set name: ``main`` is the tuning set; any other name (e.g. a held-out set)
 # is kept apart in the manifest, the summary, the headers and the IA identifier.
 DEFAULT_LABEL_SET = "main"
+ALL_MODES: tuple[str, ...] = ("label", "review", "mark")
 _LABEL_SET_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 _IA_ITEM_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 _UUID5_RE = re.compile(r"^[0-9a-f]{8}$")
@@ -2082,18 +2083,20 @@ _MODE = typer.Option(
     "label",
     "--mode",
     help="label: o professor rotula cada linha (padrão). review: o professor "
-    "audita a leitura do leitor por regras e devolve só os ajustes.",
+    "audita a leitura do leitor por regras e devolve só os ajustes. mark: o "
+    "professor faz a leitura completa e devolve só onde as marcas vão (duas "
+    "âncoras por marca).",
 )
 _SELECT = typer.Option(
     None,
     "--select",
-    help="Só modo review: all (padrão) | closed (o leitor fecha) | open | ids-file "
+    help="Só modo review e mark: all (padrão) | closed (o leitor fecha) | open | ids-file "
     "(com --ids-file).",
 )
 _IDS_FILE = typer.Option(
     None,
     "--ids-file",
-    help="Só modo review, com --select ids-file: um texto_id por linha.",
+    help="Só modo review e mark, com --select ids-file: um texto_id por linha.",
 )
 _CANARY_SHARE = typer.Option(
     None,
@@ -2110,7 +2113,7 @@ _CANARY_IDS_FILE = typer.Option(
 _RETRY_TRUNCATED = typer.Option(
     None,
     "--retry-truncated",
-    help="Só modo review: manifest.json (saída do collect de uma execução anterior) "
+    help="Só modo review e mark: manifest.json (saída do collect de uma execução anterior) "
     "cujas requisições truncadas (max_tokens) são reenviadas, uma norma por "
     "requisição, com o orçamento de resposta maior. Use os mesmos insumos do submit "
     "original; o resultado é fundido pelo collect.",
@@ -2118,13 +2121,13 @@ _RETRY_TRUNCATED = typer.Option(
 _REVIEW_BUDGET = typer.Option(
     None,
     "--review-budget-chars",
-    help="Só modo review: orçamento de caracteres de texto por requisição "
-    "(padrão 24000).",
+    help="Só modo review e mark: orçamento de caracteres de texto por requisição "
+    "(review 24000, mark 16000).",
 )
 _REVIEW_MAX_NORMS = typer.Option(
     None,
     "--review-max-norms",
-    help="Só modo review: máx. de normas por requisição (8).",
+    help="Só modo review e mark: máx. de normas por requisição (review 8, mark 4).",
 )
 
 
@@ -2146,10 +2149,19 @@ def _resolve_mode(
     """
     from leizilla import teacher_review
 
-    if mode not in teacher_review.MODES:
-        raise TeacherBatchError(
-            f"--mode must be one of {', '.join(teacher_review.MODES)}"
-        )
+    if mode not in ALL_MODES:
+        raise TeacherBatchError(f"--mode must be one of {', '.join(ALL_MODES)}")
+    if mode == "mark":
+        from leizilla import teacher_mark
+
+        refused = {
+            "--canary-share": canary_share,
+            "--canary-ids-file": canary_ids_file,
+        }
+        used = [name for name, value in refused.items() if value is not None]
+        if used:
+            raise TeacherBatchError(f"{', '.join(used)} do not apply with --mode mark")
+        return teacher_mark.check_mark_label_set(label_set)
     if mode == "label":
         given = {
             "--select": select,
@@ -2161,9 +2173,45 @@ def _resolve_mode(
         }
         used = [name for name, value in given.items() if value is not None]
         if used:
-            raise TeacherBatchError(f"{', '.join(used)} only apply with --mode review")
+            raise TeacherBatchError(
+                f"{', '.join(used)} only apply with --mode review or mark"
+            )
         return check_label_set(label_set or DEFAULT_LABEL_SET)
     return teacher_review.check_review_label_set(label_set)
+
+
+def _mark_kwargs(
+    *,
+    select: Optional[str],
+    ids_file: Optional[Path],
+    budget: Optional[int],
+    max_norms: Optional[int],
+    max_lines: int,
+    max_chars: int,
+    max_tokens_cap: int,
+) -> Dict[str, Any]:
+    """Mark-mode inputs. ``--max-lines``/``--max-chars``/``--max-tokens-cap`` left at
+    the label defaults mean "unset": the mark mode has its own (smaller parts, a
+    bigger output cap)."""
+    from leizilla import teacher_mark
+
+    return {
+        "select": select or ("ids-file" if ids_file else "all"),
+        "ids_file": ids_file,
+        "budget_chars": budget or teacher_mark.DEFAULT_MARK_BUDGET_CHARS,
+        "max_norms": max_norms or teacher_mark.DEFAULT_MARK_MAX_NORMS,
+        "max_lines": (
+            teacher_mark.MARK_MAX_LINES if max_lines == DEFAULT_MAX_LINES else max_lines
+        ),
+        "max_chars": (
+            teacher_mark.MARK_MAX_CHARS if max_chars == DEFAULT_MAX_CHARS else max_chars
+        ),
+        "max_tokens_cap": (
+            teacher_mark.MARK_MAX_TOKENS_CAP
+            if max_tokens_cap == MAX_TOKENS_CAP
+            else max_tokens_cap
+        ),
+    }
 
 
 def _review_kwargs(
@@ -2246,6 +2294,33 @@ def plan(
             max_norms=review_max_norms,
             label_set=label_set,
         )
+        if mode == "mark":
+            from leizilla import teacher_mark
+
+            teacher_mark.run_plan(
+                specs=specs,
+                effort=effort,
+                prompt_cache=prompt_cache,
+                count_sample=count_sample,
+                out=out,
+                ente=ente,
+                tipo=tipo,
+                limit=limit,
+                shuffle_seed=shuffle_seed,
+                text_source=text_source,
+                textos=textos,
+                label_set=label_set,
+                **_mark_kwargs(
+                    select=select,
+                    ids_file=ids_file,
+                    budget=review_budget_chars,
+                    max_norms=review_max_norms,
+                    max_lines=max_lines,
+                    max_chars=max_chars,
+                    max_tokens_cap=max_tokens_cap,
+                ),
+            )
+            return
         if mode == "review":
             from leizilla import teacher_review
 
@@ -2403,13 +2478,52 @@ def submit(
             max_norms=review_max_norms,
             label_set=label_set,
         )
-        if retry_truncated is not None and mode != "review":
-            raise TeacherBatchError("--retry-truncated only applies with --mode review")
+        if retry_truncated is not None and mode not in ("review", "mark"):
+            raise TeacherBatchError(
+                "--retry-truncated only applies with --mode review or mark"
+            )
         if manifest_path.exists():
             raise TeacherBatchError(
                 f"{manifest_path} already exists: a submit may already have "
                 "created (billed) batches. Collect it or choose another path."
             )
+        if mode == "mark":
+            from leizilla import teacher_mark
+
+            if retry_failures is not None:
+                raise TeacherBatchError(
+                    "--retry-failures is not supported in mark mode; "
+                    "use --retry-truncated"
+                )
+            mark_manifest = teacher_mark.run_submit(
+                spec=spec,
+                manifest_path=manifest_path,
+                max_usd=max_usd,
+                guard=guard,
+                effort=effort,
+                prompt_cache=prompt_cache,
+                retry_truncated=retry_truncated,
+                ente=ente,
+                tipo=tipo,
+                limit=limit,
+                shuffle_seed=shuffle_seed,
+                text_source=text_source,
+                textos=textos,
+                label_set=label_set,
+                **_mark_kwargs(
+                    select=select,
+                    ids_file=ids_file,
+                    budget=review_budget_chars,
+                    max_norms=review_max_norms,
+                    max_lines=max_lines,
+                    max_chars=max_chars,
+                    max_tokens_cap=max_tokens_cap,
+                ),
+            )
+            for batch in mark_manifest["batches"]:
+                typer.echo(f"batch {batch['id']}: {batch['request_count']} requests")
+            typer.echo(f"manifest: {manifest_path}")
+            return
         if mode == "review":
             from leizilla import teacher_review
 
@@ -2552,6 +2666,19 @@ def collect(
         if not ended:
             typer.echo("batches still processing — run collect again later", err=True)
             raise typer.Exit(3)
+        if manifest.get("mode") == "mark":
+            from leizilla import teacher_mark
+
+            code = teacher_mark.finish_collect(
+                client,
+                manifest,
+                out_dir,
+                upload_ia=upload_ia,
+                allow_failures=allow_failures,
+            )
+            if code:
+                raise typer.Exit(code)
+            return
         if manifest.get("mode") == "review":
             from leizilla import teacher_review
 

@@ -42,6 +42,7 @@ import re
 import subprocess
 import tarfile
 import tempfile
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -62,8 +63,8 @@ from leizilla.hierarchy_sequence import (
 # Contract versions and constants
 # --------------------------------------------------------------------------
 
-REVIEW_PROMPT_VERSION = "teacher-review-v2"
-REVIEW_SCHEMA_VERSION = "1"
+REVIEW_PROMPT_VERSION = "teacher-review-v3"
+REVIEW_SCHEMA_VERSION = "2"
 DEFAULT_REVIEW_LABEL_SET = "review"
 
 MODES: tuple[str, ...] = ("label", "review")
@@ -76,6 +77,7 @@ OPS: tuple[str, ...] = (
     "set_quoted",
     "add_node",
     "remove_node",
+    "set_node_number",
 )
 VERDICTS: tuple[str, ...] = ("ok", "ajuste")
 SUB_LEVELS: tuple[str, ...] = ("paragrafo", "inciso", "alinea", "item")
@@ -105,9 +107,12 @@ DEFAULT_BUDGET_CHARS = 24_000
 DEFAULT_MAX_NORMS = 8
 DEFAULT_CANARY_SHARE = 0.15
 DEFAULT_REVIEW_MAX_CHARS = tb.DEFAULT_MAX_CHARS
-# A norm larger than ``max_chars`` is chunked with the label mode's logic; the
-# line limit exists there for the output size, which is not a concern here.
-_NO_LINE_LIMIT = 10**9
+# A norm larger than ``max_chars`` is chunked with the label mode's logic. Run 2 of the
+# evaluation (240 requests): 3 hit the 10,705-token ceiling, all single-part requests
+# of very long norms (decreto-lei 47: 2,736 lines in 2 parts); thinking grows with the
+# lines shown. So a part is also limited in lines (``REVIEW_MAX_LINES`` non-blank
+# lines), which turns the longest norms into more, smaller parts.
+REVIEW_MAX_LINES = 500
 MAX_EVIDENCE_CHARS = 80
 MAX_REASON_CHARS = 200
 _LINE_STORE_CHARS = 400
@@ -136,7 +141,15 @@ CEILING_TOKENS_PER_NORM = (
 # cost guard, not a model limit; ``ModelSpec`` carries no output limit field.
 REVIEW_MAX_TOKENS_BASE = 8192
 REVIEW_THINKING_PER_NORM = 2048
-REVIEW_MAX_TOKENS_CAP = 16000
+# Thinking room that grows with the lines a request shows (v3, after run 2).
+REVIEW_TOKENS_PER_LINE = 4
+# Raised from 16,000 (v3): the cap is a cost guard, not a model limit (Haiku 5.5
+# accepts up to 128K output); the ceiling stays the sum of the max_tokens, so it
+# stays an upper bound, just a higher one for the longest requests.
+REVIEW_MAX_TOKENS_CAP = 32000
+# A retried request gets this factor more room per retry depth (a retry at the same
+# budget would hit the same ceiling).
+RETRY_BUDGET_FACTOR = 1.5
 # Measured output of one request, averaged over the 240 requests of the first
 # review run (a single measurement, at effort medium, ~1.25 norms per request;
 # thinking was ~95% of it). The estimate uses it as the per-request base.
@@ -279,7 +292,9 @@ um número que quebra a sequência por culpa do OCR é `set_number`.
 4. Próprio ou citado (`Q`)? Um artigo dentro da transcrição de outra lei deve ter `Q`; \
 um artigo da própria norma não pode ter. Corrija com `set_quoted`.
 5. Parágrafos, incisos, alíneas e itens: só ajuste quando o erro é inequívoco \
-(`add_node`, `remove_node`). Os itens são o nível mais fraco: na dúvida, não ajuste.
+(`add_node`, `remove_node`, `set_node_number`). Um número errado numa etiqueta que \
+existe (o inciso `II` que a sequência pede como `I`) é `set_node_number`, nunca \
+`remove_node` mais `add_node`. Os itens são o nível mais fraco: na dúvida, não ajuste.
 
 Não aponte erro de estilo, de grafia ou de conteúdo. Na dúvida sobre uma linha, \
 deixe-a como está: `ok` significa "li as etiquetas e as linhas e não encontrei \
@@ -325,6 +340,9 @@ ter `Q`), `false` se é próprio (perde o `Q`).
 - `add_node` (`level`, `number`): faltou etiqueta de `paragrafo`, `inciso`, \
 `alinea` ou `item` (número opcional: "2", "III", "a", "unico"...).
 - `remove_node` (`level`): sobra etiqueta desse nível na linha.
+- `set_node_number` (`level`, `number`): a linha tem exatamente uma etiqueta desse \
+nível e o número dela está errado; informe o certo ("1", "III", "a", "unico"). É a \
+única operação para renumerar um nível inferior.
 
 Não repita a mesma operação na mesma linha.
 
@@ -980,17 +998,37 @@ class ReviewPlan:
         return [n for n in self.norms if n.canary is not None]
 
 
-def review_max_tokens(n_slots: int, cap: int = tb.MAX_TOKENS_CAP) -> int:
-    """``max_tokens`` of a review request with ``n_slots`` norms.
+def review_max_tokens(
+    n_slots: int,
+    cap: int = tb.MAX_TOKENS_CAP,
+    *,
+    lines: int = 0,
+    factor: float = 1.0,
+) -> int:
+    """``max_tokens`` of a review request with ``n_slots`` norms showing ``lines``
+    lines to review.
 
     Base, plus per norm the thinking room and the adjustment ceiling (5
-    adjustments, the worst case the ceiling prices), never above the cap.
+    adjustments, the worst case the ceiling prices), plus ``REVIEW_TOKENS_PER_LINE``
+    per line shown, times ``factor`` (retries), never above the cap. A ``cap`` left at
+    the label default (``tb.MAX_TOKENS_CAP``, what ``--max-tokens-cap`` defaults to)
+    means "unset": the review cap applies.
     """
-    return min(
-        min(cap, REVIEW_MAX_TOKENS_CAP),
-        REVIEW_MAX_TOKENS_BASE
-        + (REVIEW_THINKING_PER_NORM + CEILING_TOKENS_PER_NORM) * n_slots,
+    limit = (
+        REVIEW_MAX_TOKENS_CAP
+        if cap == tb.MAX_TOKENS_CAP
+        else min(cap, REVIEW_MAX_TOKENS_CAP)
     )
+    raw = (
+        REVIEW_MAX_TOKENS_BASE
+        + (REVIEW_THINKING_PER_NORM + CEILING_TOKENS_PER_NORM) * n_slots
+        + REVIEW_TOKENS_PER_LINE * lines
+    )
+    return min(limit, int(raw * factor))
+
+
+def _shown_lines(slots: Sequence["ReviewSlot"]) -> int:
+    return sum(len(s.chunk.owned) for s in slots)
 
 
 def read_ids_file(path: Path) -> List[str]:
@@ -1050,7 +1088,7 @@ def build_review_plan(
         norm = make_norm(record)
         norm.chunks = tb.chunk_document(
             norm.lines,
-            max_lines=_NO_LINE_LIMIT,
+            max_lines=REVIEW_MAX_LINES,
             max_chars=max_chars,
             context_lines=context_lines,
             head_lines=head_lines,
@@ -1066,7 +1104,7 @@ def build_review_plan(
         for record in canary_records:
             norm = make_norm(record)
             norm.chunks = tb.chunk_document(
-                norm.lines, max_lines=_NO_LINE_LIMIT, max_chars=max_chars
+                norm.lines, max_lines=REVIEW_MAX_LINES, max_chars=max_chars
             )
             if len(norm.chunks) != 1:
                 plan.canary_notes.append(
@@ -1144,7 +1182,9 @@ def build_review_plan(
                 custom_id=custom_id,
                 slots=group,
                 user_text=render_request(group),
-                max_tokens=review_max_tokens(len(group), max_tokens_cap),
+                max_tokens=review_max_tokens(
+                    len(group), max_tokens_cap, lines=_shown_lines(group)
+                ),
             )
         )
     plan.packing = {
@@ -1448,7 +1488,52 @@ def _fold(text: str) -> str:
     return re.sub(r"\s+", "", text)
 
 
+_MIN_FUZZY_CHARS = 10
+
+
+def _fold_loose(text: str) -> str:
+    """The tolerant fold of the evidence check (v3): accents, case, whitespace and
+    punctuation/symbols folded away (``Organizaçao, para`` = ``Organizaçao para``,
+    OCR ``Parâgrafo`` = ``Parágrafo``)."""
+    out: List[str] = []
+    for ch in unicodedata.normalize("NFKD", text):
+        if unicodedata.combining(ch) or ch.isspace():
+            continue
+        if unicodedata.category(ch)[0] in "PSZC":
+            continue
+        out.append(ch.casefold())
+    return "".join(out)
+
+
+def _evidence_match(evidence: str, shown: str) -> Optional[str]:
+    """How the evidence matches the line: ``"lenient"`` (the v2 rules), ``"fuzzy"``
+    (only the tolerant fold of ``_fold_loose``, as a substring or as the start of a
+    longer evidence, at least ``_MIN_FUZZY_CHARS`` folded characters), or ``None``.
+
+    A skipped or added WORD still does not match (``poderã ser eleva`` against
+    ``poderã eleva``): the folded strings differ, which is the safe side — the
+    evidence is the proof that the model read this line.
+    """
+    if _evidence_matches_lenient(evidence, shown):
+        return "lenient"
+    folded_shown = _fold_loose(shown)
+    if not folded_shown:
+        return None
+    for candidate in (evidence, _TAG_PREFIX_RE.sub("", evidence)):
+        folded = _fold_loose(candidate)
+        if len(folded) < min(_MIN_FUZZY_CHARS, len(folded_shown)):
+            continue
+        if folded in folded_shown or folded.startswith(folded_shown):
+            return "fuzzy"
+    return None
+
+
 def _evidence_matches(evidence: str, shown: str) -> bool:
+    """Does the evidence match the line, leniently or fuzzily (see above)?"""
+    return _evidence_match(evidence, shown) is not None
+
+
+def _evidence_matches_lenient(evidence: str, shown: str) -> bool:
     """Lenient evidence check, measured on the 2026-11 run.
 
     Accepted: the evidence is on the line (whitespace, quotes and dashes folded);
@@ -1475,8 +1560,9 @@ def _evidence_matches(evidence: str, shown: str) -> bool:
 
 def _line_problem(
     adj: Dict[str, Any], meta: Dict[str, Any]
-) -> tuple[Optional[str], bool]:
-    """``(problem, structural)`` for the line of one adjustment.
+) -> tuple[Optional[str], bool, bool]:
+    """``(problem, structural, fuzzy)`` for the line of one adjustment; ``fuzzy`` says
+    the evidence matched only by the tolerant fold (``_evidence_match``).
 
     A line that was not listed is structural (the answer points outside what it
     was shown); an empty or non-matching evidence is a bad individual adjustment.
@@ -1488,15 +1574,30 @@ def _line_problem(
             f"line {line} is not a listed line to review "
             f"({meta['first_line']}-{meta['last_line']}, blank lines omitted)",
             True,
+            False,
         )
     evidence = adj["evidence"].strip()
     if not evidence:
-        return f"line {line}: empty evidence", False
-    if not _evidence_matches(evidence, shown):
-        return f"line {line}: evidence is not on the line", False
+        return f"line {line}: empty evidence", False, False
+    how = _evidence_match(evidence, shown)
+    if how is None:
+        return f"line {line}: evidence is not on the line", False, False
     if len(evidence) < min(_MIN_EVIDENCE, len(shown)):
-        return f"line {line}: evidence too short to identify the line", False
-    return None, False
+        return f"line {line}: evidence too short to identify the line", False, False
+    return None, False, how == "fuzzy"
+
+
+def _same_node_number(level: str, given: str, shown: str) -> bool:
+    """Is the number the model gave the one the tag shows? A numeral given as arabic
+    for an inciso (``2``) or an alínea (``2`` = b) reads as the tag's roman/letter."""
+    g = given.strip()
+    if g.isdigit():
+        if level == "inciso":
+            g = _roman(int(g))
+        elif level == "alinea" and 1 <= int(g) <= 26:
+            g = chr(96 + int(g))
+    fold = lambda x: _fold_loose(x).replace("unico", "")  # noqa: E731
+    return fold(g) == fold(shown) or g.casefold() == shown.casefold()
 
 
 def _adjustment_check(
@@ -1517,7 +1618,7 @@ def _adjustment_check(
         return None, [f"{where}: line is not an integer"], True
     if not isinstance(raw["evidence"], str) or not isinstance(raw["reason"], str):
         return None, [f"{where}: evidence and reason must be strings"], True
-    problem, structural = _line_problem(raw, meta)
+    problem, structural, fuzzy = _line_problem(raw, meta)
     if problem:
         return None, [f"{where}: {problem}"], structural
     tags = _tags_at(meta, line)
@@ -1562,7 +1663,7 @@ def _adjustment_check(
             elif raw["quoted"] == bool(art[0][2]):
                 problems.append("the tag already has that quoted value")
             out["quoted"] = raw["quoted"]
-    else:  # add_node / remove_node
+    else:  # add_node / remove_node / set_node_number
         level = raw["level"]
         if level not in SUB_LEVELS:
             problems.append(f"level must be one of {', '.join(SUB_LEVELS)}")
@@ -1572,11 +1673,23 @@ def _adjustment_check(
                 problems.append(f"the line already has a {level} tag")
             if op == "remove_node" and not here:
                 problems.append(f"the line has no {level} tag")
+            if op == "set_node_number":
+                given = raw["number"]
+                if len(here) != 1:
+                    problems.append(
+                        f"expected one {level} tag on the line, found {len(here)}"
+                    )
+                elif not isinstance(given, str) or not given.strip():
+                    problems.append("number is missing")
+                elif _same_node_number(level, given, str(here[0][1])):
+                    problems.append("the number is already the tag's")
             out["level"] = level
-            if op == "add_node" and isinstance(raw["number"], str):
+            if op in ("add_node", "set_node_number") and isinstance(raw["number"], str):
                 out["number"] = raw["number"].strip() or None
     if problems:
         return None, [f"{where}: {p}" for p in problems], False
+    if fuzzy:
+        out["evidence_fuzzy"] = True
     return out, [], False
 
 
@@ -1599,6 +1712,42 @@ class EntryCheck:
     downgraded: bool = False
 
 
+def _merge_node_pairs(raw_adjustments: List[Any]) -> List[tuple[int, Any, bool]]:
+    """``(index, adjustment, from_pair)`` for each raw adjustment, where a
+    ``remove_node`` and an ``add_node`` of the SAME level on the SAME line (given once
+    each) are one renumbering: the pair becomes a single ``set_node_number`` taking the
+    ``add_node``'s number, evidence and reason (``from_pair``). Run 2 of the evaluation:
+    norm 74e9a7e2 line 770 (inciso II should be I) came as the pair and only the remove
+    took effect."""
+    where: Dict[tuple[int, Any], Dict[str, List[int]]] = {}
+    for i, raw in enumerate(raw_adjustments):
+        if (
+            isinstance(raw, dict)
+            and raw.get("op") in ("remove_node", "add_node")
+            and isinstance(raw.get("line"), int)
+            and not isinstance(raw.get("line"), bool)
+            and raw.get("level") in SUB_LEVELS
+        ):
+            where.setdefault((raw["line"], raw["level"]), {}).setdefault(
+                raw["op"], []
+            ).append(i)
+    removed: set[int] = set()
+    added: set[int] = set()
+    for ops in where.values():
+        if len(ops.get("remove_node", [])) == 1 and len(ops.get("add_node", [])) == 1:
+            removed.add(ops["remove_node"][0])
+            added.add(ops["add_node"][0])
+    out: List[tuple[int, Any, bool]] = []
+    for i, raw in enumerate(raw_adjustments):
+        if i in removed:
+            continue
+        if i in added:
+            out.append((i, {**raw, "op": "set_node_number"}, True))
+        else:
+            out.append((i, raw, False))
+    return out
+
+
 def check_entry(entry: Any, meta: Dict[str, Any]) -> EntryCheck:
     """Structural problems invalidate the norm; a bad individual adjustment is
     DROPPED with its reason; an ``ajuste`` whose adjustments were all dropped is
@@ -1618,7 +1767,7 @@ def check_entry(entry: Any, meta: Dict[str, Any]) -> EntryCheck:
     problems: List[str] = []
     dropped: List[Dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
-    for i, raw in enumerate(raw_adjustments):
+    for i, raw, paired in _merge_node_pairs(raw_adjustments):
         adj, bad, structural = _adjustment_check(raw, meta, f"adjustments[{i}]")
         if adj is None:
             if structural:
@@ -1634,6 +1783,8 @@ def check_entry(entry: Any, meta: Dict[str, Any]) -> EntryCheck:
                     for msg in bad
                 ]
             continue
+        if paired:
+            adj["from_pair"] = True
         key = (adj["op"], adj["line"], adj["level"])
         if key in seen:
             problems.append(
@@ -1997,7 +2148,12 @@ def build_retry_plan(
                 custom_id=f"t{depth}-{i:05d}",
                 slots=[slot],
                 user_text=render_request([slot]),
-                max_tokens=review_max_tokens(1, max_tokens_cap),
+                max_tokens=review_max_tokens(
+                    1,
+                    max_tokens_cap,
+                    lines=_shown_lines([slot]),
+                    factor=RETRY_BUDGET_FACTOR**depth,
+                ),
             )
         )
     return ReviewPlan(
