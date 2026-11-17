@@ -284,3 +284,60 @@ busca, 3 recusas `pdf-check`.
   busca já espera o limitador só ~6 s em ~28. Um arquivo por captura aumenta os PUTs
   (ADR-0016 existe para reduzi-los). Antes de implementar, convém que a colheita
   registre o tempo de busca, de flush e de espera no resumo, para medir a fatia.
+
+## Adendo 2026-11-17 (2) — ração da conta, prazo do flush, um PUT por captura, 2 em paralelo
+
+**Medido** (logs de 2026-11-17): o IA passou a recusar com `Please reduce your request
+rate. - accesskey_tasks_queued exceeds rationed amount`, uma ração por **chave de acesso**
+(a conta inteira), distinta de `bucket_tasks_queued` (item) e `total_tasks_queued exceeds
+global_limit`. A colheita de `lei` ficou ~30 min dentro de um upload (11:51 a 12:21) e foi
+morta pelo `timeout-minutes: 120` sem resumo: o prazo do job só era checado entre
+capturas, e o `ia upload` repetia por conta própria (`--retries 5 --sleep 30`, ~150 s por
+arquivo, vezes 3 tentativas com recuos de 60/120 s). A de `decreto` encerrou com
+`ia-throttled` após 71 capturas. O upload do reocr não esperou: a regex só conhecia duas
+mensagens. Com 3 colheitas em paralelo, 2 PUTs por captura e os uploads de dataset dos
+outros workflows, a ração da conta é o que se esgota.
+
+1. *Uma classificação, por escopo.* `ia_utils.classify_ia_throttle`: `item` só se todo
+   marcador `*_tasks_queued` for `bucket`; `account` para `accesskey_`, `total_` e qualquer
+   `*_tasks_queued` desconhecido (lado conservador) e para um aviso de taxa sem marcador;
+   `None` se não for taxa. `is_ia_queue_full` = há marcador `*_tasks_queued`. Substitui as
+   três regex do publisher e `ia_throttle_scope` do scraper (que agora a chama).
+2. *Na colheita.* Fila cheia, qualquer escopo, propaga na hora do `_run_ia_upload`
+   (`fail_fast_queue`, sem os recuos de 60/120 s; antes só a ração por item). Escopo item:
+   adia o item (igual). Escopo conta: a colheita para de buscar, as capturas em buffer
+   voltam a `pending` **sem** contar como falha (`stats["requeued"]`, linha própria no
+   resumo; antes entravam em "Falhas"), o derive final é pulado (os itens com arquivos
+   novos saem em `derive-failed` com o comando manual) e a colheita termina com
+   `aborted = ia-account-throttled` (antes `ia-throttled`). Código de saída: 0 se ao menos
+   uma captura foi preservada; 1 se nenhuma (mesma convenção de antes para throttle sem
+   captura, agora explícita). Um aviso de taxa sem marcador mantém os recuos curtos e,
+   esgotados, também sai como conta. Uploads de dataset com espera (`IaQueueWait`) esperam
+   qualquer escopo; passaram a esperar 30 min (`_DATASET_QUEUE_WAIT_MIN`): textos,
+   cobertura, catálogo/completude e rótulos do teacher, além do reocr (45 min).
+3. *O flush não sobrevive ao job.* O prazo (`--job-deadline` menos 3 min para o resumo e o
+   cache) vira `timeout_s` do flush e do derive: o `subprocess.run` recebe o que resta, um
+   recuo que não cabe não é esperado, e estourar dá `TimeoutExpired`. Resultado do lote:
+   `flush-timeout` (capturas a `pending`, sem falha, `aborted = flush-timeout`, resumo
+   impresso). Sem prazo nada muda. A CLI `ia` passou de `--retries 5 --sleep 30` para
+   `--retries 2 --sleep 15`: o Python vê o throttle em cerca de um minuto.
+4. *Um PUT por captura.* O lote não grava mais `_meta.json`; o `index.csv` ganhou as colunas
+   `fetched_from`, `wayback_url`, `wayback_timestamp`, `wayback_blocked_robots`,
+   `user_agent` (anexadas depois de `source`; linhas antigas leem vazio = desconhecido).
+   De `2N+1` PUTs por flush para `N+1`. O resto do sidecar é redundante (`hash_pdf` =
+   `sha256`, `fonte_url` = `source`, `data_captura` ~ `captured_at`, `ente`/`fonte`/`chave`
+   = item + identidade) ou derivável (`ia_id_bundle`, `leizilla_meta_version`). O Save Page
+   Now responde depois do flush: o que se sabe na captura (snapshot que a descoberta já
+   tinha) vai ao índice; o snapshot devolvido depois segue só em `wayback_snapshot` do
+   ledger (como antes no sidecar). Os uploaders unitários (`upload_raw`, `upload_raw_html`)
+   mantêm o sidecar e também preenchem as colunas. Nada é apagado do IA; `reconcile` copia
+   as colunas e o sidecar se existir; `refile` não depende dele.
+   *Compatibilidade:* código novo lê índice antigo sem problema (`row.get`). Código **antigo**
+   lendo índice novo ignora as colunas novas; se o código antigo **reescrever** o índice
+   (merge/promoção), grava só as 8 colunas antigas e perde as de proveniência de todas as
+   linhas (identidade, sha256 e source ficam).
+5. *Em paralelo: 2.* `max-parallel: 2`, `HARVEST_HOST_INTERVAL_S: "2.0"` na descoberta e na
+   colheita (~1 req/s). Pior caso: 7 tipos em 2 vagas = 4 jobs em sequência; job = 5 setup +
+   10 descoberta + 45 colheita (`HARVEST_MAX_SECONDS` 2700) + 25 encerramento = 85 min
+   (`timeout-minutes: 85`, prazo `85 * 60`); 4 x 85 = 340 min < 360 min entre disparos.
+   Custo: a colheita por tipo cai de 75 para 45 min.

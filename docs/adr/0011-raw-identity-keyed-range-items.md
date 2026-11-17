@@ -119,6 +119,8 @@ uuid5_8 = str(uuid.uuid5(uuid.NAMESPACE_DNS, sha256_hex(bytes)))[:8]
 | OCR derivado (IA) | `{uuid5_8}_djvu.txt` | `a1b2c3d4_djvu.txt` |
 | Metadados | `{uuid5_8}_meta.json` | `a1b2c3d4_meta.json` |
 
+> Nota (2026-11-17, ADR-0016 adendo (2)): o `_meta.json` por captura **não é obrigatório**. A colheita em lote não o grava: a proveniência vai nas colunas do `index.csv` (`fetched_from`, `wayback_url`, `wayback_timestamp`, `wayback_blocked_robots`, `user_agent`). Itens existentes mantêm os seus.
+
 Colisão só importa **dentro de um item** (escopo de ≤1.000 leis × poucas
 rendições/capturas), onde a probabilidade é < 1%. O `index.csv` guarda o
 **SHA-256 completo**, então uma colisão real (mesmo nome curto, bytes diferentes)

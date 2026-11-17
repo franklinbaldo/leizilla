@@ -149,8 +149,12 @@ contexto, não pela leitura do documento.
 | (qualquer) | (qualquer) | sem número resolvido → **preservado**, aguardando reconciliação | `leizilla_{ente}_{fonte}_unidentified` |
 
 Dentro do item: `{uuid5}.pdf` / `{uuid5}_djvu.txt` (OCR derivado pelo IA) /
-`{uuid5}_meta.json`, e um `index.csv` mapeando `(tipo, número, rendição, formato)`
-→ {uuid5, sha256, captured_at, source}` (newest-wins). A coluna `source` é a
+`{uuid5}_meta.json` (**opcional**: só os uploaders unitários e itens anteriores a
+2026-11-17; a colheita em lote não o grava), e um `index.csv` mapeando
+`(tipo, número, rendição, formato)` → {uuid5, sha256, captured_at, source, fetched_from,
+wayback_url, wayback_timestamp, wayback_blocked_robots, user_agent}` (newest-wins). As
+cinco últimas colunas são a proveniência da captura (§2.1); linhas antigas as têm vazias
+(= desconhecido). A coluna `source` é a
 chave de colheita / URL de origem (ADR-0010), mapeando cada arquivo à sua fonte
 — é o que permite à identidade descartar o `coddoc`. Versões e rendições coexistem
 como arquivos hash distintos; dedup e detecção de colisão usam o `sha256` completo.
@@ -253,6 +257,15 @@ tentar de improviso).
 ## 2. JSON sidecars
 
 ### 2.1 `raw_meta.json`
+
+> **Opcional desde 2026-11-17 (ADR-0016 adendo (2)).** A colheita em lote não grava este
+> sidecar: o que só ele tinha (`provenance_wayback.fetched_from`, `wayback_url`,
+> `wayback_timestamp`, `wayback_blocked_robots`, `user_agent`) está nas colunas de mesmo
+> nome do `index.csv` (§1.1). O resto é redundante com o índice (`hash_pdf` = `sha256`,
+> `fonte_url` = `source`, `data_captura` ~ `captured_at`, `ente`/`fonte`/`chave` = item +
+> identidade) ou derivável (`ia_id_bundle`, `leizilla_meta_version`). Os uploaders
+> unitários continuam gravando o sidecar. O snapshot do Save Page Now devolvido depois do
+> flush não entra no índice (fica em `wayback_snapshot` do ledger local).
 
 ```json
 {
