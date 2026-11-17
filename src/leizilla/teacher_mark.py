@@ -1223,6 +1223,383 @@ def _derive_marks(
     return marks, owner
 
 
+# --------------------------------------------------------------------------
+# Repairs: a checked second reading for the two article-level failure kinds
+# --------------------------------------------------------------------------
+#
+# The prompt could not fix an ``alteracao`` ended before its closing quote, nor an
+# ordinal sign read as a digit (``Art. 49`` for 4), so the converter offers a second,
+# deterministic reading. The model's document is NEVER changed: the repaired document
+# is a separate variant, every change recorded in ``repairs`` with its evidence, and the
+# strip invariant holds for it too.
+
+_NR = re.compile(r"\(\s*NR\s*\)", re.IGNORECASE)
+MAX_END_CANDIDATES = 80
+MAX_REPAIR_ROUNDS = 6
+DUPLICATE_LINE_GAP = 3
+_BREAK_TYPES = ("suspect_alteracao", "suspect_sequence")
+
+
+def _break_count(found: Sequence[Dict[str, Any]]) -> int:
+    return sum(1 for x in found if x["type"] in _BREAK_TYPES)
+
+
+def own_closes(xml: str, text: str) -> bool:
+    """Whether the own articles of the document close (1..N, suffixed ones aside), act
+    by act: a file with several acts closes when each one does."""
+    starts = _line_starts(tb.split_lines(text))
+    parsed_text, marks = marcacao.parse(xml)
+    assert parsed_text == text
+    rows = marcacao.to_rows(xml)
+    leis = [(m.start, m.end) for m in marks if m.kind == "lei"]
+    seen = False
+    for lo, hi in leis or [(0, len(text) + 1)]:
+        arts = [
+            [
+                _line_of(starts, r["start"]),
+                str(r["n"]) + (f"-{r['sufixo']}" if r.get("sufixo") else ""),
+                bool(r["quoted"]),
+            ]
+            for r in rows
+            if r["kind"] == "art" and lo <= r["start"] < hi
+        ]
+        if not arts:
+            continue
+        seen = True
+        if not tr.chain_intact(arts):
+            return False
+    return seen
+
+
+def _variant(
+    text: str,
+    recs: Dict[int, _Rec],
+    tipo: Optional[str],
+    numero: Any,
+    texto_id: Optional[str],
+) -> Optional[tuple[List[Mark], str]]:
+    """Derive and build one variant; ``None`` when the marks do not nest (the
+    candidate is not offered)."""
+    marks, _ = _derive_marks(text, list(recs.values()), tipo, numero)
+    try:
+        xml = marcacao.build(text, marks, texto_id=texto_id)
+    except marcacao.MarcacaoError:
+        return None
+    if marcacao.verify(xml, text):
+        return None
+    return marks, xml
+
+
+def _copy_recs(recs: Dict[int, _Rec]) -> Dict[int, _Rec]:
+    return {i: dataclasses.replace(r, attrs=dict(r.attrs)) for i, r in recs.items()}
+
+
+def _reader_block_ends(text: str) -> List[tuple[int, int]]:
+    """``(start line, end line)`` of the reader's quoted blocks: the second witness."""
+    try:
+        report = read_hierarchy(text)
+    except (ValueError, IndexError, KeyError, RecursionError):  # pragma: no cover
+        return []
+    starts = _line_starts(tb.split_lines(text))
+    return [
+        (_line_of(starts, b["start"]), _line_of(starts, max(b["start"], b["end"] - 1)))
+        for b in report["quoted_blocks"]
+    ]
+
+
+def _merge_duplicates(
+    text: str, recs: Dict[int, _Rec], lines: Sequence[str]
+) -> List[Dict[str, Any]]:
+    """A device the model marked twice because its marker is split across lines
+    ("Art." / "3Q" / "- Esta Lei...": the first mark at "Art.", the second at the
+    clause because the number line was not a marker): same kind, same number and
+    suffix, at most ``DUPLICATE_LINE_GAP`` lines apart, nothing marked between them, the
+    first one's marker ending its line or the second with no marker of its own. The
+    second is removed from ``recs`` (the first starts the device)."""
+    starts = _line_starts(lines)
+    ordered = sorted(
+        (r for r in recs.values() if r.kind in STRUCTURAL_KINDS), key=lambda r: r.start
+    )
+    out: List[Dict[str, Any]] = []
+    removed: set[int] = set()
+    by_start = sorted(recs.values(), key=lambda r: r.start)
+    for a, b in zip(ordered, ordered[1:]):
+        if a.idx in removed or a.kind != b.kind or "n" not in a.attrs:
+            continue
+        if (a.attrs.get("n"), a.attrs.get("sufixo")) != (
+            b.attrs.get("n"),
+            b.attrs.get("sufixo"),
+        ):
+            continue
+        la, lb = _line_of(starts, a.start), _line_of(starts, b.start)
+        if not 1 <= lb - la <= DUPLICATE_LINE_GAP:
+            continue
+        if any(a.start < r.start < b.start and r.idx != b.idx for r in by_start):
+            continue
+        marker_ends_line = a.marker is not None and (
+            not text[a.marker[1] : starts[la] + len(lines[la - 1])].strip()
+        )
+        if not (marker_ends_line or b.marker is None):
+            continue
+        removed.add(b.idx)
+        out.append(
+            {
+                "kind": "duplicate_marker",
+                "from_line": la,
+                "to_line": lb,
+                "n": a.attrs.get("n"),
+                "witness": "split-marker",
+                "detail": f"{a.kind} {a.attrs.get('n')} marked at {la} and {lb}",
+            }
+        )
+    for i in removed:
+        recs.pop(i)
+    return out
+
+
+def _closing_lines(lines: Sequence[str], after: int) -> List[int]:
+    """1-based lines after ``after`` that carry a closing quote or ``(NR)``."""
+    found: List[int] = []
+    for n in range(after + 1, len(lines) + 1):
+        if _CLOSING_QUOTE.search(lines[n - 1]) or _NR.search(lines[n - 1]):
+            found.append(n)
+            if len(found) >= MAX_END_CANDIDATES:
+                break
+    return found
+
+
+def _blamed_block_line(
+    starts: Sequence[int], marks: Sequence[Mark], found: Sequence[Dict[str, Any]]
+) -> Optional[tuple[int, Dict[str, Any]]]:
+    """The start line of the ``alteracao`` to extend, and the suspect that says so:
+    the block ``suspect_alteracao`` names, or for a ``suspect_number`` the last block
+    that ends before the flagged article (a block cut short leaves its later quoted
+    articles as "own", which is how ``Art. 10`` ends up after ``Art. 1``)."""
+    for sus in found:
+        if sus["type"] == "suspect_alteracao":
+            return int(sus["line"]), sus
+    alts = [m for m in marks if m.kind == "alteracao"]
+    for sus in found:
+        if sus["type"] != "suspect_number":
+            continue
+        at = starts[int(sus["line"]) - 1]
+        before = [a for a in alts if a.end <= at]
+        if before:
+            return _line_of(starts, max(before, key=lambda a: a.end).start), sus
+    return None
+
+
+def _repair_alteracao_ends(
+    text: str,
+    recs: Dict[int, _Rec],
+    lines: Sequence[str],
+    tipo: Optional[str],
+    numero: Any,
+    texto_id: Optional[str],
+) -> List[Dict[str, Any]]:
+    """Extend the ``alteracao`` blocks blamed by the suspects to the nearest line with a
+    closing quote (or ``(NR)``) that makes the own article sequence stop breaking
+    there. The witness: the reader's quoted block ending on that same line
+    (``sequence+reader``) or the sequence alone. The caller keeps the result only if the
+    document's own articles then close."""
+    starts = _line_starts(lines)
+    reader = _reader_block_ends(text)
+    out: List[Dict[str, Any]] = []
+    for _ in range(MAX_REPAIR_ROUNDS):
+        built = _variant(text, recs, tipo, numero, texto_id)
+        if built is None:
+            break
+        marks, _xml = built
+        flagged = suspects(text, marks)
+        target = _blamed_block_line(starts, marks, flagged)
+        if target is None:
+            break
+        block_line, blame = target
+        base_sig = {(x["type"], x["line"]) for x in flagged}
+        rec = next(
+            (
+                r
+                for r in recs.values()
+                if r.kind == "alteracao"
+                and _line_of(starts, r.start) == block_line
+                and r.end_expl is not None
+            ),
+            None,
+        )
+        if rec is None:
+            break
+        from_line = _line_of(starts, cast(int, rec.end_expl) - 1)
+        reader_end = next(
+            (e for s0, e in reader if abs(s0 - block_line) <= 1 and e > from_line),
+            None,
+        )
+        cands = _closing_lines(lines, from_line)
+        if reader_end is not None and reader_end not in cands:
+            cands.append(reader_end)
+        cleared: List[int] = []
+        for cand in sorted(cands):
+            trial = _copy_recs(recs)
+            trial[rec.idx].end_expl = _trim_end(
+                text, rec.start, starts[cand - 1] + len(lines[cand - 1])
+            )
+            tb_built = _variant(text, trial, tipo, numero, texto_id)
+            if tb_built is None:
+                continue
+            after = suspects(text, tb_built[0])
+            if (blame["type"], blame["line"]) not in {
+                (x["type"], x["line"]) for x in after
+            } and len(after) < len(base_sig):
+                cleared.append(cand)
+                if reader_end is not None and cand >= reader_end:
+                    break
+        if not cleared:
+            break
+        pick = reader_end if reader_end in cleared else cleared[0]
+        rec.end_expl = _trim_end(
+            text, rec.start, starts[pick - 1] + len(lines[pick - 1])
+        )
+        out.append(
+            {
+                "kind": "alteracao_end",
+                "from_line": from_line,
+                "to_line": pick,
+                "block_line": block_line,
+                "witness": "sequence+reader" if pick == reader_end else "sequence",
+                "reader_end_line": reader_end,
+                "closing_quote_before": blame.get("closing_quote"),
+            }
+        )
+    return out
+
+
+def _repair_ordinal_digits(
+    text: str,
+    recs: Dict[int, _Rec],
+    lines: Sequence[str],
+    tipo: Optional[str],
+    numero: Any,
+) -> List[Dict[str, Any]]:
+    """An own article number far above the previous one whose last digit dropped is
+    exactly the previous plus one (``Art. 49`` after 3, ``Art. 102`` after 9): the
+    ordinal sign was read as a digit. Applied only when the next own article goes on from
+    the repaired value (or there is none), so a sequence that is consistent as printed
+    (``3, 49, 50, 51``) is left alone. Own (top-level) articles only: quoted ones are
+    other norms' real numbers."""
+    marks, _ = _derive_marks(text, list(recs.values()), tipo, numero)
+    starts = _line_starts(lines)
+    by_start = {r.start: r for r in recs.values() if r.kind == "art"}
+    out: List[Dict[str, Any]] = []
+    for lei in (m for m in marks if m.kind == "lei"):
+        arts = [
+            m
+            for m in _top_level(marks)
+            if m.kind == "art"
+            and lei.start <= m.start < lei.end
+            and _own_number(m) is not None
+            and "sufixo" not in m.attrs
+        ]
+        prev: Optional[int] = None
+        for i, art in enumerate(arts):
+            n = cast(int, _own_number(art))
+            if (
+                prev is not None
+                and n >= 10
+                and n > prev + 1
+                and n // 10 in (prev, prev + 1)
+            ):
+                nxt = _own_number(arts[i + 1]) if i + 1 < len(arts) else None
+                goes_on = (
+                    nxt is None
+                    or nxt == prev + 2
+                    or (nxt >= 10 and nxt // 10 == prev + 2)
+                )
+                # dropping the digit gives ``prev`` itself (92 after a 9 that was
+                # itself a mis-sequenced 8): only when the next article reads
+                # ``previous + 1`` the same way (102): a printed 92, 102 pair of 9, 10.
+                pair = (
+                    n // 10 == prev
+                    and nxt is not None
+                    and nxt >= 10
+                    and nxt // 10 == prev + 1
+                )
+                goes_on = goes_on if n // 10 == prev + 1 else pair
+                if nxt == n + 1:  # 49, 50, 51: consistent as printed, left alone
+                    goes_on = False
+                rec = by_start.get(art.start)
+                if goes_on and rec is not None:
+                    rec.attrs["n"] = str(n // 10)
+                    out.append(
+                        {
+                            "kind": "ordinal_digit",
+                            "from_line": _line_of(starts, art.start),
+                            "to_line": _line_of(starts, art.start),
+                            "n_from": str(n),
+                            "n_to": str(n // 10),
+                            "witness": "sequence"
+                            if n // 10 == prev + 1
+                            else "sequence-pair",
+                        }
+                    )
+                    n = n // 10
+            prev = n
+    return out
+
+
+@dataclass
+class Repaired:
+    """The repaired variant of a document and what was changed."""
+
+    repairs: List[Dict[str, Any]]
+    marks: List[Mark]
+    xml: str
+    rejected: List[Dict[str, Any]] = field(default_factory=list)
+
+
+def repair_document(
+    text: str,
+    recs: Dict[int, _Rec],
+    *,
+    tipo: Optional[str] = None,
+    numero: Any = None,
+    texto_id: Optional[str] = None,
+    suspected: bool = True,
+) -> Optional[Repaired]:
+    """The checked second reading, or ``None`` when nothing applies (or the repaired
+    marks do not build). Order: duplicate markers, ``alteracao`` ends, ordinal digits
+    (an extended block makes later "own" articles quoted, which can clear a number
+    flag). ``recs`` is not modified."""
+    lines = tb.split_lines(text)
+    work = _copy_recs(recs)
+    repairs = _merge_duplicates(text, work, lines)
+    rejected: List[Dict[str, Any]] = []
+    if (
+        suspected or repairs
+    ):  # the sequence checks need a built document: skip clean ones
+        repairs += _repair_ordinal_digits(text, work, lines, tipo, numero)
+        # A block extension is the riskiest repair (it turns own articles into quoted
+        # ones): kept only when the own articles of the repaired document close.
+        trial = _copy_recs(work)
+        ends = _repair_alteracao_ends(text, trial, lines, tipo, numero, texto_id)
+        if ends:
+            built = _variant(text, trial, tipo, numero, texto_id)
+            if built is not None and own_closes(built[1], text):
+                work = trial
+                repairs += ends
+            else:
+                rejected = [
+                    {**e, "rejected": "the own articles still do not close"}
+                    for e in ends
+                ]
+    if not repairs:
+        return Repaired([], [], "", rejected) if rejected else None
+    built = _variant(text, work, tipo, numero, texto_id)
+    if built is None:
+        return None
+    marks, xml = built
+    assert marcacao.strip(xml) == text, "strip invariant broken by a repair"
+    return Repaired(repairs, marks, xml, rejected)
+
+
 @dataclass
 class Conversion:
     """The result of converting one norm's response."""
@@ -1233,6 +1610,15 @@ class Conversion:
     xml: Optional[str] = None
     verify_problems: List[str] = field(default_factory=list)
     suspects: List[Dict[str, Any]] = field(default_factory=list)
+    # The checked second reading (see ``repair_document``): ``None`` when no repair
+    # applied. ``xml`` stays the model's document as given.
+    repairs: List[Dict[str, Any]] = field(default_factory=list)
+    repairs_rejected: List[Dict[str, Any]] = field(default_factory=list)
+    repaired_marks: List[Mark] = field(default_factory=list)
+    repaired_xml: Optional[str] = None
+    repaired_suspects: List[Dict[str, Any]] = field(default_factory=list)
+    closes: Optional[bool] = None
+    repaired_closes: Optional[bool] = None
 
     @property
     def dropped(self) -> List[Dict[str, Any]]:
@@ -1366,6 +1752,23 @@ def convert_response(
             return conv
         conv.xml = xml
         conv.suspects = suspects(text, marks)
+        conv.closes = own_closes(xml, text)
+        fixed = repair_document(
+            text,
+            by_idx,
+            tipo=tipo,
+            numero=numero,
+            texto_id=texto_id,
+            suspected=bool(conv.suspects),
+        )
+        if fixed is not None:
+            conv.repairs_rejected = fixed.rejected
+        if fixed is not None and fixed.repairs:
+            conv.repairs = fixed.repairs
+            conv.repaired_marks = fixed.marks
+            conv.repaired_xml = fixed.xml
+            conv.repaired_suspects = suspects(text, fixed.marks)
+            conv.repaired_closes = own_closes(fixed.xml, text)
         break
     else:  # pragma: no cover - the loop drops one record per turn
         conv.verify_problems.append("build: did not converge")
@@ -2407,6 +2810,14 @@ def collect_mark(
     anchor_rows = 0
     suspect_counts: Dict[str, int] = {}
     suspect_norms: List[str] = []
+    repaired_norms: List[str] = []
+    repair_counts: Dict[str, int] = {}
+    closure = {
+        "model_closes": 0,
+        "model_open": 0,
+        "repaired_closes": 0,
+        "repaired_open": 0,
+    }
     anchors_used: Dict[str, int] = {}
     with (out_dir / "anchors.jsonl").open("w", encoding="utf-8") as anchors_file:
         for entry_key, results in sorted(by_entry.items()):
@@ -2438,6 +2849,13 @@ def collect_mark(
                 "dropped": dropped,
                 "verify_problems": conv.verify_problems if conv else [],
                 "suspects": conv.suspects if conv else [],
+                "repairs": conv.repairs if conv else [],
+                "repairs_rejected": conv.repairs_rejected if conv else [],
+                "repaired_suspects": conv.repaired_suspects if conv else [],
+                "closure": {
+                    "model": conv.closes if conv else None,
+                    "repaired": conv.repaired_closes if conv else None,
+                },
                 "invalid_reasons": nr.problems,
                 "partial": nr.state == "partial",
                 "missing_parts": nr.missing_parts,
@@ -2454,6 +2872,23 @@ def collect_mark(
                 xml_path = out_dir / "marked" / str(first["item"]) / f"{stem}.xml"
                 xml_path.parent.mkdir(parents=True, exist_ok=True)
                 xml_path.write_text(conv.xml, encoding="utf-8")
+            if conv is not None and conv.repaired_xml is not None:
+                fixed_path = (
+                    out_dir / "marked-repaired" / str(first["item"]) / f"{stem}.xml"
+                )
+                fixed_path.parent.mkdir(parents=True, exist_ok=True)
+                fixed_path.write_text(conv.repaired_xml, encoding="utf-8")
+                repaired_norms.append(str(first["texto_id"]))
+                for fix in conv.repairs:
+                    kind = str(fix["kind"])
+                    repair_counts[kind] = repair_counts.get(kind, 0) + 1
+            if conv is not None:
+                if conv.closes is not None:
+                    closure["model_" + ("closes" if conv.closes else "open")] += 1
+                    shown = conv.repaired_closes
+                    if shown is None:
+                        shown = conv.closes
+                    closure["repaired_" + ("closes" if shown else "open")] += 1
             if conv is not None:
                 for sus in conv.suspects:
                     kind = str(sus["type"])
@@ -2562,6 +2997,9 @@ def collect_mark(
         "anchors_used": dict(sorted(anchors_used.items())),
         "suspects_by_type": dict(sorted(suspect_counts.items())),
         "norms_with_suspects": sorted(suspect_norms),
+        "norms_repaired": sorted(repaired_norms),
+        "repairs_by_kind": dict(sorted(repair_counts.items())),
+        "own_article_closure": closure,
         "used_by_kind": dict(sorted(kind_counts.items())),
         "failure_reasons": dict(sorted(reasons.items())),
         "usage": usage_total,
@@ -2586,7 +3024,7 @@ def collect_mark(
 def upload_mark_to_ia(
     out_dir: Path, summary: Dict[str, Any], revision: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Upload ``marked/`` and ``records/`` (tar.gz), the anchor table, failures, summary
+    """Upload ``marked/``, ``marked-repaired/`` and ``records/`` (tar.gz), the anchor table, failures, summary
     and manifest as one IA data item under the label-set naming."""
     ente = str(summary["ente"])
     label_set = str(summary.get("label_set", DEFAULT_MARK_LABEL_SET))
@@ -2595,7 +3033,7 @@ def upload_mark_to_ia(
     with tempfile.TemporaryDirectory() as tmp:
         archive = Path(tmp) / "marked.tar.gz"
         with tarfile.open(archive, "w:gz") as tar:
-            for sub in ("marked", "records"):
+            for sub in ("marked", "marked-repaired", "records"):
                 if (out_dir / sub).is_dir():
                     tar.add(out_dir / sub, arcname=sub)
         description = (

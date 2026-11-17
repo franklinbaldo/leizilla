@@ -398,6 +398,7 @@ jobs:
             ${{ env.WORK_DIR }}/out/reviews
             ${{ env.WORK_DIR }}/out/review-adjustments.json
             ${{ env.WORK_DIR }}/out/marked
+            ${{ env.WORK_DIR }}/out/marked-repaired
             ${{ env.WORK_DIR }}/out/records
             ${{ env.WORK_DIR }}/out/anchors.jsonl
             ${{ env.WORK_DIR }}/out/failures.jsonl

@@ -129,7 +129,7 @@ B, o método de B (`exact`, `tolerant`, `ambiguous`, `none`), se concordam e `|A
    derivado de novo; a norma não falha. `strip(xml) == texto` é afirmado em todo documento
    (não pode falhar por construção); `verify` precisa passar, senão `build_failed`.
 
-## Suspeitas (v2): sinalizar, nunca consertar
+## Suspeitas (v2): sinalizar, e uma segunda leitura ao lado
 
 `convert_response` devolve `suspects` por norma (vai em `records/*.json` e em
 `summary.json`: `suspects_by_type`, `norms_with_suspects`; `score_mark` as conta):
@@ -147,6 +147,59 @@ B, o método de B (`exact`, `tolerant`, `ambiguous`, `none`), se concordam e `|A
 O score ainda compara cada `alteracao` do modelo com os blocos citados do leitor
 (`same`, `longer_in_reader`, `shorter_in_reader`, `only_model`, `only_reader`).
 
+### Segunda leitura (`repair`): uma variante verificada, nunca no lugar
+
+O prompt não corrigiu as duas falhas de artigo (bloco `alteracao` terminado antes da aspa
+que fecha; sinal ordinal lido como dígito), então o conversor oferece uma **segunda leitura
+determinística, ao lado**: o documento do modelo continua como veio (`marked/`), a variante
+reparada vai para `marked-repaired/` (só para normas em que algo mudou) e o `records/*.json`
+traz `repairs` (o que mudou, com a evidência), `repairs_rejected`, `repaired_suspects` e
+`closure: {model, repaired}` (fecho dos artigos próprios de cada um). O `summary.json` tem
+`norms_repaired`, `repairs_by_kind` e `own_article_closure`. Nada altera o texto (a
+invariante do strip vale para a variante) nem a resposta do modelo. Passes, nesta ordem:
+
+1. `duplicate_marker`: o mesmo dispositivo (tipo, número, sufixo) marcado duas vezes, a no
+   máximo 3 linhas, sem outra marca entre elas, quando o marcador está partido entre linhas
+   (o primeiro termina a linha, ou o segundo não tem marcador): fica o primeiro
+   (`lei-00380`, "Art. " / "3Q" / "- Esta Lei...", linhas 314 e 316).
+2. `ordinal_digit`: artigo próprio (nunca citado, nunca com sufixo) com número `n >= 10`
+   acima do anterior + 1 cujo último dígito retirado dá o anterior + 1 (`49` depois de 3,
+   `102` depois de 9), e o artigo próprio seguinte continua dali (ou não há seguinte).
+   Variante `sequence-pair`: retirado o dígito dá o próprio anterior e o seguinte lê
+   anterior + 1 do mesmo jeito (`92`, `102` depois de um 9: lê 9 e 10). **Não** se aplica se
+   a sequência é consistente como impressa (3, 49, 50, 51: o seguinte é `n + 1`), nem a
+   números citados (`lei-00765`: 52, 60, 79, 80 ficam).
+3. `alteracao_end`: o bloco apontado por `suspect_alteracao` (ou, para `suspect_number`, o
+   último bloco que termina antes do artigo marcado) é estendido até a linha mais próxima
+   com aspa de fechamento ou `(NR)` que faz a suspeita sumir e o número de quebras cair. A
+   segunda testemunha é o bloco citado do leitor (`witness: sequence+reader` quando ele
+   termina na mesma linha; só `sequence` quando não). **Só vale se os artigos próprios da
+   variante fecham (1..N)**; senão a extensão vai para `repairs_rejected` e a variante não
+   a leva (a extensão é a reparação mais arriscada: vira citados artigos que eram próprios).
+
+Repetição offline sobre as respostas reais do piloto (`scripts/replay_mark.py`; v2, 60
+normas, os mesmos 1 551 marcas; comparação com `scripts/compare_mark_reader.py --labels`):
+
+| | modelo como veio | variante reparada |
+|---|---:|---:|
+| normas com os artigos próprios fechando | 53/60 | 56/60 |
+| artigos próprios iguais aos do professor (50 normas com o mesmo texto) | 44 | 46 |
+| artigos próprios iguais aos do leitor | 41 | 44 |
+| norma que ficou pior (contra o professor ou o leitor) | | 0 |
+
+Por norma: `lei-00002` (49/59): 4 e 5, fecha, igual ao professor e ao leitor;
+`lei-00380`: duplicata das linhas 314/316 fundida e bloco 77-246 estendido a 285 (o fim que
+o leitor também dá), fecha, igual ao professor e ao leitor; `lei-01335`: bloco 33-234
+estendido a 543 (igual ao leitor), fecha, igual ao leitor mas **não** ao professor (o
+professor tem um artigo próprio `1` na linha 541, dentro do bloco do leitor);
+`lei-00765`: a única extensão que apaga a suspeita termina na linha 750 e engole o artigo
+próprio da linha 749, os artigos próprios continuam sem fechar: **recusada**, a norma
+segue sinalizada (o bloco verdadeiro, do professor, vai da linha 44 até a 748 sem aspa
+de fechamento no OCR; nenhuma regra de aspa o acha). Sobre as respostas do v1 do piloto: a
+`lei-00216` (92 e 102) lê 9 e 10 (iguais ao professor nas linhas 479 e 486) mas continua
+sinalizada (`suspect_sequence`: o modelo deu 9 duas vezes porque numerou a mais um artigo
+ilegível na linha 357); `lei-00380` e `lei-01335` como acima.
+
 ## Estados por norma e truncamento
 
 `ok` (sem marca descartada), `degraded` (construído, com marcas descartadas, motivo por
@@ -161,7 +214,8 @@ baixar o `textos.parquet` de novo).
 
 ## Saídas do collect
 
-`marked/<item>/<tipo>-NNNNN_<uuid5>.xml` (um documento por norma), `records/…json`
+`marked/<item>/<tipo>-NNNNN_<uuid5>.xml` (um documento por norma),
+`marked-repaired/…` (a variante reparada, só onde algo mudou), `records/…json`
 (estado, descartes com motivo), **`anchors.jsonl`** (uma linha por marca respondida),
 `failures.jsonl`, `summary.json`, `manifest.json`, `raw/`. Com `upload_ia`, o item do IA
 `leizilla-teacher-labels-ro-mark-<revisão>`. Nada é aplicado a rótulo, errata ou leitor.

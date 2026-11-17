@@ -1315,3 +1315,258 @@ def test_workflow_offers_the_anchor_choice() -> None:
     assert inputs["anchors"]["options"] == ["col+snippet", "snippet"]
     assert inputs["anchors"]["default"] == "col+snippet"
     assert text.count('--anchors "$IN_ANCHORS"') == 2
+
+
+# --- repairs: a checked second reading (alteracao end, ordinal digit, duplicates) --
+def _col(text: str, line: int, t: str) -> int:
+    return text.split("\n")[line - 1].index(t) + 1
+
+
+def _marks_for(text: str, spec: List[Any]) -> List[Dict[str, Any]]:
+    """Marks from ``(line, kind, t, n[, kwargs])`` with the column read off the text."""
+    out = []
+    for item in spec:
+        line, kind, t, n, *rest = item
+        out.append(
+            _mark(line, kind, _col(text, line, t), t, n, **(rest[0] if rest else {}))
+        )
+    return out
+
+
+ORDINAL_TEXT = (
+    "LEI Nº 1\nDispõe.\n"
+    "Art. 1º - A.\nArt. 2º - B.\nArt. 3º - C.\n"
+    "Art. 49 - D.\nArt. 59 - E.\nArt. 6º - F.\n"
+)
+
+
+def _ordinal_spec(numbers: List[str]) -> List[Any]:
+    lines = ORDINAL_TEXT.split("\n")
+    return [
+        (i + 3, "art", lines[i + 2].split(" - ")[0], n) for i, n in enumerate(numbers)
+    ]
+
+
+def test_ordinal_digit_is_repaired_in_a_variant_and_the_model_document_is_untouched() -> (
+    None
+):
+    marks = _marks_for(ORDINAL_TEXT, _ordinal_spec(["1", "2", "3", "49", "59", "6"]))
+    conv = tm.convert_response(ORDINAL_TEXT, marks, tipo="lei", numero=1)
+    _check(conv.xml, ORDINAL_TEXT)
+    assert [s["type"] for s in conv.suspects] == ["suspect_number"] * 2
+    assert conv.closes is False
+    assert [(r["kind"], r["n_from"], r["n_to"]) for r in conv.repairs] == [
+        ("ordinal_digit", "49", "4"),
+        ("ordinal_digit", "59", "5"),
+    ]
+    _check(conv.repaired_xml, ORDINAL_TEXT)
+    assert conv.repaired_suspects == [] and conv.repaired_closes is True
+    # the model's document still says what the model said; the text is never touched
+    assert _rows(conv.xml or "")["art-49"]["marker"] == "Art. 49"
+    fixed = _rows(conv.repaired_xml or "")
+    assert fixed["art-4"]["marker"] == "Art. 49" and "art-49" not in fixed
+    assert M.strip(conv.repaired_xml or "") == M.strip(conv.xml or "")
+
+
+def test_ordinal_digit_is_left_alone_when_the_sequence_is_consistent_as_printed() -> (
+    None
+):
+    text = "LEI Nº 1\nArt. 1º - A.\nArt. 2º - B.\nArt. 3º - C.\nArt. 49 - D.\nArt. 50 - E.\nArt. 51 - F.\n"
+    marks = _marks_for(
+        text,
+        [
+            (2, "art", "Art. 1º", "1"),
+            (3, "art", "Art. 2º", "2"),
+            (4, "art", "Art. 3º", "3"),
+            (5, "art", "Art. 49", "49"),
+            (6, "art", "Art. 50", "50"),
+            (7, "art", "Art. 51", "51"),
+        ],
+    )
+    conv = tm.convert_response(text, marks)
+    _check(conv.xml, text)
+    assert conv.repairs == [] and conv.repaired_xml is None
+    # 10, 11, 12 after 9 are plain numbers
+    text = "LEI Nº 1\n" + "\n".join(f"Art. {i}º - X." for i in range(1, 13)) + "\n"
+    marks = _marks_for(
+        text, [(i + 1, "art", f"Art. {i}º", str(i)) for i in range(1, 13)]
+    )
+    assert tm.convert_response(text, marks).repaired_xml is None
+
+
+def test_quoted_numbers_are_never_repaired() -> None:
+    text = 'LEI Nº 1\nArt. 1º - Altera:\n"Art. 52 - Q.\nArt. 60 - R."\nArt. 2º - Fim.\n'
+    marks = _marks_for(
+        text,
+        [
+            (2, "art", "Art. 1º", "1"),
+            (3, "alteracao", '"Art. 52', None, {"le": 4}),
+            (3, "art", "Art. 52", "52"),
+            (4, "art", "Art. 60", "60"),
+            (5, "art", "Art. 2º", "2"),
+        ],
+    )
+    conv = tm.convert_response(text, marks)
+    _check(conv.xml, text)
+    assert conv.suspects == [] and conv.repaired_xml is None
+    rows = _rows(conv.xml or "")
+    assert rows["art-52"]["quoted"] and rows["art-60"]["quoted"]
+
+
+def test_a_printed_pair_92_102_after_a_nine_reads_nine_and_ten() -> None:
+    text = (
+        "LEI Nº 1\n"
+        + "\n".join(f"Art. {i}º - X." for i in range(1, 10))
+        + "\nArt. 92 - Y.\nArt. 102 - Z.\n"
+    )
+    spec = [(i + 1, "art", f"Art. {i}º", str(i)) for i in range(1, 10)]
+    spec += [(11, "art", "Art. 92", "92"), (12, "art", "Art. 102", "102")]
+    conv = tm.convert_response(text, _marks_for(text, spec))
+    assert [(r["n_from"], r["n_to"], r["witness"]) for r in conv.repairs] == [
+        ("92", "9", "sequence-pair"),
+        ("102", "10", "sequence"),
+    ]
+
+
+ALT_TEXT = (
+    "LEI Nº 1\nDispõe.\n"  # 1-2
+    "Art. 1º - Primeiro.\n"  # 3
+    "Art. 2º - O texto passa a vigorar assim:\n"  # 4
+    '"Art. 1º - Novo um.\n'  # 5
+    'Art. 2º - Novo dois."\n'  # 6
+    "Art. 3º - Fim.\n"  # 7
+)
+
+
+def _alt_marks(own_three: str = "3") -> List[Dict[str, Any]]:
+    return _marks_for(
+        ALT_TEXT,
+        [
+            (3, "art", "Art. 1º", "1"),
+            (4, "art", "Art. 2º", "2"),
+            (5, "alteracao", '"Art. 1º', None, {"le": 5}),  # cut before its quote
+            (5, "art", "Art. 1º", "1"),
+            (6, "art", "Art. 2º", "2"),
+            (7, "art", "Art. 3º", own_three),
+        ],
+    )
+
+
+def test_alteracao_end_is_repaired_to_the_closing_quote_line() -> None:
+    conv = tm.convert_response(ALT_TEXT, _alt_marks(), tipo="lei", numero=1)
+    _check(conv.xml, ALT_TEXT)
+    assert [s["type"] for s in conv.suspects] == ["suspect_alteracao"]
+    assert conv.suspects[0]["closing_quote"] is False and conv.closes is False
+    [fix] = conv.repairs
+    assert (fix["kind"], fix["from_line"], fix["to_line"]) == ("alteracao_end", 5, 6)
+    assert fix["witness"] in ("sequence", "sequence+reader")
+    _check(conv.repaired_xml, ALT_TEXT)
+    assert conv.repaired_suspects == [] and conv.repaired_closes is True
+    own = [r["path"] for r in M.to_rows(conv.repaired_xml or "") if not r["quoted"]]
+    assert own == ["art-1", "art-2", "art-3"]
+    # the model's own document keeps the short block
+    assert len([r for r in M.to_rows(conv.xml or "") if not r["quoted"]]) == 4
+
+
+def test_alteracao_repair_is_refused_when_the_own_articles_still_do_not_close() -> None:
+    # article 3 is missing: extending the block clears the flag but leaves a gap
+    text = ALT_TEXT.replace("Art. 3º - Fim.", "Art. 4º - Fim.")
+    marks = _marks_for(
+        text,
+        [
+            (3, "art", "Art. 1º", "1"),
+            (4, "art", "Art. 2º", "2"),
+            (5, "alteracao", '"Art. 1º', None, {"le": 5}),
+            (5, "art", "Art. 1º", "1"),
+            (6, "art", "Art. 2º", "2"),
+            (7, "art", "Art. 4º", "4"),
+        ],
+    )
+    conv = tm.convert_response(text, marks)
+    _check(conv.xml, text)
+    assert conv.suspects and conv.repaired_xml is None and conv.repairs == []
+    assert conv.repairs_rejected and conv.repairs_rejected[0]["kind"] == "alteracao_end"
+
+
+def test_a_duplicate_device_mark_from_a_split_marker_is_merged() -> None:
+    text = (
+        "LEI Nº 1\nArt. 1º - A.\nArt. 2º - B.\nArt. \n3Q \n- Esta Lei entra em vigor.\n"
+    )
+    marks = _marks_for(
+        text,
+        [
+            (2, "art", "Art. 1º", "1"),
+            (3, "art", "Art. 2º", "2"),
+            (4, "art", "Art.", "3"),
+            (6, "art", "Esta Lei entra em vigor", "3", {"x": True}),
+        ],
+    )
+    conv = tm.convert_response(text, marks)
+    _check(conv.xml, text)
+    assert conv.closes is False
+    [fix] = conv.repairs
+    assert (fix["kind"], fix["from_line"], fix["to_line"]) == ("duplicate_marker", 4, 6)
+    _check(conv.repaired_xml, text)
+    assert conv.repaired_closes is True
+    # two real, distinct devices on the same lines are not merged
+    other = tm.convert_response(
+        "LEI Nº 1\nArt. 1º - A.\n§ 1º - B.\n§ 1º - C.\n",
+        _marks_for(
+            "LEI Nº 1\nArt. 1º - A.\n§ 1º - B.\n§ 1º - C.\n",
+            [
+                (2, "art", "Art. 1º", "1"),
+                (3, "par", "§ 1º", "1"),
+                (4, "par", "§ 1º", "1"),
+            ],
+        ),
+    )
+    assert other.repairs == []
+
+
+def test_collect_writes_the_repaired_variant_and_the_closure_per_norm(
+    tmp_path: Path,
+) -> None:
+    plan = _plan([ALT_TEXT, SMALL_TEXTS[0]])
+    entries, _ = simulate_mark.simulate(plan, seed="s", shift_rate=0, accent_rate=0)
+    # the perfect answer for ALT_TEXT closes the block right; cut it like the model did
+    body = json.loads(entries[0]["result"]["message"]["content"][0]["text"])
+    for norm in body["norms"]:
+        for mark in norm["marks"]:
+            if mark["k"] == "alteracao":
+                mark["le"] = mark["l"]
+    entries[0]["result"]["message"]["content"][0]["text"] = json.dumps(body)
+    summary = tm.collect_mark(_Fake(entries), _manifest(plan), tmp_path)
+    assert len(summary["norms_repaired"]) == 1
+    assert summary["repairs_by_kind"] == {"alteracao_end": 1}
+    assert summary["own_article_closure"]["model_open"] == 1
+    assert summary["own_article_closure"]["repaired_closes"] == 2
+    fixed = sorted((tmp_path / "marked-repaired").rglob("*.xml"))
+    assert len(fixed) == 1
+    rec = next(
+        r
+        for r in score_mark.load_records(tmp_path)
+        if r["texto_id"] in summary["norms_repaired"]
+    )
+    assert rec["repairs"][0]["kind"] == "alteracao_end"
+    assert rec["closure"] == {"model": False, "repaired": True}
+    xml = fixed[0].read_text(encoding="utf-8")
+    assert M.verify(xml, M.strip(xml)) == []
+
+
+def test_replay_feeds_saved_raw_results_through_the_current_converter(
+    tmp_path: Path,
+) -> None:
+    import replay_mark
+
+    plan = _plan(SMALL_TEXTS)
+    manifest = _manifest(plan)
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / "msgbatch_x.jsonl").write_text(
+        "\n".join(json.dumps(e) for e in _perfect(plan)) + "\n", encoding="utf-8"
+    )
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    summary = replay_mark.replay(manifest_path, raw, tmp_path / "out")
+    assert summary["states"]["ok"] == 3 and summary["marks_dropped"] == 0
+    assert (tmp_path / "out" / "anchors.jsonl").is_file()
