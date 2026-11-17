@@ -93,7 +93,7 @@ jobs:
         run: pip install pytest
 
       - name: Consistency checker (testes)
-        run: pytest tests/test_schema_consistency.py -v
+        run: pytest --noconftest tests/test_schema_consistency.py -v
 
       - name: LexML export (testes)
-        run: pytest tests/test_lexml_export.py -v
+        run: pytest --noconftest tests/test_lexml_export.py -v
