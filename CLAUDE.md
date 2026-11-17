@@ -218,6 +218,10 @@ manifest exists.
   schema, fixtures, or related tests change.
 - `ocr.py`, `config.py` and `entes.py` all have direct test files
   (`tests/test_ocr.py`, `tests/test_config.py`, `tests/test_entes.py`).
+- `reader-ratchet.yml` gates the rule-based reader against the teacher labels:
+  `scripts/reader_ratchet.py check` fails if an `agree_closed` norm in
+  `docs/okf/reader-ratchet-baseline.json` leaves, or a new `disagree_closed`
+  appears (see `docs/okf/reader-ratchet.md`).
 
 ## Conventions
 

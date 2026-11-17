@@ -1,0 +1,79 @@
+name: Reader ratchet — rótulos do professor vs. leitor por regras
+
+# Gate do leitor (docs/okf/reader-ratchet.md): roda o placar de
+# scripts/compare_teacher_reader.py sobre os rótulos do professor e falha se uma
+# norma que estava em agree_closed saiu de lá, ou se uma norma entrou em
+# disagree_closed. A linha de base é docs/okf/reader-ratchet-baseline.json.
+#
+# Os rótulos não estão no repositório. Fonte atual: o artifact
+# `teacher-batch-labels` da execução 43937274430 (collect de 2026-11-16), que
+# expira em 2027-02-14. O item do IA com `upload_ia` não existe para este lote
+# (ver o doc). Quando houver um item publicado, troque a fonte e atualize o
+# identificador em `LABELS_BATCH` e na linha de base.
+on:
+  pull_request:
+    paths:
+      - "src/leizilla/article_sequence.py"
+      - "src/leizilla/hierarchy_sequence.py"
+      - "scripts/compare_teacher_reader.py"
+      - "scripts/reader_ratchet.py"
+      - "docs/okf/reader-ratchet-baseline.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read # baixar o artifact de outra execução
+
+env:
+  # Execução cujo artifact `teacher-batch-labels` contém os rótulos (labels/, summary.json).
+  LABELS_RUN_ID: "43937274430"
+  # Identificador dos rótulos; chave do cache dos textos. Deve bater com a linha de base.
+  LABELS_BATCH: msgbatch_01VYBeV9AWA7A2QeNaYfJZAC
+  TEXTOS_URL: https://archive.org/download/leizilla-textos-ro-v0-latest/textos.parquet
+
+jobs:
+  ratchet:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen --extra dev
+
+      - name: Baixar os rótulos do professor (artifact da execução de origem)
+        uses: actions/download-artifact@v4
+        with:
+          name: teacher-batch-labels
+          path: ${{ runner.temp }}/labels
+          run-id: ${{ env.LABELS_RUN_ID }}
+          github-token: ${{ github.token }}
+
+      - name: Baixar textos.parquet publicado (cache de textos a partir dele)
+        run: |
+          set -euo pipefail
+          curl -sSL --fail --retry 3 --max-time 300 \
+            -o "$RUNNER_TEMP/textos.parquet" "$TEXTOS_URL"
+
+      - name: Cache dos textos (por rótulos)
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/texts
+          key: reader-ratchet-texts-${{ env.LABELS_BATCH }}-${{ github.run_id }}
+          restore-keys: |
+            reader-ratchet-texts-${{ env.LABELS_BATCH }}-
+
+      - name: Limpar lista de textos ausentes de execuções anteriores
+        # Uma falha transitória de rede não deve ficar gravada no cache.
+        run: rm -f "$RUNNER_TEMP/texts/_missing.txt"
+
+      - name: Check — placar e comparação com a linha de base
+        run: |
+          set -euo pipefail
+          uv run python scripts/reader_ratchet.py check \
+            --labels "$RUNNER_TEMP/labels" \
+            --texts "$RUNNER_TEMP/texts" \
+            --textos-parquet "$RUNNER_TEMP/textos.parquet"

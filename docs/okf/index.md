@@ -13,6 +13,10 @@ Bundle de conhecimento do Leizilla. Cada arquivo descreve um conceito operaciona
 
 - [Project DAG](project-dag.md) — objetivos, OKRs, dependências, blockers e próximas ações; fonte de verdade das frentes vivas
 
+## Avaliação
+
+- [Reader ratchet](reader-ratchet.md) — gate do leitor por regras contra os rótulos do professor; linha de base e procedimento
+
 ## Pipeline
 
 - [Visão geral do pipeline](pipeline/overview.md) — 6 etapas, entradas e saídas
