@@ -79,7 +79,9 @@ def simulate(
             else norm.text
         )
         marks = marcacao.from_hierarchy(base, read_hierarchy(base))
-        responses[norm.ref.key] = tm.response_from_marks(norm.text, marks)["marks"]
+        responses[norm.ref.key] = tm.response_from_marks(
+            norm.text, marks, anchors=plan.anchors
+        )["marks"]
     everything = [(k, i) for k, marks in responses.items() for i in range(len(marks))]
     rng.shuffle(everything)
     total = len(everything)
@@ -88,6 +90,8 @@ def simulate(
         if len(shifted) >= round(shift_rate * total):
             break
         mark = responses[key][i]
+        if "c" not in mark:  # snippet mode: no column to shift
+            continue
         lines = tb.split_lines(next(n.text for n in plan.norms if n.ref.key == key))
         shown = lines[mark["l"] - 1].strip()
         step = rng.choice((-1, 1))
@@ -150,6 +154,7 @@ def run(
     seed: str = "20261118",
     shift_rate: float = SHIFT_RATE,
     accent_rate: float = ACCENT_RATE,
+    anchors: str = tm.DEFAULT_ANCHORS,
 ) -> dict[str, Any]:
     plan = tm.prepare_mark(
         ente="ro",
@@ -165,6 +170,7 @@ def run(
         max_lines=tm.MARK_MAX_LINES,
         max_chars=tm.MARK_MAX_CHARS,
         max_tokens_cap=tm.MARK_MAX_TOKENS_CAP,
+        anchors=anchors,
     )
     spec = tb.resolve_model(tb.DEFAULT_MODEL)
     estimate = tm.estimate_mark_cost(plan, spec, "medium", True)
@@ -207,8 +213,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--ids-file", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--seed", default="20261118")
+    parser.add_argument(
+        "--anchors", choices=tm.ANCHOR_MODES, default=tm.DEFAULT_ANCHORS
+    )
     args = parser.parse_args(argv)
-    result = run(args.textos, args.ids_file, args.out, args.seed)
+    result = run(args.textos, args.ids_file, args.out, args.seed, anchors=args.anchors)
     (args.out / "simulation.json").write_text(
         json.dumps(result, indent=1, ensure_ascii=False), encoding="utf-8"
     )
@@ -220,6 +229,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         f"B methods {ca['b_methods']}; reference {ca['reference_n']}; "
         f"A exact {ca['a_exact_rate']}; deltas {ca['delta_distribution']}"
     )
+    if result["score"].get("snippet_resolution"):
+        print(f"snippet resolution: {result['score']['snippet_resolution']}")
     return 0
 
 

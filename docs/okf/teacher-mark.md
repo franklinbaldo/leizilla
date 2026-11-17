@@ -129,7 +129,7 @@ B, o método de B (`exact`, `tolerant`, `ambiguous`, `none`), se concordam e `|A
    derivado de novo; a norma não falha. `strip(xml) == texto` é afirmado em todo documento
    (não pode falhar por construção); `verify` precisa passar, senão `build_failed`.
 
-## Suspeitas (v2): sinalizar, nunca consertar
+## Suspeitas (v2): sinalizar, e uma segunda leitura ao lado
 
 `convert_response` devolve `suspects` por norma (vai em `records/*.json` e em
 `summary.json`: `suspects_by_type`, `norms_with_suspects`; `score_mark` as conta):
@@ -147,6 +147,59 @@ B, o método de B (`exact`, `tolerant`, `ambiguous`, `none`), se concordam e `|A
 O score ainda compara cada `alteracao` do modelo com os blocos citados do leitor
 (`same`, `longer_in_reader`, `shorter_in_reader`, `only_model`, `only_reader`).
 
+### Segunda leitura (`repair`): uma variante verificada, nunca no lugar
+
+O prompt não corrigiu as duas falhas de artigo (bloco `alteracao` terminado antes da aspa
+que fecha; sinal ordinal lido como dígito), então o conversor oferece uma **segunda leitura
+determinística, ao lado**: o documento do modelo continua como veio (`marked/`), a variante
+reparada vai para `marked-repaired/` (só para normas em que algo mudou) e o `records/*.json`
+traz `repairs` (o que mudou, com a evidência), `repairs_rejected`, `repaired_suspects` e
+`closure: {model, repaired}` (fecho dos artigos próprios de cada um). O `summary.json` tem
+`norms_repaired`, `repairs_by_kind` e `own_article_closure`. Nada altera o texto (a
+invariante do strip vale para a variante) nem a resposta do modelo. Passes, nesta ordem:
+
+1. `duplicate_marker`: o mesmo dispositivo (tipo, número, sufixo) marcado duas vezes, a no
+   máximo 3 linhas, sem outra marca entre elas, quando o marcador está partido entre linhas
+   (o primeiro termina a linha, ou o segundo não tem marcador): fica o primeiro
+   (`lei-00380`, "Art. " / "3Q" / "- Esta Lei...", linhas 314 e 316).
+2. `ordinal_digit`: artigo próprio (nunca citado, nunca com sufixo) com número `n >= 10`
+   acima do anterior + 1 cujo último dígito retirado dá o anterior + 1 (`49` depois de 3,
+   `102` depois de 9), e o artigo próprio seguinte continua dali (ou não há seguinte).
+   Variante `sequence-pair`: retirado o dígito dá o próprio anterior e o seguinte lê
+   anterior + 1 do mesmo jeito (`92`, `102` depois de um 9: lê 9 e 10). **Não** se aplica se
+   a sequência é consistente como impressa (3, 49, 50, 51: o seguinte é `n + 1`), nem a
+   números citados (`lei-00765`: 52, 60, 79, 80 ficam).
+3. `alteracao_end`: o bloco apontado por `suspect_alteracao` (ou, para `suspect_number`, o
+   último bloco que termina antes do artigo marcado) é estendido até a linha mais próxima
+   com aspa de fechamento ou `(NR)` que faz a suspeita sumir e o número de quebras cair. A
+   segunda testemunha é o bloco citado do leitor (`witness: sequence+reader` quando ele
+   termina na mesma linha; só `sequence` quando não). **Só vale se os artigos próprios da
+   variante fecham (1..N)**; senão a extensão vai para `repairs_rejected` e a variante não
+   a leva (a extensão é a reparação mais arriscada: vira citados artigos que eram próprios).
+
+Repetição offline sobre as respostas reais do piloto (`scripts/replay_mark.py`; v2, 60
+normas, os mesmos 1 551 marcas; comparação com `scripts/compare_mark_reader.py --labels`):
+
+| | modelo como veio | variante reparada |
+|---|---:|---:|
+| normas com os artigos próprios fechando | 53/60 | 56/60 |
+| artigos próprios iguais aos do professor (50 normas com o mesmo texto) | 44 | 46 |
+| artigos próprios iguais aos do leitor | 41 | 44 |
+| norma que ficou pior (contra o professor ou o leitor) | | 0 |
+
+Por norma: `lei-00002` (49/59): 4 e 5, fecha, igual ao professor e ao leitor;
+`lei-00380`: duplicata das linhas 314/316 fundida e bloco 77-246 estendido a 285 (o fim que
+o leitor também dá), fecha, igual ao professor e ao leitor; `lei-01335`: bloco 33-234
+estendido a 543 (igual ao leitor), fecha, igual ao leitor mas **não** ao professor (o
+professor tem um artigo próprio `1` na linha 541, dentro do bloco do leitor);
+`lei-00765`: a única extensão que apaga a suspeita termina na linha 750 e engole o artigo
+próprio da linha 749, os artigos próprios continuam sem fechar: **recusada**, a norma
+segue sinalizada (o bloco verdadeiro, do professor, vai da linha 44 até a 748 sem aspa
+de fechamento no OCR; nenhuma regra de aspa o acha). Sobre as respostas do v1 do piloto: a
+`lei-00216` (92 e 102) lê 9 e 10 (iguais ao professor nas linhas 479 e 486) mas continua
+sinalizada (`suspect_sequence`: o modelo deu 9 duas vezes porque numerou a mais um artigo
+ilegível na linha 357); `lei-00380` e `lei-01335` como acima.
+
 ## Estados por norma e truncamento
 
 `ok` (sem marca descartada), `degraded` (construído, com marcas descartadas, motivo por
@@ -161,7 +214,8 @@ baixar o `textos.parquet` de novo).
 
 ## Saídas do collect
 
-`marked/<item>/<tipo>-NNNNN_<uuid5>.xml` (um documento por norma), `records/…json`
+`marked/<item>/<tipo>-NNNNN_<uuid5>.xml` (um documento por norma),
+`marked-repaired/…` (a variante reparada, só onde algo mudou), `records/…json`
 (estado, descartes com motivo), **`anchors.jsonl`** (uma linha por marca respondida),
 `failures.jsonl`, `summary.json`, `manifest.json`, `raw/`. Com `upload_ia`, o item do IA
 `leizilla-teacher-labels-ro-mark-<revisão>`. Nada é aplicado a rótulo, errata ou leitor.
@@ -285,6 +339,144 @@ o texto original e levado à variante, para os dispositivos casados por linha, t
 número; taxa de A exato, de B exato e do offset usado, por coluna do marcador na linha
 (0-10, 11-40, 41-100, 101-200, 201-400, 401+) e por haver ou não não-ASCII antes. Seco
 (`simulate_mark.py` com este arquivo, A deslocado em 5%): ver abaixo.
+
+## Modo de âncora `snippet` (`--anchors snippet`, prompt `teacher-mark-v2s`)
+
+O estresse truncou 40/40 (effort medium) e 8/8 (effort low): cada requisição gastou o
+`max_tokens` inteiro raciocinando e não escreveu nada. A hipótese (não verificada) é que o
+modelo gasta o raciocínio **contando colunas** em linhas de 200 a 400 caracteres. Para
+separar essa causa das demais existe uma opção de modo de âncora:
+
+- `--anchors col+snippet` (padrão, o contrato v2 acima, sem mudança de byte no prompt);
+- `--anchors snippet`: o prompt, o esquema, o exemplo e as instruções **não pedem `c`**. O
+  campo `c` sai e entra `o` (inteiro pequeno ou `null`): qual ocorrência de `t` na linha é a
+  marca, contando da esquerda, a partir de 1. Os dez campos continuam obrigatórios
+  (`l k t o n s le x e nota`).
+
+O conversor resolve só por `t`: único na linha (exato ou tolerante) vale (`used="B"`); se
+ocorre mais de uma vez (inclusive `I -` dentro de `II -`) vale o `o` (`used="O"`); sem `o`
+a marca é descartada (`ambiguous_snippet`), com `o` fora das ocorrências, ou `o` > 1 para
+um `t` único, também (`bad_occurrence`); `t` que não está na linha: `no_anchor`. Uma única
+tolerância: um `t` copiado através de uma quebra de linha ("Art. \n6º") que não ocorre na
+linha resolve pelo maior prefixo de palavras (3 ou mais caracteres) que ocorre uma vez e
+**termina no fim da linha** (`b_method="prefix"`). O manifesto, os `records/*.json` e o
+`summary.json` carregam `anchors`; o `collect` lê o modo do manifesto; `--retry-truncated`
+exige o mesmo modo.
+
+`score_mark`: no modo `snippet` não há âncora A. O bloco `snippet_resolution` conta marcas
+resolvidas (B/O), descartes por motivo, empates na linha (com e sem `o`); o bloco de
+estresse e a referência contra o leitor passam a pontuar o **offset usado** (por coluna
+verdadeira do marcador, por haver não-ASCII antes, por número de ocorrências de `t` na
+linha), e `a_exact_rate` fica `null`. Simulação seca (`simulate_mark.py --anchors snippet`
+sobre o conjunto de estresse, acentos retirados em 3%): 575 de 576 marcas resolvidas, 26
+empates todos resolvidos por `o`, offset usado igual ao do leitor em 99,1%.
+
+Sonda de 8 normas do conjunto de estresse (workflow `teacher-batch.yml`):
+
+1. `step=plan`, `mode=mark`, `anchors=snippet`, `ids_file=mark-stress-reflow-2026-11`,
+   `limit=8`, `model=claude-haiku-5-5`, `effort=medium`, `text_source=textos`;
+2. `step=submit`, os mesmos insumos, `max_usd=0.05`, `guard=ceiling`;
+3. `step=collect` com o `manifest_run_id` do submit.
+
+O `plan` local dá 8 normas em 2 requisições, estimativa US$ 0,0034, teto US$ 0,0101. Ler:
+se as 2 requisições escreverem marcas (não truncarem), o custo de contar colunas era a
+causa; compare as âncoras usadas e o offset usado contra o leitor por coluna.
+
+## Conjunto de referência (300 normas) e o placar por nível
+
+`docs/okf/review-samples/mark-reference-2026-11.txt`: 300 normas, semente 20261119,
+montadas por `scripts/select_mark_reference.py` (determinístico) do conjunto rotulado pelo
+modo `label` (2086) cruzado com a camada de textos atual (pool de 1 994: 730 sem rótulo e 91
+com mais de 4 partes ficaram de fora). Entram as 60 do piloto; o resto é estratificado por
+tipo e por terço de comprimento do pool (linhas não brancas), em proporção ao pool; mais
+(com piso, escolhendo a célula mais abaixo da cota) 70 normas com dispositivos de
+subnível (`par inc ali item`) em que o leitor e o professor do modo `label` **discordam**
+(só valem normas cujo texto é o que o professor viu) e 64 com bloco citado (o leitor acha
+um). Resultado: `lei` 215, `decreto` 44, `lc` 38, `decreto-lei` 3; curtas 101, médias 99,
+longas 100; 54 normas partidas em até 4 partes.
+
+Rodar (`teacher-batch.yml`; plano local: 202 requisições, estimativa **US$ 0,25**, teto
+US$ 1,01, o modo `label` para as mesmas normas US$ 0,36; o piloto mediu 15% acima da
+estimativa, então espera-se US$ 0,3 a 0,4):
+
+1. `step=plan`, `mode=mark`, `ids_file=mark-reference-2026-11`, `shuffle_seed=20261119`,
+   `model=claude-haiku-5-5`, `effort=medium`, `text_source=textos`;
+2. `step=submit`, os mesmos insumos, `max_usd=1.2`, `guard=ceiling`;
+3. `step=collect` com o `manifest_run_id` do submit (`upload_ia` opcional).
+
+`scripts/compare_mark_reader.py` (offline) compara, **por nível** (`art par inc ali item`,
+próprio e citado), o leitor por regras com os documentos do modo `mark` de uma coleta, via
+`marcacao.to_rows` dos dois (o documento do modo `mark` é a referência; no subnível ele é
+melhor que o leitor). Os dispositivos são pareados por tipo (mesmo offset do marcador, depois
+na ordem da mesma linha, depois mesmo número a até 2 linhas) e cada um cai em: `agree`,
+`reader_misses`, `reader_extra`, `number_differs`, `status_differs` (próprio x citado) ou
+`kind_differs` (uma falta e um excesso na mesma linha, de tipos diferentes). Por norma e
+nível, o grupo é `agree`, um dos cinco defeitos ou `mixed`. Normas com suspeita
+(`suspect_alteracao/sequence/number`) são tabuladas à parte e ficam fora da tabela
+"limpa"; `--variant repaired` usa a variante reparada (e as suspeitas que sobram nela).
+`--labels` acrescenta, por nível, a igualdade por norma do documento do modo `mark` e do
+leitor com o professor (nas normas cujo texto ele viu; errata aplicada). O fim da saída é a
+lista ordenada dos defeitos do leitor nos subníveis, por forma do marcador impresso
+(dígitos viram `9`, romano válido `R`, parecido com romano `R~`, `§` lido como letra `§~`)
+e por onde o dispositivo está (`line start`, `mid-line`, `in anexo/table`, `in ruido`), cada
+um com exemplos: é a entrada de um torneio de regras no subnível.
+
+Primeira medição, as 60 normas do piloto (respostas v2 repetidas; 56 limpas, 4 com
+suspeita; leitor contra o modo `mark`, normas limpas):
+
+| nível/estado | dispositivos (modo mark) | iguais | leitor não acha | leitor a mais | número difere | estado difere | tipo difere |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| art/próprio | 372 | 356 | 14 | 0 | 2 | 0 | 0 |
+| art/citado | 25 | 21 | 1 | 0 | 0 | 3 | 0 |
+| par/próprio | 137 | 129 | 8 | 1 | 0 | 0 | 0 |
+| par/citado | 16 | 12 | 3 | 0 | 0 | 1 | 0 |
+| inc/próprio | 114 | 108 | 6 | 3 | 0 | 0 | 0 |
+| inc/citado | 31 | 29 | 0 | 0 | 0 | 2 | 0 |
+| ali/próprio | 18 | 18 | 0 | 0 | 0 | 0 | 0 |
+| ali/citado | 2 | 2 | 0 | 0 | 0 | 0 | 0 |
+| item/próprio | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
+
+Defeitos do leitor nos subníveis, normas limpas (16 padrões; os primeiros): (1) 4x
+`par` não achado, `§2o.` (sem espaço, OCR "o" no lugar do ordinal; as 4 em `lei-01043`);
+(2) 3x `inc` a mais, `II` / `-` partidos em duas linhas (`decreto-01013`, linhas 288-298,
+tabela lida como incisos); (3) 3x `inc` não achado, `II -oprojeto` (sem espaço depois do
+hífen, `lei-01043`); (4) 2x estado difere, `inc` próprio no modelo e citado no leitor
+(`lc-00386`, linhas 36-40); (5) 2x `par` não achado, `s 2o` (o `§` lido como `s`,
+`lei-00392`); (6) 2x `inc` não achado, `I-aação` (hífen colado); depois 1x cada: `s lo -`
+(`§ 1º` com `§` lido como `s` e `1` como `l`), `Parágrafo único.` (estado), `§ 1°`,
+`§ 45` (`§ 4º` com o ordinal como `5`), `§ Io.` (o `1` como `I`), parágrafo sem marcador
+legível (`A/% /llS`), `Parágrafo único` no meio de uma frase (`lei-00884`, uma menção, o
+leitor a mais), item `1 –` lido como inciso (`kind_differs`, `lei-01113`), `II` sem hífen.
+Por onde: 10x `par` não achado no começo da linha, 6x `inc` não achado, 3x `inc` a mais e 1
+`kind_differs`, 2 no meio da linha (a menção `Parágrafo único` que o leitor leu como
+dispositivo e um parágrafo sem marcador legível). Os números têm pouco sinal (137 `par`, 114 `inc`, 18 `ali`): as
+300 normas são para isso.
+
+### Esboço: catraca por nível (não implementada)
+
+Hoje `reader-ratchet.yml` só cobre o nível `art`, contra o professor do modo `label`. O
+placar por nível usaria a referência abaixo, no mesmo molde:
+
+- **Referência**: os documentos do modo `mark` das 300 normas de
+  `mark-reference-2026-11`, depois que uma **amostra** (por exemplo 60, todas as com
+  discordância de subnível mais um terço do resto) for conferida por uma leitura do Sonnet
+  (`mode=mark`, `model` mais forte, `effort=high`) e o que o Sonnet e o Haiku discordam
+  for decidido por errata (como `teacher-label-errata.json`: correção presa ao sha256 do
+  texto, evidência na linha). Documentos de normas com suspeita entram pela variante
+  reparada ou ficam de fora da linha de base, explicitamente.
+- **Linha de base**: `docs/okf/mark-ratchet-baseline.json` com, por nível
+  (`art par inc ali item`) e por norma, o grupo de `compare_mark_reader` (`agree`, um
+  defeito, `mixed`), a identidade do batch/texto da referência e o commit do leitor.
+- **O portão, por nível**: FAIL se uma norma que concordava num nível (`agree` na
+  linha de base) deixou de concordar nesse nível (ou deixou de ser comparada: texto
+  ausente, sha256 divergente), com o nível e o grupo atual impressos; FAIL se uma norma
+  tem num nível um defeito que não tinha. PASS com a tabela antes -> depois por nível e as
+  normas que entraram em `agree`. `update` só sem regressão, ou `--force --reason`. Um
+  nível pode melhorar enquanto outro piora só se o motivo ficar no histórico.
+- **Insumos no CI**: o `reader-ratchet.yml` baixa os rótulos do IA; este baixaria o item do
+  IA de `upload_ia` da execução de referência (documentos marcados, `records/`), sem
+  chamar API. Mudar a referência (novo prompt, novo modelo, nova errata) é uma atualização
+  da linha de base com motivo, nunca implícita.
 
 ## Simulação seca (sem API)
 

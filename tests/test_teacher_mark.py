@@ -1089,3 +1089,661 @@ def test_stress_sample_file_is_valid_and_points_at_pilot_norms() -> None:
     assert len(stress) == 40 and len(set(stress)) == 40
     assert all(i.endswith(tm.REFLOW_SUFFIX) for i in stress)
     assert {i[: -len(tm.REFLOW_SUFFIX)] for i in stress} <= pilot
+
+
+# --- snippet anchor mode (teacher-mark-v2s): no column, ``t`` and ``o`` ------------
+def _snip(
+    line: int,
+    kind: str,
+    t: str,
+    n: Optional[str] = None,
+    *,
+    o: Optional[int] = None,
+    le: Optional[int] = None,
+    x: bool = False,
+) -> Dict[str, Any]:
+    return {
+        "l": line,
+        "k": kind,
+        "t": t,
+        "o": o,
+        "n": n,
+        "s": None,
+        "le": le,
+        "x": x,
+        "e": None,
+        "nota": None,
+    }
+
+
+def test_snippet_schema_prompt_and_version_have_no_column() -> None:
+    item = tm.mark_schema("snippet")["properties"]["norms"]["items"]["properties"][
+        "marks"
+    ]["items"]
+    assert list(item["properties"]) == list(tm.SNIPPET_FIELDS)
+    assert "c" not in item["properties"] and "o" in item["properties"]
+    assert item["required"] == list(tm.SNIPPET_FIELDS)
+    assert tm.prompt_version("snippet") == "teacher-mark-v2s"
+    assert tm.prompt_version() == tm.MARK_PROMPT_VERSION == "teacher-mark-v2"
+    prompt = tm.mark_system_prompt("snippet")
+    assert "`c`" not in prompt and "COLUNA" not in prompt and '"c":' not in prompt
+    assert "`o`" in prompt and '"o":null' in prompt
+    assert tm.example_json("snippet") in prompt
+    # the default contract is untouched by the new mode
+    assert tm.mark_system_prompt() == tm.MARK_SYSTEM_PROMPT
+    assert '"c":1' in tm.MARK_SYSTEM_PROMPT and "COLUNA" in tm.MARK_SYSTEM_PROMPT
+    assert tm.mark_prompt_sha256("snippet") != tm.mark_prompt_sha256()
+    with pytest.raises(tb.TeacherBatchError):
+        tm.check_anchors("column")
+
+
+def test_the_snippet_example_round_trips_through_the_converter() -> None:
+    text = "\n".join(tm.EXAMPLE_LINES.get(i, "") for i in range(1, 22))
+    entry = tm.example_response("snippet")["norms"][0]
+    conv = tm.convert_response(text, entry, tipo="lei", numero=7, anchors="snippet")
+    _check(conv.xml, text)
+    assert conv.problems == []
+    assert all(a["used"] == "B" and a["a_off"] is None for a in conv.anchors)
+    # same document as the column mode builds from the same example
+    col = tm.convert_response(
+        text, tm.example_response()["norms"][0], tipo="lei", numero=7
+    )
+    assert conv.xml == col.xml
+
+
+def test_prompt_examples_of_o_resolve_as_written() -> None:
+    text = (
+        "Art. 1º - Lista:\n"
+        "I - a cultura; II - o esporte; III - a saúde.\n"
+        "§ 1º - Veja o § 2º. § 2º - O prazo."
+    )
+    marks = [
+        _snip(1, "art", "Art. 1º", "1"),
+        _snip(2, "inc", "I -", "1", o=1),
+        _snip(2, "inc", "II -", "2", o=1),
+        _snip(2, "inc", "III -", "3"),
+        _snip(3, "par", "§ 1º", "1"),
+        _snip(3, "par", "§ 2º", "2", o=2),
+    ]
+    conv = tm.convert_response(text, marks, anchors="snippet")
+    assert conv.problems == []
+    line2 = text.index("I - a")
+    assert [a["offset"] for a in conv.anchors] == [
+        0,
+        line2,
+        text.index("II -"),
+        text.index("III -"),
+        text.index("§ 1º"),
+        text.rindex("§ 2º"),
+    ]
+    assert [a["used"] for a in conv.anchors] == ["B", "O", "O", "B", "B", "O"]
+
+
+def test_snippet_ties_need_o_and_o_is_checked() -> None:
+    text = "Art. 1º - Veja o Art. 1º.\nI - um; II - dois."
+    cases = [
+        (_snip(1, "art", "Art. 1º", "1"), "ambiguous_snippet"),
+        (_snip(1, "art", "Art. 1º", "1", o=3), "bad_occurrence"),
+        (_snip(2, "inc", "II -", "2", o=2), "bad_occurrence"),  # unique: o must be 1
+        (_snip(2, "inc", "XX -", "20"), "no_anchor"),
+    ]
+    for mark, reason in cases:
+        conv = tm.convert_response(text, [mark], anchors="snippet")
+        assert conv.anchors[0]["drop_reason"] == reason, (mark, reason)
+        assert conv.anchors[0]["used"] is None
+    ok = tm.convert_response(
+        text, [_snip(1, "art", "Art. 1º", "1", o=1)], anchors="snippet"
+    )
+    assert ok.anchors[0]["used"] == "O" and ok.anchors[0]["offset"] == 0
+    bad = tm.convert_response(
+        text,
+        [{**_snip(1, "art", "Art. 1º", "1"), "o": 0}],
+        anchors="snippet",
+    )
+    assert bad.anchors[0]["drop_reason"] == "bad_occurrence"
+
+
+def test_snippet_mark_without_o_field_or_with_a_column_only_is_bad_shape() -> None:
+    text = "Art. 1º - Um.\n"
+    no_o = _snip(1, "art", "Art. 1º", "1")
+    del no_o["o"]
+    conv = tm.convert_response(text, [no_o], anchors="snippet")
+    assert conv.anchors[0]["drop_reason"] == "bad_shape"
+    # and the column mode refuses a snippet mark (no ``c``)
+    conv = tm.convert_response(text, [_snip(1, "art", "Art. 1º", "1")])
+    assert conv.anchors[0]["drop_reason"] == "bad_shape"
+
+
+def test_snippet_t_copied_across_a_line_break_resolves_by_its_prefix() -> None:
+    text = "Art. 5º - Fica o\nbloco aqui.\nArt. \n6º Dois.\n"
+    marks = [
+        _snip(1, "art", "Art. 5º", "5"),
+        _snip(3, "art", "Art. 6º", "6"),  # the model joined "Art." and "6º"
+    ]
+    conv = tm.convert_response(text, marks, anchors="snippet")
+    assert conv.problems == []
+    assert [a["b_method"] for a in conv.anchors] == ["exact", "prefix"]
+    assert conv.anchors[1]["offset"] == text.index("Art. \n6º")
+    # the prefix must END the line: a stray unrelated "Art." mid-line is not used
+    stray = tm.convert_response(
+        "Veja Art. 3 e mais.\n", [_snip(1, "art", "Art. 9º", "9")], anchors="snippet"
+    )
+    assert stray.anchors[0]["drop_reason"] == "no_anchor"
+
+
+def test_snippet_plan_manifest_params_and_collect(tmp_path: Path) -> None:
+    plan = _plan(SMALL_TEXTS, anchors="snippet")
+    assert plan.anchors == "snippet" and plan.packing["anchors"] == "snippet"
+    spec = tb.resolve_model("claude-haiku-5-5")
+    params = tm.build_mark_params(plan.requests[0], spec, "medium", True, plan.anchors)
+    assert params["system"][0]["text"] == tm.SNIPPET_SYSTEM_PROMPT
+    schema = params["output_config"]["format"]["schema"]
+    assert schema == tm.SNIPPET_SCHEMA
+    est = tm.estimate_mark_cost(plan, spec, "medium", True)
+    est_col = tm.estimate_mark_cost(_plan(SMALL_TEXTS), spec, "medium", True)
+    assert est.system_tokens != est_col.system_tokens
+    manifest = _manifest(plan)
+    assert manifest["anchors"] == "snippet"
+    assert manifest["prompt_version"] == "teacher-mark-v2s"
+    assert manifest["prompt_sha256"] == tm.mark_prompt_sha256("snippet")
+    summary = tm.collect_mark(_Fake(_perfect(plan)), manifest, tmp_path)
+    assert summary["anchors"] == "snippet"
+    assert summary["states"]["ok"] == 3 and summary["marks_dropped"] == 0
+    assert set(summary["anchors_used"]) <= {"B", "O"}
+    rec = score_mark.load_records(tmp_path)[0]
+    assert rec["anchors"] == "snippet" and rec["prompt_version"] == "teacher-mark-v2s"
+    result = score_mark.run(tmp_path, tmp_path / "score")
+    snip = result["snippet_resolution"]
+    assert snip["resolved_rate"] == 1.0 and snip["dropped_by_reason"] == {}
+    assert result["column_accuracy"]["reference_n"] == 0
+    assert result["reader_reference"]["devices_matched_to_reader"] > 0
+    assert result["reader_reference"]["used_offset_exact_rate"] == 1.0
+    assert "snippet mode" in (tmp_path / "score" / "score_mark.md").read_text()
+
+
+def test_a_column_run_has_no_snippet_block(tmp_path: Path) -> None:
+    plan = _plan(SMALL_TEXTS)
+    tm.collect_mark(_Fake(_perfect(plan)), _manifest(plan), tmp_path)
+    assert score_mark.run(tmp_path, tmp_path / "s")["snippet_resolution"] is None
+
+
+def test_snippet_stress_scores_used_offsets_by_column_bucket(tmp_path: Path) -> None:
+    base = SMALL_TEXTS[0]
+    variant, meta = tm.reflow_record(_record(1, base))
+    plan = tm.build_mark_plan(
+        [_record(1, base)],
+        seed="s",
+        reflows={_record(1, base).ref.key: meta},
+        anchors="snippet",
+    )
+    assert plan.norms[0].reflow is not None
+    tm.collect_mark(_Fake(_perfect(plan)), _manifest(plan), tmp_path)
+    stress = score_mark.run(tmp_path, tmp_path / "s")["stress"]
+    assert stress is not None and stress["devices_matched_to_reader"] > 0
+    assert stress["used_offset_exact_rate"] == 1.0 and stress["a_exact_rate"] is None
+    assert stress["by_true_column"]
+
+
+def test_retry_must_keep_the_anchor_mode() -> None:
+    plan = _plan([SMALL_TEXTS[0]], anchors="snippet")
+    base = {"anchors": "col+snippet", "truncated_requests": ["m00000"]}
+    with pytest.raises(tb.TeacherBatchError, match="--anchors"):
+        tm.build_retry_plan(plan, base, depth=1, max_tokens_cap=32_000)
+    # an old manifest without the field is a column run
+    plan2 = _plan([SMALL_TEXTS[0]])
+    with pytest.raises(tb.TeacherBatchError, match="no truncated_requests"):
+        tm.build_retry_plan(plan2, {}, depth=1, max_tokens_cap=32_000)
+
+
+def test_cli_anchors_only_in_mark_mode() -> None:
+    result = CliRunner().invoke(
+        tb.app, ["plan", "--mode", "review", "--anchors", "snippet"]
+    )
+    assert result.exit_code == 2 and "only applies with --mode mark" in result.output
+    result = CliRunner().invoke(
+        tb.app,
+        ["plan", "--mode", "mark", "--anchors", "nope", "--text-source", "textos"],
+    )
+    assert result.exit_code == 2 and "--anchors must be one of" in result.output
+
+
+def test_workflow_offers_the_anchor_choice() -> None:
+    import yaml
+
+    text = (ROOT / ".github/workflows/teacher-batch.yml").read_text(encoding="utf-8")
+    inputs = yaml.safe_load(text)[True]["workflow_dispatch"]["inputs"]
+    assert inputs["anchors"]["options"] == ["col+snippet", "snippet"]
+    assert inputs["anchors"]["default"] == "col+snippet"
+    assert text.count('--anchors "$IN_ANCHORS"') == 2
+
+
+# --- repairs: a checked second reading (alteracao end, ordinal digit, duplicates) --
+def _col(text: str, line: int, t: str) -> int:
+    return text.split("\n")[line - 1].index(t) + 1
+
+
+def _marks_for(text: str, spec: List[Any]) -> List[Dict[str, Any]]:
+    """Marks from ``(line, kind, t, n[, kwargs])`` with the column read off the text."""
+    out = []
+    for item in spec:
+        line, kind, t, n, *rest = item
+        out.append(
+            _mark(line, kind, _col(text, line, t), t, n, **(rest[0] if rest else {}))
+        )
+    return out
+
+
+ORDINAL_TEXT = (
+    "LEI Nº 1\nDispõe.\n"
+    "Art. 1º - A.\nArt. 2º - B.\nArt. 3º - C.\n"
+    "Art. 49 - D.\nArt. 59 - E.\nArt. 6º - F.\n"
+)
+
+
+def _ordinal_spec(numbers: List[str]) -> List[Any]:
+    lines = ORDINAL_TEXT.split("\n")
+    return [
+        (i + 3, "art", lines[i + 2].split(" - ")[0], n) for i, n in enumerate(numbers)
+    ]
+
+
+def test_ordinal_digit_is_repaired_in_a_variant_and_the_model_document_is_untouched() -> (
+    None
+):
+    marks = _marks_for(ORDINAL_TEXT, _ordinal_spec(["1", "2", "3", "49", "59", "6"]))
+    conv = tm.convert_response(ORDINAL_TEXT, marks, tipo="lei", numero=1)
+    _check(conv.xml, ORDINAL_TEXT)
+    assert [s["type"] for s in conv.suspects] == ["suspect_number"] * 2
+    assert conv.closes is False
+    assert [(r["kind"], r["n_from"], r["n_to"]) for r in conv.repairs] == [
+        ("ordinal_digit", "49", "4"),
+        ("ordinal_digit", "59", "5"),
+    ]
+    _check(conv.repaired_xml, ORDINAL_TEXT)
+    assert conv.repaired_suspects == [] and conv.repaired_closes is True
+    # the model's document still says what the model said; the text is never touched
+    assert _rows(conv.xml or "")["art-49"]["marker"] == "Art. 49"
+    fixed = _rows(conv.repaired_xml or "")
+    assert fixed["art-4"]["marker"] == "Art. 49" and "art-49" not in fixed
+    assert M.strip(conv.repaired_xml or "") == M.strip(conv.xml or "")
+
+
+def test_ordinal_digit_is_left_alone_when_the_sequence_is_consistent_as_printed() -> (
+    None
+):
+    text = "LEI Nº 1\nArt. 1º - A.\nArt. 2º - B.\nArt. 3º - C.\nArt. 49 - D.\nArt. 50 - E.\nArt. 51 - F.\n"
+    marks = _marks_for(
+        text,
+        [
+            (2, "art", "Art. 1º", "1"),
+            (3, "art", "Art. 2º", "2"),
+            (4, "art", "Art. 3º", "3"),
+            (5, "art", "Art. 49", "49"),
+            (6, "art", "Art. 50", "50"),
+            (7, "art", "Art. 51", "51"),
+        ],
+    )
+    conv = tm.convert_response(text, marks)
+    _check(conv.xml, text)
+    assert conv.repairs == [] and conv.repaired_xml is None
+    # 10, 11, 12 after 9 are plain numbers
+    text = "LEI Nº 1\n" + "\n".join(f"Art. {i}º - X." for i in range(1, 13)) + "\n"
+    marks = _marks_for(
+        text, [(i + 1, "art", f"Art. {i}º", str(i)) for i in range(1, 13)]
+    )
+    assert tm.convert_response(text, marks).repaired_xml is None
+
+
+def test_quoted_numbers_are_never_repaired() -> None:
+    text = 'LEI Nº 1\nArt. 1º - Altera:\n"Art. 52 - Q.\nArt. 60 - R."\nArt. 2º - Fim.\n'
+    marks = _marks_for(
+        text,
+        [
+            (2, "art", "Art. 1º", "1"),
+            (3, "alteracao", '"Art. 52', None, {"le": 4}),
+            (3, "art", "Art. 52", "52"),
+            (4, "art", "Art. 60", "60"),
+            (5, "art", "Art. 2º", "2"),
+        ],
+    )
+    conv = tm.convert_response(text, marks)
+    _check(conv.xml, text)
+    assert conv.suspects == [] and conv.repaired_xml is None
+    rows = _rows(conv.xml or "")
+    assert rows["art-52"]["quoted"] and rows["art-60"]["quoted"]
+
+
+def test_a_printed_pair_92_102_after_a_nine_reads_nine_and_ten() -> None:
+    text = (
+        "LEI Nº 1\n"
+        + "\n".join(f"Art. {i}º - X." for i in range(1, 10))
+        + "\nArt. 92 - Y.\nArt. 102 - Z.\n"
+    )
+    spec = [(i + 1, "art", f"Art. {i}º", str(i)) for i in range(1, 10)]
+    spec += [(11, "art", "Art. 92", "92"), (12, "art", "Art. 102", "102")]
+    conv = tm.convert_response(text, _marks_for(text, spec))
+    assert [(r["n_from"], r["n_to"], r["witness"]) for r in conv.repairs] == [
+        ("92", "9", "sequence-pair"),
+        ("102", "10", "sequence"),
+    ]
+
+
+ALT_TEXT = (
+    "LEI Nº 1\nDispõe.\n"  # 1-2
+    "Art. 1º - Primeiro.\n"  # 3
+    "Art. 2º - O texto passa a vigorar assim:\n"  # 4
+    '"Art. 1º - Novo um.\n'  # 5
+    'Art. 2º - Novo dois."\n'  # 6
+    "Art. 3º - Fim.\n"  # 7
+)
+
+
+def _alt_marks(own_three: str = "3") -> List[Dict[str, Any]]:
+    return _marks_for(
+        ALT_TEXT,
+        [
+            (3, "art", "Art. 1º", "1"),
+            (4, "art", "Art. 2º", "2"),
+            (5, "alteracao", '"Art. 1º', None, {"le": 5}),  # cut before its quote
+            (5, "art", "Art. 1º", "1"),
+            (6, "art", "Art. 2º", "2"),
+            (7, "art", "Art. 3º", own_three),
+        ],
+    )
+
+
+def test_alteracao_end_is_repaired_to_the_closing_quote_line() -> None:
+    conv = tm.convert_response(ALT_TEXT, _alt_marks(), tipo="lei", numero=1)
+    _check(conv.xml, ALT_TEXT)
+    assert [s["type"] for s in conv.suspects] == ["suspect_alteracao"]
+    assert conv.suspects[0]["closing_quote"] is False and conv.closes is False
+    [fix] = conv.repairs
+    assert (fix["kind"], fix["from_line"], fix["to_line"]) == ("alteracao_end", 5, 6)
+    assert fix["witness"] in ("sequence", "sequence+reader")
+    _check(conv.repaired_xml, ALT_TEXT)
+    assert conv.repaired_suspects == [] and conv.repaired_closes is True
+    own = [r["path"] for r in M.to_rows(conv.repaired_xml or "") if not r["quoted"]]
+    assert own == ["art-1", "art-2", "art-3"]
+    # the model's own document keeps the short block
+    assert len([r for r in M.to_rows(conv.xml or "") if not r["quoted"]]) == 4
+
+
+def test_alteracao_repair_is_refused_when_the_own_articles_still_do_not_close() -> None:
+    # article 3 is missing: extending the block clears the flag but leaves a gap
+    text = ALT_TEXT.replace("Art. 3º - Fim.", "Art. 4º - Fim.")
+    marks = _marks_for(
+        text,
+        [
+            (3, "art", "Art. 1º", "1"),
+            (4, "art", "Art. 2º", "2"),
+            (5, "alteracao", '"Art. 1º', None, {"le": 5}),
+            (5, "art", "Art. 1º", "1"),
+            (6, "art", "Art. 2º", "2"),
+            (7, "art", "Art. 4º", "4"),
+        ],
+    )
+    conv = tm.convert_response(text, marks)
+    _check(conv.xml, text)
+    assert conv.suspects and conv.repaired_xml is None and conv.repairs == []
+    assert conv.repairs_rejected and conv.repairs_rejected[0]["kind"] == "alteracao_end"
+
+
+def test_a_duplicate_device_mark_from_a_split_marker_is_merged() -> None:
+    text = (
+        "LEI Nº 1\nArt. 1º - A.\nArt. 2º - B.\nArt. \n3Q \n- Esta Lei entra em vigor.\n"
+    )
+    marks = _marks_for(
+        text,
+        [
+            (2, "art", "Art. 1º", "1"),
+            (3, "art", "Art. 2º", "2"),
+            (4, "art", "Art.", "3"),
+            (6, "art", "Esta Lei entra em vigor", "3", {"x": True}),
+        ],
+    )
+    conv = tm.convert_response(text, marks)
+    _check(conv.xml, text)
+    assert conv.closes is False
+    [fix] = conv.repairs
+    assert (fix["kind"], fix["from_line"], fix["to_line"]) == ("duplicate_marker", 4, 6)
+    _check(conv.repaired_xml, text)
+    assert conv.repaired_closes is True
+    # two real, distinct devices on the same lines are not merged
+    other = tm.convert_response(
+        "LEI Nº 1\nArt. 1º - A.\n§ 1º - B.\n§ 1º - C.\n",
+        _marks_for(
+            "LEI Nº 1\nArt. 1º - A.\n§ 1º - B.\n§ 1º - C.\n",
+            [
+                (2, "art", "Art. 1º", "1"),
+                (3, "par", "§ 1º", "1"),
+                (4, "par", "§ 1º", "1"),
+            ],
+        ),
+    )
+    assert other.repairs == []
+
+
+def test_collect_writes_the_repaired_variant_and_the_closure_per_norm(
+    tmp_path: Path,
+) -> None:
+    plan = _plan([ALT_TEXT, SMALL_TEXTS[0]])
+    entries, _ = simulate_mark.simulate(plan, seed="s", shift_rate=0, accent_rate=0)
+    # the perfect answer for ALT_TEXT closes the block right; cut it like the model did
+    body = json.loads(entries[0]["result"]["message"]["content"][0]["text"])
+    for norm in body["norms"]:
+        for mark in norm["marks"]:
+            if mark["k"] == "alteracao":
+                mark["le"] = mark["l"]
+    entries[0]["result"]["message"]["content"][0]["text"] = json.dumps(body)
+    summary = tm.collect_mark(_Fake(entries), _manifest(plan), tmp_path)
+    assert len(summary["norms_repaired"]) == 1
+    assert summary["repairs_by_kind"] == {"alteracao_end": 1}
+    assert summary["own_article_closure"]["model_open"] == 1
+    assert summary["own_article_closure"]["repaired_closes"] == 2
+    fixed = sorted((tmp_path / "marked-repaired").rglob("*.xml"))
+    assert len(fixed) == 1
+    rec = next(
+        r
+        for r in score_mark.load_records(tmp_path)
+        if r["texto_id"] in summary["norms_repaired"]
+    )
+    assert rec["repairs"][0]["kind"] == "alteracao_end"
+    assert rec["closure"] == {"model": False, "repaired": True}
+    xml = fixed[0].read_text(encoding="utf-8")
+    assert M.verify(xml, M.strip(xml)) == []
+
+
+def test_replay_feeds_saved_raw_results_through_the_current_converter(
+    tmp_path: Path,
+) -> None:
+    import replay_mark
+
+    plan = _plan(SMALL_TEXTS)
+    manifest = _manifest(plan)
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / "msgbatch_x.jsonl").write_text(
+        "\n".join(json.dumps(e) for e in _perfect(plan)) + "\n", encoding="utf-8"
+    )
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    summary = replay_mark.replay(manifest_path, raw, tmp_path / "out")
+    assert summary["states"]["ok"] == 3 and summary["marks_dropped"] == 0
+    assert (tmp_path / "out" / "anchors.jsonl").is_file()
+
+
+# --- compare_mark_reader: the reader against mark mode, per level -------------------
+SUB_TEXT = (
+    "LEI Nº 5\nDispõe.\n"  # 1-2
+    "Art. 1º - Caput:\n"  # 3
+    "I - um;\nII - dois:\n"  # 4-5
+    "a) alfa;\nb) beta;\n"  # 6-7
+    "§ 1º - Primeiro.\n"  # 8
+)
+
+
+def _mark_run(tmp_path: Path, text: str, response: List[Dict[str, Any]]) -> Path:
+    plan = _plan([text])
+    entries = [
+        _entry(
+            plan.requests[0].custom_id,
+            [{"id": "N01", "marks": response}],
+        )
+    ]
+    tm.collect_mark(_Fake(entries), _manifest(plan), tmp_path)
+    return tmp_path
+
+
+def test_compare_mark_reader_finds_a_clean_agreement_and_each_defect(
+    tmp_path: Path,
+) -> None:
+    import compare_mark_reader as cmr
+
+    perfect = simulate_mark.simulate(
+        _plan([SUB_TEXT]), seed="s", shift_rate=0, accent_rate=0
+    )[0]
+    body = json.loads(perfect[0]["result"]["message"]["content"][0]["text"])
+    marks = body["norms"][0]["marks"]
+    run = _mark_run(tmp_path / "ok", SUB_TEXT, marks)
+    result = cmr.compare_run(run)
+    clean = result["clean"]
+    assert clean["art/own"]["agree"] == 1 and clean["inc/own"]["agree"] == 2
+    assert clean["ali/own"]["agree"] == 2 and clean["par/own"]["agree"] == 1
+    assert all(c[d] == 0 for c in clean.values() for d in cmr.DEFECTS), (
+        "the reader and a perfect model agree"
+    )
+    assert result["norms_with_flags"] == 0 and result["patterns_by_shape"] == []
+    # the model adds an inciso the reader does not have, and drops the reader's alínea
+    odd = [m for m in marks if m["k"] != "ali" or m["t"] != "b)"]
+    odd.append(_mark(8, "inc", 1, "§ 1º", "9"))  # an inciso on the "§" line
+    odd = [m for m in odd if not (m["k"] == "par" and m["n"] == "1")]
+    result = cmr.compare_run(_mark_run(tmp_path / "odd", SUB_TEXT, odd))
+    clean = result["clean"]
+    assert clean["ali/own"]["reader_extra"] == 1
+    # the reader's § on line 8 against the model's inciso there: a kind difference
+    assert clean["inc/own"]["kind_differs"] == 1
+    kinds = {(p["defect"], p["level"]) for p in result["patterns_by_shape"]}
+    assert ("reader_extra", "ali") in kinds and ("kind_differs", "inc") in kinds
+
+
+def test_compare_mark_reader_sets_suspect_norms_apart_and_can_use_the_repair(
+    tmp_path: Path,
+) -> None:
+    import compare_mark_reader as cmr
+
+    plan = _plan([ALT_TEXT])
+    entries, _ = simulate_mark.simulate(plan, seed="s", shift_rate=0, accent_rate=0)
+    body = json.loads(entries[0]["result"]["message"]["content"][0]["text"])
+    for mark in body["norms"][0]["marks"]:
+        if mark["k"] == "alteracao":
+            mark["le"] = mark["l"]  # cut before its closing quote
+    entries[0]["result"]["message"]["content"][0]["text"] = json.dumps(body)
+    tm.collect_mark(_Fake(entries), _manifest(plan), tmp_path)
+    as_is = cmr.compare_run(tmp_path, variant="as-is")
+    assert as_is["norms_with_flags"] == 1 and as_is["clean"] == {}
+    assert as_is["flagged"]["art/own"]["mark_devices"] == 4
+    fixed = cmr.compare_run(tmp_path, variant="repaired")
+    assert fixed["norms_with_flags"] == 0 and fixed["repaired_norms"]
+    assert fixed["clean"]["art/own"]["mark_devices"] == 3
+    assert fixed["own_article_closure"] == {"repaired: closes=True": 1}
+
+
+def test_marker_shapes_and_pairing_rules() -> None:
+    import compare_mark_reader as cmr
+
+    assert cmr.marker_shape("inc", "III -") == "R -"
+    assert cmr.marker_shape("inc", "Il -") == "R~ -"
+    assert cmr.marker_shape("inc", "II \n-") == "R -"
+    assert cmr.marker_shape("par", "§ 12") == "§ 9"
+    assert cmr.marker_shape("par", "§2o.") == cmr.marker_shape("par", "§ 2º.").replace(
+        " ", ""
+    )
+    assert cmr.marker_shape("par", "s 2o -") == "§~ 9º -"
+    assert cmr.marker_shape("par", "§ Io.") == "§ 9~º."
+    assert cmr.marker_shape("par", "Parágrafo único") == "Parágrafo único"
+    assert cmr.teacher_number("inc", {"n": "3", "sufixo": ""}) == "III"
+    assert cmr.teacher_number("art", {"n": "5", "sufixo": "A"}) == "5-A"
+
+
+def _dev(
+    kind: str, n: str, line: int, offset: int, quoted: bool = False
+) -> Dict[str, Any]:
+    return {
+        "kind": kind,
+        "n": n,
+        "sufixo": "",
+        "quoted": quoted,
+        "marker": n,
+        "offset": offset,
+        "line": line,
+        "path": f"{kind}-{n}",
+    }
+
+
+def test_pairing_order_and_outcomes() -> None:
+    import compare_mark_reader as cmr
+
+    mark = [
+        _dev("ali", "a", 5, 50),
+        _dev("ali", "b", 5, 60),  # same line, the reader has one alínea only
+        _dev("inc", "2", 7, 80),  # the reader says 3
+        _dev("par", "1", 9, 100),  # the reader says it is quoted
+        _dev("item", "1", 11, 120),  # the reader says inc, same line
+        _dev("art", "9", 20, 200),  # the reader has nothing
+    ]
+    reader = [
+        _dev("ali", "a", 5, 50),
+        _dev("inc", "3", 7, 80),
+        _dev("par", "1", 9, 100, quoted=True),
+        _dev("inc", "1", 11, 120),
+        _dev("par", "4", 30, 300),  # extra
+    ]
+    pairs, m_only, r_only = cmr.pair_devices(mark, reader)
+    out = cmr.classify_pairs(pairs, m_only, r_only)
+    by_defect = {tuple(o["defects"]) for o in out}
+    assert by_defect == {
+        (),
+        ("number_differs",),
+        ("status_differs",),
+        ("kind_differs",),
+        ("reader_misses",),
+        ("reader_extra",),
+    }
+    assert sum(1 for o in out if o["defects"] == []) == 1
+    assert len(out) == 7  # 6 mark devices (the kind pair counts once) + 1 extra
+
+
+def test_select_mark_reference_is_stratified_and_deterministic() -> None:
+    import select_mark_reference as smr
+
+    rows = []
+    for i in range(120):
+        rows.append(
+            {
+                "id": f"n{i:03d}",
+                "tipo": "lei" if i % 4 else "decreto",
+                "nonblank": i + 5,
+                "quoted": i % 6 == 0,
+                "teacher_text": True,
+                "sub_disagree": i % 5 == 0,
+            }
+        )
+    smr.assign_terciles(rows)
+    assert {r["tercile"] for r in rows} == set(smr.TERCILES)
+    args = dict(count=40, seed="s", include=["n001", "n002"], min_sub=10, min_quoted=8)
+    first = smr.select(rows, **args)  # type: ignore[arg-type]
+    again = smr.select(rows, **args)  # type: ignore[arg-type]
+    assert [r["id"] for r in first] == [r["id"] for r in again]
+    ids = {r["id"] for r in first}
+    assert len(first) == 40 and {"n001", "n002"} <= ids
+    assert sum(1 for r in first if r["sub_disagree"]) >= 10
+    assert sum(1 for r in first if r["quoted"]) >= 8
+    assert {r["tipo"] for r in first} == {"lei", "decreto"}
+
+
+def test_reference_sample_file_is_valid() -> None:
+    from leizilla import teacher_review as tr
+
+    ids = tr.read_ids_file(ROOT / "docs/okf/review-samples/mark-reference-2026-11.txt")
+    pilot = tr.read_ids_file(ROOT / "docs/okf/review-samples/mark-pilot-2026-11.txt")
+    assert len(ids) == 300 and len(set(ids)) == 300 and set(pilot) <= set(ids)

@@ -80,10 +80,12 @@ def load_anchors(path: Path) -> list[dict[str, Any]]:
     ]
 
 
-def load_documents(root: Path) -> dict[str, tuple[str, str]]:
-    """``texto_id`` -> ``(xml, text)`` for every marked document under ``marked/``."""
+def load_documents(root: Path, sub: str = "marked") -> dict[str, tuple[str, str]]:
+    """``texto_id`` -> ``(xml, text)`` for every marked document under ``marked/``
+    (``sub="marked-repaired"``: the repaired variants, which exist only for norms the
+    converter repaired)."""
     docs: dict[str, tuple[str, str]] = {}
-    base = root / "marked"
+    base = root / sub
     if not base.is_dir():
         return docs
     for path in sorted(base.rglob("*.xml")):
@@ -148,13 +150,15 @@ def token_cost(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Characters and estimated tokens (the code's conservative 2 chars/token) that
     anchor A (``c``) and anchor B (``t``) take in the response, against all the fields
     of the marks (le/x/e/nota counted as their usual null/false)."""
-    c_chars = sum(_json_field_chars("c", r.get("c")) for r in rows)
+    # snippet mode has no ``c``: its position field is ``o`` (the occurrence)
+    pos = "c" if any(r.get("c") is not None for r in rows) else "o"
+    c_chars = sum(_json_field_chars(pos, r.get(pos)) for r in rows)
     t_chars = sum(_json_field_chars("t", r.get("t")) for r in rows)
     total = 0
     for r in rows:
         total += _json_field_chars("l", r.get("line"))
         total += _json_field_chars("k", r.get("kind"))
-        total += _json_field_chars("c", r.get("c"))
+        total += _json_field_chars(pos, r.get(pos))
         total += _json_field_chars("t", r.get("t"))
         total += _json_field_chars("n", r.get("n"))
         total += _json_field_chars("s", r.get("s"))
@@ -322,11 +326,14 @@ def reader_reference(
     by_norm: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     for r in rows:
         by_norm[str(r.get("texto_id"))].append(r)
-    n = a_ok = b_ok = b_n = used_ok = 0
+    n = a_n = a_ok = b_ok = b_n = used_ok = 0
     cells: dict[str, dict[str, int]] = collections.defaultdict(
         lambda: collections.Counter()  # type: ignore[arg-type]
     )
     nonascii: dict[str, dict[str, int]] = collections.defaultdict(
+        lambda: collections.Counter()  # type: ignore[arg-type]
+    )
+    by_cand: dict[str, dict[str, int]] = collections.defaultdict(
         lambda: collections.Counter()  # type: ignore[arg-type]
     )
     for texto_id, group in by_norm.items():
@@ -342,7 +349,7 @@ def reader_reference(
         for ln in lines[:-1]:
             line_starts.append(line_starts[-1] + len(ln) + 1)
         for r in group:
-            if r.get("kind") not in marcacao.DEVICES or r.get("a_off") is None:
+            if r.get("kind") not in marcacao.DEVICES or r.get("offset") is None:
                 continue
             cands = [
                 m
@@ -355,7 +362,9 @@ def reader_reference(
                 continue
             n += 1
             ref = cands[0]["offset"]
-            a_ok += r["a_off"] == ref
+            if r.get("a_off") is not None:
+                a_n += 1
+                a_ok += r["a_off"] == ref
             if r.get("b_off") is not None:
                 b_n += 1
                 b_ok += r["b_off"] == ref
@@ -366,11 +375,17 @@ def reader_reference(
             name = _bucket(col, STRESS_COLUMN_BUCKETS)
             cell = cells[name]
             cell["n"] += 1
-            cell["a_exact"] += r["a_off"] == ref
+            cell["a_exact"] += r.get("a_off") == ref
             cell["b_resolved"] += r.get("b_off") is not None
             cell["b_exact"] += r.get("b_off") == ref
             cell["used_exact"] += r.get("offset") == ref
             cell["used_A"] += r.get("used") == "A"
+            cell["used_O"] += r.get("used") == "O"
+            cell["used_O_exact"] += r.get("used") == "O" and r.get("offset") == ref
+            cand = int(r.get("b_candidates") or 0)
+            ck = "1" if cand <= 1 else ("2-3" if cand <= 3 else "4+")
+            by_cand[ck]["n"] += 1
+            by_cand[ck]["used_exact"] += r.get("offset") == ref
             na = (
                 "non-ascii before"
                 if any(ord(ch) > 127 for ch in lines[ln - 1].strip()[: max(0, col)])
@@ -378,7 +393,7 @@ def reader_reference(
             )
             cell = nonascii[na]
             cell["n"] += 1
-            cell["a_exact"] += r["a_off"] == ref
+            cell["a_exact"] += r.get("a_off") == ref
             cell["b_exact"] += r.get("b_off") == ref
             cell["used_exact"] += r.get("offset") == ref
     order = [name for name, _, _ in STRESS_COLUMN_BUCKETS]
@@ -400,14 +415,52 @@ def reader_reference(
     return {
         "by_true_column": table(cells, order),
         "by_nonascii_before": table(nonascii, ["ascii only", "non-ascii before"]),
+        "by_occurrences_in_line": table(by_cand, ["1", "2-3", "4+"]),
         "devices_matched_to_reader": n,
         "a_exact": a_ok,
-        "a_exact_rate": _rate(a_ok, n),
+        "a_exact_rate": _rate(a_ok, a_n),
         "b_resolved": b_n,
         "b_exact": b_ok,
         "b_exact_rate": _rate(b_ok, b_n),
         "used_offset_exact": used_ok,
         "used_offset_exact_rate": _rate(used_ok, n),
+    }
+
+
+def snippet_resolution(rows: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    """Snippet anchor mode (no column): how the marks were located. ``None`` for a
+    run that gave columns. Resolved = ``used`` B (``t`` unique in the line, or a prefix
+    of ``t`` that reaches the line end) or O (the model's occurrence number ``o``);
+    the rest is dropped with ``ambiguous_snippet``, ``bad_occurrence`` or
+    ``no_anchor``."""
+    answered = [r for r in rows if r.get("kind") is not None and r.get("t")]
+    if not answered or any(r.get("c") is not None for r in answered):
+        return None
+    resolved = [r for r in answered if r.get("used")]
+    dropped = collections.Counter(
+        str(r.get("drop_reason")) for r in answered if not r.get("used")
+    )
+    tied = [r for r in answered if int(r.get("b_candidates") or 0) > 1]
+    with_o = [r for r in answered if r.get("o") is not None]
+    return {
+        "marks_answered": len(answered),
+        "resolved": len(resolved),
+        "resolved_rate": _rate(len(resolved), len(answered)),
+        "used": dict(collections.Counter(str(r["used"]) for r in resolved)),
+        "b_methods": dict(
+            collections.Counter(str(r.get("b_method")) for r in answered)
+        ),
+        "dropped_by_reason": dict(sorted(dropped.items())),
+        "marks_with_tie_in_line": len(tied),
+        "tie_resolved_with_o": sum(1 for r in tied if r.get("used") == "O"),
+        "tie_dropped_no_o": sum(
+            1 for r in tied if r.get("drop_reason") == "ambiguous_snippet"
+        ),
+        "o_given": len(with_o),
+        "o_greater_than_1": sum(1 for r in with_o if int(r["o"]) > 1),
+        "o_given_but_unique": sum(
+            1 for r in with_o if int(r.get("b_candidates") or 0) <= 1
+        ),
     }
 
 
@@ -788,6 +841,7 @@ def score_run(
         outcomes["dropped_by_reason"] = dict(sorted(reasons.items()))
     return {
         "column_accuracy": column_accuracy(rows),
+        "snippet_resolution": snippet_resolution(rows),
         "reader_reference": reader_reference(rows, docs, by_id),
         "stress": (
             reader_reference(rows, docs, by_id, only_reflow=True)
@@ -853,6 +907,11 @@ def write_markdown(path: Path, s: dict[str, Any]) -> None:
         f"- B ambiguous: {ca['b_ambiguous']}",
         f"- token cost: {ca['token_cost']}",
         f"- against the reader's marker offsets: {rr}",
+        *(
+            [f"- snippet mode (no column): {s['snippet_resolution']}"]
+            if s.get("snippet_resolution")
+            else []
+        ),
         "",
         "## 2. Agreement with the rule reader",
         "",
@@ -902,8 +961,13 @@ def write_markdown(path: Path, s: dict[str, Any]) -> None:
             lines.append(
                 f"  - column {name}: n={c['n']} A {c['a_exact_rate']} "
                 f"B {c['b_exact_rate']} used {c['used_exact_rate']}"
+                + (f" (used O {c['used_O']})" if c.get("used_O") else "")
             )
-        lines += [f"- by non-ASCII before: {st['by_nonascii_before']}", ""]
+        lines += [
+            f"- by non-ASCII before: {st['by_nonascii_before']}",
+            f"- by occurrences of `t` in the line: {st['by_occurrences_in_line']}",
+            "",
+        ]
     lines += ["## 3. Coverage", ""]
     for k, v in s["coverage"].items():
         lines.append(f"- {k}: {v}")
