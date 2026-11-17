@@ -16,6 +16,7 @@ Bundle de conhecimento do Leizilla. Cada arquivo descreve um conceito operaciona
 ## Avaliação
 
 - [Reader ratchet](reader-ratchet.md) — gate do leitor por regras contra os rótulos do professor; linha de base e procedimento
+- [Teacher batch, modo review](teacher-review.md) — o professor audita a leitura do leitor e devolve só os ajustes; canários, amostra de avaliação, pontuação
 
 ## Pipeline
 
