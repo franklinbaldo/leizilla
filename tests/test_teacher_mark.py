@@ -95,12 +95,12 @@ def _base() -> List[Dict[str, Any]]:
 
 
 # --- anchors ---------------------------------------------------------------------
-def test_a_and_b_right_use_b_and_agree() -> None:
+def test_a_and_b_right_use_a_and_agree() -> None:
     conv = tm.convert_response(TEXT, _base(), tipo="lei", numero=1)
     _check(conv.xml, TEXT)
     assert conv.problems == []
     for row in conv.anchors:
-        assert row["used"] == "B"
+        assert row["used"] == "A" and row["a_confirm"] is True
         assert row["agree"] is True and row["delta"] == 0
         assert row["b_method"] == "exact"
         assert row["a_off"] == row["b_off"] == row["offset"]
@@ -137,15 +137,17 @@ def test_b_needing_the_tolerant_match() -> None:
     text = "Parágrafo único - Fica criada.\nArt.  5o - Texto.\n"
     marks = [
         _mark(1, "art", 1, "Art. 1º", "1", x=True),
-        _mark(2, "art", 1, "Art. 5º", "5"),
+        _mark(2, "art", 3, "Art. 5º", "5"),
     ]
-    # line 1 has no "Art. 1º": tolerant fails too, A decides; line 2 is tolerant
+    # line 1 has no "Art. 1º" and its column 1 does not confirm: dropped; line 2's
+    # column is wrong (3), so the tolerant match of the text decides
     conv = tm.convert_response(text, marks)
     _check(conv.xml, text)
     by_line = {a["line"]: a for a in conv.anchors}
     assert by_line[2]["b_method"] == "tolerant" and by_line[2]["used"] == "B"
     assert by_line[2]["offset"] == text.index("Art.  5o")
-    assert by_line[1]["b_method"] == "none" and by_line[1]["used"] == "A"
+    assert by_line[1]["b_method"] == "none" and by_line[1]["used"] is None
+    assert by_line[1]["drop_reason"] == "no_anchor"
 
 
 def test_tolerant_folds_accents_case_and_punctuation() -> None:
@@ -171,13 +173,55 @@ def test_both_anchors_failing_drops_the_mark_with_a_reason() -> None:
     assert len(_rows(conv.xml or "")) == 5
 
 
-def test_a_only_is_used_when_b_does_not_resolve() -> None:
+def test_an_unconfirmed_column_with_no_resolving_snippet_is_dropped() -> None:
     marks = _base()
-    marks[0]["t"] = "Artigo 1"
+    marks[4]["t"] = "Artigo 2"  # copied wrong: column 1 does not confirm it either
     conv = tm.convert_response(TEXT, marks)
     _check(conv.xml, TEXT)
-    assert conv.anchors[0]["used"] == "A" and conv.anchors[0]["b_method"] == "none"
-    assert conv.problems == []
+    assert conv.anchors[4]["used"] is None and conv.anchors[4]["b_method"] == "none"
+    assert [p["reason"] for p in conv.problems] == ["no_anchor"]
+
+
+def test_the_column_is_primary_even_when_the_snippet_resolves_elsewhere() -> None:
+    text = "x Art. 1º y Art. 1º z\nArt. 2º Fim."
+    marks = [_mark(1, "art", 13, "Art. 1º", "1"), _mark(2, "art", 1, "Art. 2º", "2")]
+    conv = tm.convert_response(text, marks)
+    _check(conv.xml, text)
+    first = conv.anchors[0]
+    assert first["b_method"] == "ambiguous" and first["used"] == "A"
+    assert first["offset"] == 12 and first["a_confirm"] is True
+
+
+def test_a_snippet_copied_across_a_line_break_still_confirms_the_column() -> None:
+    text = "LEI Nº 5\nDispõe sobre isso.\nArt. 1º Texto."
+    marks = [
+        _mark(1, "epigrafe", 1, "LEI Nº 5 Dispõe sobre", le=1),  # t crossed the break
+        _mark(3, "art", 1, "Art. 1º", "1"),
+    ]
+    conv = tm.convert_response(text, marks)
+    _check(conv.xml, text)
+    row = conv.anchors[0]
+    assert row["b_method"] == "none" and row["used"] == "A"
+    assert row["a_confirm"] is True and conv.problems == []
+
+
+def test_the_tolerant_match_never_skips_a_quote_character() -> None:
+    # a curly quote and a straight one meet; the quote itself is never folded away
+    assert tm.locate("\u201cArt. 5º - x", '"Art. 5o') == ("tolerant", [(0, 8)])
+    assert tm.locate("Art. 5º - x", '"Art. 5º')[0] == "none"
+    # lc-00074 line 51: block at column 1, snippet "Art. 75 - ...." with the quote
+    text = 'Art. 1º Passa a vigorar:\n"Art. 75 - Fica criado.\nArt. 2º Outro.'
+    marks = [
+        _mark(1, "art", 1, "Art. 1º", "1"),
+        _mark(2, "alteracao", 1, '"Art. 75 - ....', le=2),
+        _mark(2, "art", 2, "Art. 75 -", "75"),
+        _mark(3, "art", 1, "Art. 2º", "2"),
+    ]
+    conv = tm.convert_response(text, marks)
+    _check(conv.xml, text)
+    block = conv.anchors[1]
+    assert block["used"] == "A" and block["offset"] == text.index('"Art. 75')
+    assert block["b_col"] == 1  # the tolerant match no longer lands on column 2
 
 
 # --- ends, nesting, blocks -------------------------------------------------------
@@ -336,6 +380,8 @@ def test_the_example_in_the_prompt_round_trips_with_agreeing_anchors() -> None:
     _check(conv.xml, text)
     assert conv.problems == []
     assert all(a["agree"] is True for a in conv.anchors)
+    # the example is not only column 1/2: one genuine mid-line marker
+    assert any(m["c"] > 2 for m in entry["marks"])
     assert tm.example_json() in tm.MARK_SYSTEM_PROMPT
     assert tm.example_listing() in tm.MARK_SYSTEM_PROMPT
 
@@ -348,7 +394,7 @@ def test_schema_fields_and_versions() -> None:
     assert item["required"] == list(tm.MARK_FIELDS)
     assert item["additionalProperties"] is False
     assert set(item["properties"]["k"]["enum"]) == set(tm.MARK_KINDS)
-    assert tm.MARK_PROMPT_VERSION == "teacher-mark-v1"
+    assert tm.MARK_PROMPT_VERSION == "teacher-mark-v2"
     assert len(tm.mark_prompt_sha256()) == 64
     # every kind the converter builds is one the grammar knows
     assert set(tm.MARK_KINDS) <= set(M.KINDS)
@@ -737,3 +783,292 @@ def test_workflow_offers_the_mark_mode_and_keeps_the_auth_part() -> None:
     for artifact in ("out/marked", "out/records", "out/anchors.jsonl"):
         assert artifact in text
     assert '--mode "$IN_MODE"' in text
+
+
+# --- several acts, tails and annexes between devices (teacher-mark-v2) ------------
+def _leis(xml: str) -> List[M.Mark]:
+    return [m for m in M.parse(xml)[1] if m.kind == "lei"]
+
+
+def test_annex_and_signature_between_articles_do_not_close_the_lei() -> None:
+    text = (
+        "LEI Nº 9\nDispõe.\n"  # 1-2
+        "Art. 1º Um.\n"  # 3
+        "QUADRO I\nlinha a\nlinha b\n"  # 4-6
+        "Art. 2º Dois.\n"  # 7
+        "Porto Velho, 1985.\nJOÃO\n"  # 8-9
+        "Art. 3º Três.\n"  # 10
+        "ANEXO II\ntabela\n"  # 11-12
+    )
+    marks = [
+        _mark(1, "epigrafe", 1, "LEI Nº 9", le=1),
+        _mark(2, "ementa", 1, "Dispõe", le=2),
+        _mark(3, "art", 1, "Art. 1º", "1"),
+        _mark(4, "anexo", 1, "QUADRO I", le=4),  # le too early: ends at art 2
+        _mark(7, "art", 1, "Art. 2º", "2"),
+        _mark(8, "fecho", 1, "Porto Velho", le=8),
+        _mark(9, "assinatura", 1, "JOÃO", le=9),
+        _mark(10, "art", 1, "Art. 3º", "3"),
+        _mark(11, "anexo", 1, "ANEXO II", le=11),
+    ]
+    conv = tm.convert_response(text, marks, tipo="lei", numero=9)
+    xml = _check(conv.xml, text)
+    assert conv.problems == [] and conv.suspects == []
+    assert [r["path"] for r in M.to_rows(xml) if not r["quoted"]] == [
+        "art-1",
+        "art-2",
+        "art-3",
+    ]
+    (lei,) = _leis(xml)
+    assert text[lei.end - 5 : lei.end] == "Três."  # ends after the last device
+    _, parsed = M.parse(xml)
+    first = next(m for m in parsed if m.kind == "anexo")
+    assert text[first.start : first.end] == "QUADRO I\nlinha a\nlinha b"
+    last = [m for m in parsed if m.kind == "anexo"][-1]
+    assert last.start >= lei.end and text[last.start : last.end].endswith("tabela")
+
+
+def test_annex_between_paragraphs_of_an_article_stays_inside_it() -> None:
+    text = "Art. 1º Caput:\n§ 1º Um.\nQUADRO\nx y z\n§ 2º Dois.\nArt. 2º Fim."
+    marks = [
+        _mark(1, "art", 1, "Art. 1º", "1"),
+        _mark(2, "par", 1, "§ 1º", "1"),
+        _mark(3, "anexo", 1, "QUADRO", le=3),
+        _mark(5, "par", 1, "§ 2º", "2"),
+        _mark(6, "art", 1, "Art. 2º", "2"),
+    ]
+    conv = tm.convert_response(text, marks)
+    xml = _check(conv.xml, text)
+    assert conv.problems == []
+    assert "<anexo>QUADRO\nx y z</anexo>" in xml
+    rows = _rows(xml)
+    assert {"art-1-par-1", "art-1-par-2", "art-2"} <= set(rows)
+    assert rows["art-1-par-2"]["parent_path"] == "art-1"
+
+
+def test_a_law_followed_by_copies_of_the_bill_is_one_lei_per_act() -> None:
+    text = (
+        "LEI Nº 1\nDispõe.\nArt. 1º Um.\nArt. 2º Dois.\n"  # 1-4
+        "Porto Velho, 1985.\nJOÃO\n"  # 5-6
+        "PROJETO DE LEI\nDispõe.\nArt. 1º Um.\nArt. 2º Dois.\n"  # 7-10
+        "Porto Velho, 1985.\nJOÃO\n"  # 11-12
+        "Art. 1º Um.\nArt. 2º Dois.\n"  # 13-14 restart, no front matter
+    )
+    marks = [
+        _mark(1, "epigrafe", 1, "LEI Nº 1", le=1),
+        _mark(2, "ementa", 1, "Dispõe", le=2),
+        _mark(3, "art", 1, "Art. 1º", "1"),
+        _mark(4, "art", 1, "Art. 2º", "2"),
+        _mark(5, "fecho", 1, "Porto Velho", le=5),
+        _mark(6, "assinatura", 1, "JOÃO", le=6),
+        _mark(7, "epigrafe", 1, "PROJETO DE LEI", le=7),
+        _mark(8, "ementa", 1, "Dispõe", le=8),
+        _mark(9, "art", 1, "Art. 1º", "1"),
+        _mark(10, "art", 1, "Art. 2º", "2"),
+        _mark(11, "fecho", 1, "Porto Velho", le=11),
+        _mark(12, "assinatura", 1, "JOÃO", le=12),
+        _mark(13, "art", 1, "Art. 1º", "1"),
+        _mark(14, "art", 1, "Art. 2º", "2"),
+    ]
+    conv = tm.convert_response(text, marks, tipo="lei", numero=1)
+    xml = _check(conv.xml, text)
+    assert conv.problems == [] and conv.suspects == []
+    leis = _leis(xml)
+    assert len(leis) == 3
+    starts = [text.index("LEI Nº 1"), text.index("PROJETO"), text.rindex("Art. 1º")]
+    assert [m.start for m in leis] == starts
+    assert text[leis[0].end - 5 : leis[0].end] == "Dois."
+    # the fecho/assinatura between the acts sit outside every lei
+    assert all(text[m.end - 5 : m.end] == "Dois." for m in leis)
+
+
+def test_numbers_going_back_flag_the_alteracao_before_them() -> None:
+    text = (
+        "Art. 1º Um.\n"  # 1
+        "Art. 2º Muda:\n"  # 2
+        '"Art. 9º Nove.\n'  # 3
+        "Art. 10 Dez.\n"  # 4  (really quoted, the block was cut short)
+        "Art. 3º Três.\n"  # 5
+        "Art. 4º Quatro.\n"  # 6
+    )
+    marks = [
+        _mark(1, "art", 1, "Art. 1º", "1"),
+        _mark(2, "art", 1, "Art. 2º", "2"),
+        _mark(3, "alteracao", 1, '"Art. 9º', le=3),  # no closing quote on its line
+        _mark(3, "art", 2, "Art. 9º", "9"),
+        _mark(4, "art", 1, "Art. 10", "10"),
+        _mark(5, "art", 1, "Art. 3º", "3"),
+        _mark(6, "art", 1, "Art. 4º", "4"),
+    ]
+    conv = tm.convert_response(text, marks)
+    _check(conv.xml, text)
+    assert [x["type"] for x in conv.suspects] == ["suspect_alteracao"]
+    flag = conv.suspects[0]
+    assert flag["line"] == 3 and flag["closing_quote"] is False and flag["n"] == 3
+
+
+def test_a_clean_alteracao_and_sequence_flag_nothing() -> None:
+    text = (
+        "Art. 1º Muda:\n"
+        '"Art. 9º Nove." (NR)\n'
+        "Art. 2º Dois.\n"
+        "Art. 3º Três.\n"
+        "Art. 3º-A Três A.\n"
+        "Art. 4º Quatro.\n"
+    )
+    marks = [
+        _mark(1, "art", 1, "Art. 1º", "1"),
+        _mark(2, "alteracao", 1, '"Art. 9º', le=2),
+        _mark(2, "art", 2, "Art. 9º", "9"),
+        _mark(3, "art", 1, "Art. 2º", "2"),
+        _mark(4, "art", 1, "Art. 3º", "3"),
+        _mark(5, "art", 1, "Art. 3º-A", "3", s="A"),
+        _mark(6, "art", 1, "Art. 4º", "4"),
+    ]
+    conv = tm.convert_response(text, marks)
+    _check(conv.xml, text)
+    assert conv.suspects == []
+
+
+def test_an_ordinal_read_as_a_digit_is_flagged_not_repaired() -> None:
+    text = "".join(f"Art. {n} Texto.\n" for n in (8, 92, 102, 11))
+    marks = [
+        _mark(1, "art", 1, "Art. 8", "8"),
+        _mark(2, "art", 1, "Art. 92", "92"),
+        _mark(3, "art", 1, "Art. 102", "102"),
+        _mark(4, "art", 1, "Art. 11", "11"),
+    ]
+    conv = tm.convert_response(text, marks)
+    xml = _check(conv.xml, text)
+    flags = [(x["type"], x["n"], x["previous"]) for x in conv.suspects]
+    assert flags == [("suspect_number", 92, 8), ("suspect_number", 102, 9)]
+    assert 'n="92"' in xml  # kept as the model gave it
+
+
+# --- the stress variant (re-flowed lines) -----------------------------------------
+def test_reflow_keeps_the_length_and_is_reversible_and_deterministic() -> None:
+    text = _long_text(40)
+    flowed, joined = tm.reflow_text(text, "k")
+    assert len(flowed) == len(text) and flowed != text
+    assert tm.unflow_text(flowed, joined) == text
+    assert tm.reflow_text(text, "k") == (flowed, joined)
+    assert tm.reflow_text(text, "other")[0] != flowed
+    # only newlines changed, only into spaces
+    assert {(a, b) for a, b in zip(text, flowed) if a != b} == {("\n", " ")}
+    lengths = [len(line) for line in flowed.split("\n")]
+    assert max(lengths) <= tm.REFLOW_MAX_CHARS and len(lengths) < 20
+    assert tm.reflow_text("", "k") == ("", [])
+
+
+def test_reflow_variant_has_its_own_identity_and_the_base_expected_marks() -> None:
+    record = _record(5, _long_text(30))
+    variant, meta = tm.reflow_record(record)
+    assert variant.texto_id == str(record.texto_id) + "~reflow"
+    assert variant.ref.key != record.ref.key and variant.ref.uuid5.endswith("-reflow")
+    assert variant.text_sha256 == _sha(variant.text) != record.text_sha256
+    assert meta["base_text_sha256"] == record.text_sha256 and meta["synthetic"]
+    plan = tm.build_mark_plan([variant], seed="s", reflows={variant.ref.key: meta})
+    norm = plan.norms[0]
+    base = tm.make_norm(record)
+    assert norm.expected_marks == base.expected_marks and norm.reflow == meta
+    # the ceiling counts marks, not the (few) long lines
+    ceiling = plan.requests[0].max_tokens
+    assert ceiling > tm.mark_max_tokens([tm.MarkSlot(norm=base, chunk=norm.chunks[0])])
+
+
+def test_ids_file_with_the_reflow_suffix_selects_the_variant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    record = _record(7, _long_text(12))
+    corpus = tb.TextosCorpus(file_sha256="f" * 64, records=[record])
+    monkeypatch.setattr(tb, "_load_textos_corpus", lambda path: corpus)
+    ids = tmp_path / "ids.txt"
+    ids.write_text(f"{record.texto_id}~reflow\n", encoding="utf-8")
+    plan = tm.prepare_mark(
+        ente="ro",
+        tipo=None,
+        limit=None,
+        shuffle_seed="s",
+        text_source="textos",
+        textos=None,
+        select="ids-file",
+        ids_file=ids,
+        budget_chars=tm.DEFAULT_MARK_BUDGET_CHARS,
+        max_norms=4,
+        max_lines=tm.MARK_MAX_LINES,
+        max_chars=tm.MARK_MAX_CHARS,
+        max_tokens_cap=tm.MARK_MAX_TOKENS_CAP,
+    )
+    (norm,) = plan.norms
+    assert norm.texto_id.endswith("~reflow") and norm.reflow
+    assert tm.unflow_text(norm.text, norm.reflow["joined"]) == record.text
+    # the base id and the variant id may both be asked for
+    ids.write_text(f"{record.texto_id}\n{record.texto_id}~reflow\n", encoding="utf-8")
+    plan = tm.prepare_mark(
+        ente="ro",
+        tipo=None,
+        limit=None,
+        shuffle_seed="s",
+        text_source="textos",
+        textos=None,
+        select="ids-file",
+        ids_file=ids,
+        budget_chars=tm.DEFAULT_MARK_BUDGET_CHARS,
+        max_norms=4,
+        max_lines=tm.MARK_MAX_LINES,
+        max_chars=tm.MARK_MAX_CHARS,
+        max_tokens_cap=tm.MARK_MAX_TOKENS_CAP,
+    )
+    assert sorted(n.texto_id for n in plan.norms) == [
+        str(record.texto_id),
+        str(record.texto_id) + "~reflow",
+    ]
+
+
+def test_stress_score_reports_column_accuracy_by_bucket(tmp_path: Path) -> None:
+    base = _record(3, _long_text(40))
+    variant, meta = tm.reflow_record(base)
+    plan = tm.build_mark_plan([variant], seed="s", reflows={variant.ref.key: meta})
+    entries, _ = simulate_mark.simulate(plan, seed="1", shift_rate=0, accent_rate=0)
+    out = tmp_path / "collect"
+    summary = tm.collect_mark(_Fake(entries), _manifest(plan), out)
+    assert summary["states"]["ok"] == 1
+    record = json.loads(next((out / "records").rglob("*.json")).read_text("utf-8"))
+    assert record["reflow"]["base_texto_id"] == base.texto_id
+    result = score_mark.run(out, tmp_path / "score")
+    stress = result["stress"]
+    assert stress["devices_matched_to_reader"] >= 40
+    assert stress["a_exact_rate"] == 1.0 and stress["used_offset_exact_rate"] == 1.0
+    assert set(stress["by_true_column"]) - {"0-10"}  # markers well past column 10
+    assert (tmp_path / "score" / "score_mark.md").read_text().count("Stress set") == 1
+
+
+def test_a_dropped_article_is_not_a_closed_chain() -> None:
+    xml_rows = [
+        {"kind": "art", "n": "1", "quoted": False, "start": 0},
+        {"kind": "art", "n": "2", "quoted": False, "start": 10},
+    ]
+    text = "Art. 1º a\nArt. 2º b"
+    assert score_mark.model_closes(xml_rows, text)
+    # per act: a restart after the first act is a closed chain in each
+    rows = xml_rows + [
+        {"kind": "art", "n": "1", "quoted": False, "start": 20},
+        {"kind": "art", "n": "2", "quoted": False, "start": 30},
+    ]
+    long_text = text + "\nArt. 1º c\nArt. 2º d"
+    assert not score_mark.model_closes(rows, long_text)
+    assert score_mark.model_closes(rows, long_text, [(0, 19), (20, 40)])
+
+
+def test_stress_sample_file_is_valid_and_points_at_pilot_norms() -> None:
+    from leizilla import teacher_review as tr
+
+    stress = tr.read_ids_file(
+        ROOT / "docs/okf/review-samples/mark-stress-reflow-2026-11.txt"
+    )
+    pilot = set(
+        tr.read_ids_file(ROOT / "docs/okf/review-samples/mark-pilot-2026-11.txt")
+    )
+    assert len(stress) == 40 and len(set(stress)) == 40
+    assert all(i.endswith(tm.REFLOW_SUFFIX) for i in stress)
+    assert {i[: -len(tm.REFLOW_SUFFIX)] for i in stress} <= pilot

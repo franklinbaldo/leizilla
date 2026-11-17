@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from leizilla import marcacao, teacher_batch as tb
+from leizilla import teacher_mark as tm
 from leizilla.hierarchy_sequence import article_closes, read_hierarchy
 from leizilla.teacher_review import chain_intact
 
@@ -54,6 +55,15 @@ COLUMN_BUCKETS: tuple[tuple[str, int, int], ...] = (
     ("0-10", 0, 10),
     ("11-40", 11, 40),
     ("41+", 41, 10**9),
+)
+# The stress set (re-flowed lines of 200-400 characters) spreads the markers further.
+STRESS_COLUMN_BUCKETS: tuple[tuple[str, int, int], ...] = (
+    ("0-10", 0, 10),
+    ("11-40", 11, 40),
+    ("41-100", 41, 100),
+    ("101-200", 101, 200),
+    ("201-400", 201, 400),
+    ("401+", 401, 10**9),
 )
 
 
@@ -234,6 +244,9 @@ def column_accuracy(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "by_column": _exact_table(
             ref, lambda r: _bucket(int(r["b_col"]) - 1, COLUMN_BUCKETS)
         ),
+        "by_column_fine": _exact_table(
+            ref, lambda r: _bucket(int(r["b_col"]) - 1, STRESS_COLUMN_BUCKETS)
+        ),
         "by_nonascii_before": _exact_table(
             ref,
             lambda r: "non-ascii before" if r.get("nonascii_before") else "ascii only",
@@ -262,10 +275,14 @@ def column_accuracy(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def reader_markers(text: str) -> list[dict[str, Any]]:
-    """The reader's device markers ``{line, kind, n, offset}`` of one text."""
+def reader_markers(text: str, shown: Optional[str] = None) -> list[dict[str, Any]]:
+    """The reader's device markers ``{line, kind, n, offset}`` of one text.
+
+    ``shown`` is the text the model saw when it differs from ``text`` only in its
+    newlines (a re-flowed variant: same length, so the offsets carry over); the lines
+    are then those of ``shown``."""
     starts = [0]
-    for i, ch in enumerate(text):
+    for i, ch in enumerate(shown if shown is not None else text):
         if ch == "\n":
             starts.append(i + 1)
     marks = marcacao.from_hierarchy(text, read_hierarchy(text))
@@ -283,19 +300,47 @@ def reader_markers(text: str) -> list[dict[str, Any]]:
     return out
 
 
+def base_text(text: str, record: dict[str, Any]) -> str:
+    """The text the reader reads: ``text`` itself, or for a re-flowed stress variant
+    its base (the joined newlines put back)."""
+    reflow = record.get("reflow")
+    return tm.unflow_text(text, reflow["joined"]) if reflow else text
+
+
 def reader_reference(
-    rows: list[dict[str, Any]], docs: dict[str, tuple[str, str]]
+    rows: list[dict[str, Any]],
+    docs: dict[str, tuple[str, str]],
+    records: Optional[dict[str, dict[str, Any]]] = None,
+    only_reflow: Optional[bool] = None,
 ) -> dict[str, Any]:
     """A and B against the reader's marker offset, for the devices (with a marker)
-    the reader also found on the same line with the same kind."""
+    the reader also found on the same line with the same kind. For a re-flowed
+    variant the reader reads the base text and its offsets are carried over.
+    ``only_reflow``: ``True`` keeps the stress variants only, ``False`` the rest.
+    Also by column bucket of the true marker in the shown line (A, B, used offset)."""
+    records = records or {}
     by_norm: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     for r in rows:
         by_norm[str(r.get("texto_id"))].append(r)
     n = a_ok = b_ok = b_n = used_ok = 0
+    cells: dict[str, dict[str, int]] = collections.defaultdict(
+        lambda: collections.Counter()  # type: ignore[arg-type]
+    )
+    nonascii: dict[str, dict[str, int]] = collections.defaultdict(
+        lambda: collections.Counter()  # type: ignore[arg-type]
+    )
     for texto_id, group in by_norm.items():
         if texto_id not in docs:
             continue
-        found = reader_markers(docs[texto_id][1])
+        rec = records.get(texto_id, {})
+        if only_reflow is not None and bool(rec.get("reflow")) != only_reflow:
+            continue
+        shown = docs[texto_id][1]
+        found = reader_markers(base_text(shown, rec), shown)
+        lines = tb.split_lines(shown)
+        line_starts = [0]
+        for ln in lines[:-1]:
+            line_starts.append(line_starts[-1] + len(ln) + 1)
         for r in group:
             if r.get("kind") not in marcacao.DEVICES or r.get("a_off") is None:
                 continue
@@ -315,7 +360,46 @@ def reader_reference(
                 b_n += 1
                 b_ok += r["b_off"] == ref
             used_ok += r.get("offset") == ref
+            ln = int(cands[0]["line"])
+            lead = len(lines[ln - 1]) - len(lines[ln - 1].lstrip())
+            col = ref - line_starts[ln - 1] - lead
+            name = _bucket(col, STRESS_COLUMN_BUCKETS)
+            cell = cells[name]
+            cell["n"] += 1
+            cell["a_exact"] += r["a_off"] == ref
+            cell["b_resolved"] += r.get("b_off") is not None
+            cell["b_exact"] += r.get("b_off") == ref
+            cell["used_exact"] += r.get("offset") == ref
+            cell["used_A"] += r.get("used") == "A"
+            na = (
+                "non-ascii before"
+                if any(ord(ch) > 127 for ch in lines[ln - 1].strip()[: max(0, col)])
+                else "ascii only"
+            )
+            cell = nonascii[na]
+            cell["n"] += 1
+            cell["a_exact"] += r["a_off"] == ref
+            cell["b_exact"] += r.get("b_off") == ref
+            cell["used_exact"] += r.get("offset") == ref
+    order = [name for name, _, _ in STRESS_COLUMN_BUCKETS]
+
+    def table(src: dict[str, dict[str, int]], keys: list[str]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for k in keys:
+            c = src.get(k)
+            if not c:
+                continue
+            out[k] = {
+                **dict(c),
+                "a_exact_rate": _rate(c["a_exact"], c["n"]),
+                "b_exact_rate": _rate(c["b_exact"], c["n"]),
+                "used_exact_rate": _rate(c["used_exact"], c["n"]),
+            }
+        return out
+
     return {
+        "by_true_column": table(cells, order),
+        "by_nonascii_before": table(nonascii, ["ascii only", "non-ascii before"]),
         "devices_matched_to_reader": n,
         "a_exact": a_ok,
         "a_exact_rate": _rate(a_ok, n),
@@ -378,21 +462,35 @@ def agreement(
     return out
 
 
-def model_closes(rows: list[dict[str, Any]], text: str) -> bool:
+def model_closes(
+    rows: list[dict[str, Any]], text: str, acts: Optional[list[tuple[int, int]]] = None
+) -> bool:
+    """Whether the model's own articles close (``chain_intact``), act by act: a file
+    with several acts (a law and copies of its bill) closes when each act does.
+    ``acts`` are the ``(start, end)`` spans of the ``lei`` elements; without them the
+    whole text is one act."""
     starts = [0]
     for i, ch in enumerate(text):
         if ch == "\n":
             starts.append(i + 1)
-    arts = [
-        [
-            bisect.bisect_right(starts, r["start"]),
-            str(r["n"]) + (f"-{r['sufixo']}" if r.get("sufixo") else ""),
-            bool(r["quoted"]),
+    spans = acts or [(0, len(text) + 1)]
+    seen = False
+    for lo, hi in spans:
+        arts = [
+            [
+                bisect.bisect_right(starts, r["start"]),
+                str(r["n"]) + (f"-{r['sufixo']}" if r.get("sufixo") else ""),
+                bool(r["quoted"]),
+            ]
+            for r in rows
+            if r["kind"] == "art" and lo <= r["start"] < hi
         ]
-        for r in rows
-        if r["kind"] == "art"
-    ]
-    return bool(arts) and chain_intact(arts)
+        if not arts:
+            continue
+        seen = True
+        if not chain_intact(arts):
+            return False
+    return seen
 
 
 # --------------------------------------------------------------------------
@@ -458,6 +556,7 @@ def coverage(xml: str) -> dict[str, Any]:
 
 
 def reader_document(text: str, record: dict[str, Any]) -> str:
+    text = base_text(text, record)
     marks = marcacao.from_hierarchy(
         text,
         read_hierarchy(text),
@@ -465,6 +564,108 @@ def reader_document(text: str, record: dict[str, Any]) -> str:
         numero=record.get("numero"),
     )
     return marcacao.build(text, marks)
+
+
+# --------------------------------------------------------------------------
+# Blocks: alteracao against the reader's quoted blocks, anexo ends, suspects
+# --------------------------------------------------------------------------
+
+
+def _line_numbers(text: str) -> list[int]:
+    starts = [0]
+    for i, ch in enumerate(text):
+        if ch == "\n":
+            starts.append(i + 1)
+    return starts
+
+
+def alteracao_comparison(
+    xml: str, text: str, record: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Each model ``alteracao`` (line range) next to the reader's quoted blocks that
+    overlap it: ``same`` when the ranges coincide, ``longer_in_reader`` when the reader
+    goes on past the model's last line (the model cut the block short), ``shorter``,
+    ``only_model`` (the reader found none) and ``only_reader`` rows for the reader's
+    blocks no model block overlaps. Lines are those of the shown text."""
+    starts = _line_numbers(text)
+
+    def line(offset: int) -> int:
+        return bisect.bisect_right(starts, max(0, offset))
+
+    _, marks = marcacao.parse(xml)
+    model = [
+        (line(m.start), line(max(m.start, m.end - 1)))
+        for m in marks
+        if m.kind == "alteracao"
+    ]
+    rep = read_hierarchy(base_text(text, record))
+    reader = [
+        (line(n["start"]), line(max(n["start"], n["end"] - 1)))
+        for n in rep["nodes"]
+        if n["kind"] == "quoted_block"
+    ]
+    suspect_lines = {
+        int(x["line"])
+        for x in record.get("suspects", [])
+        if x.get("type") == "suspect_alteracao"
+    }
+    out: list[dict[str, Any]] = []
+    used: set[int] = set()
+    for lo, hi in model:
+        hits = [(i, r) for i, r in enumerate(reader) if r[0] <= hi and lo <= r[1]]
+        used.update(i for i, _ in hits)
+        status = "only_model"
+        if hits:
+            r_lo, r_hi = hits[0][1]
+            status = (
+                "same"
+                if (r_lo, r_hi) == (lo, hi)
+                else "longer_in_reader"
+                if max(h[1][1] for h in hits) > hi
+                else "shorter_in_reader"
+            )
+        out.append(
+            {
+                "model": [lo, hi],
+                "reader": [list(h[1]) for h in hits],
+                "status": status,
+                "flagged": lo in suspect_lines,
+            }
+        )
+    for i, r in enumerate(reader):
+        if i not in used:
+            out.append(
+                {
+                    "model": None,
+                    "reader": [list(r)],
+                    "status": "only_reader",
+                    "flagged": False,
+                }
+            )
+    return out
+
+
+def anexo_ends(
+    xml: str, text: str, rows: list[dict[str, Any]], norm_key: str
+) -> list[dict[str, Any]]:
+    """For each ``anexo`` of the document: the line the model gave as its end (``le``)
+    and the line where the converter ended it (the next mark)."""
+    starts = _line_numbers(text)
+    _, marks = marcacao.parse(xml)
+    gave = {
+        (int(r["line"]), r["kind"]): r.get("le")
+        for r in rows
+        if r.get("kind") == "anexo" and r.get("used") and r.get("norm") == norm_key
+    }
+    out = []
+    for m in marks:
+        if m.kind != "anexo":
+            continue
+        first = bisect.bisect_right(starts, m.start)
+        end = bisect.bisect_right(starts, max(m.start, m.end - 1))
+        le = gave.get((first, "anexo"))
+        out.append({"line": first, "model_le": le, "end_line": end})
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -504,6 +705,13 @@ def score_run(
     unowned_diff: list[float] = []
     kinds: collections.Counter[str] = collections.Counter()
     ruido: list[float] = []
+    closure_raw: collections.Counter[str] = collections.Counter()
+    blocks: dict[str, list[dict[str, Any]]] = {}
+    block_status: collections.Counter[str] = collections.Counter()
+    annexes: dict[str, list[dict[str, Any]]] = {}
+    suspect_counts: collections.Counter[str] = collections.Counter()
+    suspect_norms: dict[str, list[str]] = {}
+    acts_per_norm: dict[str, int] = {}
     for texto_id, (xml, text) in sorted(docs.items()):
         record = by_id.get(texto_id, {})
         m_rows = marcacao.to_rows(xml)
@@ -512,12 +720,31 @@ def score_run(
         for name, counts in agreement(m_rows, r_rows, text).items():
             bucket = agree.setdefault(name, collections.Counter())
             bucket.update(counts)
-        m_close = model_closes(m_rows, text)
-        r_close = article_closes(read_hierarchy(text))
-        closure[
-            f"model={'closes' if m_close else 'open'}/reader="
-            f"{'closes' if r_close else 'open'}"
+        leis = [(m.start, m.end) for m in marcacao.parse(xml)[1] if m.kind == "lei"]
+        if len(leis) > 1:
+            acts_per_norm[texto_id] = len(leis)
+        m_close_raw = model_closes(m_rows, text, leis)
+        dropped_arts = sum(
+            1 for d in record.get("dropped", []) if d.get("kind") == "art"
+        )
+        # an article the model gave and the converter dropped is not "closed"
+        m_close = m_close_raw and not dropped_arts
+        r_close = article_closes(read_hierarchy(base_text(text, record)))
+        reader_state = "closes" if r_close else "open"
+        closure[f"model={'closes' if m_close else 'open'}/reader={reader_state}"] += 1
+        closure_raw[
+            f"model={'closes' if m_close_raw else 'open'}/reader={reader_state}"
         ] += 1
+        cmp_rows = alteracao_comparison(xml, text, record)
+        if cmp_rows:
+            blocks[texto_id] = cmp_rows
+            block_status.update(c["status"] for c in cmp_rows)
+        ends = anexo_ends(xml, text, rows, str(record.get("key")))
+        if ends:
+            annexes[texto_id] = ends
+        for sus in record.get("suspects", []):
+            suspect_counts[str(sus["type"])] += 1
+            suspect_norms.setdefault(texto_id, []).append(str(sus["type"]))
         cov_m, cov_r = coverage(xml), coverage(r_xml)
         kinds.update(cov_m["kinds"])
         if cov_m["ruido_share"] is not None:
@@ -561,7 +788,35 @@ def score_run(
         outcomes["dropped_by_reason"] = dict(sorted(reasons.items()))
     return {
         "column_accuracy": column_accuracy(rows),
-        "reader_reference": reader_reference(rows, docs),
+        "reader_reference": reader_reference(rows, docs, by_id),
+        "stress": (
+            reader_reference(rows, docs, by_id, only_reflow=True)
+            if any(r.get("reflow") for r in records)
+            else None
+        ),
+        "anchors_used": dict(
+            collections.Counter(str(r.get("used")) for r in rows if r.get("used"))
+        ),
+        "acts_per_norm": acts_per_norm,
+        "suspects": {
+            "by_type": dict(suspect_counts),
+            "norms": suspect_norms,
+        },
+        "alteracao_vs_reader": {
+            "status": dict(block_status),
+            "blocks": blocks,
+        },
+        "anexo_ends": {
+            "n": sum(len(v) for v in annexes.values()),
+            "extended_past_model_le": sum(
+                1
+                for v in annexes.values()
+                for a in v
+                if a["model_le"] is not None and a["end_line"] > a["model_le"]
+            ),
+            "by_norm": annexes,
+        },
+        "article_closure_raw": dict(sorted(closure_raw.items())),
         "agreement_with_reader": {k: dict(v) for k, v in sorted(agree.items())},
         "article_closure": dict(sorted(closure.items())),
         "coverage": {
@@ -590,6 +845,7 @@ def write_markdown(path: Path, s: dict[str, Any]) -> None:
         f"- systematic: {ca['systematic']}",
         f"- by line length: {ca['by_line_length']}",
         f"- by column: {ca['by_column']}",
+        f"- by column (fine): {ca['by_column_fine']}",
         f"- by non-ASCII before: {ca['by_nonascii_before']}",
         f"- by kind: {ca['by_kind']}",
         f"- 4-char check: {ca['check_4_chars']}",
@@ -608,7 +864,46 @@ def write_markdown(path: Path, s: dict[str, Any]) -> None:
             f"| {name} | {c['matched']} | {c['only_model']} | {c['only_reader']} "
             f"| {c['same_start_line']} |"
         )
-    lines += ["", f"Article closure: {s['article_closure']}", ""]
+    lines += [
+        "",
+        f"Article closure (own articles per act, none dropped): {s['article_closure']}",
+        f"Article closure of the document as built: {s['article_closure_raw']}",
+        f"Norms with more than one act: {s['acts_per_norm']}",
+        "",
+        "## 2b. Policy, suspects, blocks",
+        "",
+        f"- anchors used: {s['anchors_used']}",
+        f"- suspects by type: {s['suspects']['by_type']}",
+        f"- suspect norms: {s['suspects']['norms']}",
+        f"- alteracao against the reader's quoted blocks: "
+        f"{s['alteracao_vs_reader']['status']}",
+    ]
+    for texto_id, cmp_rows in s["alteracao_vs_reader"]["blocks"].items():
+        odd = [c for c in cmp_rows if c["status"] != "same"]
+        if odd:
+            lines.append(f"  - {texto_id}: {odd}")
+    ae = s["anexo_ends"]
+    lines += [
+        f"- anexo: {ae['n']}, ended past the model's `le`: "
+        f"{ae['extended_past_model_le']}",
+        "",
+    ]
+    if s.get("stress"):
+        st = s["stress"]
+        lines += [
+            "## 2c. Stress set (re-flowed, true offsets = the reader's, carried over)",
+            "",
+            f"- devices matched {st['devices_matched_to_reader']}: A exact "
+            f"{st['a_exact_rate']}, B exact {st['b_exact_rate']} "
+            f"(of {st['b_resolved']} resolved), used offset "
+            f"{st['used_offset_exact_rate']}",
+        ]
+        for name, c in st["by_true_column"].items():
+            lines.append(
+                f"  - column {name}: n={c['n']} A {c['a_exact_rate']} "
+                f"B {c['b_exact_rate']} used {c['used_exact_rate']}"
+            )
+        lines += [f"- by non-ASCII before: {st['by_nonascii_before']}", ""]
     lines += ["## 3. Coverage", ""]
     for k, v in s["coverage"].items():
         lines.append(f"- {k}: {v}")

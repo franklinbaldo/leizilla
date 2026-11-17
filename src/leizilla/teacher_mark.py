@@ -43,12 +43,14 @@ import bisect
 import hashlib
 import json
 import math
+import random
 import re
 import subprocess
 import tarfile
 import tempfile
 import unicodedata
 import zlib
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -67,7 +69,7 @@ from leizilla.marcacao import Mark
 # Contract versions and constants
 # --------------------------------------------------------------------------
 
-MARK_PROMPT_VERSION = "teacher-mark-v1"
+MARK_PROMPT_VERSION = "teacher-mark-v2"
 MARK_SCHEMA_VERSION = "1"
 DEFAULT_MARK_LABEL_SET = "mark"
 MODE = "mark"
@@ -200,7 +202,7 @@ EXAMPLE_LINES: Dict[int, str] = {
     "da Lei Federal.",
     11: "§ 1º - Compete à Secretaria:",
     12: "I - regulamentar a coisa;",
-    13: "a) por decreto;",
+    13: "a) por decreto, às terças; b) por portaria;",
     14: "Il - fiscalizar a coisa.",
     15: "Art. 2º - O art. 5º da Lei nº 100 passa a vigorar com a seguinte redação:",
     16: '"Art. 5º - Fica proibido o uso de fogo.',
@@ -219,6 +221,7 @@ _EXAMPLE_SPEC: tuple[tuple[Any, ...], ...] = (
     (11, "par", "§ 1º", "1", None, None, False, None),
     (12, "inc", "I -", "1", None, None, False, None),
     (13, "ali", "a)", "a", None, None, False, None),
+    (13, "ali", "b)", "b", None, None, False, None),
     (14, "inc", "Il -", "2", None, None, False, "impresso Il, lido II"),
     (15, "art", "Art. 2º", "2", None, None, False, None),
     (16, "alteracao", '"Art. 5º - Fica', None, None, 17, False, None),
@@ -318,16 +321,27 @@ dessa linha):
 - `epigrafe` ("LEI Nº 7 DE 5 DE ABRIL DE 1985"); `ementa` (resumo que vem depois); \
 `preambulo` (a autoridade e a fórmula "decreta e eu sanciono", até o primeiro \
 dispositivo); `fecho` (local e data depois do corpo); `assinatura` (nomes e cargos); \
-`anexo` (anexos e tabelas depois do corpo, `n` se numerado).
+`anexo` (anexos, tabelas e quadros, `n` se numerado: depois do corpo, ou entre dois \
+dispositivos; o programa acaba o anexo na marca seguinte, então `le` só precisa chegar \
+à última linha que você vê dele).
 - `ruido`: tudo que NÃO é texto da norma: cabeçalho e rodapé de página, carimbos, \
 numeração de página, lixo de OCR. Repete-se a cada página: marque cada ocorrência, \
 uma marca por bloco de linhas.
 - `alteracao`: texto transcrito de OUTRA norma (depois de "passa a vigorar com a \
 seguinte redação:", "acrescido do seguinte artigo:"). Os dispositivos transcritos \
 dentro dele são marcados normalmente (`art`, `par`...) e ficam dentro do bloco; não \
-há marca de "próprio" ou "citado". O bloco inclui as aspas que o abrem e o "(NR)" \
-que o fecha, e termina na última linha transcrita: o dispositivo próprio que vem \
-depois NÃO entra nele.
+há marca de "próprio" ou "citado". O bloco inclui as aspas que o abrem e vai até a \
+ASPA DE FECHAMENTO ou o "(NR)", que pode estar dezenas de linhas adiante: só o \
+primeiro dispositivo transcrito traz aspas de abertura, os seguintes (`Art. 9º`, \
+`Art. 10`... do mesmo bloco) NÃO têm aspas próprias e continuam citados até a aspa que \
+fecha. Procure a aspa de fechamento antes de pôr `le`; o dispositivo próprio que vem \
+depois dela NÃO entra no bloco. Sinal de que você cortou o bloco cedo: depois dele a \
+numeração dos artigos "próprios" repete ou volta atrás (9, 10, 2, 3).
+
+Um arquivo pode trazer mais de uma norma (a lei e, depois da assinatura, cópias do \
+projeto de lei): marque `epigrafe`, `ementa` e `preambulo` de cada uma; a numeração dos \
+artigos recomeça em 1 e o programa abre ali uma norma nova. `fecho`, `assinatura` e \
+`anexo` podem aparecer no meio do corpo, entre dois artigos.
 
 Todo texto que sobra, sem marca, fica sem dono: tudo bem. Não marque citações no meio \
 de frase ("nos termos do art. 9º") nem números de página.
@@ -338,19 +352,26 @@ Toda marca tem sempre os dez campos; o que não se aplica vai como `null` (ou `f
 
 - `l`: número da linha onde a marca COMEÇA;
 - `k`: o tipo;
-- `c`: COLUNA (âncora A): 1-based, contada em caracteres, do primeiro caractere do \
-marcador impresso nessa linha (para um bloco, do primeiro caractere dele);
-- `t`: TRECHO (âncora B): o marcador exatamente como está impresso, copiado \
+- `c`: COLUNA: 1-based, contada em caracteres, do primeiro caractere do marcador \
+impresso nessa linha (para um bloco, do primeiro caractere dele, aspa de abertura \
+inclusive). É ela que vale: um marcador no meio da linha (`b)` depois de `a) ...;`) \
+tem a coluna do meio da linha, não 1; conte os caracteres da linha até ele;
+- `t`: TRECHO que confere a coluna: o marcador exatamente como está impresso, copiado \
 caractere por caractere: `Art. 5º`, `§ 2º`, `Parágrafo único`, `III -`, `a)`, `1.` \
 (com o erro de OCR, se houver: `Il -`). Sem copiar a palavra que vem depois. Para um \
-bloco, os primeiros caracteres dele (uns 15). Se o mesmo trecho aparece mais de uma \
-vez na linha, use a coluna certa em `c`;
+bloco, no máximo os ~15 primeiros caracteres da PRIMEIRA linha dele, nunca o que vem \
+na linha seguinte;
 - `n`: o número INTERPRETADO, como texto: algarismos arábicos para `art`, `par`, \
 `item`, organizacionais e anexo (`"5"`); o VALOR do romano para `inc` e organizacionais \
 (`III` é `"3"`, `Il` é `"2"`); a letra minúscula para `ali` (`"a"`); `"unico"` para \
 parágrafo único. `null` nos blocos. Nunca altere o texto impresso: o número impresso \
 pode estar errado e o interpretado ser outro (corrija pela sequência: "Art. 42" entre \
-3 e 5 é `"4"`);
+3 e 5 é `"4"`). Cuidado com o sinal ordinal lido como DÍGITO: o `º` de `9º` sai do OCR \
+como `2`, `0`, `9`, `o` ou `Q` colado ao número, e o artigo 9 aparece como `Art. 92`, o \
+10 como `Art. 102`, o 5 como `Art. 52`, o 6 como `Art. 60`, o 8 como `Art. 80`. Decida \
+pela sequência: depois do 8 vem o 9, nunca o 92; só leia dois dígitos quando a \
+sequência os pede (depois do 78 vem o 79). Se mudou o número, diga em `nota` ("impresso \
+92, lido 9");
 - `s`: sufixo de letra maiúscula do "Art. 5º-A" (`"A"`), ou `null`;
 - `le`: linha final do bloco (para `epigrafe`, `ementa`, `preambulo`, `fecho`, \
 `assinatura`, `anexo`, `ruido`, `alteracao`); `null` nos dispositivos e títulos;
@@ -386,16 +407,19 @@ Resposta certa (compacta, uma marca por linha aqui só para ler):
 {{EXEMPLO_SAIDA}}
 ```
 
-Na linha 10 a citação "art. 9º" no meio da frase não é marca. A linha 14 imprime \
+Na linha 10 a citação "art. 9º" no meio da frase não é marca. Na linha 13 há duas alíneas: `b)` \
+está no meio da linha, na coluna {{COL_B}}, e não na 1. A linha 14 imprime \
 `Il -` (OCR) e o inciso é o 2. A linha 16 abre a transcrição (`alteracao` de 16 a 17), \
 com o artigo e o parágrafo citados dentro dela; o artigo 3 da própria norma, na linha \
 18, é próprio porque vem depois do fim do bloco, e como perdeu o marcador leva `x` \
 verdadeiro e o início da frase em `t`.
 """
 
-MARK_SYSTEM_PROMPT = _PROMPT_TEMPLATE.replace(
-    "{{EXEMPLO_ENTRADA}}", example_listing()
-).replace("{{EXEMPLO_SAIDA}}", example_json())
+MARK_SYSTEM_PROMPT = (
+    _PROMPT_TEMPLATE.replace("{{EXEMPLO_ENTRADA}}", example_listing())
+    .replace("{{EXEMPLO_SAIDA}}", example_json())
+    .replace("{{COL_B}}", str(EXAMPLE_LINES[13].find("b)") + 1))
+)
 
 
 def mark_prompt_sha256() -> str:
@@ -409,6 +433,10 @@ def mark_prompt_sha256() -> str:
 # --------------------------------------------------------------------------
 
 _ORDINALS = {"°": "o", "º": "o", "ª": "a"}
+# Quote characters are never folded away: a tolerant match that skipped the opening
+# quote of a quoted block put the block one column late (pilot, lc-00074 line 51).
+_QUOTES = frozenset("\"\u201c\u201d\u201e\u201f\u00ab\u00bb'\u2018\u2019\u201a")
+CONFIRM_CHARS = 4
 
 
 def fold_with_map(s: str) -> tuple[str, List[int]]:
@@ -424,6 +452,10 @@ def fold_with_map(s: str) -> tuple[str, List[int]]:
         ch = _ORDINALS.get(ch, ch)
         for d in unicodedata.normalize("NFKD", ch):
             if unicodedata.combining(d) or d.isspace():
+                continue
+            if d in _QUOTES:
+                out.append('"')
+                idx.append(i)
                 continue
             if unicodedata.category(d)[0] in "PSZC":
                 continue
@@ -551,6 +583,22 @@ def _as_int(value: Any) -> Optional[int]:
     return value
 
 
+def _confirm_fold(s: str) -> str:
+    """Whitespace out, every quote character as ``"``: what the confirmation of the
+    column compares (the model writes a straight quote for a curly one)."""
+    return "".join('"' if ch in _QUOTES else ch for ch in s if not ch.isspace())
+
+
+def confirms(shown: str, idx: int, t: str, k: int = CONFIRM_CHARS) -> bool:
+    """Whether ``shown`` at ``idx`` starts with the first ``k`` characters of ``t``
+    (whitespace-folded: ``t`` copied across a line break still confirms, up to the end
+    of the line)."""
+    want = _confirm_fold(t)[:k]
+    have = _confirm_fold(shown[idx : idx + 3 * k])[:k]
+    n = min(len(want), len(have))
+    return n > 0 and have[:n] == want[:n]
+
+
 def _resolve_anchors(
     raw: Dict[str, Any], lines: Sequence[str], starts: Sequence[int]
 ) -> Dict[str, Any]:
@@ -567,6 +615,7 @@ def _resolve_anchors(
     b_idx = spans[0][0] if method in ("exact", "tolerant") else None
     row: Dict[str, Any] = {
         "line": line_no,
+        "le": _as_int(raw["le"]),
         "kind": raw["k"],
         "n": raw["n"],
         "s": raw["s"],
@@ -589,10 +638,12 @@ def _resolve_anchors(
         "offset": None,
         "drop_reason": None,
     }
+    row["a_confirm"] = None
     if a_idx is not None:
         k3, k4 = min(3, len(t)), min(4, len(t))
         row["a_confirm3"] = shown[a_idx : a_idx + k3] == t[:k3]
         row["a_confirm4"] = shown[a_idx : a_idx + k4] == t[:k4]
+        row["a_confirm"] = confirms(shown, a_idx, t)
     if a_idx is not None and b_idx is not None:
         row["agree"] = a_idx == b_idx
         row["delta"] = a_idx - b_idx
@@ -601,19 +652,20 @@ def _resolve_anchors(
     ref_idx = b_idx if b_idx is not None else a_idx
     if ref_idx is not None:
         row["nonascii_before"] = any(ord(ch) > 127 for ch in shown[:ref_idx])
-    # Policy: B when it resolves uniquely, else A, else drop.
+    # Policy (teacher-mark-v2): A (the column) is primary, confirmed by the first
+    # characters of ``t`` at that column; else B when it resolves uniquely; else drop.
     span_len: Optional[int] = None
-    if b_idx is not None:
-        row["used"] = "B"
-        row["offset"] = base + b_idx
-        span_len = spans[0][1] - spans[0][0]
-    elif a_idx is not None:
+    if a_idx is not None and row["a_confirm"]:
         row["used"] = "A"
         row["offset"] = base + a_idx
         span_len = min(len(shown) - a_idx, len(t))
         for s0, e0 in spans:
             if s0 == a_idx:
                 span_len = e0 - s0
+    elif b_idx is not None:
+        row["used"] = "B"
+        row["offset"] = base + b_idx
+        span_len = spans[0][1] - spans[0][0]
     else:
         row["drop_reason"] = "line_blank" if not shown else "no_anchor"
     row["_span_len"] = span_len
@@ -650,6 +702,229 @@ def _drop_priority(kind: str) -> int:
     return 5
 
 
+FRONT_KINDS = frozenset(("epigrafe", "ementa", "preambulo"))
+BODY_KINDS = STRUCTURAL_KINDS | FRONT_KINDS
+
+
+def _anexo_ends(text: str, recs: Sequence[_Rec]) -> List[_Rec]:
+    """The records with each ``anexo`` ended where the next mark begins.
+
+    The model's ``le`` for an annex came out too early in the pilot (7 of 24): the
+    end is the start of the next mark that is not ``ruido`` (or the end of the text);
+    ``le`` stays as a lower bound, so marks inside the line range the model gave are
+    still inside the annex.
+    """
+    starts = sorted(r.start for r in recs if r.kind != "ruido")
+    out: List[_Rec] = []
+    for r in recs:
+        if r.kind == "anexo" and r.end_expl is not None:
+            at = bisect.bisect_left(starts, r.end_expl)
+            nxt = starts[at] if at < len(starts) else len(text)
+            end = max(r.end_expl, _trim_end(text, r.start, nxt))
+            r = dataclasses.replace(r, end_expl=end)
+        out.append(r)
+    return out
+
+
+def _interior_annexes(recs: Sequence[_Rec]) -> set[int]:
+    """Indexes of the ``anexo`` records followed by a body device of the norm (not
+    one quoted inside an ``alteracao``): a table between two paragraphs of an
+    article. They stay inside the open devices; the annexes after the last device
+    (the usual case) close them and sit outside the ``lei``."""
+    quoted = [(r.start, r.end_expl) for r in recs if r.kind == "alteracao"]
+    devices = sorted(
+        r.start
+        for r in recs
+        if r.kind in STRUCTURAL_KINDS
+        and not any(s <= r.start < cast(int, e) for s, e in quoted)
+    )
+    out: set[int] = set()
+    for r in recs:
+        if r.kind == "anexo" and r.end_expl is not None:
+            if bisect.bisect_left(devices, r.end_expl) < len(devices):
+                out.add(r.idx)
+    return out
+
+
+def _top_level(marks: Sequence[Mark]) -> List[Mark]:
+    """The marks that are not inside an ``alteracao`` or an ``anexo`` block."""
+    out: List[Mark] = []
+    cover = -1
+    for m in sorted(marks, key=lambda m: (m.start, -m.end)):
+        if m.kind in ("nota", "ruido", "lei"):
+            continue
+        if m.start < cover:
+            continue
+        out.append(m)
+        if m.kind in BARRIERS:
+            cover = m.end
+    return out
+
+
+def _own_number(m: Mark) -> Optional[int]:
+    n = m.attrs.get("n", "")
+    return int(n) if n.isdigit() else None
+
+
+def acts(marks: Sequence[Mark]) -> List[tuple[int, Optional[int]]]:
+    """The acts (one ``lei`` each) of a file: ``(start, next act start or None)``.
+
+    A new act starts at the first body mark after a ``fecho``/``assinatura`` when it
+    is an ``epigrafe``/``ementa``/``preambulo`` or an ``art`` whose number does not
+    go up (the article numbering restarts: a law followed by copies of its bill).
+    An ``anexo``, a ``fecho`` or an ``assinatura`` between devices does not end the
+    act; text after the last body device is outside every ``lei``.
+    """
+    starts: List[int] = []
+    tail = False
+    last_art: Optional[int] = None
+    for m in _top_level(marks):
+        if m.kind in ("fecho", "assinatura"):
+            tail = tail or bool(starts)
+            continue
+        if m.kind not in BODY_KINDS:
+            continue
+        n = _own_number(m) if m.kind == "art" else None
+        restart = n is not None and last_art is not None and n <= last_art
+        if not starts or (tail and (m.kind in FRONT_KINDS or restart)):
+            starts.append(m.start)
+            last_art = None
+        tail = False
+        if m.kind == "art" and n is not None:
+            last_art = n
+    return [
+        (s, starts[i + 1] if i + 1 < len(starts) else None)
+        for i, s in enumerate(starts)
+    ]
+
+
+_CLOSING_QUOTE = re.compile("[\"\u201d\u00bb]|''")
+_OPENING_QUOTE = '"\u201c\u00ab'
+
+
+def _line_of(starts: Sequence[int], offset: int) -> int:
+    return bisect.bisect_right(starts, max(0, offset))
+
+
+def suspects(text: str, marks: Sequence[Mark]) -> List[Dict[str, Any]]:
+    """Deterministic suspicions about a built document; flagged, never repaired.
+
+    * ``suspect_alteracao``: the own articles of an act (a ``lei``) stop going up (the
+      number repeats or goes back: the 9, 10, 2, 3 of a quoted block that was cut short
+      and whose later articles became "own"), and the last ``alteracao`` that ends before
+      the offending article is blamed. ``closing_quote`` says whether that block's last
+      line has a closing quote (``None``: it does not open with a quote either).
+    * ``suspect_sequence``: the same break with no ``alteracao`` before it.
+    * ``suspect_number``: an own article number far above the previous one that fits
+      ``previous`` or ``previous + 1`` once its last digit is dropped: the ordinal sign
+      read as a digit (``Art. 92`` for 9, ``Art. 102`` for 10).
+    """
+    starts = _line_starts(tb.split_lines(text))
+    top = _top_level(marks)
+    alts = [m for m in marks if m.kind == "alteracao"]
+    out: List[Dict[str, Any]] = []
+    for lei in (m for m in marks if m.kind == "lei"):
+        arts = [
+            m
+            for m in top
+            if m.kind == "art"
+            and lei.start <= m.start < lei.end
+            and _own_number(m) is not None
+        ]
+        prev: Optional[Mark] = None
+        prev_n: Optional[int] = None
+        for art in arts:
+            n = cast(int, _own_number(art))
+            sfx = art.attrs.get("sufixo", "")
+            if prev is not None and prev_n is not None:
+                same = n == prev_n and sfx != prev.attrs.get("sufixo", "")
+                if n < prev_n or (n == prev_n and not same):
+                    out.append(_break_suspect(text, starts, alts, lei, art, prev, n))
+                elif n >= 10 and n > prev_n + 1 and n // 10 in (prev_n, prev_n + 1):
+                    out.append(
+                        {
+                            "type": "suspect_number",
+                            "line": _line_of(starts, art.start),
+                            "n": n,
+                            "previous": prev_n,
+                            "detail": f"art {n} after {prev_n}: {n // 10}?",
+                        }
+                    )
+                    n = n // 10
+            prev, prev_n = art, n
+    return out
+
+
+def _break_suspect(
+    text: str,
+    starts: Sequence[int],
+    alts: Sequence[Mark],
+    lei: Mark,
+    art: Mark,
+    prev: Mark,
+    n: int,
+) -> Dict[str, Any]:
+    before = [a for a in alts if lei.start <= a.start and a.end <= art.start]
+    detail = f"own article {n} after {prev.attrs.get('n')}"
+    if not before:
+        return {
+            "type": "suspect_sequence",
+            "line": _line_of(starts, art.start),
+            "n": n,
+            "detail": detail,
+        }
+    blame = max(before, key=lambda a: a.end)
+    # the last line of the block, without the opening quote when it is the only line
+    last = text[max(text.rfind("\n", 0, blame.end) + 1, blame.start + 1) : blame.end]
+    opens = text[blame.start : blame.start + 1] in _OPENING_QUOTE
+    return {
+        "type": "suspect_alteracao",
+        "line": _line_of(starts, blame.start),
+        "end_line": _line_of(starts, blame.end - 1),
+        "n": n,
+        "closing_quote": bool(_CLOSING_QUOTE.search(last)) if opens else None,
+        "detail": detail,
+    }
+
+
+def _lei_marks(
+    text: str,
+    marks: Sequence[Mark],
+    tipo: Optional[str],
+    numero: Any,
+    owner: Dict[int, int],
+) -> List[Mark]:
+    """One ``lei`` per act: from its first mark (the first act: from the first
+    non-blank character) to the end of the last body device of the act."""
+    out: List[Mark] = []
+    segments = acts(marks)
+    body = [m for m in _top_level(marks) if m.kind in BODY_KINDS]
+    for i, (start, nxt) in enumerate(segments):
+        last = max(
+            (
+                m.start
+                for m in body
+                if m.start >= start and (nxt is None or m.start < nxt)
+            )
+        )
+        inside = [
+            m
+            for m in marks
+            if m.kind not in ("nota", "lei") and start <= m.start <= last
+        ]
+        lead = len(text) - len(text.lstrip())
+        lei_start = min(lead, start) if i == 0 else start
+        attrs: Dict[str, str] = {}
+        if tipo:
+            attrs["tipo"] = str(tipo)
+        if numero is not None:
+            attrs["numero"] = str(numero)
+        lei = Mark("lei", lei_start, max(m.end for m in inside), attrs)
+        owner[id(lei)] = -1
+        out.append(lei)
+    return out
+
+
 @dataclass
 class _Entry:
     rec: _Rec
@@ -662,7 +937,9 @@ def _derive_marks(
 ) -> tuple[List[Mark], Dict[int, int]]:
     """Order, nest and derive the ends. Returns the marks (with ``lei``) and a map from
     ``id(mark)`` to the index of the record it came from (``-1`` for ``lei``)."""
-    ordered = sorted(recs, key=lambda r: (r.start, _rank(r.kind), r.idx))
+    ended = _anexo_ends(text, recs)
+    interior_annexes = _interior_annexes(ended)
+    ordered = sorted(ended, key=lambda r: (r.start, _rank(r.kind), r.idx))
     out: List[tuple[Mark, int]] = []
     stack: List[_Entry] = []
 
@@ -718,7 +995,8 @@ def _derive_marks(
         barrier = max(
             (i for i, e in enumerate(stack) if e.rec.kind in BARRIERS), default=-1
         )
-        if kind in STRUCTURAL_KINDS or kind in PART_KINDS:
+        interior = kind == "anexo" and rec.idx in interior_annexes
+        if kind in STRUCTURAL_KINDS or (kind in PART_KINDS and not interior):
             floor = _rank(kind) if kind in STRUCTURAL_KINDS else -2.0
             while len(stack) - 1 > barrier:
                 top = stack[-1]
@@ -735,27 +1013,8 @@ def _derive_marks(
     marks = [m for m, _ in out]
     owner = {id(m): i for m, i in out}
 
-    # ``lei``: from the first non-blank character to the end of the body (everything
-    # before the first fecho/assinatura/anexo); none when nothing belongs to a norm.
-    body = [
-        m
-        for m in marks
-        if m.kind in STRUCTURAL_KINDS or m.kind in ("epigrafe", "ementa", "preambulo")
-    ]
-    if body and text.strip():
-        lead = len(text) - len(text.lstrip())
-        tails = [m.start for m in marks if m.kind in TAIL_KINDS]
-        cutoff = min(tails) if tails else len(text) + 1
-        inside = [m for m in marks if m.start < cutoff and m.kind != "nota"]
-        lei_end = max(m.end for m in inside)
-        lei_attrs: Dict[str, str] = {}
-        if tipo:
-            lei_attrs["tipo"] = str(tipo)
-        if numero is not None:
-            lei_attrs["numero"] = str(numero)
-        lei = Mark("lei", min(lead, min(m.start for m in inside)), lei_end, lei_attrs)
-        marks.insert(0, lei)
-        owner[id(lei)] = -1
+    marks.extend(_lei_marks(text, marks, tipo, numero, owner))
+    marks.sort(key=lambda m: (m.start, -m.end, m.kind != "lei"))
     return marks, owner
 
 
@@ -768,6 +1027,7 @@ class Conversion:
     problems: List[Dict[str, Any]] = field(default_factory=list)
     xml: Optional[str] = None
     verify_problems: List[str] = field(default_factory=list)
+    suspects: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def dropped(self) -> List[Dict[str, Any]]:
@@ -898,6 +1158,7 @@ def convert_response(
             conv.verify_problems = problems
             return conv
         conv.xml = xml
+        conv.suspects = suspects(text, marks)
         break
     else:  # pragma: no cover - the loop drops one record per turn
         conv.verify_problems.append("build: did not converge")
@@ -1038,6 +1299,9 @@ class MarkNorm:
     lines: List[str]
     chunks: List[tb.Chunk]
     expected_marks: int = 0
+    # Set on a synthetic re-flowed variant (see ``reflow_text``): the base norm's
+    # ``texto_id``/sha256 and the offsets of the newlines that were joined.
+    reflow: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -1077,13 +1341,87 @@ def expected_marks(text: str) -> int:
     return reader + quoted + 5 + math.ceil(len(text.split("\n")) / 60)
 
 
+REFLOW_SUFFIX = "~reflow"
+REFLOW_MIN_CHARS = 200
+REFLOW_MAX_CHARS = 400
+
+
+def reflow_text(text: str, key: str) -> tuple[str, List[int]]:
+    """The stress variant of ``text``: lines joined into long lines.
+
+    Each joined newline becomes ONE space, so the variant has the length of ``text``
+    and every offset (the reader's marker offsets included) is the same in both;
+    ``joined`` lists the offsets of the replaced newlines, which is all that is needed
+    to get ``text`` back. A run of non-blank lines (and the blank lines between them,
+    which in these OCR texts only space the lines out) is joined while the line is
+    shorter than a target drawn from [REFLOW_MIN_CHARS, REFLOW_MAX_CHARS] (seeded by
+    ``key``) and stays within REFLOW_MAX_CHARS. Markers then fall at arbitrary columns,
+    after accents and punctuation. Synthetic: nothing in the corpus looks like this.
+    """
+    rng = random.Random(hashlib.sha256(key.encode("utf-8")).hexdigest())
+    lines = text.split("\n")
+    starts = _line_starts(lines)
+    content = [i for i, line in enumerate(lines) if line.strip()]
+    out = list(text)
+    joined: List[int] = []
+    if not content:
+        return text, joined
+    group_start = starts[content[0]]
+    target = rng.randint(REFLOW_MIN_CHARS, REFLOW_MAX_CHARS)
+    for prev, nxt in zip(content, content[1:]):
+        end = starts[nxt] + len(lines[nxt])
+        if starts[prev] + len(lines[prev]) - group_start < target and (
+            end - group_start <= REFLOW_MAX_CHARS
+        ):
+            for k in range(prev, nxt):
+                offset = starts[k] + len(lines[k])
+                out[offset] = " "
+                joined.append(offset)
+        else:
+            group_start = starts[nxt]
+            target = rng.randint(REFLOW_MIN_CHARS, REFLOW_MAX_CHARS)
+    return "".join(out), joined
+
+
+def unflow_text(text: str, joined: Sequence[int]) -> str:
+    """The base text of a re-flowed variant (``reflow_text`` backwards)."""
+    chars = list(text)
+    for offset in joined:
+        chars[offset] = "\n"
+    return "".join(chars)
+
+
+def reflow_record(record: tb.TextoRecord) -> tuple[tb.TextoRecord, Dict[str, Any]]:
+    """The synthetic variant of a text-layer record, with its own ``texto_id``
+    (``BASE~reflow``), uuid5 (``…-reflow``) and sha256, and the metadata that maps it to the base."""
+    text, joined = reflow_text(record.text, str(record.texto_id))
+    ref = dataclasses.replace(record.ref, uuid5=record.ref.uuid5 + "-reflow")
+    sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    variant = dataclasses.replace(
+        record,
+        ref=ref,
+        text=text,
+        text_sha256=sha,
+        texto_id=str(record.texto_id) + REFLOW_SUFFIX,
+    )
+    meta = {
+        "base_texto_id": record.texto_id,
+        "base_text_sha256": record.text_sha256,
+        "joined": joined,
+        "synthetic": True,
+    }
+    return variant, meta
+
+
 def make_norm(
     record: tb.TextoRecord,
     *,
     max_lines: int = MARK_MAX_LINES,
     max_chars: int = MARK_MAX_CHARS,
+    reflow: Optional[Dict[str, Any]] = None,
 ) -> MarkNorm:
     lines = tb.split_lines(record.text)
+    base_text = unflow_text(record.text, reflow["joined"]) if reflow else record.text
     return MarkNorm(
         ref=record.ref,
         texto_id=str(record.texto_id),
@@ -1091,7 +1429,8 @@ def make_norm(
         text_sha256=record.text_sha256,
         lines=lines,
         chunks=tb.chunk_document(lines, max_lines=max_lines, max_chars=max_chars),
-        expected_marks=expected_marks(record.text),
+        expected_marks=expected_marks(base_text),
+        reflow=reflow,
     )
 
 
@@ -1127,13 +1466,24 @@ def render_request(slots: Sequence[MarkSlot]) -> str:
     return "\n\n".join([intro, *(render_slot(s) for s in slots)])
 
 
+def _slot_marks(slot: MarkSlot) -> int:
+    """Marks the ceiling allows for a slot: one per shown line, and for a re-flowed
+    variant (many marks on a line) the base norm's expected count for its share."""
+    shown = len(slot.chunk.owned)
+    norm = slot.norm
+    if norm.reflow:
+        share = norm.expected_marks * shown // max(1, len(norm.lines))
+        return max(shown, int(share * 1.5))
+    return shown
+
+
 def mark_max_tokens(
     slots: Sequence[MarkSlot], cap: int = MARK_MAX_TOKENS_CAP, factor: float = 1.0
 ) -> int:
     """``max_tokens`` of a mark request: a base, then per norm the thinking room and a
     mark on every shown line at the per-mark ceiling, never above the cap."""
     per_norm = sum(
-        MARK_THINKING_PER_NORM + TOKENS_PER_MARK * len(s.chunk.owned) for s in slots
+        MARK_THINKING_PER_NORM + TOKENS_PER_MARK * _slot_marks(s) for s in slots
     )
     return min(
         min(cap, MARK_MAX_TOKENS_CAP), int((MARK_MAX_TOKENS_BASE + per_norm) * factor)
@@ -1181,10 +1531,16 @@ def build_mark_plan(
     max_lines: int = MARK_MAX_LINES,
     max_chars: int = MARK_MAX_CHARS,
     max_tokens_cap: int = MARK_MAX_TOKENS_CAP,
+    reflows: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> MarkPlan:
     plan = MarkPlan()
     for record in records:
-        norm = make_norm(record, max_lines=max_lines, max_chars=max_chars)
+        norm = make_norm(
+            record,
+            max_lines=max_lines,
+            max_chars=max_chars,
+            reflow=(reflows or {}).get(record.ref.key),
+        )
         if not norm.chunks:
             plan.empty.append(record.ref.key)
             continue
@@ -1382,6 +1738,7 @@ def _slot_meta(slot: MarkSlot) -> Dict[str, Any]:
         "first_line": chunk.first_line,
         "last_line": chunk.last_line,
         "owned": list(chunk.owned),
+        "reflow": norm.reflow,
     }
 
 
@@ -1791,6 +2148,9 @@ def collect_mark(
     reasons: Dict[str, int] = {}
     marks_answered = marks_used = marks_dropped = 0
     anchor_rows = 0
+    suspect_counts: Dict[str, int] = {}
+    suspect_norms: List[str] = []
+    anchors_used: Dict[str, int] = {}
     with (out_dir / "anchors.jsonl").open("w", encoding="utf-8") as anchors_file:
         for entry_key, results in sorted(by_entry.items()):
             first = results[0].meta
@@ -1812,6 +2172,7 @@ def collect_mark(
                 "txt_name": first["txt_name"],
                 "text_sha256": first["text_sha256"],
                 "n_lines": first["n_lines"],
+                "reflow": first.get("reflow"),
                 "state": nr.state,
                 "marks_answered": nr.n_marks_answered,
                 "marks_used": sum(1 for a in conv.anchors if a.get("used"))
@@ -1819,6 +2180,7 @@ def collect_mark(
                 else 0,
                 "dropped": dropped,
                 "verify_problems": conv.verify_problems if conv else [],
+                "suspects": conv.suspects if conv else [],
                 "invalid_reasons": nr.problems,
                 "partial": nr.state == "partial",
                 "missing_parts": nr.missing_parts,
@@ -1836,6 +2198,11 @@ def collect_mark(
                 xml_path.parent.mkdir(parents=True, exist_ok=True)
                 xml_path.write_text(conv.xml, encoding="utf-8")
             if conv is not None:
+                for sus in conv.suspects:
+                    kind = str(sus["type"])
+                    suspect_counts[kind] = suspect_counts.get(kind, 0) + 1
+                if conv.suspects:
+                    suspect_norms.append(str(first["texto_id"]))
                 for row in conv.anchors:
                     anchor_rows += 1
                     anchors_file.write(
@@ -1851,6 +2218,9 @@ def collect_mark(
                     )
                     marks_answered += 1
                     if row.get("used"):
+                        anchors_used[str(row["used"])] = (
+                            anchors_used.get(str(row["used"]), 0) + 1
+                        )
                         marks_used += 1
                         kind_counts[str(row["kind"])] = (
                             kind_counts.get(str(row["kind"]), 0) + 1
@@ -1932,6 +2302,9 @@ def collect_mark(
         "marks_used": marks_used,
         "marks_dropped": marks_dropped,
         "dropped_by_reason": dict(sorted(dropped_reasons.items())),
+        "anchors_used": dict(sorted(anchors_used.items())),
+        "suspects_by_type": dict(sorted(suspect_counts.items())),
+        "norms_with_suspects": sorted(suspect_norms),
         "used_by_kind": dict(sorted(kind_counts.items())),
         "failure_reasons": dict(sorted(reasons.items())),
         "usage": usage_total,
@@ -2066,9 +2439,20 @@ def prepare_mark(
         "texts_in_layer": len(corpus.records),
         "after_tipo": len(pool),
     }
+    reflows: Dict[str, Dict[str, Any]] = {}
     if select == "ids-file":
         assert ids_file is not None
         ids = tr.read_ids_file(ids_file)
+        # ``ID~reflow``: the synthetic stress variant of a text-layer norm (long lines)
+        for variant_id in [i for i in ids if i.endswith(REFLOW_SUFFIX)]:
+            base = by_id.get(variant_id[: -len(REFLOW_SUFFIX)])
+            if base is None:
+                continue
+            variant, meta = reflow_record(base)
+            by_id[variant_id] = variant
+            reflows[variant.ref.key] = meta
+            if base in pool:
+                pool.append(variant)
         missing = [i for i in ids if i not in by_id]
         if missing:
             raise tb.TeacherBatchError(
@@ -2095,6 +2479,7 @@ def prepare_mark(
         max_lines=max_lines,
         max_chars=max_chars,
         max_tokens_cap=max_tokens_cap,
+        reflows=reflows,
     )
     plan.selection = selection
     plan.sources = {

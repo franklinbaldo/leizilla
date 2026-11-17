@@ -65,8 +65,9 @@ def children_allowed(parent: str) -> frozenset[str]:
 
     Level grammar: art ⊃ par|inc|ali|item; par ⊃ inc|ali|item; inc ⊃ ali|item;
     ali ⊃ item; ``alteracao`` may sit inside any device and holds any device or
-    organisational block; ``ruido``/``ref``/``nota`` anywhere (a ``nota`` holds only
-    its own content). Organisational blocks nest outermost first and hold articles.
+    organisational block; ``anexo`` may also sit inside a device (a table between two
+    paragraphs of an article: the model's marked documents, see teacher_mark);
+    ``ruido``/``ref``/``nota`` anywhere (a ``nota`` holds only its own content). Organisational blocks nest outermost first and hold articles.
     ``lei`` sits only on the root, and devices only inside a ``lei`` (or an
     ``alteracao``/``anexo``).
     """
@@ -79,7 +80,7 @@ def children_allowed(parent: str) -> frozenset[str]:
         return frozenset((*lower, "art", *INLINE))
     if parent in DEVICES:
         below = DEVICES[DEVICES.index(parent) + 1 :]
-        return frozenset((*below, "alteracao", *INLINE))
+        return frozenset((*below, "alteracao", "anexo", *INLINE))
     if parent in ("alteracao", "anexo"):
         return frozenset((*ORG, *DEVICES, *INLINE))
     if parent in ("epigrafe", "ementa", "preambulo", "fecho", "assinatura", "ruido"):

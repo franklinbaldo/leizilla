@@ -258,6 +258,7 @@
       <xs:element ref="inc"/>
       <xs:element ref="ali"/>
       <xs:element ref="item"/>
+      <xs:element ref="anexo"/>
       <xs:element ref="ruido"/>
       <xs:element ref="ref"/>
       <xs:element ref="nota"/>
@@ -276,6 +277,7 @@
       <xs:element ref="inc"/>
       <xs:element ref="ali"/>
       <xs:element ref="item"/>
+      <xs:element ref="anexo"/>
       <xs:element ref="ruido"/>
       <xs:element ref="ref"/>
       <xs:element ref="nota"/>
@@ -293,6 +295,7 @@
       <xs:element ref="alteracao"/>
       <xs:element ref="ali"/>
       <xs:element ref="item"/>
+      <xs:element ref="anexo"/>
       <xs:element ref="ruido"/>
       <xs:element ref="ref"/>
       <xs:element ref="nota"/>
@@ -309,6 +312,7 @@
       <xs:element ref="m"/>
       <xs:element ref="alteracao"/>
       <xs:element ref="item"/>
+      <xs:element ref="anexo"/>
       <xs:element ref="ruido"/>
       <xs:element ref="ref"/>
       <xs:element ref="nota"/>
@@ -324,6 +328,7 @@
       <xs:element ref="c"/>
       <xs:element ref="m"/>
       <xs:element ref="alteracao"/>
+      <xs:element ref="anexo"/>
       <xs:element ref="ruido"/>
       <xs:element ref="ref"/>
       <xs:element ref="nota"/>
