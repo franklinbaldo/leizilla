@@ -1089,3 +1089,229 @@ def test_stress_sample_file_is_valid_and_points_at_pilot_norms() -> None:
     assert len(stress) == 40 and len(set(stress)) == 40
     assert all(i.endswith(tm.REFLOW_SUFFIX) for i in stress)
     assert {i[: -len(tm.REFLOW_SUFFIX)] for i in stress} <= pilot
+
+
+# --- snippet anchor mode (teacher-mark-v2s): no column, ``t`` and ``o`` ------------
+def _snip(
+    line: int,
+    kind: str,
+    t: str,
+    n: Optional[str] = None,
+    *,
+    o: Optional[int] = None,
+    le: Optional[int] = None,
+    x: bool = False,
+) -> Dict[str, Any]:
+    return {
+        "l": line,
+        "k": kind,
+        "t": t,
+        "o": o,
+        "n": n,
+        "s": None,
+        "le": le,
+        "x": x,
+        "e": None,
+        "nota": None,
+    }
+
+
+def test_snippet_schema_prompt_and_version_have_no_column() -> None:
+    item = tm.mark_schema("snippet")["properties"]["norms"]["items"]["properties"][
+        "marks"
+    ]["items"]
+    assert list(item["properties"]) == list(tm.SNIPPET_FIELDS)
+    assert "c" not in item["properties"] and "o" in item["properties"]
+    assert item["required"] == list(tm.SNIPPET_FIELDS)
+    assert tm.prompt_version("snippet") == "teacher-mark-v2s"
+    assert tm.prompt_version() == tm.MARK_PROMPT_VERSION == "teacher-mark-v2"
+    prompt = tm.mark_system_prompt("snippet")
+    assert "`c`" not in prompt and "COLUNA" not in prompt and '"c":' not in prompt
+    assert "`o`" in prompt and '"o":null' in prompt
+    assert tm.example_json("snippet") in prompt
+    # the default contract is untouched by the new mode
+    assert tm.mark_system_prompt() == tm.MARK_SYSTEM_PROMPT
+    assert '"c":1' in tm.MARK_SYSTEM_PROMPT and "COLUNA" in tm.MARK_SYSTEM_PROMPT
+    assert tm.mark_prompt_sha256("snippet") != tm.mark_prompt_sha256()
+    with pytest.raises(tb.TeacherBatchError):
+        tm.check_anchors("column")
+
+
+def test_the_snippet_example_round_trips_through_the_converter() -> None:
+    text = "\n".join(tm.EXAMPLE_LINES.get(i, "") for i in range(1, 22))
+    entry = tm.example_response("snippet")["norms"][0]
+    conv = tm.convert_response(text, entry, tipo="lei", numero=7, anchors="snippet")
+    _check(conv.xml, text)
+    assert conv.problems == []
+    assert all(a["used"] == "B" and a["a_off"] is None for a in conv.anchors)
+    # same document as the column mode builds from the same example
+    col = tm.convert_response(
+        text, tm.example_response()["norms"][0], tipo="lei", numero=7
+    )
+    assert conv.xml == col.xml
+
+
+def test_prompt_examples_of_o_resolve_as_written() -> None:
+    text = (
+        "Art. 1º - Lista:\n"
+        "I - a cultura; II - o esporte; III - a saúde.\n"
+        "§ 1º - Veja o § 2º. § 2º - O prazo."
+    )
+    marks = [
+        _snip(1, "art", "Art. 1º", "1"),
+        _snip(2, "inc", "I -", "1", o=1),
+        _snip(2, "inc", "II -", "2", o=1),
+        _snip(2, "inc", "III -", "3"),
+        _snip(3, "par", "§ 1º", "1"),
+        _snip(3, "par", "§ 2º", "2", o=2),
+    ]
+    conv = tm.convert_response(text, marks, anchors="snippet")
+    assert conv.problems == []
+    line2 = text.index("I - a")
+    assert [a["offset"] for a in conv.anchors] == [
+        0,
+        line2,
+        text.index("II -"),
+        text.index("III -"),
+        text.index("§ 1º"),
+        text.rindex("§ 2º"),
+    ]
+    assert [a["used"] for a in conv.anchors] == ["B", "O", "O", "B", "B", "O"]
+
+
+def test_snippet_ties_need_o_and_o_is_checked() -> None:
+    text = "Art. 1º - Veja o Art. 1º.\nI - um; II - dois."
+    cases = [
+        (_snip(1, "art", "Art. 1º", "1"), "ambiguous_snippet"),
+        (_snip(1, "art", "Art. 1º", "1", o=3), "bad_occurrence"),
+        (_snip(2, "inc", "II -", "2", o=2), "bad_occurrence"),  # unique: o must be 1
+        (_snip(2, "inc", "XX -", "20"), "no_anchor"),
+    ]
+    for mark, reason in cases:
+        conv = tm.convert_response(text, [mark], anchors="snippet")
+        assert conv.anchors[0]["drop_reason"] == reason, (mark, reason)
+        assert conv.anchors[0]["used"] is None
+    ok = tm.convert_response(
+        text, [_snip(1, "art", "Art. 1º", "1", o=1)], anchors="snippet"
+    )
+    assert ok.anchors[0]["used"] == "O" and ok.anchors[0]["offset"] == 0
+    bad = tm.convert_response(
+        text,
+        [{**_snip(1, "art", "Art. 1º", "1"), "o": 0}],
+        anchors="snippet",
+    )
+    assert bad.anchors[0]["drop_reason"] == "bad_occurrence"
+
+
+def test_snippet_mark_without_o_field_or_with_a_column_only_is_bad_shape() -> None:
+    text = "Art. 1º - Um.\n"
+    no_o = _snip(1, "art", "Art. 1º", "1")
+    del no_o["o"]
+    conv = tm.convert_response(text, [no_o], anchors="snippet")
+    assert conv.anchors[0]["drop_reason"] == "bad_shape"
+    # and the column mode refuses a snippet mark (no ``c``)
+    conv = tm.convert_response(text, [_snip(1, "art", "Art. 1º", "1")])
+    assert conv.anchors[0]["drop_reason"] == "bad_shape"
+
+
+def test_snippet_t_copied_across_a_line_break_resolves_by_its_prefix() -> None:
+    text = "Art. 5º - Fica o\nbloco aqui.\nArt. \n6º Dois.\n"
+    marks = [
+        _snip(1, "art", "Art. 5º", "5"),
+        _snip(3, "art", "Art. 6º", "6"),  # the model joined "Art." and "6º"
+    ]
+    conv = tm.convert_response(text, marks, anchors="snippet")
+    assert conv.problems == []
+    assert [a["b_method"] for a in conv.anchors] == ["exact", "prefix"]
+    assert conv.anchors[1]["offset"] == text.index("Art. \n6º")
+    # the prefix must END the line: a stray unrelated "Art." mid-line is not used
+    stray = tm.convert_response(
+        "Veja Art. 3 e mais.\n", [_snip(1, "art", "Art. 9º", "9")], anchors="snippet"
+    )
+    assert stray.anchors[0]["drop_reason"] == "no_anchor"
+
+
+def test_snippet_plan_manifest_params_and_collect(tmp_path: Path) -> None:
+    plan = _plan(SMALL_TEXTS, anchors="snippet")
+    assert plan.anchors == "snippet" and plan.packing["anchors"] == "snippet"
+    spec = tb.resolve_model("claude-haiku-5-5")
+    params = tm.build_mark_params(plan.requests[0], spec, "medium", True, plan.anchors)
+    assert params["system"][0]["text"] == tm.SNIPPET_SYSTEM_PROMPT
+    schema = params["output_config"]["format"]["schema"]
+    assert schema == tm.SNIPPET_SCHEMA
+    est = tm.estimate_mark_cost(plan, spec, "medium", True)
+    est_col = tm.estimate_mark_cost(_plan(SMALL_TEXTS), spec, "medium", True)
+    assert est.system_tokens != est_col.system_tokens
+    manifest = _manifest(plan)
+    assert manifest["anchors"] == "snippet"
+    assert manifest["prompt_version"] == "teacher-mark-v2s"
+    assert manifest["prompt_sha256"] == tm.mark_prompt_sha256("snippet")
+    summary = tm.collect_mark(_Fake(_perfect(plan)), manifest, tmp_path)
+    assert summary["anchors"] == "snippet"
+    assert summary["states"]["ok"] == 3 and summary["marks_dropped"] == 0
+    assert set(summary["anchors_used"]) <= {"B", "O"}
+    rec = score_mark.load_records(tmp_path)[0]
+    assert rec["anchors"] == "snippet" and rec["prompt_version"] == "teacher-mark-v2s"
+    result = score_mark.run(tmp_path, tmp_path / "score")
+    snip = result["snippet_resolution"]
+    assert snip["resolved_rate"] == 1.0 and snip["dropped_by_reason"] == {}
+    assert result["column_accuracy"]["reference_n"] == 0
+    assert result["reader_reference"]["devices_matched_to_reader"] > 0
+    assert result["reader_reference"]["used_offset_exact_rate"] == 1.0
+    assert "snippet mode" in (tmp_path / "score" / "score_mark.md").read_text()
+
+
+def test_a_column_run_has_no_snippet_block(tmp_path: Path) -> None:
+    plan = _plan(SMALL_TEXTS)
+    tm.collect_mark(_Fake(_perfect(plan)), _manifest(plan), tmp_path)
+    assert score_mark.run(tmp_path, tmp_path / "s")["snippet_resolution"] is None
+
+
+def test_snippet_stress_scores_used_offsets_by_column_bucket(tmp_path: Path) -> None:
+    base = SMALL_TEXTS[0]
+    variant, meta = tm.reflow_record(_record(1, base))
+    plan = tm.build_mark_plan(
+        [_record(1, base)],
+        seed="s",
+        reflows={_record(1, base).ref.key: meta},
+        anchors="snippet",
+    )
+    assert plan.norms[0].reflow is not None
+    tm.collect_mark(_Fake(_perfect(plan)), _manifest(plan), tmp_path)
+    stress = score_mark.run(tmp_path, tmp_path / "s")["stress"]
+    assert stress is not None and stress["devices_matched_to_reader"] > 0
+    assert stress["used_offset_exact_rate"] == 1.0 and stress["a_exact_rate"] is None
+    assert stress["by_true_column"]
+
+
+def test_retry_must_keep_the_anchor_mode() -> None:
+    plan = _plan([SMALL_TEXTS[0]], anchors="snippet")
+    base = {"anchors": "col+snippet", "truncated_requests": ["m00000"]}
+    with pytest.raises(tb.TeacherBatchError, match="--anchors"):
+        tm.build_retry_plan(plan, base, depth=1, max_tokens_cap=32_000)
+    # an old manifest without the field is a column run
+    plan2 = _plan([SMALL_TEXTS[0]])
+    with pytest.raises(tb.TeacherBatchError, match="no truncated_requests"):
+        tm.build_retry_plan(plan2, {}, depth=1, max_tokens_cap=32_000)
+
+
+def test_cli_anchors_only_in_mark_mode() -> None:
+    result = CliRunner().invoke(
+        tb.app, ["plan", "--mode", "review", "--anchors", "snippet"]
+    )
+    assert result.exit_code == 2 and "only applies with --mode mark" in result.output
+    result = CliRunner().invoke(
+        tb.app,
+        ["plan", "--mode", "mark", "--anchors", "nope", "--text-source", "textos"],
+    )
+    assert result.exit_code == 2 and "--anchors must be one of" in result.output
+
+
+def test_workflow_offers_the_anchor_choice() -> None:
+    import yaml
+
+    text = (ROOT / ".github/workflows/teacher-batch.yml").read_text(encoding="utf-8")
+    inputs = yaml.safe_load(text)[True]["workflow_dispatch"]["inputs"]
+    assert inputs["anchors"]["options"] == ["col+snippet", "snippet"]
+    assert inputs["anchors"]["default"] == "col+snippet"
+    assert text.count('--anchors "$IN_ANCHORS"') == 2

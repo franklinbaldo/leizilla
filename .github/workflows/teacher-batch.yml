@@ -87,6 +87,11 @@ on:
       ids_file:
         description: "review e mark, plan/submit: nome (sem .txt) de uma lista de texto_id em docs/okf/review-samples/ (ex. eval-2026-11, mark-pilot-2026-11) — vazio = usa select"
         default: ""
+      anchors:
+        description: "mark, plan/submit: col+snippet (padrão: o modelo dá a coluna e o trecho) ou snippet (sem coluna: só o trecho e, se repete na linha, qual ocorrência; prompt teacher-mark-v2s). No retry (manifest_run_id) use o mesmo da execução original"
+        type: choice
+        options: [col+snippet, snippet]
+        default: col+snippet
       canary_share:
         description: "review, plan/submit: fração de canários (cópias com erro plantado nas etiquetas) — vazio = 0.15; ignorado se canary_ids_file"
         default: ""
@@ -137,6 +142,7 @@ jobs:
           IN_IDS: ${{ inputs.ids_file }}
           IN_CANARY_IDS: ${{ inputs.canary_ids_file }}
           IN_CANARY_SHARE: ${{ inputs.canary_share }}
+          IN_ANCHORS: ${{ inputs.anchors }}
         run: |
           set -euo pipefail
           args=(--effort "$IN_EFFORT" --out "$WORK_DIR/plan.json")
@@ -163,6 +169,10 @@ jobs:
               elif [ -n "$IN_CANARY_SHARE" ]; then
                 args+=(--canary-share "$IN_CANARY_SHARE")
               fi
+            fi
+            # Âncoras só existem no modo mark (os outros modos recusam --anchors).
+            if [ "$IN_MODE" = "mark" ]; then
+              args+=(--anchors "$IN_ANCHORS")
             fi
             args+=(--mode "$IN_MODE" --select "$SEL")
           fi
@@ -231,6 +241,7 @@ jobs:
           IN_IDS: ${{ inputs.ids_file }}
           IN_CANARY_IDS: ${{ inputs.canary_ids_file }}
           IN_CANARY_SHARE: ${{ inputs.canary_share }}
+          IN_ANCHORS: ${{ inputs.anchors }}
         run: |
           set -euo pipefail
           if [ -z "$IN_MAX_USD" ]; then
@@ -275,6 +286,10 @@ jobs:
               elif [ -n "$IN_CANARY_SHARE" ]; then
                 args+=(--canary-share "$IN_CANARY_SHARE")
               fi
+            fi
+            # Âncoras só existem no modo mark (os outros modos recusam --anchors).
+            if [ "$IN_MODE" = "mark" ]; then
+              args+=(--anchors "$IN_ANCHORS")
             fi
             args+=(--mode "$IN_MODE" --select "$SEL")
           fi

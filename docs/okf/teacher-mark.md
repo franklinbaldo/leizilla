@@ -286,6 +286,48 @@ número; taxa de A exato, de B exato e do offset usado, por coluna do marcador n
 (0-10, 11-40, 41-100, 101-200, 201-400, 401+) e por haver ou não não-ASCII antes. Seco
 (`simulate_mark.py` com este arquivo, A deslocado em 5%): ver abaixo.
 
+## Modo de âncora `snippet` (`--anchors snippet`, prompt `teacher-mark-v2s`)
+
+O estresse truncou 40/40 (effort medium) e 8/8 (effort low): cada requisição gastou o
+`max_tokens` inteiro raciocinando e não escreveu nada. A hipótese (não verificada) é que o
+modelo gasta o raciocínio **contando colunas** em linhas de 200 a 400 caracteres. Para
+separar essa causa das demais existe uma opção de modo de âncora:
+
+- `--anchors col+snippet` (padrão, o contrato v2 acima, sem mudança de byte no prompt);
+- `--anchors snippet`: o prompt, o esquema, o exemplo e as instruções **não pedem `c`**. O
+  campo `c` sai e entra `o` (inteiro pequeno ou `null`): qual ocorrência de `t` na linha é a
+  marca, contando da esquerda, a partir de 1. Os dez campos continuam obrigatórios
+  (`l k t o n s le x e nota`).
+
+O conversor resolve só por `t`: único na linha (exato ou tolerante) vale (`used="B"`); se
+ocorre mais de uma vez (inclusive `I -` dentro de `II -`) vale o `o` (`used="O"`); sem `o`
+a marca é descartada (`ambiguous_snippet`), com `o` fora das ocorrências, ou `o` > 1 para
+um `t` único, também (`bad_occurrence`); `t` que não está na linha: `no_anchor`. Uma única
+tolerância: um `t` copiado através de uma quebra de linha ("Art. \n6º") que não ocorre na
+linha resolve pelo maior prefixo de palavras (3 ou mais caracteres) que ocorre uma vez e
+**termina no fim da linha** (`b_method="prefix"`). O manifesto, os `records/*.json` e o
+`summary.json` carregam `anchors`; o `collect` lê o modo do manifesto; `--retry-truncated`
+exige o mesmo modo.
+
+`score_mark`: no modo `snippet` não há âncora A. O bloco `snippet_resolution` conta marcas
+resolvidas (B/O), descartes por motivo, empates na linha (com e sem `o`); o bloco de
+estresse e a referência contra o leitor passam a pontuar o **offset usado** (por coluna
+verdadeira do marcador, por haver não-ASCII antes, por número de ocorrências de `t` na
+linha), e `a_exact_rate` fica `null`. Simulação seca (`simulate_mark.py --anchors snippet`
+sobre o conjunto de estresse, acentos retirados em 3%): 575 de 576 marcas resolvidas, 26
+empates todos resolvidos por `o`, offset usado igual ao do leitor em 99,1%.
+
+Sonda de 8 normas do conjunto de estresse (workflow `teacher-batch.yml`):
+
+1. `step=plan`, `mode=mark`, `anchors=snippet`, `ids_file=mark-stress-reflow-2026-11`,
+   `limit=8`, `model=claude-haiku-5-5`, `effort=medium`, `text_source=textos`;
+2. `step=submit`, os mesmos insumos, `max_usd=0.05`, `guard=ceiling`;
+3. `step=collect` com o `manifest_run_id` do submit.
+
+O `plan` local dá 8 normas em 2 requisições, estimativa US$ 0,0034, teto US$ 0,0101. Ler:
+se as 2 requisições escreverem marcas (não truncarem), o custo de contar colunas era a
+causa; compare as âncoras usadas e o offset usado contra o leitor por coluna.
+
 ## Simulação seca (sem API)
 
 `scripts/simulate_mark.py` gera a resposta de um modelo perfeito a partir do leitor (de

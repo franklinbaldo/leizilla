@@ -2118,6 +2118,13 @@ _RETRY_TRUNCATED = typer.Option(
     "requisição, com o orçamento de resposta maior. Use os mesmos insumos do submit "
     "original; o resultado é fundido pelo collect.",
 )
+_ANCHORS = typer.Option(
+    None,
+    "--anchors",
+    help="Só modo mark: col+snippet (padrão: coluna `c` primária, trecho `t` "
+    "confere) | snippet (sem coluna: só o trecho `t` e, se ele repete na linha, "
+    "`o` = qual ocorrência; prompt teacher-mark-v2s).",
+)
 _REVIEW_BUDGET = typer.Option(
     None,
     "--review-budget-chars",
@@ -2141,6 +2148,7 @@ def _resolve_mode(
     budget: Optional[int],
     max_norms: Optional[int],
     label_set: Optional[str],
+    anchors: Optional[str] = None,
 ) -> str:
     """Validate ``--mode`` and the review-only options; return the label set.
 
@@ -2151,8 +2159,12 @@ def _resolve_mode(
 
     if mode not in ALL_MODES:
         raise TeacherBatchError(f"--mode must be one of {', '.join(ALL_MODES)}")
+    if anchors is not None and mode != "mark":
+        raise TeacherBatchError("--anchors only applies with --mode mark")
     if mode == "mark":
         from leizilla import teacher_mark
+
+        teacher_mark.check_anchors(anchors)
 
         refused = {
             "--canary-share": canary_share,
@@ -2189,6 +2201,7 @@ def _mark_kwargs(
     max_lines: int,
     max_chars: int,
     max_tokens_cap: int,
+    anchors: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Mark-mode inputs. ``--max-lines``/``--max-chars``/``--max-tokens-cap`` left at
     the label defaults mean "unset": the mark mode has its own (smaller parts, a
@@ -2196,6 +2209,7 @@ def _mark_kwargs(
     from leizilla import teacher_mark
 
     return {
+        "anchors": teacher_mark.check_anchors(anchors),
         "select": select or ("ids-file" if ids_file else "all"),
         "ids_file": ids_file,
         "budget_chars": budget or teacher_mark.DEFAULT_MARK_BUDGET_CHARS,
@@ -2279,6 +2293,7 @@ def plan(
     canary_ids_file: Optional[Path] = _CANARY_IDS_FILE,
     review_budget_chars: Optional[int] = _REVIEW_BUDGET,
     review_max_norms: Optional[int] = _REVIEW_MAX_NORMS,
+    anchors: Optional[str] = _ANCHORS,
 ) -> None:
     """Enumera as entradas e estima o custo por modelo. Não envia nada pago."""
     _check_effort(effort)
@@ -2293,6 +2308,7 @@ def plan(
             budget=review_budget_chars,
             max_norms=review_max_norms,
             label_set=label_set,
+            anchors=anchors,
         )
         if mode == "mark":
             from leizilla import teacher_mark
@@ -2318,6 +2334,7 @@ def plan(
                     max_lines=max_lines,
                     max_chars=max_chars,
                     max_tokens_cap=max_tokens_cap,
+                    anchors=anchors,
                 ),
             )
             return
@@ -2463,6 +2480,7 @@ def submit(
     review_budget_chars: Optional[int] = _REVIEW_BUDGET,
     review_max_norms: Optional[int] = _REVIEW_MAX_NORMS,
     retry_truncated: Optional[Path] = _RETRY_TRUNCATED,
+    anchors: Optional[str] = _ANCHORS,
 ) -> None:
     """Cria o(s) batch(es) depois da trava de custo e grava o manifesto."""
     _check_effort(effort)
@@ -2477,6 +2495,7 @@ def submit(
             budget=review_budget_chars,
             max_norms=review_max_norms,
             label_set=label_set,
+            anchors=anchors,
         )
         if retry_truncated is not None and mode not in ("review", "mark"):
             raise TeacherBatchError(
@@ -2518,6 +2537,7 @@ def submit(
                     max_lines=max_lines,
                     max_chars=max_chars,
                     max_tokens_cap=max_tokens_cap,
+                    anchors=anchors,
                 ),
             )
             for batch in mark_manifest["batches"]:

@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import base64
 import bisect
+import copy
 import hashlib
 import json
 import math
@@ -70,6 +71,12 @@ from leizilla.marcacao import Mark
 # --------------------------------------------------------------------------
 
 MARK_PROMPT_VERSION = "teacher-mark-v2"
+# Anchor modes: ``col+snippet`` (the default: the column ``c`` is primary, the marker
+# ``t`` confirms it) or ``snippet`` (no ``c`` at all: ``t`` alone locates the marker,
+# an optional occurrence number ``o`` breaks a tie; ``teacher-mark-v2s``).
+ANCHOR_MODES: tuple[str, ...] = ("col+snippet", "snippet")
+DEFAULT_ANCHORS = "col+snippet"
+SNIPPET_PROMPT_VERSION = "teacher-mark-v2s"
 MARK_SCHEMA_VERSION = "1"
 DEFAULT_MARK_LABEL_SET = "mark"
 MODE = "mark"
@@ -142,6 +149,30 @@ _MARKER_SNIPPET = 20
 _NULLABLE_STRING = tb._NULLABLE_STRING
 _NULLABLE_INTEGER = tb._NULLABLE_INTEGER
 MARK_FIELDS: tuple[str, ...] = ("l", "k", "c", "t", "n", "s", "le", "x", "e", "nota")
+# snippet mode: ``c`` is gone, ``o`` (which occurrence of ``t`` in the line) is in.
+SNIPPET_FIELDS: tuple[str, ...] = ("l", "k", "t", "o", "n", "s", "le", "x", "e", "nota")
+
+
+def check_anchors(anchors: Optional[str]) -> str:
+    name = anchors or DEFAULT_ANCHORS
+    if name not in ANCHOR_MODES:
+        raise tb.TeacherBatchError(
+            f"--anchors must be one of {', '.join(ANCHOR_MODES)} (got {name!r})"
+        )
+    return name
+
+
+def mark_fields(anchors: str = DEFAULT_ANCHORS) -> tuple[str, ...]:
+    return SNIPPET_FIELDS if check_anchors(anchors) == "snippet" else MARK_FIELDS
+
+
+def prompt_version(anchors: str = DEFAULT_ANCHORS) -> str:
+    return (
+        SNIPPET_PROMPT_VERSION
+        if check_anchors(anchors) == "snippet"
+        else MARK_PROMPT_VERSION
+    )
+
 
 MARK_SCHEMA: Dict[str, Any] = {
     "type": "object",
@@ -186,6 +217,29 @@ MARK_SCHEMA: Dict[str, Any] = {
     "required": ["norms"],
     "additionalProperties": False,
 }
+
+
+def _snippet_schema() -> Dict[str, Any]:
+    schema = copy.deepcopy(MARK_SCHEMA)
+    item = schema["properties"]["norms"]["items"]["properties"]["marks"]["items"]
+    old = item["properties"]
+    item["properties"] = {
+        name: (
+            {"anyOf": [{"type": "integer"}, {"type": "null"}]}
+            if name == "o"
+            else old[name]
+        )
+        for name in SNIPPET_FIELDS
+    }
+    item["required"] = list(SNIPPET_FIELDS)
+    return schema
+
+
+SNIPPET_SCHEMA: Dict[str, Any] = _snippet_schema()
+
+
+def mark_schema(anchors: str = DEFAULT_ANCHORS) -> Dict[str, Any]:
+    return SNIPPET_SCHEMA if check_anchors(anchors) == "snippet" else MARK_SCHEMA
 
 
 # --------------------------------------------------------------------------
@@ -233,27 +287,37 @@ _EXAMPLE_SPEC: tuple[tuple[Any, ...], ...] = (
 )
 
 
-def _example_mark(spec: Sequence[Any]) -> Dict[str, Any]:
+def _find_all(haystack: str, needle: str) -> List[int]:
+    found: List[int] = []
+    i = haystack.find(needle)
+    while i >= 0:
+        found.append(i)
+        i = haystack.find(needle, i + 1)
+    return found
+
+
+def _example_mark(
+    spec: Sequence[Any], anchors: str = DEFAULT_ANCHORS
+) -> Dict[str, Any]:
     line, kind, t, n, s, le, no_marker, nota = spec
     col = EXAMPLE_LINES[line].find(t) + 1
     assert col >= 1, (line, t)
-    return {
-        "l": line,
-        "k": kind,
-        "c": col,
-        "t": t,
-        "n": n,
-        "s": s,
-        "le": le,
-        "x": no_marker,
-        "e": None,
-        "nota": nota,
-    }
+    mark: Dict[str, Any] = {"l": line, "k": kind}
+    if check_anchors(anchors) == "snippet":
+        # which occurrence of ``t`` in the line the mark is (None when it is unique)
+        found = _find_all(EXAMPLE_LINES[line], t)
+        mark.update(t=t, o=(found.index(col - 1) + 1) if len(found) > 1 else None)
+    else:
+        mark.update(c=col, t=t)
+    mark.update(n=n, s=s, le=le, x=no_marker, e=None, nota=nota)
+    return mark
 
 
-def example_response() -> Dict[str, Any]:
+def example_response(anchors: str = DEFAULT_ANCHORS) -> Dict[str, Any]:
     return {
-        "norms": [{"id": "N01", "marks": [_example_mark(s) for s in _EXAMPLE_SPEC]}]
+        "norms": [
+            {"id": "N01", "marks": [_example_mark(s, anchors) for s in _EXAMPLE_SPEC]}
+        ]
     }
 
 
@@ -265,10 +329,10 @@ def _compact(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
-def example_json() -> str:
+def example_json(anchors: str = DEFAULT_ANCHORS) -> str:
     """The example answer, one mark per line (what the model should emit is the
     compact form; one per line is only for reading)."""
-    marks = example_response()["norms"][0]["marks"]
+    marks = example_response(anchors)["norms"][0]["marks"]
     body = ",\n".join(" " + _compact(m) for m in marks)
     return '{"norms":[{"id":"N01","marks":[\n' + body + "\n]}]}"
 
@@ -298,8 +362,7 @@ um bloco citado pode ter começado na parte anterior).
 
 Cada linha vem como `NÚMERO<TAB>TEXTO`. O TEXTO está sem espaços nas pontas. Linhas \
 em branco foram omitidas, por isso a numeração tem saltos: use sempre o número que \
-acompanha a linha, nunca conte linhas. A COLUNA conta caracteres a partir do primeiro \
-caractere depois do TAB, começando em 1 (um caractere acentuado conta 1).
+acompanha a linha, nunca conte linhas.{{INPUT_COL}}
 
 # O que marcar
 
@@ -352,16 +415,12 @@ Toda marca tem sempre os dez campos; o que não se aplica vai como `null` (ou `f
 
 - `l`: número da linha onde a marca COMEÇA;
 - `k`: o tipo;
-- `c`: COLUNA: 1-based, contada em caracteres, do primeiro caractere do marcador \
-impresso nessa linha (para um bloco, do primeiro caractere dele, aspa de abertura \
-inclusive). É ela que vale: um marcador no meio da linha (`b)` depois de `a) ...;`) \
-tem a coluna do meio da linha, não 1; conte os caracteres da linha até ele;
-- `t`: TRECHO que confere a coluna: o marcador exatamente como está impresso, copiado \
+{{FIELD_C}}- `t`: TRECHO {{T_ROLE}}: o marcador exatamente como está impresso, copiado \
 caractere por caractere: `Art. 5º`, `§ 2º`, `Parágrafo único`, `III -`, `a)`, `1.` \
 (com o erro de OCR, se houver: `Il -`). Sem copiar a palavra que vem depois. Para um \
 bloco, no máximo os ~15 primeiros caracteres da PRIMEIRA linha dele, nunca o que vem \
 na linha seguinte;
-- `n`: o número INTERPRETADO, como texto: algarismos arábicos para `art`, `par`, \
+{{FIELD_O}}- `n`: o número INTERPRETADO, como texto: algarismos arábicos para `art`, `par`, \
 `item`, organizacionais e anexo (`"5"`); o VALOR do romano para `inc` e organizacionais \
 (`III` é `"3"`, `Il` é `"2"`); a letra minúscula para `ali` (`"a"`); `"unico"` para \
 parágrafo único. `null` nos blocos. Nunca altere o texto impresso: o número impresso \
@@ -377,8 +436,8 @@ sequência os pede (depois do 78 vem o 79). Se mudou o número, diga em `nota` (
 `assinatura`, `anexo`, `ruido`, `alteracao`); `null` nos dispositivos e títulos;
 - `x`: `true` quando o dispositivo NÃO tem marcador legível (o OCR o destruiu e você o \
 deduziu pela sequência, como a cláusula "Esta Lei entra em vigor..." sem "Art. 3º"); \
-nesse caso `t` são as primeiras palavras da frase (uns 20 caracteres) e `c` a coluna \
-onde ela começa. Senão `false`;
+nesse caso `t` são as primeiras palavras da frase (uns 20 caracteres){{X_C}}. \
+Senão `false`;
 - `e`: `"vetado"` quando o dispositivo diz que foi vetado; senão `null`;
 - `nota`: observação curta nossa (até 12 palavras), use raramente: por exemplo \
 "impresso 42, lido 4" quando o número impresso difere do interpretado. Senão `null`.
@@ -387,8 +446,8 @@ onde ela começa. Senão `false`;
 
 Responda apenas com o objeto JSON do esquema: `norms` com UMA entrada para CADA norma \
 da requisição, exatamente uma vez cada, na ordem em que aparecem, e `marks` com as \
-marcas em ordem de linha e coluna. Um id que falta ou repetido invalida a norma. Uma \
-marca cujo trecho e coluna não localizam o marcador na linha, ou que não cabe na \
+marcas em ordem de {{ORDER}}. Um id que falta ou repetido invalida a norma. Uma \
+marca cujo {{LOCATE}} o marcador na linha, ou que não cabe na \
 hierarquia, é DESCARTADA e registrada; as demais continuam valendo.
 
 # Exemplo
@@ -407,24 +466,83 @@ Resposta certa (compacta, uma marca por linha aqui só para ler):
 {{EXEMPLO_SAIDA}}
 ```
 
-Na linha 10 a citação "art. 9º" no meio da frase não é marca. Na linha 13 há duas alíneas: `b)` \
-está no meio da linha, na coluna {{COL_B}}, e não na 1. A linha 14 imprime \
+Na linha 10 a citação "art. 9º" no meio da frase não é marca. Na linha 13 há duas alíneas: {{B_NOTE}}. A linha 14 imprime \
 `Il -` (OCR) e o inciso é o 2. A linha 16 abre a transcrição (`alteracao` de 16 a 17), \
 com o artigo e o parágrafo citados dentro dela; o artigo 3 da própria norma, na linha \
 18, é próprio porque vem depois do fim do bloco, e como perdeu o marcador leva `x` \
-verdadeiro e o início da frase em `t`.
+verdadeiro e o início da frase em `t`.{{O_EXAMPLE}}
 """
 
-MARK_SYSTEM_PROMPT = (
-    _PROMPT_TEMPLATE.replace("{{EXEMPLO_ENTRADA}}", example_listing())
-    .replace("{{EXEMPLO_SAIDA}}", example_json())
-    .replace("{{COL_B}}", str(EXAMPLE_LINES[13].find("b)") + 1))
-)
+_COL_PARTS: Dict[str, str] = {
+    "INPUT_COL": " A COLUNA conta caracteres a partir do primeiro \
+caractere depois do TAB, começando em 1 (um caractere acentuado conta 1).",
+    "FIELD_C": "- `c`: COLUNA: 1-based, contada em caracteres, do primeiro caractere do \
+marcador impresso nessa linha (para um bloco, do primeiro caractere dele, aspa de \
+abertura inclusive). É ela que vale: um marcador no meio da linha (`b)` depois de \
+`a) ...;`) tem a coluna do meio da linha, não 1; conte os caracteres da linha até ele;\n",
+    "T_ROLE": "que confere a coluna",
+    "FIELD_O": "",
+    "X_C": " e `c` a coluna onde ela começa",
+    "LOCATE": "trecho e coluna não localizam",
+    "ORDER": "linha e coluna",
+    "B_NOTE": "`b)` está no meio da linha, na coluna {{COL_B}}, e não na 1",
+    "O_EXAMPLE": "",
+}
+_SNIPPET_PARTS: Dict[str, str] = {
+    "INPUT_COL": "",
+    "FIELD_C": "",
+    "T_ROLE": "que LOCALIZA a marca na linha (o programa o procura no texto da linha)",
+    "FIELD_O": "- `o`: qual OCORRÊNCIA de `t` na linha é a marca, contando da esquerda, \
+a partir de 1; é um número pequeno, não uma posição. Use quando `t` aparece mais de \
+uma vez na linha (inclusive dentro de outro marcador: `I -` está dentro de `II -` e \
+de `III -`); `null` quando aparece uma vez só. Não conte caracteres; basta contar \
+quantas vezes `t` já apareceu antes da marca;\n",
+    "X_C": "",
+    "LOCATE": "trecho (com `o`, se for o caso) não localiza",
+    "ORDER": "linha e, na mesma linha, da esquerda para a direita",
+    "B_NOTE": "`b)` está no meio da linha, depois de `a) por decreto, às terças;`, e "
+    "aparece uma vez só, então `o` é `null`",
+    "O_EXAMPLE": """
+
+Exemplo do campo `o`. Na linha `30\tI - a cultura; II - o esporte; III - a saúde.` o \
+trecho `I -` aparece três vezes (em `I -`, dentro de `II -` e dentro de `III -`) e a \
+marca do inciso I é a primeira: `"t":"I -","o":1`; o inciso II é `"t":"II -","o":1` \
+(`II -` aparece em `II -` e dentro de `III -`) e o III é `"t":"III -","o":null`. \
+Na linha `31\tVeja o § 2º. § 2º - O prazo é de cinco dias.` o parágrafo é a SEGUNDA \
+ocorrência de `§ 2º` (a primeira é uma citação, que não é marca): `"t":"§ 2º","o":2`.""",
+}
 
 
-def mark_prompt_sha256() -> str:
+def _render_prompt(parts: Dict[str, str], anchors: str) -> str:
+    out = _PROMPT_TEMPLATE
+    for key, value in parts.items():
+        out = out.replace("{{" + key + "}}", value)
+    return (
+        out.replace("{{EXEMPLO_ENTRADA}}", example_listing())
+        .replace("{{EXEMPLO_SAIDA}}", example_json(anchors))
+        .replace("{{COL_B}}", str(EXAMPLE_LINES[13].find("b)") + 1))
+    )
+
+
+MARK_SYSTEM_PROMPT = _render_prompt(_COL_PARTS, "col+snippet")
+SNIPPET_SYSTEM_PROMPT = _render_prompt(_SNIPPET_PARTS, "snippet")
+
+
+def mark_system_prompt(anchors: str = DEFAULT_ANCHORS) -> str:
+    return (
+        SNIPPET_SYSTEM_PROMPT
+        if check_anchors(anchors) == "snippet"
+        else MARK_SYSTEM_PROMPT
+    )
+
+
+def mark_prompt_sha256(anchors: str = DEFAULT_ANCHORS) -> str:
     """Hash of everything that defines the mark contract sent to the model."""
-    blob = MARK_SYSTEM_PROMPT + "\n" + json.dumps(MARK_SCHEMA, sort_keys=True)
+    blob = (
+        mark_system_prompt(anchors)
+        + "\n"
+        + json.dumps(mark_schema(anchors), sort_keys=True)
+    )
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
@@ -463,15 +581,6 @@ def fold_with_map(s: str) -> tuple[str, List[int]]:
                 out.append(c)
                 idx.append(i)
     return "".join(out), idx
-
-
-def _find_all(haystack: str, needle: str) -> List[int]:
-    found: List[int] = []
-    i = haystack.find(needle)
-    while i >= 0:
-        found.append(i)
-        i = haystack.find(needle, i + 1)
-    return found
 
 
 def locate(line: str, t: str) -> tuple[str, List[tuple[int, int]]]:
@@ -599,16 +708,103 @@ def confirms(shown: str, idx: int, t: str, k: int = CONFIRM_CHARS) -> bool:
     return n > 0 and have[:n] == want[:n]
 
 
+def locate_prefix(line: str, t: str) -> tuple[str, List[tuple[int, int]]]:
+    """Snippet mode only: ``t`` copied across a line break ("Art. \\n29") does not
+    occur in the shown line, whose end it reaches. The longest whole-word prefix of
+    ``t`` (3 or more characters) that occurs ONCE in the line and ends at its end."""
+    words = t.split()
+    for k in range(len(words) - 1, 0, -1):
+        prefix = " ".join(words[:k])
+        method, spans = locate(line, prefix)
+        if len(prefix) >= 3 and method in ("exact", "tolerant"):
+            start, end = spans[0]
+            if not line[end:].strip():
+                return "prefix", spans
+    return "none", []
+
+
+def _resolve_snippet(
+    raw: Dict[str, Any], shown: str, base: int, row: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Snippet mode: no column. ``t`` locates the marker (unique in the line), and an
+    ``o`` (1-based) says which occurrence when it is not. The marks that this cannot
+    place are dropped with a reason of their own: ``ambiguous_snippet`` (several
+    occurrences, no ``o``), ``bad_occurrence`` (``o`` beyond the occurrences, or above 1
+    for a unique one), ``no_anchor`` (not in the line)."""
+    t = str(row["t"])
+    method, spans = locate(shown, t)
+    if method == "none":
+        method, spans = locate_prefix(shown, t)
+    o = _as_int(raw.get("o"))
+    row["o"] = o
+    row["b_method"] = method
+    row["b_candidates"] = len(spans)
+    pick: Optional[tuple[int, int]] = None
+    if method in ("exact", "tolerant", "prefix"):
+        if o in (None, 1):
+            pick, row["used"] = spans[0], "B"
+        else:
+            row["drop_reason"] = "bad_occurrence"
+    elif method == "ambiguous":
+        if o is None:
+            row["drop_reason"] = "ambiguous_snippet"
+        elif 1 <= o <= len(spans):
+            pick, row["used"] = spans[o - 1], "O"
+        else:
+            row["drop_reason"] = "bad_occurrence"
+    else:
+        row["drop_reason"] = "line_blank" if not shown else "no_anchor"
+    if pick is not None:
+        row["b_off"] = row["offset"] = base + pick[0]
+        row["b_col"] = pick[0] + 1
+        row["_span_len"] = pick[1] - pick[0]
+        row["nonascii_before"] = any(ord(ch) > 127 for ch in shown[: pick[0]])
+    return row
+
+
 def _resolve_anchors(
-    raw: Dict[str, Any], lines: Sequence[str], starts: Sequence[int]
+    raw: Dict[str, Any],
+    lines: Sequence[str],
+    starts: Sequence[int],
+    anchors: str = DEFAULT_ANCHORS,
 ) -> Dict[str, Any]:
     """Anchor A and anchor B of one mark, independently; the policy is applied by
-    the caller. Returns the anchor row (offsets are absolute in the text)."""
+    the caller. Returns the anchor row (offsets are absolute in the text). In
+    ``snippet`` mode there is no anchor A: see `_resolve_snippet`."""
     line_no = cast(int, raw["l"])
     shown = lines[line_no - 1].strip()
     lead = len(lines[line_no - 1]) - len(lines[line_no - 1].lstrip())
     base = starts[line_no - 1] + lead
     t = str(raw["t"]).strip()
+    if check_anchors(anchors) == "snippet":
+        snip: Dict[str, Any] = {
+            "line": line_no,
+            "le": _as_int(raw["le"]),
+            "kind": raw["k"],
+            "n": raw["n"],
+            "s": raw["s"],
+            "c": None,
+            "o": None,
+            "t": t,
+            "line_len": len(shown),
+            "a_off": None,
+            "b_off": None,
+            "a_col": None,
+            "b_col": None,
+            "b_method": None,
+            "b_candidates": 0,
+            "agree": None,
+            "delta": None,
+            "a_in_candidates": None,
+            "nonascii_before": None,
+            "a_confirm3": None,
+            "a_confirm4": None,
+            "a_confirm": None,
+            "used": None,
+            "offset": None,
+            "drop_reason": None,
+        }
+        return _resolve_snippet(raw, shown, base, snip)
     col = cast(int, raw["c"])
     a_idx = col - 1 if 0 <= col - 1 < len(shown) else None
     method, spans = locate(shown, t)
@@ -672,9 +868,15 @@ def _resolve_anchors(
     return row
 
 
-def _parse_raw(raw: Any, n_lines: int, owned: Optional[set[int]]) -> Optional[str]:
+def _parse_raw(
+    raw: Any,
+    n_lines: int,
+    owned: Optional[set[int]],
+    anchors: str = DEFAULT_ANCHORS,
+) -> Optional[str]:
     """``None`` when the mark is well formed, else the drop reason."""
-    if not isinstance(raw, dict) or not set(MARK_FIELDS) <= set(raw):
+    snippet = check_anchors(anchors) == "snippet"
+    if not isinstance(raw, dict) or not set(mark_fields(anchors)) <= set(raw):
         return "bad_shape"
     if raw["k"] not in MARK_KINDS:
         return "bad_kind"
@@ -682,7 +884,10 @@ def _parse_raw(raw: Any, n_lines: int, owned: Optional[set[int]]) -> Optional[st
         return "bad_line"
     if owned is not None and raw["l"] not in owned:
         return "line_not_owned"
-    if _as_int(raw["c"]) is None:
+    if snippet:
+        if raw["o"] is not None and (_as_int(raw["o"]) is None or raw["o"] < 1):
+            return "bad_occurrence"
+    elif _as_int(raw["c"]) is None:
         return "bad_column"
     if not isinstance(raw["t"], str) or not raw["t"].strip():
         return "empty_snippet"
@@ -1049,6 +1254,7 @@ def convert_response(
     tipo: Optional[str] = None,
     numero: Any = None,
     owned: Optional[Iterable[int]] = None,
+    anchors: str = DEFAULT_ANCHORS,
 ) -> Conversion:
     """The model's marks of one norm -> the marked document, dropping what cannot be.
 
@@ -1066,19 +1272,20 @@ def convert_response(
     recs: List[_Rec] = []
     seen: set[tuple[str, int]] = set()
     for i, raw in enumerate(_response_marks(response)):
-        bad = _parse_raw(raw, len(lines), owned_set)
+        bad = _parse_raw(raw, len(lines), owned_set, anchors)
         if bad is not None:
             row: Dict[str, Any] = {
                 "line": raw.get("l") if isinstance(raw, dict) else None,
                 "kind": raw.get("k") if isinstance(raw, dict) else None,
                 "t": raw.get("t") if isinstance(raw, dict) else None,
                 "c": raw.get("c") if isinstance(raw, dict) else None,
+                "o": raw.get("o") if isinstance(raw, dict) else None,
                 "used": None,
                 "drop_reason": bad,
             }
             conv.anchors.append(row)
             continue
-        row = _resolve_anchors(raw, lines, starts)
+        row = _resolve_anchors(raw, lines, starts, anchors)
         conv.anchors.append(row)
         if row["drop_reason"]:
             continue
@@ -1211,7 +1418,10 @@ def marks_from_response(
 
 
 def response_from_marks(
-    text: str, marks: Sequence[Mark], rid: str = "N01"
+    text: str,
+    marks: Sequence[Mark],
+    rid: str = "N01",
+    anchors: str = DEFAULT_ANCHORS,
 ) -> Dict[str, Any]:
     """The answer a perfect model would give for ``marks`` (reader marks): used by the
     tests and the dry simulation. A ``fecho`` is added for the text after the ``lei``,
@@ -1282,7 +1492,21 @@ def response_from_marks(
                 }
             )
     out.sort(key=lambda e: (e["l"], e["c"]))
+    if check_anchors(anchors) == "snippet":
+        out = [_to_snippet_mark(e, lines) for e in out]
     return {"id": rid, "marks": out}
+
+
+def _to_snippet_mark(entry: Dict[str, Any], lines: Sequence[str]) -> Dict[str, Any]:
+    """``entry`` (with a column) as a snippet-mode mark: ``c`` out, ``o`` in (which
+    occurrence of ``t`` in the line the marker is; ``None`` when ``t`` is unique)."""
+    shown = lines[entry["l"] - 1].strip()
+    t = str(entry["t"]).strip()
+    found = _find_all(shown, t)
+    o: Optional[int] = None
+    if len(found) > 1 and entry["c"] - 1 in found:
+        o = found.index(entry["c"] - 1) + 1
+    return {name: (o if name == "o" else entry.get(name)) for name in SNIPPET_FIELDS}
 
 
 # --------------------------------------------------------------------------
@@ -1329,6 +1553,7 @@ class MarkPlan:
     empty: List[str] = field(default_factory=list)
     packing: Dict[str, Any] = field(default_factory=dict)
     canary_notes: List[str] = field(default_factory=list)
+    anchors: str = DEFAULT_ANCHORS
 
 
 def expected_marks(text: str) -> int:
@@ -1544,8 +1769,9 @@ def build_mark_plan(
     max_chars: int = MARK_MAX_CHARS,
     max_tokens_cap: int = MARK_MAX_TOKENS_CAP,
     reflows: Optional[Dict[str, Dict[str, Any]]] = None,
+    anchors: str = DEFAULT_ANCHORS,
 ) -> MarkPlan:
-    plan = MarkPlan()
+    plan = MarkPlan(anchors=check_anchors(anchors))
     for record in records:
         norm = make_norm(
             record,
@@ -1583,6 +1809,7 @@ def build_mark_plan(
         "max_lines": max_lines,
         "max_chars": max_chars,
         "seed": seed,
+        "anchors": plan.anchors,
     }
     return plan
 
@@ -1593,14 +1820,18 @@ def build_mark_plan(
 
 
 def build_mark_params(
-    req: MarkRequest, spec: tb.ModelSpec, effort: str, cache: bool
+    req: MarkRequest,
+    spec: tb.ModelSpec,
+    effort: str,
+    cache: bool,
+    anchors: str = DEFAULT_ANCHORS,
 ) -> Dict[str, Any]:
     """Messages API params for one mark request (see ``tb.build_request_params``)."""
-    system_block: Dict[str, Any] = {"type": "text", "text": MARK_SYSTEM_PROMPT}
+    system_block: Dict[str, Any] = {"type": "text", "text": mark_system_prompt(anchors)}
     if cache:
         system_block["cache_control"] = {"type": "ephemeral", "ttl": "1h"}
     output_config: Dict[str, Any] = {
-        "format": {"type": "json_schema", "schema": MARK_SCHEMA}
+        "format": {"type": "json_schema", "schema": mark_schema(anchors)}
     }
     if spec.supports_effort:
         output_config["effort"] = effort
@@ -1630,7 +1861,9 @@ def estimate_mark_cost(
     ``max_tokens`` (a mark on every shown line at ``TOKENS_PER_MARK`` plus thinking
     room), with the 1-hour cache write on the prefix and zero hits.
     """
-    system_tokens = tb.estimate_tokens(len(MARK_SYSTEM_PROMPT), chars_per_token)
+    system_tokens = tb.estimate_tokens(
+        len(mark_system_prompt(plan.anchors)), chars_per_token
+    )
     n = len(plan.requests)
     user_tokens = [
         tb.estimate_tokens(len(r.user_text), chars_per_token)
@@ -1698,7 +1931,7 @@ def count_tokens_sample_mark(
     picked = plan.requests[::step][:sample]
     chars = tokens = 0
     for req in picked:
-        params = build_mark_params(req, spec, effort, cache=False)
+        params = build_mark_params(req, spec, effort, cache=False, anchors=plan.anchors)
         counted = client.messages.count_tokens(
             model=params["model"],
             system=params["system"],
@@ -1706,7 +1939,7 @@ def count_tokens_sample_mark(
             output_config=params["output_config"],
         )
         tokens += int(counted.input_tokens)
-        chars += len(MARK_SYSTEM_PROMPT) + len(req.user_text)
+        chars += len(mark_system_prompt(plan.anchors)) + len(req.user_text)
     return {
         "model": spec.model,
         "sampled_requests": len(picked),
@@ -1778,8 +2011,9 @@ def build_mark_manifest(
         "model": estimate.model,
         "effort": effort,
         "prompt_cache": cache,
-        "prompt_version": MARK_PROMPT_VERSION,
-        "prompt_sha256": mark_prompt_sha256(),
+        "prompt_version": prompt_version(plan.anchors),
+        "prompt_sha256": mark_prompt_sha256(plan.anchors),
+        "anchors": plan.anchors,
         "mark_schema_version": MARK_SCHEMA_VERSION,
         "git_sha": tb.git_sha(),
         "max_usd": max_usd,
@@ -1814,7 +2048,7 @@ def submit_mark_batches(
     requests: List[Dict[str, Any]] = [
         {
             "custom_id": req.custom_id,
-            "params": build_mark_params(req, spec, effort, cache),
+            "params": build_mark_params(req, spec, effort, cache, plan.anchors),
         }
         for req in plan.requests
     ]
@@ -1841,6 +2075,11 @@ def build_retry_plan(
     request, with the budget raised by ``RETRY_BUDGET_FACTOR`` (within the cap). The
     plan must come from the same inputs as the original submit: every slot is matched
     by ``(entry, part)`` and its text sha256 checked."""
+    if base.get("anchors", DEFAULT_ANCHORS) != plan.anchors:
+        raise tb.TeacherBatchError(
+            f"the previous run used --anchors {base.get('anchors', DEFAULT_ANCHORS)}; "
+            f"a retry must use the same ({plan.anchors} given)"
+        )
     cids = base.get("truncated_requests")
     if cids is None:
         raise tb.TeacherBatchError(
@@ -1887,6 +2126,7 @@ def build_retry_plan(
         selection=plan.selection,
         empty=list(plan.empty),
         packing=plan.packing,
+        anchors=plan.anchors,
     )
 
 
@@ -2033,7 +2273,10 @@ class NormResult:
 
 
 def _merge_and_convert(
-    results: List[MarkSlotResult], text: str, ref: Dict[str, Any]
+    results: List[MarkSlotResult],
+    text: str,
+    ref: Dict[str, Any],
+    anchors: str = DEFAULT_ANCHORS,
 ) -> NormResult:
     results.sort(key=lambda r: int(r.meta["chunk"]))
     valid = [r for r in results if r.valid]
@@ -2065,6 +2308,7 @@ def _merge_and_convert(
         tipo=str(ref["tipo"]),
         numero=ref["numero"],
         owned=owned,
+        anchors=anchors,
     )
     if conv.xml is None:
         return NormResult(
@@ -2126,6 +2370,7 @@ def collect_mark(
         "effort": manifest.get("effort"),
         "prompt_version": manifest["prompt_version"],
         "prompt_sha256": manifest["prompt_sha256"],
+        "anchors": check_anchors(manifest.get("anchors")),
         "mark_schema_version": manifest["mark_schema_version"],
         "git_sha": manifest.get("git_sha"),
         "collected_git_sha": tb.git_sha(),
@@ -2167,7 +2412,7 @@ def collect_mark(
         for entry_key, results in sorted(by_entry.items()):
             first = results[0].meta
             text = texts[first["text_sha256"]]
-            nr = _merge_and_convert(results, text, first)
+            nr = _merge_and_convert(results, text, first, provenance["anchors"])
             counts[nr.state] += 1
             request_ids = sorted({r.custom_id for r in results})
             conv = nr.conv
@@ -2430,7 +2675,9 @@ def prepare_mark(
     max_lines: int,
     max_chars: int,
     max_tokens_cap: int,
+    anchors: str = DEFAULT_ANCHORS,
 ) -> MarkPlan:
+    anchors = check_anchors(anchors)
     if text_source != "textos":
         raise tb.TeacherBatchError("mark mode needs --text-source textos")
     if select not in tr.SELECTS:
@@ -2492,6 +2739,7 @@ def prepare_mark(
         max_chars=max_chars,
         max_tokens_cap=max_tokens_cap,
         reflows=reflows,
+        anchors=anchors,
     )
     plan.selection = selection
     plan.sources = {
@@ -2621,8 +2869,9 @@ def run_plan(
                 "selection": plan.selection,
                 "packing": plan.packing,
                 "plan": plan_summary(plan),
-                "prompt_version": MARK_PROMPT_VERSION,
-                "prompt_sha256": mark_prompt_sha256(),
+                "prompt_version": prompt_version(plan.anchors),
+                "prompt_sha256": mark_prompt_sha256(plan.anchors),
+                "anchors": plan.anchors,
                 "git_sha": tb.git_sha(),
                 "estimates": [e.to_dict() for e in estimates],
                 "label_mode_estimates": [e.to_dict() for e in comparisons],
