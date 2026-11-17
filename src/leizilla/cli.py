@@ -1121,14 +1121,75 @@ def cmd_release_textos(
         )
 
 
+def _publish_reocr(output: Path, ente: str, version: int, wait_minutes: float) -> None:
+    """Valida (gate de release) e publica ``reocr.parquet`` no IA; sai 1 se falhar."""
+    from leizilla import publisher, reocr
+
+    problems = reocr.validate_reocr_parquet(output)
+    if problems:
+        for problem in problems[:20]:
+            echo(f"  Violação: {problem}")
+        echo(f"Gate de release falhou: {len(problems)} violação(ões) do contrato.")
+        raise typer.Exit(1)
+    meta = reocr.build_reocr_meta(
+        output, ente, version, publisher._dataset_revision(), publisher.get_git_sha()
+    )
+    try:
+        result = publisher.InternetArchivePublisher().upload_reocr(
+            output,
+            meta,
+            ente,
+            version,
+            queue_wait_minutes=wait_minutes,
+        )
+    except ValueError as e:
+        echo(f"Upload falhou: {e}")
+        raise typer.Exit(1)
+    if not result.get("success"):
+        echo(f"Upload falhou: {result.get('error', 'erro desconhecido')}")
+        raise typer.Exit(1)
+    echo(f"Re-OCR publicado: {result['ia_url']} ({meta['row_count']} linhas)")
+    latest_pointer = result.get("latest_pointer") or {}
+    if latest_pointer.get("success"):
+        echo(f"Ponteiro latest atualizado: {latest_pointer['ia_url']}")
+    else:
+        # O -latest é o que o build-textos lê: sem ele o run não está concluído.
+        echo(
+            "Upload incompleto: o ponteiro latest não foi atualizado "
+            f"({latest_pointer.get('error', 'erro desconhecido')}). A release "
+            f"imutável {result['ia_url']} existe, mas o build-textos continua "
+            "lendo o latest anterior; rode de novo para atualizá-lo."
+        )
+        raise typer.Exit(1)
+
+
 @app.command("reocr")
 def cmd_reocr(
     ente: str = typer.Option("ro", "--ente", help="Ente federativo"),
     limit: Optional[int] = typer.Option(
-        None, "--limit", help="Máximo de normas a tentar nesta execução"
+        None,
+        "--limit",
+        help="Máximo de normas a tentar nesta execução (total das duas filas)",
     ),
     max_pages: int = typer.Option(
         40, "--max-pages", help="PDFs com mais páginas são pulados (e contados)"
+    ),
+    queue_name: str = typer.Option(
+        "ambas",
+        "--queue",
+        help=(
+            "nao-fecha (há texto do IA que o leitor não fecha) | sem-texto (PDF "
+            "preservado sem texto do IA) | ambas. Com --limit, sem-texto leva até "
+            "2/3 e o que sobrar de uma fila passa para a outra"
+        ),
+    ),
+    shard: Optional[str] = typer.Option(
+        None,
+        "--shard",
+        help=(
+            "i/n: só as normas da fatia i de n (hash do texto_id). A saída traz só "
+            "as tentativas desta execução; publique com `reocr-merge`"
+        ),
     ),
     output: Path = typer.Option(
         Path("reocr.parquet"), "--output", help="reocr.parquet"
@@ -1143,6 +1204,19 @@ def cmd_reocr(
         None,
         "--previous",
         help="reocr.parquet anterior (default: baixa o publicado no IA, se houver)",
+    ),
+    catalogo: Optional[Path] = typer.Option(
+        None,
+        "--catalogo",
+        help=(
+            "completeness.parquet local, só para ordenar a fila sem-texto por ano "
+            "(default: baixa o publicado; sem ele, ordena pelo número)"
+        ),
+    ),
+    fontes: Optional[str] = typer.Option(
+        None,
+        "--fontes",
+        help="Fontes da fila sem-texto, separadas por vírgula (default: manifesto)",
     ),
     sleep_s: float = typer.Option(
         1.0, "--sleep", help="Pausa entre downloads de PDF do IA (mínimo 1 s)"
@@ -1162,15 +1236,19 @@ def cmd_reocr(
         help="Só calcula e mostra a fila: não baixa PDF, não faz OCR, não grava",
     ),
 ) -> None:
-    """Re-OCR direcionado (ADR-0019): OCR próprio só onde o leitor não fecha.
+    """Re-OCR direcionado (ADR-0019): OCR próprio onde o IA não entrega texto útil.
 
-    Fila = normas com texto no `textos` publicado cujo `read_hierarchy` não fecha
-    os artigos. Para cada uma: PDF do IA → poppler → Kreuzberg+PaddleOCR → portão
-    determinístico (fecha e não perde artigos). Aceito ou rejeitado, a tentativa
-    vira uma linha de `reocr.parquet`; o texto do IA nunca é alterado. Requer o
-    extra `reocr` (`uv sync --extra reocr`) e poppler-utils.
+    Duas filas. `nao-fecha`: normas com texto no `textos` publicado cujo
+    `read_hierarchy` não fecha os artigos; o OCR novo só vale se fechar e não
+    perder artigos. `sem-texto`: PDFs preservados que o IA ainda não derivou e que
+    não estão em `textos`; o OCR vale se não for trivial (nada a comparar). Para
+    cada norma: PDF do IA → poppler → Kreuzberg+PaddleOCR → portão determinístico.
+    Aceito ou rejeitado, a tentativa vira uma linha de `reocr.parquet` (coluna
+    `fila`); o texto do IA nunca é alterado. Requer o extra `reocr`
+    (`uv sync --extra reocr`) e poppler-utils.
     """
-    from leizilla import completeness, publisher, reocr, textlayer
+    from leizilla import completeness, reocr, textlayer
+    from leizilla.discovery import load_manifest
 
     if sleep_s < reocr.MIN_SLEEP_S:
         echo(f"--sleep deve ser >= {reocr.MIN_SLEEP_S} s (recebido: {sleep_s})")
@@ -1181,6 +1259,21 @@ def cmd_reocr(
     if upload_wait_minutes < 0:
         echo("--upload-wait-minutes deve ser >= 0")
         raise typer.Exit(1)
+    if queue_name not in ("nao-fecha", "sem-texto", "ambas"):
+        echo(f"--queue deve ser nao-fecha, sem-texto ou ambas (recebido: {queue_name})")
+        raise typer.Exit(1)
+    shard_spec: Optional[tuple[int, int]] = None
+    if shard is not None:
+        try:
+            shard_spec = reocr.parse_shard(shard)
+        except ValueError as e:
+            echo(str(e))
+            raise typer.Exit(1)
+        if upload:
+            echo("--shard não publica: junte as fatias com `reocr-merge --upload`.")
+            raise typer.Exit(1)
+    want_nao = queue_name in ("nao-fecha", "ambas")
+    want_sem = queue_name in ("sem-texto", "ambas")
 
     with tempfile.TemporaryDirectory() as tmp:
         textos_path = textos
@@ -1212,33 +1305,87 @@ def cmd_reocr(
         stats = reocr.ReocrStats()
         text_rows = list(textlayer.read_textos_parquet(textos_path).values())
         kz_version = reocr.installed_kreuzberg_version()
-        queue = reocr.select_queue(
-            text_rows,
-            attempts,
-            kreuzberg_version=kz_version,
-            max_pages=max_pages,
-            stats=stats,
-        )
-        echo(
-            f"Fila: {stats.examinadas} normas com texto · {stats.nao_fecham} não "
-            f"fecham · {stats.ja_tentadas} já tentadas · {stats.na_fila} na fila "
-            f"({stats.fila_com_artigos} com artigos lidos primeiro · "
-            f"{stats.fila_sem_artigos} sem artigos)"
-        )
+
+        nao_queue: list[dict[str, Any]] = []
+        if want_nao:
+            nao_queue = reocr.select_queue(
+                text_rows,
+                attempts,
+                kreuzberg_version=kz_version,
+                max_pages=max_pages,
+                stats=stats,
+            )
+            echo(
+                f"Fila nao-fecha: {stats.examinadas} normas com texto · "
+                f"{stats.nao_fecham} não fecham · {stats.ja_tentadas} já tentadas · "
+                f"{stats.na_fila} na fila "
+                f"({stats.fila_com_artigos} com artigos lidos primeiro · "
+                f"{stats.fila_sem_artigos} sem artigos)"
+            )
+        sem_queue: list[dict[str, Any]] = []
+        if want_sem:
+            if fontes:
+                fonte_list = [f.strip() for f in fontes.split(",") if f.strip()]
+            else:
+                fonte_list = list(load_manifest(ente).get("fontes", {}).keys())
+            candidates, failures = reocr.enumerate_sem_texto(
+                ente, fonte_list, text_rows
+            )
+            for failure in failures[:10]:
+                echo(f"  Falha ao listar o acervo: {failure}")
+            if catalogo is not None:
+                years = reocr.read_years(catalogo)
+            else:
+                years = reocr.fetch_published_years(ente, version)
+            sem_queue = reocr.select_sem_texto(
+                candidates,
+                attempts,
+                kreuzberg_version=kz_version,
+                max_pages=max_pages,
+                years=years,
+                stats=stats,
+            )
+            echo(
+                f"Fila sem-texto: {stats.sem_texto_enumeradas} PDFs preservados sem "
+                f"texto · {stats.sem_texto_ja_tentadas} já tentados · "
+                f"{stats.sem_texto_na_fila} na fila (mais recentes primeiro; "
+                f"{sum(1 for r in sem_queue if r['texto_id'] in years)} com ano)"
+            )
+        if shard_spec is not None:
+            nao_queue = reocr.in_shard(nao_queue, shard_spec)
+            sem_queue = reocr.in_shard(sem_queue, shard_spec)
+            echo(
+                f"Fatia {shard}: {len(sem_queue)} sem-texto · "
+                f"{len(nao_queue)} nao-fecha"
+            )
         if dry_run:
-            for item in queue[: limit or 20]:
-                echo(f"  {item['texto_id']} (artigos lidos: {item['_artigos_ia']})")
+            take_sem, take_nao = reocr.split_limit(
+                limit, len(sem_queue), len(nao_queue)
+            )
+            shown = limit or 20
+            for item in sem_queue[: min(take_sem, shown)]:
+                echo(f"  [sem-texto] {item['texto_id']}")
+            for item in nao_queue[: min(take_nao, shown)]:
+                echo(
+                    f"  [nao-fecha] {item['texto_id']} "
+                    f"(artigos lidos: {item['_artigos_ia']})"
+                )
             echo("Dry-run: nenhum PDF baixado, nenhum OCR, nada gravado.")
             return
-        if not queue:
+        if not sem_queue and not nao_queue:
             echo("Fila vazia — nada a fazer.")
             return
         if kz_version == "ausente":
             echo("Kreuzberg não instalado — rode `uv sync --extra reocr`.")
             raise typer.Exit(1)
 
-        new_rows = reocr.run_reocr(
-            queue, stats=stats, limit=limit, max_pages=max_pages, sleep_s=sleep_s
+        new_rows = reocr.run_queues(
+            sem_queue,
+            nao_queue,
+            stats=stats,
+            limit=limit,
+            max_pages=max_pages,
+            sleep_s=sleep_s,
         )
         echo(
             f"Tentadas {stats.tentadas}: {stats.aceitas} aceitas · "
@@ -1247,9 +1394,10 @@ def cmd_reocr(
         )
         for row in new_rows:
             echo(
-                f"  {row['texto_id']}: {row['motivo']} "
+                f"  [{row['fila']}] {row['texto_id']}: {row['motivo']} "
                 f"(artigos {row['artigos_ia']} -> {row['artigos_novo']}, "
-                f"{row['paginas']} pág., {row['segundos']} s)"
+                f"fecha {row['fecha_novo']}, {row['paginas']} pág., "
+                f"{row['segundos']} s)"
             )
         for failure in stats.failures[:20]:
             echo(f"  Falha: {failure}")
@@ -1259,48 +1407,85 @@ def cmd_reocr(
                 raise typer.Exit(1)
             return
 
+        if shard_spec is not None:
+            # Fatia: só as tentativas novas; `reocr-merge` junta com o histórico.
+            reocr.write_reocr_parquet(new_rows, output)
+            echo(f"Parquet da fatia escrito em {output} ({len(new_rows)} tentativas)")
+        else:
+            merged = reocr.merge_attempts(attempts, new_rows)
+            reocr.write_reocr_parquet(merged, output)
+            echo(f"Parquet escrito em {output} ({len(merged)} tentativas no histórico)")
+
+    if upload:
+        _publish_reocr(output, ente, version, upload_wait_minutes)
+
+
+@app.command("reocr-merge")
+def cmd_reocr_merge(
+    shards: list[Path] = typer.Argument(
+        ..., help="reocr.parquet de cada fatia (`reocr --shard i/n`)"
+    ),
+    ente: str = typer.Option("ro", "--ente", help="Ente federativo"),
+    version: int = typer.Option(0, "--version", help="Versão do dataset"),
+    output: Path = typer.Option(
+        Path("reocr.parquet"), "--output", help="reocr.parquet unido"
+    ),
+    previous: Optional[Path] = typer.Option(
+        None,
+        "--previous",
+        help="reocr.parquet anterior (default: baixa o publicado no IA, se houver)",
+    ),
+    upload: bool = typer.Option(
+        False, "--upload", help="Publica reocr.parquet no IA (precisa de IA_*_KEY)"
+    ),
+    upload_wait_minutes: float = typer.Option(
+        45.0,
+        "--upload-wait-minutes",
+        help="Espera total (min) pela fila de tarefas do IA antes de desistir",
+    ),
+) -> None:
+    """Junta as fatias do re-OCR com o histórico e publica uma vez (ADR-0019).
+
+    As fatias só fazem OCR; o upload é um só, sem corrida pelo mesmo item do IA.
+    """
+    from leizilla import reocr
+
+    missing = [p for p in shards if not p.exists()]
+    if missing:
+        echo(f"Arquivo não encontrado: {missing[0]}")
+        raise typer.Exit(1)
+    if upload_wait_minutes < 0:
+        echo("--upload-wait-minutes deve ser >= 0")
+        raise typer.Exit(1)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        attempts: list[dict[str, Any]] = []
+        previous_path = previous
+        if previous_path is None:
+            previous_path = Path(tmp) / "reocr-previous.parquet"
+            try:
+                if not reocr.fetch_published_reocr(ente, version, previous_path):
+                    previous_path = None
+            except OSError as e:
+                echo(f"reocr.parquet anterior ilegível ({e}) — abortando.")
+                raise typer.Exit(1)
+        elif not previous_path.exists():
+            echo(f"Arquivo não encontrado: {previous_path}")
+            raise typer.Exit(1)
+        if previous_path is not None:
+            attempts = reocr.read_reocr_parquet(previous_path)
+        new_rows: list[dict[str, Any]] = []
+        for path in shards:
+            new_rows.extend(reocr.read_reocr_parquet(path))
+        echo(
+            f"{len(new_rows)} tentativa(s) novas em {len(shards)} fatia(s) · "
+            f"{len(attempts)} no histórico"
+        )
         merged = reocr.merge_attempts(attempts, new_rows)
         reocr.write_reocr_parquet(merged, output)
-        echo(f"Parquet escrito em {output} ({len(merged)} tentativas no histórico)")
-
-    if not upload:
-        return
-    problems = reocr.validate_reocr_parquet(output)
-    if problems:
-        for problem in problems[:20]:
-            echo(f"  Violação: {problem}")
-        echo(f"Gate de release falhou: {len(problems)} violação(ões) do contrato.")
-        raise typer.Exit(1)
-    meta = reocr.build_reocr_meta(
-        output, ente, version, publisher._dataset_revision(), publisher.get_git_sha()
-    )
-    try:
-        result = publisher.InternetArchivePublisher().upload_reocr(
-            output,
-            meta,
-            ente,
-            version,
-            queue_wait_minutes=upload_wait_minutes,
-        )
-    except ValueError as e:
-        echo(f"Upload falhou: {e}")
-        raise typer.Exit(1)
-    if not result.get("success"):
-        echo(f"Upload falhou: {result.get('error', 'erro desconhecido')}")
-        raise typer.Exit(1)
-    echo(f"Re-OCR publicado: {result['ia_url']} ({meta['row_count']} linhas)")
-    latest_pointer = result.get("latest_pointer") or {}
-    if latest_pointer.get("success"):
-        echo(f"Ponteiro latest atualizado: {latest_pointer['ia_url']}")
-    else:
-        # O -latest é o que o build-textos lê: sem ele o run não está concluído.
-        echo(
-            "Upload incompleto: o ponteiro latest não foi atualizado "
-            f"({latest_pointer.get('error', 'erro desconhecido')}). A release "
-            f"imutável {result['ia_url']} existe, mas o build-textos continua "
-            "lendo o latest anterior; rode de novo para atualizá-lo."
-        )
-        raise typer.Exit(1)
+    echo(f"Parquet escrito em {output} ({len(merged)} tentativas no histórico)")
+    if upload:
+        _publish_reocr(output, ente, version, upload_wait_minutes)
 
 
 @app.command("consolidate")

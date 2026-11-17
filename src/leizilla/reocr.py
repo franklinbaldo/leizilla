@@ -12,6 +12,10 @@ Cada tentativa é uma linha de ``reocr.parquet`` (aceitas carregam o texto; reje
 não). Nada no IA é apagado ou sobrescrito: a tabela é um dataset à parte
 (``leizilla-reocr-{ente}-v{N}-…``) e ``build-textos`` a usa como sobreposição.
 
+Duas filas (ADR-0019, "Fila sem-texto"): ``nao-fecha`` (o que está acima) e
+``sem-texto`` (PDF preservado que o IA ainda não derivou, sem linha em ``textos``;
+sem texto do IA para comparar, o portão é só "texto não trivial").
+
 O Kreuzberg é pesado e opcional (extra ``reocr``): só é importado dentro de
 ``ocr_pdf``. Todo o resto do módulo roda sem ele.
 """
@@ -31,10 +35,11 @@ import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+import unicodedata
 from typing import Any, Callable, Optional
 
 from leizilla import publisher, textlayer
-from leizilla.hierarchy_sequence import read_hierarchy
+from leizilla.textlayer import FILA_NAO_FECHA, FILA_SEM_TEXTO, read_closure
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +53,17 @@ DEFAULT_MAX_PAGES = 40
 MIN_SLEEP_S = 1.0
 _PDF_TIMEOUT_S = 120
 
+#: Piso do portão da fila ``sem-texto``: média de caracteres **não brancos** por
+#: página. Nos 25 textos do piloto (PaddleOCR), os textos legíveis ficam em 350 a
+#: 2300 por página (mínimo 353; Lei 65, 2 pág., 706 caracteres) e os de página
+#: girada/ilegível em 26 a 41. 150 separa os dois grupos com folga para os lados.
+MIN_CHARS_POR_PAGINA = 150
+FILAS = (FILA_SEM_TEXTO, FILA_NAO_FECHA)
+#: Parcela da ``--limit`` reservada à fila ``sem-texto`` (o restante, à ``nao-fecha``).
+SEM_TEXTO_PARTE = (2, 3)
+
 ACEITO = "aceito"
+TEXTO_TRIVIAL = "texto-trivial"
 NAO_FECHA = "nao-fecha"
 MENOS_ARTIGOS = "menos-artigos"
 PDF_DIVERGE = "pdf-sha256-diverge"
@@ -63,6 +78,7 @@ REOCR_SCHEMA: dict[str, str] = {
     "fonte": "VARCHAR",
     "tipo": "VARCHAR",
     "numero": "INTEGER",
+    "fila": "VARCHAR",
     "ia_item": "VARCHAR",
     "pdf_url": "VARCHAR",
     "sha256_fonte": "VARCHAR",
@@ -121,6 +137,11 @@ class ReocrStats:
     #: Da fila, quantas já leem ao menos 1 artigo próprio no texto do IA (vão primeiro).
     fila_com_artigos: int = 0
     fila_sem_artigos: int = 0
+    #: Fila ``sem-texto``: PDFs preservados sem texto (IA nem ``textos``), os já
+    #: tentados com o mesmo PDF + motor, e os que sobraram na fila.
+    sem_texto_enumeradas: int = 0
+    sem_texto_ja_tentadas: int = 0
+    sem_texto_na_fila: int = 0
     tentadas: int = 0
     aceitas: int = 0
     rejeitadas: int = 0
@@ -132,15 +153,6 @@ class ReocrStats:
 # ---------------------------------------------------------------------------
 # Leitura e portão
 # ---------------------------------------------------------------------------
-
-
-def read_closure(text: str) -> tuple[bool, int]:
-    """``(nível dos artigos fecha, nº de artigos próprios)`` segundo o leitor."""
-    report = read_hierarchy(text)
-    own = sum(
-        1 for n in report["nodes"] if n["kind"] == "artigo" and n["status"] == "own"
-    )
-    return bool(report["levels"]["artigo"]["closes"]), own
 
 
 def judge(ia_text: str, new_text: str) -> dict[str, Any]:
@@ -164,6 +176,40 @@ def judge(ia_text: str, new_text: str) -> dict[str, Any]:
         "fecha_novo": fecha_novo,
         "artigos_ia": n_ia,
         "artigos_novo": n_novo,
+    }
+
+
+def normalise_ocr(text: str) -> str:
+    """Texto do OCR com espaços colapsados e NFC — só para medir, não para guardar."""
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip()
+
+
+def judge_sem_texto(new_text: str, pages: int) -> dict[str, Any]:
+    """Portão da fila ``sem-texto`` (determinístico, sem LLM).
+
+    Não há texto do IA com que comparar, então o portão não é o da fila
+    ``nao-fecha``: o OCR é aceito se, normalizado, tem em média pelo menos
+    ``MIN_CHARS_POR_PAGINA`` caracteres não brancos por página. Pega o que o
+    motor devolve de uma página girada ou em branco (dezenas de caracteres por
+    página). Se o leitor fecha o texto é registrado (``fecha_novo``,
+    ``artigos_novo``) mas **não é exigido**: um texto pesquisável que não fecha
+    ainda é melhor que nenhum, e aqui nada é substituído.
+    """
+    compact = re.sub(r"\s+", "", normalise_ocr(new_text))
+    per_page = len(compact) / max(pages, 1)
+    fecha, own = read_closure(new_text) if compact else (False, 0)
+    return {
+        "aceito": bool(compact) and per_page >= MIN_CHARS_POR_PAGINA,
+        "motivo": (
+            OCR_VAZIO
+            if not compact
+            else ACEITO
+            if per_page >= MIN_CHARS_POR_PAGINA
+            else TEXTO_TRIVIAL
+        ),
+        "fecha_novo": fecha,
+        "artigos_novo": own,
+        "chars_por_pagina": round(per_page, 1),
     }
 
 
@@ -238,6 +284,95 @@ def select_queue(
     stats.fila_com_artigos = sum(1 for r in queue if r["_artigos_ia"] >= 1)
     stats.fila_sem_artigos = len(queue) - stats.fila_com_artigos
     return queue
+
+
+def shard_of(texto_id: str, count: int) -> int:
+    """Fatia (0..count-1) de uma norma: hash estável do ``texto_id``.
+
+    Disjunta e completa por construção, e independente do instante em que cada
+    fatia enumera a fila (uma norma nova cai numa fatia só).
+    """
+    return int(hashlib.sha256(texto_id.encode()).hexdigest()[:12], 16) % count
+
+
+def parse_shard(spec: str) -> tuple[int, int]:
+    """``'i/n'`` (``0 <= i < n``) → ``(i, n)``; ``ValueError`` se malformado."""
+    m = re.fullmatch(r"(\d+)/(\d+)", spec.strip())
+    if not m or int(m.group(2)) < 1 or int(m.group(1)) >= int(m.group(2)):
+        raise ValueError(f"--shard deve ser i/n com 0 <= i < n (recebido: {spec!r})")
+    return int(m.group(1)), int(m.group(2))
+
+
+def in_shard(queue: list[dict[str, Any]], shard: Optional[tuple[int, int]]) -> list:
+    """Linhas da fila que pertencem à fatia ``(i, n)`` (tudo, se ``shard`` é None)."""
+    if shard is None:
+        return queue
+    i, n = shard
+    return [q for q in queue if shard_of(str(q["texto_id"]), n) == i]
+
+
+def select_sem_texto(
+    candidates: list[dict[str, Any]],
+    attempts: list[dict[str, Any]],
+    *,
+    kreuzberg_version: str,
+    max_pages: int = DEFAULT_MAX_PAGES,
+    years: Optional[dict[str, int]] = None,
+    stats: Optional[ReocrStats] = None,
+) -> list[dict[str, Any]]:
+    """Fila ``sem-texto``: PDFs preservados sem texto, mais recentes primeiro.
+
+    ``candidates`` vem de ``textlayer.collect_sem_texto`` (já sem as normas com
+    texto no IA ou em ``textos``). Sai quem já foi tentado com o mesmo PDF e
+    motor (mesma regra da outra fila). Ordem: ano da norma decrescente, conforme
+    o livro-razão publicado (``years``; sem ano, no fim), depois número
+    decrescente, tipo e ``texto_id`` — determinística. Cada item ganha ``_fila``.
+    """
+    stats = stats or ReocrStats()
+    years = years or {}
+    done = {attempt_key(a): a for a in attempts}
+    queue: list[dict[str, Any]] = []
+    for row in candidates:
+        stats.sem_texto_enumeradas += 1
+        if not row.get("pdf_url") or not row.get("sha256_fonte"):
+            continue
+        if _already_done(row, done, kreuzberg_version, max_pages):
+            stats.sem_texto_ja_tentadas += 1
+            continue
+        queue.append({**row, "_fila": FILA_SEM_TEXTO})
+
+    def order(r: dict[str, Any]) -> tuple[bool, int, int, str, str]:
+        ano = years.get(str(r["texto_id"]))
+        return (
+            ano is None,
+            -(ano or 0),
+            -int(r.get("numero") or 0),
+            str(r.get("tipo") or ""),
+            str(r["texto_id"]),
+        )
+
+    queue.sort(key=order)
+    stats.sem_texto_na_fila = len(queue)
+    return queue
+
+
+def split_limit(limit: Optional[int], n_sem: int, n_nao: int) -> tuple[int, int]:
+    """Quantas normas tentar de cada fila: ``(sem_texto, nao_fecha)``.
+
+    Sem ``limit``, todas. Com ``limit``, a ``sem-texto`` vai primeiro, até 2/3
+    (arredondado para baixo, mínimo 1) e a ``nao-fecha`` fica com o resto; o que uma fila não
+    usa (fila menor que sua cota) passa para a outra, e nenhuma fila é zerada
+    enquanto o limite permitir: com ``limit >= 2`` e as duas não vazias, cada uma
+    recebe ao menos 1.
+    """
+    if limit is None:
+        return n_sem, n_nao
+    num, den = SEM_TEXTO_PARTE
+    quota_sem = max(1, limit * num // den)
+    take_sem = min(n_sem, quota_sem)
+    take_nao = min(n_nao, limit - take_sem)
+    take_sem = min(n_sem, limit - take_nao)
+    return take_sem, take_nao
 
 
 # ---------------------------------------------------------------------------
@@ -413,9 +548,11 @@ def run_reocr(
             stats.failures.append(f"{tid}: download do PDF falhou")
             continue
         sha_pdf = hashlib.sha256(pdf).hexdigest()
+        fila = str(item.get("_fila") or FILA_NAO_FECHA)
         row = _base_row(
             item,
             kz_version,
+            fila=fila,
             sha256_pdf=sha_pdf,
             artigos_ia=item.get("_artigos_ia"),
             fecha_ia=item.get("_fecha_ia"),
@@ -439,6 +576,18 @@ def run_reocr(
                 new_text = outcome.text
                 if not new_text.strip():
                     row.update(motivo=OCR_VAZIO)
+                elif fila == FILA_SEM_TEXTO:
+                    sem = judge_sem_texto(new_text, outcome.pages)
+                    row.update(
+                        aceito=sem["aceito"],
+                        motivo=sem["motivo"],
+                        fecha_novo=sem["fecha_novo"],
+                        artigos_novo=sem["artigos_novo"],
+                        sha256_texto=hashlib.sha256(new_text.encode()).hexdigest(),
+                        num_caracteres=len(new_text),
+                    )
+                    if sem["aceito"]:
+                        row["texto"] = new_text
                 else:
                     verdict = judge(str(item["texto"]), new_text)
                     row.update(
@@ -460,6 +609,100 @@ def run_reocr(
             stats.rejeitadas += 1
         out.append(row)
     return out
+
+
+def run_queues(
+    sem_texto: list[dict[str, Any]],
+    nao_fecha: list[dict[str, Any]],
+    *,
+    stats: ReocrStats,
+    limit: Optional[int] = None,
+    **kwargs: Any,
+) -> list[dict[str, Any]]:
+    """Executa as duas filas: ``sem-texto`` primeiro, depois ``nao-fecha``.
+
+    A divisão do ``limit`` é a de ``split_limit``. Falha de download não consome
+    cota (a norma volta à fila); o que a ``sem-texto`` não usou — fila curta ou
+    falhas — passa para a ``nao-fecha``.
+    """
+    take_sem, take_nao = split_limit(limit, len(sem_texto), len(nao_fecha))
+    out: list[dict[str, Any]] = []
+    if take_sem:
+        out = run_reocr(sem_texto, stats=stats, limit=take_sem, **kwargs)
+    if limit is not None:
+        take_nao = min(len(nao_fecha), max(take_nao, limit - len(out)))
+    if take_nao and nao_fecha:
+        if out:
+            time.sleep(max(kwargs.get("sleep_s", MIN_SLEEP_S), MIN_SLEEP_S))
+        out += run_reocr(nao_fecha, stats=stats, limit=take_nao, **kwargs)
+    return out
+
+
+def enumerate_sem_texto(
+    ente: str,
+    fontes: list[str],
+    textos_rows: list[dict[str, Any]],
+    *,
+    fetch: Optional[Fetcher] = None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """PDFs preservados sem texto (fila ``sem-texto``), sem filtro de tentativas.
+
+    Reusa a enumeração da camada de texto (itens de range → ``index.csv`` →
+    arquivos). Fica de fora toda norma que já tem linha com texto no ``textos``
+    publicado ou cujo ``_djvu.txt`` já existe no IA. Devolve ``(candidatos,
+    falhas)``: com falhas a lista pode estar incompleta (a fila segue assim mesmo;
+    o que faltar entra numa próxima execução).
+    """
+    com_texto = {str(r["texto_id"]) for r in textos_rows if r.get("texto")}
+    stats = textlayer.BuildStats()
+    out: list[dict[str, Any]] = []
+    for fonte in fontes:
+        out.extend(
+            textlayer.collect_sem_texto(
+                ente, fonte, stats=stats, com_texto=com_texto, fetch=fetch
+            )
+        )
+    return out, stats.failures
+
+
+def fetch_published_years(ente: str, version: int) -> dict[str, int]:
+    """``texto_id`` → ano da norma, do livro-razão publicado (ordem da fila).
+
+    Fail-open: sem o livro-razão a fila ``sem-texto`` se ordena só pelo número.
+    """
+    item = f"leizilla-dataset-{ente.lower()}-v{version}-latest"
+    url = f"https://archive.org/download/{item}/completeness.parquet"
+    req = urllib.request.Request(url, headers={"User-Agent": textlayer._USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = resp.read()
+    except (urllib.error.URLError, OSError) as e:
+        logger.warning(
+            "livro-razão indisponível (%s): fila sem ordem por ano — %s", url, e
+        )
+        return {}
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "completeness.parquet"
+        path.write_bytes(data)
+        return read_years(path)
+
+
+def read_years(path: Path) -> dict[str, int]:
+    """``texto_id`` → ano de um ``completeness.parquet`` (linhas com ano)."""
+    import duckdb
+
+    conn = duckdb.connect()
+    try:
+        rows = conn.execute(
+            "SELECT texto_id, ano FROM read_parquet(?) WHERE ano IS NOT NULL",
+            [str(path)],
+        ).fetchall()
+    except duckdb.Error as e:
+        logger.warning("livro-razão ilegível (%s): %s", path, e)
+        return {}
+    finally:
+        conn.close()
+    return {str(t): int(a) for t, a in rows}
 
 
 def merge_attempts(
@@ -515,9 +758,15 @@ def read_reocr_parquet(path: Path) -> list[dict[str, Any]]:
     try:
         cur = conn.execute("SELECT * FROM read_parquet(?)", [str(path)])
         names = [d[0] for d in cur.description or []]
-        return [dict(zip(names, values)) for values in cur.fetchall()]
+        rows = [dict(zip(names, values)) for values in cur.fetchall()]
     finally:
         conn.close()
+    for row in rows:
+        # Compatibilidade: arquivos anteriores à coluna ``fila`` são ``nao-fecha``.
+        row["fila"] = row.get("fila") or FILA_NAO_FECHA
+        for col in REOCR_SCHEMA:
+            row.setdefault(col, None)
+    return rows
 
 
 def validate_reocr_parquet(path: Path) -> list[str]:
@@ -543,6 +792,8 @@ def validate_reocr_parquet(path: Path) -> list[str]:
         if ident in seen:
             problems.append(f"{tid}: tentativa duplicada")
         seen.add(ident)
+        if row["fila"] not in FILAS:
+            problems.append(f"{tid}: fila desconhecida ({row['fila']})")
         if not row["sha256_fonte"] or not row["motivo"]:
             problems.append(f"{tid}: sha256_fonte/motivo ausente")
         if bool(row["aceito"]) != (row["motivo"] == ACEITO):
