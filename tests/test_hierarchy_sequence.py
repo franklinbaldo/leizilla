@@ -603,18 +603,31 @@ SIX_ARTICLES = "".join(
 )
 
 
-def test_lost_last_marker_before_the_closing_sentence_keeps_the_norm_open() -> None:
+def test_lost_last_marker_before_the_closing_sentence_is_read_by_the_sequence() -> None:
     # Seven articles in print; the seventh marker is unreadable ("Art. T."). The chain
-    # 1..6 is perfect, so numbering alone closes it. The closing sentence sits on a line
-    # with garbage where Art. 7 should be.
+    # 1..6 is perfect and exactly one article word sits right before the closing
+    # sentence, so the sequence reads it as Art. 7 (tournament round 2: 14 labelled
+    # norms like this agree with the teacher; before, this shape stayed open).
     text = (
         SIX_ARTICLES
         + "Art. T. Esta Lei Complementar entra em vigor na data de sua publicação."
     )
     report = read_hierarchy(text)
     assert report["final_clause"]
-    assert not report["final_clause_placed"]
-    assert not report["levels"]["artigo"]["closes"]
+    assert _node(report, "art-7")["raw"].startswith("Art. T")
+    assert report["final_clause_placed"]
+    assert report["closes"]
+
+
+def test_lost_last_marker_stays_open_when_two_words_compete() -> None:
+    # The guard of the tail reading: two unread article words after the chain are
+    # ambiguous, and the closing sentence on a bare line is still a lost marker.
+    text = (
+        SIX_ARTICLES
+        + "Art. T. Os recursos correrão à conta do orçamento.\n"
+        + "Art. T. Esta Lei Complementar entra em vigor na data de sua publicação."
+    )
+    report = read_hierarchy(text)
     assert not report["closes"]
 
 
@@ -799,13 +812,21 @@ def test_stray_e_over_the_last_article_is_read_as_its_marker() -> None:
     assert report["closes"]
 
 
-def test_garbled_article_word_before_revogacao_keeps_the_norm_open() -> None:
-    # lei-00169: "Arte e Revogam-se ..." is the seventh article, its number unread.
+def test_garbled_article_word_before_revogacao_is_read_as_the_next_article() -> None:
+    # lei-00169: "Arte e Revogam-se ..." is the seventh article, its number unread. It
+    # is the only garbled opener before the closing sentence, so the chain supplies 7
+    # (tournament round 2; this shape used to keep the norm open).
     report = read_hierarchy(
         SIX_ARTICLES + "Arte e Revogam-se as disposições em contrário."
     )
-    assert not report["final_clause_placed"]
-    assert not report["closes"]
+    assert _node(report, "art-7")["raw"].startswith("Arte")
+    assert report["final_clause_placed"]
+    assert report["closes"]
+
+
+def test_garbled_word_before_prose_that_is_not_a_closing_sentence_stays_open() -> None:
+    report = read_hierarchy(SIX_ARTICLES + "Arte e Os recursos correrão à conta.")
+    assert "art-7" not in _paths(report)
 
 
 def test_lowercase_citation_in_a_gap_is_not_read_as_the_missing_article() -> None:
@@ -825,3 +846,172 @@ def test_lowercase_citation_in_a_gap_is_not_read_as_the_missing_article() -> Non
     ]
     assert 3 not in own_numbers
     assert not report["closes"]
+
+
+# --- tournament round 2: chain logic around quoted blocks and single slots ------------
+def _own_numbers(report: HierarchyReport) -> list[int | None]:
+    nodes = sorted(report["nodes"], key=lambda n: n["start"])
+    return [
+        n["number"] for n in nodes if n["kind"] == "artigo" and n["status"] == "own"
+    ]
+
+
+# lc-00279 (9a83f375): the quote opening the amended wording was lost; the closing mark
+# ends the block, after the next "own" article, and the host's own Art. 2º follows.
+LOST_OPENING_MARK = (
+    "Art. 1º Fica acrescido o inciso XXV ao artigo 1º e o artigo 2º da Lei Complementar"
+    " nº 220, de 28\nde dezembro de 1999, passa a vigorar com a seguinte redação:\n\n\n"
+    "XXV — Associação Rondoniense de Municípios.\n\n"
+    "Art. 2º O Conselho Estadual de Desenvolvimento Rural de Rondônia — CEDR/RO,"
+    " deliberará, por\nmeio de Resoluções e por maioria simples, com a presença da"
+    " maioria absoluta de seus membros, tendo o\nPresidente voto de qualidade, em caso"
+    " de empate”.\n\n\n"
+    "Art. 2º Esta Lei Complementar entra em vigor na data de sua publicação.\n\n\n"
+    "Palácio do Governo do Estado de Rondônia, em 5 de junho de 2003, 115º da República."
+)
+
+
+def test_block_closing_after_a_swallowed_article_hands_back_the_host_number() -> None:
+    report = read_hierarchy(LOST_OPENING_MARK)
+    assert _own_numbers(report) == [1, 2]
+    last = max(
+        (n for n in report["nodes"] if n["kind"] == "artigo" and n["status"] == "own"),
+        key=lambda n: n["start"],
+    )
+    assert LOST_OPENING_MARK[last["start"] :].startswith("Art. 2º Esta Lei")
+    assert report["closes"]
+
+
+def test_block_closing_mark_far_before_a_second_run_of_articles_is_not_extended() -> (
+    None
+):
+    # Guard: when the first article after the closing mark is followed by many more
+    # markers it is not the norm's closing article but a second run (lc-01079).
+    tail = "".join(f"Art. {n}º Texto novo {n}.\n" for n in range(2, 12))
+    text = LOST_OPENING_MARK.split("Art. 2º Esta Lei")[0] + tail
+    report = read_hierarchy(text)
+    assert report["levels"]["artigo"]["nodes"] >= 2
+
+
+# lc-00363 (529459dd): "registro”." closes a block whose opening mark is lost; the host
+# resumes at Art. 2º after the host's Art. 1º.
+UNOPENED_BLOCK = (
+    "Art. 1º. Ficam alterados os dispositivos da Lei Complementar nº 228, que “Dispõe"
+    " sobre o Sistema”.\n\n"
+    "Art. 4º. A direção superior do Instituto.\n\n"
+    "Art. 5º. O quadro de pessoal.\n\n"
+    "Art. 7º. O Presidente, Diretor.\n\n"
+    "Art. 67. Os benefícios serão iniciados na Secretaria e, após instruídos, deverão"
+    " ser encaminhados para efetivação do registro”.\n\n\n"
+    "Art. 2º. O Anexo II da Lei Complementar nº 224 passa a vigorar nos termos do"
+    " Anexo.\n\n"
+    "Art. 3º. Ficam revogados os §§ 1º e 3º do artigo 7º.\n\n"
+    "Art. 4º. Esta Lei Complementar entra em vigor na data de sua publicação.\n"
+)
+
+
+def test_closing_mark_without_opening_quotes_the_articles_back_to_the_host() -> None:
+    report = read_hierarchy(UNOPENED_BLOCK)
+    assert _own_numbers(report) == [1, 2, 3, 4]
+    assert 67 not in _own_numbers(report)
+
+
+def test_balanced_marks_do_not_open_a_block_that_hides_host_articles() -> None:
+    text = (
+        "Art. 1º Fica criada a “Comissão” de estudos.\n"
+        "Art. 2º O prazo é de “trinta dias”.\n"
+        "Art. 3º Esta Lei entra em vigor.\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2, 3]
+
+
+# lei-00276 (739d9241): the straight quote opening the block stands alone before "Art.".
+def test_lone_straight_quote_after_the_cue_opens_a_quoted_block() -> None:
+    text = (
+        "Art. 1º Os artigos 1º e 2º da Lei nº 50 passam a vigorar com a seguinte"
+        ' redação:\n\n\n" Art. 1º Fica criado o cargo.\n\n'
+        'Art. 2º Farão jus à pensão os dependentes, como titulares".\n\n\n'
+        "Art. 2º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    report = read_hierarchy(text)
+    assert _own_numbers(report) == [1, 2]
+    assert report["closes"]
+
+
+# lei-01311 (c697318b): the previous line ends with a stray "o"; "Art. 2º" opens its line
+# and is the only candidate for the missing slot, so it is not a citation.
+def test_article_opening_its_line_after_a_stray_connector_fills_the_tail() -> None:
+    text = (
+        "Art. 1º. Ficam instituídos os dias do Policial Militar, que serão"
+        " comemorados, anualmente, em 11 de fevereiro e 02 de dezembro, respectivamen-\n"
+        "te. o\n"
+        "Art. 2º. Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    report = read_hierarchy(text)
+    assert _own_numbers(report) == [1, 2]
+    assert report["closes"]
+
+
+def test_citation_after_a_connector_in_prose_stays_a_citation() -> None:
+    # Guard: mid-line "do Art. 2º" is a citation, whatever the sequence slot says.
+    text = "Art. 1º Fica criado o fundo de que trata o Art. 2º desta Lei.\n"
+    assert _own_numbers(read_hierarchy(text)) == [1]
+
+
+# lei-00628 (24d663e2): "Apito 20 — Esta Lei" is Art. 2º between 1 and 3.
+def test_ruined_article_word_with_a_caput_opener_fills_a_single_gap() -> None:
+    text = (
+        "Art. 1º - Fica declarada de utilidade pública a Sociedade Beneficente.\n"
+        "Apito 20 — Esta Lei entra emlvigor na da\nta de sua publicação.\n"
+        "Art. 3º - Revogam-se as disposições em contrário.\n"
+    )
+    report = read_hierarchy(text)
+    assert _own_numbers(report) == [1, 2, 3]
+    assert report["closes"]
+
+
+def test_ruined_opener_does_not_fill_a_gap_that_already_has_a_sharper_candidate() -> (
+    None
+):
+    # Guard: one numbered-looking candidate ("Ait. T") already sits in the gap; the
+    # looser opener rule is not consulted, so the gap is still filled exactly once.
+    text = (
+        "Art. 1º Fica criado.\nAit. T Esta Lei vigora.\nArt. 3º Fica revogado.\n"
+        "Os recursos serão aplicados.\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2, 3]
+
+
+# lei-00422 (d4d672c3): the last article is "Vart. 1º - Revogam-se ...".
+def test_garbled_last_article_word_with_a_closing_sentence_takes_the_next_number() -> (
+    None
+):
+    report = read_hierarchy(
+        SIX_ARTICLES + "Vart. 1º - Revogam-se as disposições em contrário."
+    )
+    assert _own_numbers(report)[-1] == 7
+    assert report["closes"]
+
+
+# Round 2: the opening article lost to OCR ("Apt. Lo pica O Governo ...") after the
+# enacting formula, with the chain starting at 2.
+def test_unreadable_opening_article_after_the_enacting_formula_is_article_one() -> None:
+    text = (
+        "O GOVERNADOR DO ESTADO DE RONDÔNIA, faço saber que a Assembleia Legislativa"
+        " decreta e eu sanciono a se\nguinte Lei:\n\n"
+        "Apt. Lo pica O Governo do Estado autorizado a doar o imóvel.\n"
+        "Art. 2º - Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    report = read_hierarchy(text)
+    assert _own_numbers(report) == [1, 2]
+    assert report["closes"]
+
+
+def test_opening_line_without_a_caput_verb_is_not_article_one() -> None:
+    # Guard: the first line after the formula must carry an opening verb.
+    text = (
+        "decreta e eu sanciono a seguinte Lei:\n\n"
+        "Atenção: texto de abertura sem verbo de caput.\n"
+        "Art. 2º - Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [2]
