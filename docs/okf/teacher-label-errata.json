@@ -1,0 +1,38 @@
+{
+  "corrections": [
+    {
+      "date": "2026-11-17",
+      "evidence": "- Esta Lei entra em vigor na data",
+      "line": 48,
+      "norm": "leizilla_ro_casacivil_lei_0001-1000/68257596",
+      "number": "4",
+      "op": "add_own_article",
+      "reason": "OCR lost the marker of Art. 4º: the line opens the article 'Esta Lei entra em vigor' and the teacher labelled it only as vigência.",
+      "text_sha256": "3df95810381a6f3e4c6cae5ee1093c9eca403c812f77c3a1fc9ff1819d20d1c6",
+      "verified_by": "leitura do texto"
+    },
+    {
+      "date": "2026-11-17",
+      "evidence": "- Revogam-se as disposições em con",
+      "line": 54,
+      "norm": "leizilla_ro_casacivil_lei_0001-1000/68257596",
+      "number": "5",
+      "op": "add_own_article",
+      "reason": "OCR lost the marker of Art. 5º: the line opens the article 'Revogam-se as disposições em contrário' and the teacher labelled it only as revogação.",
+      "text_sha256": "3df95810381a6f3e4c6cae5ee1093c9eca403c812f77c3a1fc9ff1819d20d1c6",
+      "verified_by": "leitura do texto"
+    },
+    {
+      "date": "2026-11-17",
+      "evidence": "- Revogam-se as disposições",
+      "line": 56,
+      "norm": "leizilla_ro_casacivil_lei_0001-1000/97a2a81c",
+      "number": "5",
+      "op": "add_own_article",
+      "reason": "OCR lost the marker of Art. 5º: the line opens the article 'Revogam-se as disposições em contrário' and the teacher labelled it only as revogação.",
+      "text_sha256": "bcddbca1c36c58f71a67aec5c2e9c5c37f798206cd2f74ceebe4a601082e11da",
+      "verified_by": "leitura do texto"
+    }
+  ],
+  "schema_version": 1
+}

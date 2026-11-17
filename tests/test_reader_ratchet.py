@@ -300,3 +300,166 @@ def test_run_scoreboard_end_to_end_uses_cache_only(tmp_path: Path) -> None:
     assert board.text_sources == {"cache": 1}
     assert board.labels_identity is not None
     assert board.labels_identity["batch_ids"] == [BATCH]
+
+
+# --------------------------------------------------------------------------
+# Teacher-label errata in the gate
+# --------------------------------------------------------------------------
+
+STALE = {
+    "norm": "it/a1",
+    "op": "add_own_article",
+    "line": 4,
+    "reason": "evidence text is not on the recorded line",
+}
+
+
+def test_stale_errata_fails_check_and_is_named(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import dataclasses
+
+    path = tmp_path / "baseline.json"
+    rr.write_baseline(path, _baseline(_board(dict(BASE_GROUPS))))
+    stale_board = dataclasses.replace(_board(dict(BASE_GROUPS)), errata_stale=[STALE])
+    assert _run_main(monkeypatch, stale_board, _argv("check", path)) == 1
+    out = capsys.readouterr().out
+    assert "FAIL stale errata: it/a1 add_own_article line 4" in out
+
+
+def test_stale_errata_blocks_update_even_with_force(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import dataclasses
+
+    path = tmp_path / "baseline.json"
+    rr.write_baseline(path, _baseline(_board(dict(BASE_GROUPS))))
+    before = path.read_text(encoding="utf-8")
+    stale_board = dataclasses.replace(_board(dict(BASE_GROUPS)), errata_stale=[STALE])
+    code = _run_main(
+        monkeypatch,
+        stale_board,
+        _argv("update", path, "--force", "--reason", "try anyway"),
+    )
+    assert code == 1
+    assert path.read_text(encoding="utf-8") == before
+
+
+def _errata_fixture(
+    tmp_path: Path, sha: str
+) -> tuple[Path, Path, Path, dict[str, Any]]:
+    text = "Art. 1º Primeiro.\nArt. 2º Segundo.\nRevogam-se.\n"
+    header = {
+        "record": "norm",
+        "item": "leizilla_ro_test_lei_0001-1000",
+        "fonte": "casacivil",
+        "uuid5": "u-1",
+        "tipo": "lei",
+        "numero": 1,
+        "txt_name": "L1.txt",
+        "text_sha256": cmp.sha256_text(text),
+        "chunks": 1,
+    }
+    labels_dir = tmp_path / "labels"
+    norm_dir = labels_dir / "labels" / header["item"]
+    norm_dir.mkdir(parents=True)
+    records: list[dict[str, Any]] = [header]
+    for line, number in ((1, "1"), (2, "2")):
+        records.append(
+            {
+                "record": "label",
+                "line": line,
+                "category": "artigo",
+                "number": number,
+                "quoted": False,
+            }
+        )
+    (norm_dir / "u-1.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8"
+    )
+    (labels_dir / "summary.json").write_text(
+        json.dumps({"batch_ids": [BATCH], "model": "m", "prompt_version": "v"}),
+        encoding="utf-8",
+    )
+    texts_dir = tmp_path / "texts"
+    cache = texts_dir / header["item"] / header["txt_name"]
+    cache.parent.mkdir(parents=True)
+    cache.write_bytes(text.encode("utf-8"))
+    errata_path = tmp_path / "errata.json"
+    corr = {
+        "norm": f"{header['item']}/{header['uuid5']}",
+        "text_sha256": sha,
+        "op": "add_own_article",
+        "line": 3,
+        "number": "3",
+        "evidence": "Revogam-se",
+        "reason": "test",
+        "verified_by": "leitura do texto",
+        "date": "2026-11-17",
+    }
+    errata_path.write_text(
+        json.dumps({"schema_version": 1, "corrections": [corr]}), encoding="utf-8"
+    )
+    return labels_dir, texts_dir, errata_path, header
+
+
+def test_end_to_end_check_fails_on_stale_errata_and_passes_without(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_path = tmp_path / "baseline.json"
+    labels_dir, texts_dir, errata_path, header = _errata_fixture(tmp_path, sha="0" * 64)
+    base = rr.run_scoreboard(labels_dir, texts_dir, None, ia=None)
+    rr.write_baseline(baseline_path, _baseline(base))
+    common = [
+        "check",
+        "--labels",
+        str(labels_dir),
+        "--texts",
+        str(texts_dir),
+        "--baseline",
+        str(baseline_path),
+    ]
+
+    assert rr.main([*common, "--no-errata"]) == 0
+    capsys.readouterr()
+
+    assert rr.main([*common, "--errata", str(errata_path)]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL stale errata: leizilla_ro_test_lei_0001-1000/u-1" in out
+    assert "sha256 mismatch" in out
+
+    # malformed errata file is a usage error, not a pass
+    errata_path.write_text("{not json", encoding="utf-8")
+    assert rr.main([*common, "--errata", str(errata_path)]) == 2
+
+
+def test_valid_errata_is_applied_and_recorded_in_baseline(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    text = "Art. 1º Primeiro.\nArt. 2º Segundo.\nRevogam-se.\n"
+    labels_dir, texts_dir, errata_path, _header_unused = _errata_fixture(
+        tmp_path, sha=cmp.sha256_text(text)
+    )
+    errata = cmp.load_errata(errata_path)
+    board = rr.run_scoreboard(labels_dir, texts_dir, None, ia=None, errata=errata)
+    assert board.errata_stale == []
+    assert len(board.errata_applied) == 1
+
+    baseline_path = tmp_path / "baseline.json"
+    common = [
+        "--labels",
+        str(labels_dir),
+        "--texts",
+        str(texts_dir),
+        "--baseline",
+        str(baseline_path),
+        "--errata",
+        str(errata_path),
+    ]
+    assert rr.main(["update", *common, "--reason", "initial"]) == 0
+    data = json.loads(baseline_path.read_text(encoding="utf-8"))
+    assert data["labels"]["errata_applied"] == 1
+    assert data["labels"]["errata_sha256"] == errata.sha256
+    assert data["history"][-1]["errata_applied"] == 1
+    assert rr.main(["check", *common]) == 0
+    assert "errata: 1 applied, 0 stale" in capsys.readouterr().out

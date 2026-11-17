@@ -2261,19 +2261,40 @@
       "left_disagree_closed": [],
       "reader_commit": "afc60cc23728dcad1b89357759689adf8bf8964c",
       "reason": "tournament round 9: stray quote before closing article, caput citation leftovers"
+    },
+    {
+      "counts": {
+        "agree_closed": 1928,
+        "agree_open": 48,
+        "disagree_closed": 1,
+        "disagree_open": 94,
+        "teacher_inconsistent": 15
+      },
+      "date": "2026-11-17",
+      "entered_agree_closed": [],
+      "entered_disagree_closed": [],
+      "errata_applied": 3,
+      "errata_sha256": "86e22e7ee61ffaea46964d61bb2d8a348947d71386acd0eb09676aaed1cb0ac4",
+      "forced": false,
+      "left_agree_closed": [],
+      "left_disagree_closed": [],
+      "reader_commit": "94637b9128a290560fcb092bd8871330a1fe4395",
+      "reason": null
     }
   ],
   "labels": {
     "batch_ids": [
       "msgbatch_01VYBeV9AWA7A2QeNaYfJZAC"
     ],
+    "errata_applied": 3,
+    "errata_sha256": "86e22e7ee61ffaea46964d61bb2d8a348947d71386acd0eb09676aaed1cb0ac4",
     "identifier": "msgbatch_01VYBeV9AWA7A2QeNaYfJZAC",
     "model": "claude-haiku-5-5",
     "norms": 2086,
     "prompt_version": "teacher-labels-v1",
     "source": "teacher-batch-labels artifact of run 43937274430 (expires 2027-02-14T19:14:38Z)"
   },
-  "reader_commit": "afc60cc23728dcad1b89357759689adf8bf8964c",
-  "reader_last_change": "afc60cc23728dcad1b89357759689adf8bf8964c",
+  "reader_commit": "94637b9128a290560fcb092bd8871330a1fe4395",
+  "reader_last_change": "94637b9128a290560fcb092bd8871330a1fe4395",
   "schema_version": 1
 }

@@ -11,15 +11,21 @@ not shelled out) and compares the result with a recorded baseline:
 Anything else passes. A pass prints the before/after table per group and the
 norms that newly entered ``agree_closed``.
 
+Teacher-label errata (``docs/okf/teacher-label-errata.json``, see
+``docs/okf/reader-ratchet.md``) are applied before the comparison. A stale
+correction (text sha or evidence line no longer matches) is a FAIL for ``check``
+and blocks ``update``, even with ``--force``: it must be fixed, not ignored.
+
     uv run scripts/reader_ratchet.py check  --labels LABELS_DIR --texts TEXTS_DIR \\
-        [--textos-parquet PATH] [--baseline PATH]
+        [--textos-parquet PATH] [--baseline PATH] [--errata PATH | --no-errata]
     uv run scripts/reader_ratchet.py update --labels ... --texts ... \\
         [--force --reason "text"] [--reason "text"] [--labels-source "text"]
 
 ``update`` rewrites the baseline from the current run. It refuses when ``check``
 would fail, unless ``--force`` is given together with ``--reason``. Every update
-appends a history entry (date, reader commit, counts, forced flag, reason, and
-which norms left or entered the two gated groups since the previous baseline).
+appends a history entry (date, reader commit, counts, forced flag, reason, errata
+applied and errata sha256, and which norms left or entered the two gated groups
+since the previous baseline).
 
 Exit codes: 0 pass (or update written), 1 check failed or update refused,
 2 usage or data error.
@@ -37,7 +43,7 @@ import json
 import os
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
@@ -75,6 +81,10 @@ class Scoreboard:
     labels_identity: Optional[dict[str, Any]]
     text_sources: dict[str, int]  # cache | parquet | ia | missing
     ia_requests: int
+    errata_sha256: Optional[str] = None
+    errata_total: int = 0
+    errata_applied: list[dict[str, Any]] = field(default_factory=list)
+    errata_stale: list[dict[str, Any]] = field(default_factory=list)
 
     def counts(self) -> dict[str, int]:
         return {g: sum(1 for v in self.groups.values() if v == g) for g in cmp.GROUPS}
@@ -109,13 +119,14 @@ def run_scoreboard(
     texts_dir: Path,
     textos_parquet: Optional[Path] = None,
     ia: Optional[cmp.IaFetcher] = None,
+    errata: Optional[cmp.Errata] = None,
 ) -> Scoreboard:
     if not labels_dir.is_dir():
         raise RatchetError(f"labels dir not found: {labels_dir}")
     norms = cmp.load_labelled_norms(labels_dir)
     if not norms:
         raise RatchetError(f"no labelled norms under {labels_dir}")
-    corpus = cmp.compare_corpus(norms, texts_dir, textos_parquet, ia)
+    corpus = cmp.compare_corpus(norms, texts_dir, textos_parquet, ia, errata)
 
     groups = {
         norm_key(str(r["identifier"]), str(r["uuid5"])): str(r["group"])
@@ -142,7 +153,20 @@ def run_scoreboard(
         labels_identity=read_labels_identity(labels_dir),
         text_sources=dict(corpus.sources),
         ia_requests=corpus.ia_requests,
+        errata_sha256=errata.sha256 if errata is not None else None,
+        errata_total=len(errata.corrections) if errata is not None else 0,
+        errata_applied=corpus.errata_applied,
+        errata_stale=corpus.errata_stale,
     )
+
+
+def load_errata_arg(args: argparse.Namespace) -> Optional[cmp.Errata]:
+    if args.no_errata:
+        return None
+    try:
+        return cmp.load_errata(args.errata)
+    except cmp.ErrataError as exc:
+        raise RatchetError(str(exc)) from exc
 
 
 # --------------------------------------------------------------------------
@@ -159,9 +183,9 @@ def load_baseline(path: Path) -> Optional[dict[str, Any]]:
             f"{path}: schema_version {data.get('schema_version')!r}, "
             f"expected {SCHEMA_VERSION}"
         )
-    for field in ("counts", "agree_closed", "disagree_closed", "history"):
-        if field not in data:
-            raise RatchetError(f"{path}: missing field {field!r}")
+    for name in ("counts", "agree_closed", "disagree_closed", "history"):
+        if name not in data:
+            raise RatchetError(f"{path}: missing field {name!r}")
     return data
 
 
@@ -205,10 +229,11 @@ class Verdict:
     new_disagree: list[str]
     entered_agree: list[str]
     left_disagree: list[str]
+    stale_errata: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def failed(self) -> bool:
-        return bool(self.lost_agree or self.new_disagree)
+        return bool(self.lost_agree or self.new_disagree or self.stale_errata)
 
 
 def evaluate(baseline: dict[str, Any], board: Scoreboard) -> Verdict:
@@ -226,6 +251,21 @@ def evaluate(baseline: dict[str, Any], board: Scoreboard) -> Verdict:
         new_disagree=sorted(cur_disagree - base_disagree),
         entered_agree=sorted(cur_agree - base_agree),
         left_disagree=sorted(base_disagree - cur_disagree),
+        stale_errata=list(board.errata_stale),
+    )
+
+
+def _stale_line(entry: dict[str, Any]) -> str:
+    return f"{entry['norm']} {entry['op']} line {entry['line']}: {entry['reason']}"
+
+
+def _errata_line(board: Scoreboard) -> Optional[str]:
+    if not board.errata_total:
+        return None
+    return (
+        f"errata: {len(board.errata_applied)} applied, "
+        f"{len(board.errata_stale)} stale, of {board.errata_total} "
+        f"(sha256 {board.errata_sha256})"
     )
 
 
@@ -258,12 +298,18 @@ def render_text(
         lines.append(f"{group:<22}{before:>8}{after:>8}{delta:>+8}")
     lines.append(f"compared: {len(board.groups)} of {board.labelled} labelled norms")
     lines.append(f"texts: {board.text_sources}, IA requests: {board.ia_requests}")
+    errata_line = _errata_line(board)
+    if errata_line:
+        lines.append(errata_line)
     if verdict is None:
+        lines += [f"FAIL stale errata: {_stale_line(e)}" for e in board.errata_stale]
         return "\n".join(lines)
     for key, state in verdict.lost_agree:
         lines.append(f"FAIL agree_closed lost: {key} -> {state}")
     for key in verdict.new_disagree:
         lines.append(f"FAIL new disagree_closed: {key}")
+    for entry in verdict.stale_errata:
+        lines.append(f"FAIL stale errata: {_stale_line(entry)}")
     if not verdict.failed:
         lines.append(f"newly entered agree_closed: {len(verdict.entered_agree)}")
         lines.extend(f"  + {key}" for key in verdict.entered_agree)
@@ -286,9 +332,16 @@ def render_markdown(
     if board.labels_identity:
         batches = ", ".join(board.labels_identity.get("batch_ids") or [])
         lines.append(f"- labels: `{batches}`")
+    errata_line = _errata_line(board)
+    if errata_line:
+        lines.append(f"- {errata_line}")
     lines += ["", "| group | before | after | delta |", "|---|---:|---:|---:|"]
     for group, before, after, delta in delta_rows(baseline, board):
         lines.append(f"| {group} | {before} | {after} | {delta:+d} |")
+    if verdict is None and board.errata_stale:
+        lines.append("")
+        lines.append("**FAIL**")
+        lines += [f"- stale errata: {_stale_line(e)}" for e in board.errata_stale]
     if verdict is not None:
         lines.append("")
         if verdict.failed:
@@ -298,6 +351,7 @@ def render_markdown(
                 for key, state in verdict.lost_agree
             ]
             lines += [f"- new disagree_closed: `{key}`" for key in verdict.new_disagree]
+            lines += [f"- stale errata: {_stale_line(e)}" for e in verdict.stale_errata]
         else:
             lines.append(
                 f"**PASS** — {len(verdict.entered_agree)} newly entered agree_closed"
@@ -343,6 +397,8 @@ def build_baseline(
             "source": labels_source
             if labels_source is not None
             else prev_labels.get("source"),
+            "errata_applied": len(board.errata_applied),
+            "errata_sha256": board.errata_sha256,
         },
         "counts": board.counts(),
         "agree_closed": board.ids(GATED_AGREE),
@@ -355,14 +411,22 @@ def cmd_check(args: argparse.Namespace) -> int:
     baseline = load_baseline(args.baseline)
     if baseline is None:
         raise RatchetError(f"no baseline at {args.baseline}; create it with update")
-    board = run_scoreboard(args.labels, args.texts, args.textos_parquet)
+    errata = load_errata_arg(args)
+    board = run_scoreboard(args.labels, args.texts, args.textos_parquet, errata=errata)
     verdict = evaluate(baseline, board)
-    base_ids = (baseline.get("labels") or {}).get("identifier")
+    base_labels = baseline.get("labels") or {}
+    base_ids = base_labels.get("identifier")
     cur_ids = ",".join((board.labels_identity or {}).get("batch_ids") or [])
     if base_ids and cur_ids and base_ids != cur_ids:
         print(
             f"note: labels {cur_ids} differ from the baseline's {base_ids}; "
             "the comparison is not like-for-like"
+        )
+    if base_labels.get("errata_sha256") != board.errata_sha256:
+        print(
+            "note: errata file differs from the baseline's "
+            f"(baseline {base_labels.get('errata_sha256')}, "
+            f"now {board.errata_sha256})"
         )
     print(render_text(baseline, board, verdict))
     write_step_summary(render_markdown("check", baseline, board, verdict))
@@ -373,8 +437,18 @@ def cmd_update(args: argparse.Namespace) -> int:
     if args.force and not args.reason:
         raise RatchetError("--force requires --reason")
     previous = load_baseline(args.baseline)
-    board = run_scoreboard(args.labels, args.texts, args.textos_parquet)
+    errata = load_errata_arg(args)
+    board = run_scoreboard(args.labels, args.texts, args.textos_parquet, errata=errata)
     verdict = evaluate(previous, board) if previous is not None else None
+    if board.errata_stale:
+        # Not overridable by --force: a stale correction is a data error to fix.
+        print(render_text(previous, board, verdict))
+        print(
+            "update refused: stale teacher-label errata; fix or remove the entries "
+            f"in {args.errata} (--force does not apply)"
+        )
+        write_step_summary(render_markdown("update refused", previous, board, verdict))
+        return 1
     if verdict is not None and verdict.failed and not args.force:
         print(render_text(previous, board, verdict))
         print('update refused: check fails; rerun with --force --reason "..."')
@@ -399,6 +473,8 @@ def cmd_update(args: argparse.Namespace) -> int:
         "forced": bool(args.force),
         "reason": entry_reason,
         "counts": board.counts(),
+        "errata_applied": len(board.errata_applied),
+        "errata_sha256": board.errata_sha256,
         **changes,
     }
     new = build_baseline(board, previous, args.labels_source, history_entry)
@@ -424,6 +500,17 @@ def build_parser() -> argparse.ArgumentParser:
         )
         p.add_argument(
             "--baseline", type=Path, default=DEFAULT_BASELINE, help="baseline JSON"
+        )
+        p.add_argument(
+            "--errata",
+            type=Path,
+            default=cmp.DEFAULT_ERRATA,
+            help="teacher-label errata JSON",
+        )
+        p.add_argument(
+            "--no-errata",
+            action="store_true",
+            help="compare the teacher labels as they are (no corrections)",
         )
         if name == "update":
             p.add_argument("--force", action="store_true")

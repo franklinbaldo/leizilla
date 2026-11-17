@@ -18,6 +18,7 @@ on:
       - "scripts/compare_teacher_reader.py"
       - "scripts/reader_ratchet.py"
       - "docs/okf/reader-ratchet-baseline.json"
+      - "docs/okf/teacher-label-errata.json"
   workflow_dispatch:
 
 permissions:
