@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   agruparRelacoes,
   buildCatalogoWhere,
+  comCamadaDeTexto,
   estagioDe,
   normalizarBusca,
   parseArquivos,
@@ -188,5 +189,28 @@ describe('agruparRelacoes', () => {
   it('ordena os grupos: revoga antes de altera', () => {
     const g = agruparRelacoes([rel({}), rel({ relacao_id: 'r3', verbo: 'revoga' })], id200);
     expect(g.ativas.map((x) => x.rotulo)).toEqual(['Revoga', 'Altera']);
+  });
+});
+
+describe('comCamadaDeTexto', () => {
+  const base = {
+    norma_id: 'leizilla-raw-ro-casacivil-decreto-32251',
+    legivel: false,
+    com_texto: false,
+  };
+
+  it('sobe legivel e com_texto quando a norma tem texto na camada', () => {
+    const ids = new Set([base.norma_id]);
+    expect(comCamadaDeTexto(base, ids)).toEqual({ ...base, legivel: true, com_texto: true });
+  });
+
+  it('não mexe na linha quando a norma não tem texto na camada', () => {
+    const row = { ...base, legivel: false };
+    expect(comCamadaDeTexto(row, new Set(['outra-norma']))).toBe(row);
+  });
+
+  it('nunca rebaixa um legivel já verdadeiro', () => {
+    const row = { ...base, legivel: true };
+    expect(comCamadaDeTexto(row, new Set())).toEqual(row);
   });
 });

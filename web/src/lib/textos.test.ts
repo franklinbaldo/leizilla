@@ -1,6 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { buildTextoWhere, isTextoId, numeroFromTerm } from './db';
-import { ancoraId, ancoraRotulo, paragrafos, parseAncoras, segmentar, type Ancora } from './textos';
+import {
+  ancoraId,
+  ancoraRotulo,
+  ocrEhProprio,
+  paragrafos,
+  parseAncoras,
+  segmentar,
+  type Ancora,
+} from './textos';
+
+describe('ocrEhProprio', () => {
+  it('reconhece o re-OCR do próprio Leizilla (kreuzberg)', () => {
+    expect(ocrEhProprio('kreuzberg+paddleocr (re-OCR direcionado, ADR-0019)')).toBe(true);
+  });
+
+  it('não confunde com o OCR do Internet Archive nem com motor ausente', () => {
+    expect(ocrEhProprio('tesseract')).toBe(false);
+    expect(ocrEhProprio('abbyy')).toBe(false);
+    expect(ocrEhProprio(null)).toBe(false);
+    expect(ocrEhProprio(undefined)).toBe(false);
+  });
+});
 
 const TEXTO = 'LEI N. 7\n\nArt. 1º Fica criada.\nArt. 22 Mantida.\nArt. 3º Vigora.\n';
 const at = (needle: string) => {

@@ -135,3 +135,11 @@ export function paragrafos(texto: string): string[] {
   }
   return out;
 }
+
+/**
+ * Texto feito pelo próprio Leizilla (re-OCR direcionado, ADR-0019, motor `kreuzberg+…`),
+ * e não pelo OCR do Internet Archive. O portal diz isso na página da norma.
+ */
+export function ocrEhProprio(ocrMotor: string | null | undefined): boolean {
+  return (ocrMotor ?? '').trim().toLowerCase().startsWith('kreuzberg');
+}

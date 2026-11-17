@@ -8,9 +8,17 @@
  * e o portal segue com a busca anterior (`versoes` + `textos`).
  */
 
-import { getCatalogoSourceUrl, getDb, getRelacoesSourceUrl, PAGE_SIZE, runSql } from './db';
+import {
+  getCatalogoSourceUrl,
+  getDb,
+  getRelacoesSourceUrl,
+  getTextoIdsComTexto,
+  PAGE_SIZE,
+  runSql,
+} from './db';
 import {
   buildCatalogoWhere,
+  comCamadaDeTexto,
   type CatalogoRow,
   type FiltrosCatalogo,
   type RelacaoRow,
@@ -26,6 +34,19 @@ const CATALOGO_COLUNAS = `norma_id, tipo, numero::INTEGER AS numero, sufixo, sit
 const CATALOGO_SELECT = CATALOGO_COLUNAS.replace(', busca', '').replace(/\s+/g, ' ');
 
 const toJson = <T>(r: unknown): T => (r as { toJSON(): T }).toJSON();
+
+/**
+ * Aplica a camada de texto às linhas do catálogo (ver `comCamadaDeTexto`): a página e o
+ * selo de cada norma dependem do `textos` publicado agora, não do catálogo ter sido
+ * regenerado depois. Fail-open: se a consulta falhar, as linhas seguem como vieram.
+ */
+async function comTextoDaCamada<T extends CatalogoRow>(rows: T[]): Promise<T[]> {
+  if (rows.length === 0) return rows;
+  const comTexto = await getTextoIdsComTexto(rows.map((r) => r.norma_id)).catch(
+    () => new Set<string>(),
+  );
+  return rows.map((r) => comCamadaDeTexto(r, comTexto));
+}
 
 let _catalogoReady: Promise<boolean> | null = null;
 let _relacoesReady: Promise<boolean> | null = null;
@@ -125,7 +146,8 @@ export async function searchCatalogo(
     ),
   );
   const total = rows.length > 0 ? Number(rows[0]._total) : 0;
-  return { rows: rows.map(({ _total, ...row }) => row as CatalogoRow), total };
+  const semTotal = rows.map(({ _total, ...row }) => row as CatalogoRow);
+  return { rows: await comTextoDaCamada(semTotal), total };
 }
 
 /** Décadas com normas listadas, da mais recente para a mais antiga. */
@@ -154,7 +176,7 @@ export async function getNormaCatalogo(normaId: string): Promise<CatalogoRow | n
     [normaId],
     toJson<CatalogoRow>,
   );
-  return rows[0] ?? null;
+  return (await comTextoDaCamada(rows))[0] ?? null;
 }
 
 /**
@@ -171,7 +193,7 @@ export async function getCatalogoDeLei(leiId: string): Promise<CatalogoRow | nul
     [leiId],
     toJson<CatalogoRow>,
   );
-  return rows[0] ?? null;
+  return (await comTextoDaCamada(rows))[0] ?? null;
 }
 
 /** Relações em que a norma age ou sofre a ação, com o título da outra ponta. */
