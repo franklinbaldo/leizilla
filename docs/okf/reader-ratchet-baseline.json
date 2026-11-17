@@ -974,6 +974,7 @@
     "leizilla_ro_casacivil_lei_0001-1000/8cf30834",
     "leizilla_ro_casacivil_lei_0001-1000/8da7e352",
     "leizilla_ro_casacivil_lei_0001-1000/8de4be39",
+    "leizilla_ro_casacivil_lei_0001-1000/8e103a82",
     "leizilla_ro_casacivil_lei_0001-1000/8e2a5935",
     "leizilla_ro_casacivil_lei_0001-1000/8e307e64",
     "leizilla_ro_casacivil_lei_0001-1000/8f672451",
@@ -1045,6 +1046,7 @@
     "leizilla_ro_casacivil_lei_0001-1000/a352222f",
     "leizilla_ro_casacivil_lei_0001-1000/a3746ed8",
     "leizilla_ro_casacivil_lei_0001-1000/a3e0fd58",
+    "leizilla_ro_casacivil_lei_0001-1000/a3ef0197",
     "leizilla_ro_casacivil_lei_0001-1000/a43bfbd5",
     "leizilla_ro_casacivil_lei_0001-1000/a4a486a1",
     "leizilla_ro_casacivil_lei_0001-1000/a549f3ad",
@@ -1138,6 +1140,7 @@
     "leizilla_ro_casacivil_lei_0001-1000/c0114579",
     "leizilla_ro_casacivil_lei_0001-1000/c06b40cd",
     "leizilla_ro_casacivil_lei_0001-1000/c0b023eb",
+    "leizilla_ro_casacivil_lei_0001-1000/c0bcb61e",
     "leizilla_ro_casacivil_lei_0001-1000/c100280e",
     "leizilla_ro_casacivil_lei_0001-1000/c1398981",
     "leizilla_ro_casacivil_lei_0001-1000/c2f0b371",
@@ -1927,10 +1930,10 @@
     "leizilla_ro_casacivil_lei_1001-2000/ffccf04f"
   ],
   "counts": {
-    "agree_closed": 1925,
-    "agree_open": 50,
+    "agree_closed": 1928,
+    "agree_open": 48,
     "disagree_closed": 1,
-    "disagree_open": 95,
+    "disagree_open": 94,
     "teacher_inconsistent": 15
   },
   "date": "2026-11-17",
@@ -2237,6 +2240,27 @@
       "left_disagree_closed": [],
       "reader_commit": "b4bf6746ed128813a53656a6e10f142e12adb33f",
       "reason": "tournament round 8: closure checks (ordinal letter, tail guards, annex, preamble)"
+    },
+    {
+      "counts": {
+        "agree_closed": 1928,
+        "agree_open": 48,
+        "disagree_closed": 1,
+        "disagree_open": 94,
+        "teacher_inconsistent": 15
+      },
+      "date": "2026-11-17",
+      "entered_agree_closed": [
+        "leizilla_ro_casacivil_lei_0001-1000/8e103a82",
+        "leizilla_ro_casacivil_lei_0001-1000/a3ef0197",
+        "leizilla_ro_casacivil_lei_0001-1000/c0bcb61e"
+      ],
+      "entered_disagree_closed": [],
+      "forced": false,
+      "left_agree_closed": [],
+      "left_disagree_closed": [],
+      "reader_commit": "afc60cc23728dcad1b89357759689adf8bf8964c",
+      "reason": "tournament round 9: stray quote before closing article, caput citation leftovers"
     }
   ],
   "labels": {
@@ -2249,7 +2273,7 @@
     "prompt_version": "teacher-labels-v1",
     "source": "teacher-batch-labels artifact of run 43937274430 (expires 2027-02-14T19:14:38Z)"
   },
-  "reader_commit": "b4bf6746ed128813a53656a6e10f142e12adb33f",
-  "reader_last_change": "b4bf6746ed128813a53656a6e10f142e12adb33f",
+  "reader_commit": "afc60cc23728dcad1b89357759689adf8bf8964c",
+  "reader_last_change": "afc60cc23728dcad1b89357759689adf8bf8964c",
   "schema_version": 1
 }

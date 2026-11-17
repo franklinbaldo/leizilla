@@ -1396,3 +1396,42 @@ def test_marker_before_the_first_own_article_is_not_an_unread_article() -> None:
         + "Art. 3º - Esta Lei entra em vigor na data de sua publicação.\n"
     )
     assert _closes(text)
+
+
+# --- tournament round 9 -------------------------------------------------------------
+# lei-00740 (43aa8c7c): a stray quotation mark glued to the closing article.
+def test_stray_quotation_mark_before_the_closing_article_does_not_open_a_block() -> (
+    None
+):
+    text = (
+        "Art. 1º - Fica o Poder Executivo autorizado a adotar as providências.\n"
+        "Art. 2º - Esta Lei entra em vigor na data de sua publicação.\n\n"
+        "“Art. 3º - Revogam-se as disposições em contrário.\n\n"
+        "Palácio do Governo do Estado de Rondônia\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2, 3]
+    assert _closes(text)
+
+
+def test_quotation_mark_before_an_article_that_is_closed_stays_a_quote() -> None:
+    text = (
+        "Art. 1º - Fica alterado o artigo 3º da Lei nº 5, que passa a vigorar com a"
+        " seguinte redação:\n“Art. 3º - Revogam-se as disposições em contrário.”\n"
+        "Art. 2º - Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2]
+
+
+# lei-00578 (a3ef0197): "Art. 10-0 Art. 69 da Lei nº 435" cites the article it amends.
+def test_amended_article_cited_as_the_caput_subject_is_not_an_unread_article() -> None:
+    text = (
+        "Faço saber que a Assembléia Legislativa decreta e eu sanciono a seguinte"
+        " Lei:\n\n\nArt. 10-0 Art. \n69 \nda \nLei \nnQ \n435, \nde \n\n\n"
+        "29 de setembro de \n1992, \npassa a vigorar com a seguinte redação: \n\n\n"
+        '"Art. \n6Q \n- \nOs membros do Conselho farão jus a uma gratificação.\n\n\n'
+        '§ 3Q - Integra, ainda, o Conselho um Secretário-Geral."\n\n\n'
+        "Art. \n2° \n- Esta Lei entra em vigor na data de sua publicação.\n\n\n"
+        "Art. 3° - Revogam-se as disposições em contrário.\n"
+    )
+    assert _unexplained(read_hierarchy(text)) == []
+    assert _closes(text)

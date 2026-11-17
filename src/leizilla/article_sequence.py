@@ -136,6 +136,16 @@ def article_readings(num: str, has_ordinal: bool) -> list[int]:
     return out
 
 
+def is_caput_citation(text: str, start: int) -> bool:
+    """True for ``Art. N`` that is the subject of an amending caput ("- O Art. 4º da Lei")."""
+    cited = ARTICLE_CANDIDATE.match(text, start)
+    return (
+        cited is not None
+        and _CITES_NORM.match(text, cited.end()) is not None
+        and _CAPUT_SUBJECT.search(text[max(0, start - 8) : start]) is not None
+    )
+
+
 def is_reference(text: str, start: int) -> bool:
     """True when the "Art." at ``start`` sits inside a sentence as a citation.
 

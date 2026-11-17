@@ -61,6 +61,7 @@ from leizilla.article_sequence import (
     QUOTE_CHARS,
     article_readings,
     best_chain,
+    is_caput_citation,
     is_reference,
     read_articles,
 )
@@ -1580,6 +1581,18 @@ def _before_enacting(articles: list[ArticleRead]) -> None:
             art["status"] = "quoted"
 
 
+def _quote_caput_citations(text: str, articles: list[ArticleRead]) -> None:
+    """A leftover marker that is the cited subject of an amending caput.
+
+    "Art. 1º - O Art. 4º da Lei nº 134 passa a ter a seguinte redação": the second
+    marker is the article being amended. When the chain did not take it as one of the
+    norm's own articles it is a citation, not an unread article.
+    """
+    for art in articles:
+        if art["status"] == "unexplained" and is_caput_citation(text, art["start"]):
+            art["status"] = "quoted"
+
+
 def find_body_end(text: str, last_article_start: int) -> int:
     """Where the articulated body stops: the closing formula or the first annex."""
     m = _BODY_END.search(text, last_article_start)
@@ -1726,6 +1739,20 @@ def _tail_clean(
     return True
 
 
+def _stray_closing_article(text: str, cand: re.Match[str]) -> bool:
+    """A quotation mark glued to the norm's closing article, with no mark after it.
+
+    ``“Art. 3º - Revogam-se as disposições em contrário.`` at the end of a norm: no
+    closing mark or "(NR)" follows before the body ends, and the article is the
+    vigência/revogação sentence itself, which ends a norm and is not text quoted from
+    another one.
+    """
+    stop = find_body_end(text, cand.start())
+    if _QUOTE_CHAR.search(text, cand.end(), stop) or _NR.search(text, cand.end(), stop):
+        return False
+    return _FINAL_SENTENCE.search(text, cand.end(), cand.end() + 90) is not None
+
+
 def read_hierarchy(text: str) -> HierarchyReport:
     """Read the nested structure of one norm, resolving OCR ambiguity by sequence."""
     builder = _Builder(text)
@@ -1735,7 +1762,9 @@ def read_hierarchy(text: str) -> HierarchyReport:
     heads = [
         (m.start(), m.end())
         for m in ARTICLE_CANDIDATE.finditer(text)
-        if m.start() > 0 and text[m.start() - 1] in _QUOTES
+        if m.start() > 0
+        and text[m.start() - 1] in _QUOTES
+        and not _stray_closing_article(text, m)
     ]
     first = read_articles(text, heads)
     bounds = [a["start"] for a in first["articles"] if a["status"] == "own"]
@@ -1749,6 +1778,7 @@ def read_hierarchy(text: str) -> HierarchyReport:
     all_articles, gap_articles = _fill_article_gaps(text, second["articles"], masked)
 
     _quote_under_amending_host(text, all_articles)
+    _quote_caput_citations(text, all_articles)
     _cited_in_annex(text, all_articles, body_end)
     _before_enacting(all_articles)
     own = [a for a in all_articles if a["status"] == "own"]
