@@ -13,6 +13,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Callable
 
+from leizilla import config as _config
 from leizilla.storage import DuckDBStorage
 
 logger = logging.getLogger(__name__)
@@ -228,6 +229,16 @@ class WaybackCdxDiscovery:
 
 
 _HEAD_RATE_LIMIT_S = 0.5
+
+
+def _host_pace(base_s: float) -> float:
+    """Intervalo entre acessos ao host da fonte, escalado pelos jobs em paralelo.
+
+    ``HARVEST_HOST_INTERVAL_S`` vale 1.0 num job só e N quando N jobs rodam em
+    paralelo contra o mesmo host (ADR-0008/0016); a descoberta respeita o mesmo
+    fator da colheita, senão N jobs somam N vezes a taxa combinada.
+    """
+    return base_s * max(1.0, _config.HARVEST_HOST_INTERVAL_S)
 
 
 def _head_check_status(url: str, timeout: float = 10.0) -> Optional[bool]:
@@ -626,8 +637,8 @@ class SequentialDiscovery:
                     return None, True
 
                 elapsed = time.monotonic() - last_head_time
-                if elapsed < _HEAD_RATE_LIMIT_S:
-                    time.sleep(_HEAD_RATE_LIMIT_S - elapsed)
+                if elapsed < _host_pace(_HEAD_RATE_LIMIT_S):
+                    time.sleep(_host_pace(_HEAD_RATE_LIMIT_S) - elapsed)
                 if _budget_exhausted():
                     return None, True
 
@@ -750,7 +761,7 @@ class CasacivilIndexDiscovery:
             # "wayback.fetch_bytes" abstraction for live domains.
             import time
 
-            time.sleep(1.0)  # rate limit
+            time.sleep(_host_pace(1.0))  # rate limit
             try:
                 req = urllib.request.Request(
                     self.url, headers={"User-Agent": "leizilla-crawler/0.1"}
@@ -1136,7 +1147,7 @@ class CasacivilYearIndexDiscovery:
             if not self._allowed(url):
                 logger.error(f"robots.txt bloqueou {url}")
                 return resources
-            time.sleep(_YEAR_INDEX_RATE_LIMIT_S)
+            time.sleep(_host_pace(_YEAR_INDEX_RATE_LIMIT_S))
             html_content = self._fetch(url)
             if html_content is None:
                 failed_years.append(ano)

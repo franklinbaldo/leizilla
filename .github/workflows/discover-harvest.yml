@@ -226,6 +226,9 @@ jobs:
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+          # A descoberta bate no mesmo host da colheita: mesmo fator de ritmo
+          # (3 jobs em paralelo), senão as varreduras somam ~3x a taxa do ADR-0008.
+          HARVEST_HOST_INTERVAL_S: "3.0"
         run: |
           uv run leizilla discover \
             --ente "${{ inputs.ente || 'ro' }}" \

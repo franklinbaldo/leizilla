@@ -1233,3 +1233,16 @@ class TestSequentialDiscoveryCdxAuto:
             ).run()
         mock_urlopen.assert_not_called()
         assert len(resources) == 2
+
+
+def test_discovery_pacing_scales_with_parallel_jobs(monkeypatch) -> None:
+    """Three tipo jobs in parallel must not triple the rate on the source host."""
+    from leizilla import config, discovery
+
+    monkeypatch.setattr(config, "HARVEST_HOST_INTERVAL_S", 1.0)
+    assert discovery._host_pace(0.5) == 0.5
+    monkeypatch.setattr(config, "HARVEST_HOST_INTERVAL_S", 3.0)
+    assert discovery._host_pace(0.5) == 1.5
+    assert discovery._host_pace(1.0) == 3.0
+    monkeypatch.setattr(config, "HARVEST_HOST_INTERVAL_S", 0.2)
+    assert discovery._host_pace(1.0) == 1.0
