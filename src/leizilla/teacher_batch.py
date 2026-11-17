@@ -2107,6 +2107,14 @@ _CANARY_IDS_FILE = typer.Option(
     help="Só modo review: texto_ids (um por linha) que viram canários, no lugar "
     "de --canary-share.",
 )
+_RETRY_TRUNCATED = typer.Option(
+    None,
+    "--retry-truncated",
+    help="Só modo review: manifest.json (saída do collect de uma execução anterior) "
+    "cujas requisições truncadas (max_tokens) são reenviadas, uma norma por "
+    "requisição, com o orçamento de resposta maior. Use os mesmos insumos do submit "
+    "original; o resultado é fundido pelo collect.",
+)
 _REVIEW_BUDGET = typer.Option(
     None,
     "--review-budget-chars",
@@ -2379,6 +2387,7 @@ def submit(
     canary_ids_file: Optional[Path] = _CANARY_IDS_FILE,
     review_budget_chars: Optional[int] = _REVIEW_BUDGET,
     review_max_norms: Optional[int] = _REVIEW_MAX_NORMS,
+    retry_truncated: Optional[Path] = _RETRY_TRUNCATED,
 ) -> None:
     """Cria o(s) batch(es) depois da trava de custo e grava o manifesto."""
     _check_effort(effort)
@@ -2394,6 +2403,8 @@ def submit(
             max_norms=review_max_norms,
             label_set=label_set,
         )
+        if retry_truncated is not None and mode != "review":
+            raise TeacherBatchError("--retry-truncated only applies with --mode review")
         if manifest_path.exists():
             raise TeacherBatchError(
                 f"{manifest_path} already exists: a submit may already have "
@@ -2404,7 +2415,8 @@ def submit(
 
             if retry_failures is not None:
                 raise TeacherBatchError(
-                    "--retry-failures is not supported in review mode"
+                    "--retry-failures is not supported in review mode; "
+                    "use --retry-truncated"
                 )
             review_manifest = teacher_review.run_submit(
                 spec=spec,
@@ -2413,6 +2425,7 @@ def submit(
                 guard=guard,
                 effort=effort,
                 prompt_cache=prompt_cache,
+                retry_truncated=retry_truncated,
                 ente=ente,
                 tipo=tipo,
                 limit=limit,

@@ -52,7 +52,7 @@ on:
         options: [ceiling, estimate]
         default: ceiling
       manifest_run_id:
-        description: "collect: id da execução de submit cujo manifesto coletar. submit: (opcional) id de um collect anterior, para reenviar só as normas em failures.jsonl"
+        description: "collect: id da execução de submit cujo manifesto coletar. submit: (opcional) id de um collect anterior. label: reenvia só as normas em failures.jsonl. review: reenvia só as requisições truncadas (manifest.json), com os MESMOS insumos (mode, select, ids_file, canary_ids_file, shuffle_seed, label_set); o collect desta execução funde os dois"
         default: ""
       wait_minutes:
         description: "collect: quantos minutos esperar pelos batches antes de desistir"
@@ -241,8 +241,15 @@ jobs:
           [ -n "$IN_LIMIT" ] && args+=(--limit "$IN_LIMIT")
           [ -n "$IN_TIPO" ] && args+=(--tipo "$IN_TIPO")
           [ -n "$IN_SEED" ] && args+=(--shuffle-seed "$IN_SEED")
-          [ -n "$IN_RETRY_RUN" ] && \
-            args+=(--retry-failures /tmp/teacher-batch-previous/failures.jsonl)
+          if [ -n "$IN_RETRY_RUN" ]; then
+            if [ "$IN_MODE" = "review" ]; then
+              # Review: só as requisições que terminaram em max_tokens (manifest.json
+              # do collect anterior, que lista truncated_requests).
+              args+=(--retry-truncated /tmp/teacher-batch-previous/manifest.json)
+            else
+              args+=(--retry-failures /tmp/teacher-batch-previous/failures.jsonl)
+            fi
+          fi
           # Modo review: conjunto 'review' (nunca 'main'), sem --exclude-labelled
           # (a amostra de avaliação sai do conjunto já rotulado) e listas de
           # texto_id vindas só de docs/okf/review-samples/<nome>.txt.

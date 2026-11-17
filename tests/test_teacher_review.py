@@ -279,7 +279,9 @@ class TestRendering:
     def test_header_summarises_the_reading(self) -> None:
         plan = _plan([_record(1)])
         text = plan.requests[0].user_text
-        assert "### N01 | lei 1 | reader: 6 own articles, closes=yes, last=6" in text
+        assert "### N01 | lei 1 | reader: 6 own articles" in text
+        # the header never says closes/last: they would give canaries away
+        assert "closes=" not in text and "last=" not in text
         assert "### fim N01" in text
         assert text.startswith("Requisição com 1 norma(s): N01.")
 
@@ -625,15 +627,11 @@ class TestValidation:
         [
             lambda a: {**a, "line": 2},  # blank line: not listed
             lambda a: {**a, "line": 9999},  # beyond the text
-            lambda a: {**a, "evidence": "texto que não está na linha"},
-            lambda a: {**a, "evidence": ""},
-            lambda a: {**a, "evidence": "A"},  # too short to identify the line
-            lambda a: {**a, "op": "dance"},
-            lambda a: {**a, "number": "cinco"},
-            lambda a: {k: v for k, v in a.items() if k != "reason"},
+            lambda a: {**a, "op": "dance"},  # unknown op: malformed
+            lambda a: {k: v for k, v in a.items() if k != "reason"},  # wrong shape
         ],
     )
-    def test_bad_adjustment_invalidates_the_norm(self, mutate: Callable) -> None:
+    def test_structural_problems_invalidate_the_norm(self, mutate: Callable) -> None:
         meta = self.meta()
         line = next(i for i, ln in enumerate(self.lines, 1) if "entra em vigor" in ln)
         adj = mutate(_adj("set_number", line, self.lines, number="9"))
@@ -641,6 +639,33 @@ class TestValidation:
             {"id": "N01", "verdict": "ajuste", "adjustments": [adj]}, meta
         )
         assert problems and adjustments == []
+
+    @pytest.mark.parametrize(
+        "mutate",
+        [
+            lambda a: {**a, "evidence": "texto que não está na linha"},
+            lambda a: {**a, "evidence": ""},
+            lambda a: {**a, "evidence": "A"},  # too short to identify the line
+            lambda a: {**a, "number": "cinco"},  # not an arabic numeral
+        ],
+    )
+    def test_bad_individual_adjustment_is_dropped_and_downgraded(
+        self, mutate: Callable
+    ) -> None:
+        # Measured on the first run: a bad evidence or a number that does not parse
+        # no longer voids the norm; the adjustment is dropped with its reason, and an
+        # ajuste left with nothing becomes ok, flagged downgraded.
+        meta = self.meta()
+        line = next(i for i, ln in enumerate(self.lines, 1) if "entra em vigor" in ln)
+        adj = mutate(_adj("set_number", line, self.lines, number="9"))
+        check = tr.check_entry(
+            {"id": "N01", "verdict": "ajuste", "adjustments": [adj]}, meta
+        )
+        assert check.problems == []
+        assert check.adjustments == []
+        assert check.verdict == "ok" and check.downgraded is True
+        assert len(check.dropped) == 1 and check.dropped[0]["reason"]
+        assert check.dropped[0]["index"] == 0 and check.dropped[0]["op"] == "set_number"
 
     def test_verdict_must_match_adjustments(self) -> None:
         meta = self.meta()
@@ -670,10 +695,13 @@ class TestValidation:
             _adj("add_node", plain, self.lines, level="artigo"),
         ]
         for adj in cases:
-            _v, adjustments, problems = tr.validate_entry(
+            # A misfit is dropped (with its reason), not structural: the norm stays
+            # valid and, with nothing kept, the ajuste is downgraded to ok.
+            check = tr.check_entry(
                 {"id": "N01", "verdict": "ajuste", "adjustments": [adj]}, meta
             )
-            assert problems, adj["op"]
+            assert check.problems == [] and check.adjustments == [], adj["op"]
+            assert check.dropped and check.downgraded, adj["op"]
         good = tr.validate_entry(
             {
                 "id": "N01",
@@ -1657,3 +1685,440 @@ class TestWorkflow:
         canaries = tr.read_ids_file(d / "eval-2026-11-canaries.txt")
         assert len(reviewed) == 200 and len(canaries) == 100
         assert not set(reviewed) & set(canaries)
+
+
+# --------------------------------------------------------------------------
+# Review v2: budget, truncation and retry, partial norms, validator leniencies,
+# hint, canary chain split, scoring of the new outcomes
+# --------------------------------------------------------------------------
+
+
+def _truncated(cid: str) -> Dict[str, Any]:
+    """A reply that spent its whole budget on thinking: no text block."""
+    return {
+        "custom_id": cid,
+        "result": {
+            "type": "succeeded",
+            "message": {
+                "content": [{"type": "thinking", "thinking": ""}],
+                "stop_reason": "max_tokens",
+                "usage": {"input_tokens": 1000, "output_tokens": 16000},
+            },
+        },
+    }
+
+
+class TestBudget:
+    def test_review_max_tokens_arithmetic(self) -> None:
+        per_norm = tr.REVIEW_THINKING_PER_NORM + tr.CEILING_TOKENS_PER_NORM
+        assert tr.CEILING_TOKENS_PER_NORM == 465
+        assert tr.review_max_tokens(1) == 8192 + per_norm == 10705
+        assert tr.review_max_tokens(2) == 8192 + 2 * per_norm == 13218
+        assert tr.review_max_tokens(8) == 16000  # capped
+        assert tr.review_max_tokens(1, cap=5000) == 5000
+
+    def test_every_request_stays_under_the_cap(self) -> None:
+        recs = [_record(n) for n in range(1, 13)]
+        plan = _plan(recs, budget_chars=10**6, max_norms=12)
+        assert plan.requests
+        assert all(r.max_tokens <= tr.REVIEW_MAX_TOKENS_CAP for r in plan.requests)
+
+    def test_estimate_uses_the_measured_base_and_the_ceiling_bounds_it(self) -> None:
+        plan = _plan([_record(n) for n in (1, 2, 3)], budget_chars=10**6)
+        spec = tb.MODELS["claude-haiku-5-5"]
+        est = tr.estimate_review_cost(plan, spec, "medium", True)
+        expected = sum(
+            min(
+                r.max_tokens,
+                tr.MEASURED_OUTPUT_TOKENS_PER_REQUEST
+                + tr.expected_tokens_per_norm() * len(r.slots),
+            )
+            for r in plan.requests
+        )
+        assert est.estimated_output_tokens == expected
+        assert est.ceiling_output_tokens == sum(r.max_tokens for r in plan.requests)
+        assert est.estimated_output_tokens <= est.ceiling_output_tokens
+        assert est.ceiling_usd >= est.estimate_usd
+
+
+class TestTruncation:
+    def test_cut_reply_is_truncated_not_invalid(self) -> None:
+        outcome = tr.interpret_review_result(_truncated("r00000"))
+        assert outcome.ok is False and outcome.truncated is True
+        assert outcome.reason == "stop_reason_max_tokens"
+
+    def test_thinking_only_end_turn_is_truncated_too(self) -> None:
+        entry = _entry("r00000", "", stop="end_turn")
+        entry["result"]["message"]["content"] = [{"type": "thinking", "thinking": ""}]
+        outcome = tr.interpret_review_result(entry)
+        assert outcome.truncated is True and outcome.reason == "no_text_block"
+
+    def test_invalid_json_is_not_truncation(self) -> None:
+        outcome = tr.interpret_review_result(_entry("r00000", "não é json"))
+        assert outcome.ok is False and outcome.truncated is False
+
+    def test_truncated_request_gives_truncated_slots(self) -> None:
+        recs = [_record(n) for n in (1, 2)]
+        plan = _plan(recs, budget_chars=10**6)
+        est = tr.estimate_review_cost(
+            plan, tb.MODELS["claude-haiku-5-5"], "medium", True
+        )
+        manifest = tr.build_review_manifest(
+            plan,
+            est,
+            ente="ro",
+            effort="medium",
+            cache=True,
+            max_usd=1,
+            guard="ceiling",
+        )
+        ((cid, meta),) = manifest["requests"].items()
+        outcome = tr.interpret_review_result(_truncated(cid))
+        results, _ = tr.evaluate_request(cid, meta, outcome)
+        assert all(r.truncated and not r.valid for r in results)
+        assert tr._merge_entry([results[0]]).verdict == "truncated"
+
+
+class TestRetry:
+    def _world(
+        self, tmp_path: Path
+    ) -> tuple[Dict[str, Any], Callable[[], tr.ReviewPlan]]:
+        reals = [_record(n) for n in range(1, 5)]
+        sources = [_record(n) for n in range(10, 12)]
+        make = lambda: _plan(reals, sources, seed="5", max_norms=3)  # noqa: E731
+        return _submitted(tmp_path, make()), make
+
+    def _first_run(self, tmp_path: Path) -> tuple[Dict[str, Any], str, Path]:
+        manifest, make = self._world(tmp_path)
+        cut = next(iter(manifest["requests"]))
+
+        def answer(cid: str) -> Dict[str, Any]:
+            if cid == cut:
+                return _truncated(cid)
+            reviews = [
+                {"id": rid, "verdict": "ok", "adjustments": []}
+                for rid in manifest["requests"][cid]["slots"]
+            ]
+            return _entry(cid, {"reviews": reviews})
+
+        results = {"msgbatch_1": [answer(cid) for cid in manifest["requests"]]}
+        out = tmp_path / "out1"
+        summary = tr.collect_review(_fake_client(results), manifest, out)
+        assert summary["truncated_requests"] == [cut]
+        return json.loads((out / "manifest.json").read_text()), cut, out
+
+    def test_retry_selects_only_truncated_requests_and_unpacks_them(
+        self, tmp_path: Path
+    ) -> None:
+        base, cut, _out = self._first_run(tmp_path)
+        _, make = self._world(tmp_path)
+        plan = make()
+        retry = tr.build_retry_plan(plan, base, depth=1, max_tokens_cap=16000)
+        original = base["requests"][cut]["slots"]
+        assert len(retry.requests) == len(original) >= 1
+        for req in retry.requests:
+            assert len(req.slots) == 1 and req.custom_id.startswith("t1-")
+            assert req.max_tokens == tr.review_max_tokens(1)
+        assert sorted(
+            (int(s.chunk.index), s.norm.entry) for r in retry.requests for s in r.slots
+        ) == sorted((int(m["chunk"]), m["entry"]) for m in original.values())
+
+    def test_retry_is_refused_when_the_inputs_changed(self, tmp_path: Path) -> None:
+        base, _cut, _out = self._first_run(tmp_path)
+        changed = [_record(n, _law(6, tag=".x")) for n in range(1, 5)]
+        plan = _plan(
+            changed, [_record(n) for n in range(10, 12)], seed="5", max_norms=3
+        )
+        with pytest.raises(tb.TeacherBatchError):
+            tr.build_retry_plan(plan, base, depth=1, max_tokens_cap=16000)
+
+    def test_retry_manifest_merges_over_the_original(self, tmp_path: Path) -> None:
+        base, cut, _out = self._first_run(tmp_path)
+        _, make = self._world(tmp_path)
+        plan = make()
+        retry = tr.build_retry_plan(plan, base, depth=1, max_tokens_cap=16000)
+        est = tr.estimate_review_cost(
+            retry, tb.MODELS["claude-haiku-5-5"], "medium", True
+        )
+        manifest = tr.build_review_manifest(
+            retry,
+            est,
+            ente="ro",
+            effort="medium",
+            cache=True,
+            max_usd=1,
+            guard="ceiling",
+        )
+        tr.attach_retry(manifest, base, depth=1, plan=retry)
+        client = MagicMock()
+        client.messages.batches.create.return_value = SimpleNamespace(id="msgbatch_2")
+        tr.submit_review_batches(
+            client,
+            retry,
+            tb.MODELS["claude-haiku-5-5"],
+            manifest,
+            tmp_path / "retry.json",
+            effort="medium",
+            cache=True,
+        )
+        retry_results = _answers(manifest, lambda c, r, m: None)["msgbatch_1"]
+        base_results = {
+            "msgbatch_1": [
+                _truncated(cid)
+                if cid == cut
+                else _entry(
+                    cid,
+                    {
+                        "reviews": [
+                            {"id": rid, "verdict": "ok", "adjustments": []}
+                            for rid in base["requests"][cid]["slots"]
+                        ]
+                    },
+                )
+                for cid in base["requests"]
+            ]
+        }
+        results = {**base_results, "msgbatch_2": retry_results}
+        out = tmp_path / "out2"
+        summary = tr.collect_review(_fake_client(results), manifest, out)
+        assert summary["truncated"] == 0 and summary["norms_truncated"] == 0
+        assert summary["requests_total"] == len(base["requests"]) - 1 + len(
+            retry.requests
+        )
+        assert cut not in summary["truncated_requests"]
+        assert summary["norms_total"] == 4 and summary["canaries"]["total"] == 2
+        assert summary["retry"]["truncated_requests"] == [cut]
+        assert summary["verdicts"]["ok"] == 4
+        assert summary["norms_ok"] == 4
+
+
+class TestPartialNorm:
+    def test_a_missing_part_makes_the_norm_partial_not_ok(self, tmp_path: Path) -> None:
+        text = _law(8)
+        plan = _plan([_record(1, text)], max_chars=200, budget_chars=10**6)
+        chunks = plan.norms[0].chunks
+        assert len(chunks) > 1, "the fixture must split into parts"
+        manifest = _submitted(tmp_path, plan)
+        second = [
+            cid
+            for cid, req in manifest["requests"].items()
+            if any(m["chunk"] == 1 for m in req["slots"].values())
+        ]
+        assert len(second) == 1
+        results = []
+        for cid, req in manifest["requests"].items():
+            if cid in second:
+                results.append(_truncated(cid))
+                continue
+            reviews = [
+                {"id": rid, "verdict": "ok", "adjustments": []} for rid in req["slots"]
+            ]
+            results.append(_entry(cid, {"reviews": reviews}))
+        out = tmp_path / "out"
+        summary = tr.collect_review(
+            _fake_client({"msgbatch_1": results}), manifest, out
+        )
+        (record,) = [
+            json.loads(f.read_text()) for f in (out / "reviews").rglob("*.json")
+        ]
+        assert record["verdict"] == "partial" and record["partial"] is True
+        assert record["missing_parts"][0]["status"] == "truncated"
+        assert record["verdict"] != "ok"
+        assert summary["partial"] == 1 and summary["norms_ok"] == 0
+        assert summary["norms_partial"] == 1
+
+    def test_a_valid_part_adjustment_survives_a_missing_part(self) -> None:
+        meta_a = {"chunk": 0, "entry": "e", "key": "k"}
+        meta_b = {"chunk": 1, "entry": "e", "key": "k"}
+        adj = {
+            "op": "set_number",
+            "line": 3,
+            "number": "9",
+            "suffix": None,
+            "level": None,
+            "quoted": None,
+            "evidence": "x" * 15,
+            "reason": "r",
+        }
+        good = tr.SlotResult("N01", "r0", meta_a, True, "ajuste", [adj], [])
+        missing = tr.SlotResult(
+            "N02", "r1", meta_b, False, problems=["x"], truncated=True
+        )
+        merged = tr._merge_entry([missing, good])
+        assert merged.verdict == "ajuste" and merged.partial
+        assert merged.adjustments == [adj]
+
+
+class TestValidatorLeniency:
+    def test_whitespace_runs_fold(self) -> None:
+        assert tr._evidence_matches(
+            "Art. 1º -  Fica criada", "Art. 1º - Fica criada a coisa."
+        )
+
+    def test_quotes_and_dashes_normalise(self) -> None:
+        assert tr._evidence_matches(
+            "“Art. 5º – Fica proibido”", '"Art. 5º - Fica proibido"'
+        )
+
+    def test_copied_tag_prefix_is_stripped(self) -> None:
+        assert tr._evidence_matches(
+            "[art 4 Q] Art. 4º - Revogam-se as disposições",
+            "Art. 4º - Revogam-se as disposições em contrário.",
+        )
+
+    def test_evidence_running_into_the_next_line_is_accepted(self) -> None:
+        assert tr._evidence_matches(
+            "Revogam-se as disposições em contrário.", "Revogam-se as disposições em"
+        )
+
+    def test_a_different_line_is_still_refused(self) -> None:
+        assert not tr._evidence_matches(
+            "Art. 9º - Outra coisa inteira aqui", "Art. 1º - Fica criada a coisa."
+        )
+
+    def test_evidence_with_a_copied_tag_is_kept_end_to_end(self) -> None:
+        text = _law(6)
+        lines = tb.split_lines(text)
+        meta = _meta_for(text)
+        meta.pop("_plan")
+        line = next(i for i, ln in enumerate(lines, 1) if "entra em vigor" in ln)
+        adj = _adj("set_number", line, lines, number="9")
+        adj["evidence"] = "[art 5] " + adj["evidence"]
+        check = tr.check_entry(
+            {"id": "N01", "verdict": "ajuste", "adjustments": [adj]}, meta
+        )
+        assert check.problems == [] and len(check.adjustments) == 1
+        assert check.dropped == []
+
+
+class TestHint:
+    def test_untagged_article_line_gets_the_hint_and_others_do_not(self) -> None:
+        text = _law(6)
+        lines = tb.split_lines(text)
+        view = tr.build_view(text)
+        line = next(i for i, ln in enumerate(lines, 1) if ln.startswith("Art. 3º"))
+        view.tags.pop(line)
+        rendered = tr._listing(lines, view, [line])
+        assert rendered.startswith(f"{line}\t[?art] Art. 3º")
+        untagged_plain = next(
+            i
+            for i, ln in enumerate(lines, 1)
+            if ln.strip() == "Porto Velho, 5 de abril de 1985."
+        )
+        assert "[?art]" not in tr._listing(lines, view, [untagged_plain])
+
+    def test_canary_that_dropped_a_tag_looks_like_a_real_miss(self) -> None:
+        text = _law(6)
+        lines = tb.split_lines(text)
+        view = tr.build_view(text)
+        mutated, plan = tr.plant_canary(view, lines, "drop_last", tr.rng_for("s", "k"))
+        real_miss = tr.build_view(text)
+        real_miss.tags.pop(plan.line)
+        assert tr._listing(lines, mutated, [plan.line]) == tr._listing(
+            lines, real_miss, [plan.line]
+        )
+        assert "[?art]" in tr._listing(lines, mutated, [plan.line])
+
+    def test_prompt_explains_the_flag_and_v2_rules(self) -> None:
+        prompt = tr.REVIEW_SYSTEM_PROMPT
+        assert "[?art]" in prompt and "Art. 4o" in prompt
+        assert "closes=" not in prompt and "last=" not in prompt
+        assert tr.REVIEW_PROMPT_VERSION == "teacher-review-v2"
+
+
+class TestCanaryChainSplit:
+    def test_summary_splits_canary_recall_by_chain(self, tmp_path: Path) -> None:
+        reals = [_record(n) for n in range(1, 5)]
+        sources = [_record(n) for n in range(10, 14)]
+        plan = _plan(reals, sources, seed="5", max_norms=3)
+        manifest = _submitted(tmp_path, plan)
+        results = _answers(
+            manifest,
+            lambda cid, rid, meta: _expected_adjustment(meta)
+            if meta["canary"]
+            else None,
+        )
+        out = tmp_path / "out"
+        summary = tr.collect_review(_fake_client(results), manifest, out)
+        intact = summary["canary_recall_chain_intact"]
+        broken = summary["canary_recall_chain_broken"]
+        assert intact["n"] + broken["n"] == summary["canaries"]["total"] == 4
+        assert intact["recall"] in (None, 1.0) and broken["recall"] in (None, 1.0)
+        flags = [
+            json.loads(f.read_text())["canary_chain_intact"]
+            for f in (out / "reviews").rglob("*_canary.json")
+        ]
+        assert all(isinstance(flag, bool) for flag in flags)
+
+
+class TestRetryCLI:
+    def test_retry_truncated_is_refused_in_label_mode(self, tmp_path: Path) -> None:
+        result = CliRunner().invoke(
+            tb.app,
+            [
+                "submit",
+                "--max-usd",
+                "1",
+                "--manifest",
+                str(tmp_path / "m.json"),
+                "--retry-truncated",
+                str(tmp_path / "x.json"),
+            ],
+        )
+        assert result.exit_code == 2
+        assert "only applies with --mode review" in result.output
+
+
+class TestScoreTruncatedAndPartial:
+    def _teacher(self, rec: tb.TextoRecord) -> Dict[str, Any]:
+        view = tr.build_view(rec.text)
+        own = {
+            (ln, sr.cmp.normalize_number(n)) for ln, n, q in view.articles() if not q
+        }
+        return {"text_sha256": rec.text_sha256, "own": own, "consistent": True}
+
+    def test_truncated_and_partial_have_their_own_outcomes(self) -> None:
+        r1, r2, r3 = _record(1), _record(2), _record(3)
+        reviews = [
+            _review(r1, "truncated"),
+            {
+                **_review(
+                    r2, "ajuste", [{"op": "set_number", "line": 1, "number": "9"}]
+                ),
+                "partial": True,
+            },
+            {
+                **_review(r3, "ok"),
+                "canary": True,
+                "canary_plan": {
+                    "kind": "drop_last",
+                    "line": 5,
+                    "op": "add_own_article",
+                },
+                "canary_outcome": "truncated",
+                "canary_chain_intact": False,
+            },
+        ]
+        teachers = {(r.ref.item, r.ref.uuid5): self._teacher(r) for r in (r1, r2, r3)}
+        result = sr.score(reviews, teachers, None)
+        assert result["by_group"]["agree_closed"]["truncated"] == 1
+        assert result["partial"]["norms"] == 1
+        assert result["partial"]["with_adjustments"] == 1
+        assert result["reader_agrees"]["agree_closed"]["norms"] == 0
+        assert result["reader_disagrees"]["truncated"] == 0
+        assert result["canaries"]["drop_last"]["truncated"] == 1
+        assert result["canaries"]["chain_broken"]["n"] == 1
+        assert result["canaries"]["chain_intact"]["n"] == 0
+        assert result["canaries"]["all"]["truncated"] == 1
+        assert result["dropped"]["adjustments"] == 0
+        dropped_review = {
+            **_review(r3, "ok"),
+            "dropped": [{"index": 0, "op": "set_number", "line": 1, "reason": "x"}],
+            "downgraded": True,
+        }
+        again = sr.score([dropped_review], teachers, None)
+        assert again["dropped"] == {
+            "adjustments": 1,
+            "downgraded_norms": 1,
+            "note": again["dropped"]["note"],
+        }
