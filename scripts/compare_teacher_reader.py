@@ -61,7 +61,7 @@ from typing import Any, Callable, Iterable, Optional
 
 import duckdb
 
-from leizilla.hierarchy_sequence import read_hierarchy
+from leizilla.hierarchy_sequence import article_closes, read_hierarchy
 from leizilla.teacher_batch import NormRef, fetch_text
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -283,7 +283,7 @@ def compare_norm(
         key = (line_of(node["start"]), reader_number(node["number"], node["suffix"]))
         (r_own if node["status"] == "own" else r_quoted).add(key)
 
-    closes = bool(report["levels"]["artigo"]["closes"])
+    closes = article_closes(report)
     consistent = teacher_numbers_consistent(t_own)
     group = classify(t_own, r_own, closes, consistent)
     diffs = diff_kinds(t_own, t_quoted, r_own, r_quoted)

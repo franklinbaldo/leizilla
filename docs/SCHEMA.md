@@ -504,8 +504,8 @@ Contrato em código: `leizilla.textlayer.TEXTOS_SCHEMA`.
 | `sha1_texto_ia` | VARCHAR | SHA-1 que o IA declara para o `_djvu.txt`, conferido no download; NULL quando o texto é o do OCR próprio (ADR-0019) |
 | `sha256_texto` | VARCHAR | SHA-256 dos bytes do `_djvu.txt` baixado |
 | `num_caracteres` | INTEGER | tamanho de `texto` em code points |
-| `artigos_fecham` | BOOLEAN | derivado: a sequência de artigos fecha (1..N completa, nada sem explicação) |
-| `artigos_total`, `artigos_ultimo` | INTEGER | derivados: artigos próprios lidos e maior número |
+| `artigos_fecham` | BOOLEAN | derivado: o nível dos artigos do leitor de hierarquia fecha (artigos próprios 1..N, nada sem explicação, mais as checagens de fim de norma; ver abaixo) |
+| `artigos_total`, `artigos_ultimo` | INTEGER | derivados: artigos próprios lidos (`read_hierarchy`) e maior número |
 | `ancoras` | VARCHAR | derivado: JSON `[{"n", "sufixo", "ini", "fim"}]`, offsets em code points Unicode sobre `texto` |
 | `trecho` | VARCHAR | derivado: prefixo de `texto` com espaços colapsados (até 280 caracteres), para listagens |
 | `texto` | VARCHAR | **verbatim**: o `_djvu.txt` decodificado em UTF-8, sem limpeza nem correção |
@@ -513,8 +513,18 @@ Contrato em código: `leizilla.textlayer.TEXTOS_SCHEMA`.
 Regras:
 
 - `texto` nunca é reescrito. `ancoras`, `artigos_*` e `trecho` são dado derivado,
-  recalculado a cada construção por `leizilla.article_sequence.read_articles`; consumidores
-  só devem usar `ancoras` como navegação quando `artigos_fecham` é verdadeiro.
+  recalculado a cada construção por `leizilla.hierarchy_sequence.read_hierarchy` (nível dos
+  artigos; ADR-0015, adendo 2026-11-17); consumidores só devem usar `ancoras` como navegação
+  quando `artigos_fecham` é verdadeiro. `ancoras` = um item por artigo próprio; `ini`/`fim`
+  delimitam o marcador (`Art. 4º`). Um artigo recuperado de uma frase de encerramento sem
+  marcador não tem marcador no texto: a âncora começa na frase e `fim` cobre a primeira palavra.
+- `artigos_fecham` vem de `hierarchy_sequence.article_closes`, a mesma função que o placar do
+  ratchet (`scripts/compare_teacher_reader.py`) e os portões do re-OCR usam. **Garante** uma
+  numeração contínua 1..N dos artigos próprios, sem marcador de artigo não explicado, e as
+  checagens de fim de norma (frase de vigência/revogação posicionada, cauda sem marcador de
+  artigo não lido, sem bloco citado aberto, sem encerramento ambíguo). **Não garante** o
+  texto: não certifica a redação dos artigos, o OCR das palavras, nem a ausência de artigos
+  perdidos que o leitor não consiga ver.
 - Havendo várias capturas da mesma norma, entra a mais recente que já tem `_djvu.txt`.
 - Exceção (ADR-0019, fila `sem-texto`): uma norma preservada que o IA ainda não derivou entra com o texto do re-OCR próprio aceito (`texto_url` e `sha1_texto_ia` NULL, `ocr_motor` do re-OCR). Quando o IA passa a ter o `_djvu.txt`, vale o do IA, salvo se o leitor fecha os artigos só no texto próprio.
 - Consumidores não podem supor `texto_url` nem `sha1_texto_ia` preenchidos.

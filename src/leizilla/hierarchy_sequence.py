@@ -2087,3 +2087,29 @@ def marker_spans(text: str) -> list[Span]:
         spans.append({"category": category, "start": node["start"], "end": end})
     spans.sort(key=lambda s: (s["start"], s["end"]))
     return spans
+
+
+def article_closes(report: HierarchyReport) -> bool:
+    """The one notion of "fecha" in the code base: the article level closes.
+
+    The norm's own articles read 1..N with nothing unexplained, no open quoted block
+    at the tail, and the end-of-norm checks (`final_clause_placed`, `tail_clean`,
+    no ambiguous closing sentence) passed. The reader ratchet's scoreboard, the text
+    layer (`textos.artigos_fecham`) and the re-OCR gates all call this function.
+    """
+    return bool(report["levels"]["artigo"]["closes"])
+
+
+def own_articles(report: HierarchyReport) -> list[Node]:
+    """The norm's own article nodes, in text order (quoted ones are left out)."""
+    return [
+        n
+        for n in report["nodes"]
+        if n["kind"] == "artigo" and n["status"] == "own" and n["number"] is not None
+    ]
+
+
+def article_closure(text: str) -> tuple[bool, int]:
+    """``(article level closes, number of own articles)`` for one text."""
+    report = read_hierarchy(text)
+    return article_closes(report), len(own_articles(report))

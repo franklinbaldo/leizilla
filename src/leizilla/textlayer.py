@@ -4,7 +4,7 @@ Toda norma em S3 (identificada e com ``_djvu.txt`` derivado pelo Internet Archiv
 vira uma linha da tabela ``textos``, independente de já ter sido estruturada
 (``versoes``, S4). O texto é guardado **verbatim** — nunca reescrito; as âncoras de
 artigo são dado derivado (offsets calculados por
-``leizilla.article_sequence.read_articles``) e só viram navegação no portal quando a
+``leizilla.hierarchy_sequence.read_hierarchy``, nível dos artigos) e só viram navegação no portal quando a
 sequência fecha (``artigos_fecham``).
 
 Chave: identidade raw ``(ente, fonte, tipo, numero)`` — uma linha por norma, a
@@ -34,8 +34,12 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
 from leizilla import publisher
-from leizilla.article_sequence import read_articles
-from leizilla.hierarchy_sequence import read_hierarchy
+from leizilla.hierarchy_sequence import (
+    article_closes,
+    article_closure,
+    own_articles,
+    read_hierarchy,
+)
 from leizilla.ia_utils import download_url
 
 logger = logging.getLogger(__name__)
@@ -94,26 +98,38 @@ def texto_id(ente: str, fonte: str, tipo: str, numero: int) -> str:
     return f"leizilla-raw-{ente.lower()}-{fonte.lower()}-{tipo.lower()}-{numero:05d}"
 
 
+_FIRST_WORD = re.compile(r"\S+")
+
+
 def article_anchors(text: str) -> tuple[list[dict[str, Any]], bool, int]:
     """Âncoras dos artigos próprios da norma: ``(âncoras, fecha, último)``.
 
+    Lidos por ``read_hierarchy`` (nível dos artigos; ADR-0015, adendo 2026-11-17).
     Cada âncora é ``{"n", "sufixo", "ini", "fim"}`` com offsets em **code points
     Unicode** dentro do texto verbatim (o marcador, ex. ``Art. 4º``, ocupa
-    ``[ini, fim)``). Só entram marcadores lidos como ``own``; citados, referências
-    e não explicados ficam de fora. Dado derivado: o texto não é tocado.
+    ``[ini, fim)``). Só entram artigos próprios; citados, referências e não
+    explicados ficam de fora. ``fecha`` é ``article_closes`` (a mesma noção do
+    placar do ratchet). Um artigo recuperado de uma frase de encerramento sem
+    marcador (``orphan_closings``) não tem marcador no texto: a âncora começa na
+    frase e ``fim`` cobre a primeira palavra, para que ``ini < fim`` valha sempre.
+    Dado derivado: o texto não é tocado.
     """
-    report = read_articles(text)
-    anchors = [
-        {
-            "n": a["number"],
-            "sufixo": a["suffix"],
-            "ini": a["start"],
-            "fim": a["end"],
-        }
-        for a in report["articles"]
-        if a["status"] == "own" and a["number"] is not None
-    ]
-    return anchors, bool(report["closes"]), int(report["last"])
+    report = read_hierarchy(text)
+    own = own_articles(report)
+    anchors: list[dict[str, Any]] = []
+    for i, node in enumerate(own):
+        ini = node["start"]
+        fim = ini + len(node["raw"])
+        if fim <= ini:  # marcador de largura zero (artigo recuperado)
+            word = _FIRST_WORD.match(text, ini)
+            fim = word.end() if word else min(ini + 1, len(text))
+            if i + 1 < len(own):
+                fim = min(fim, own[i + 1]["start"])
+        anchors.append(
+            {"n": node["number"], "sufixo": node["suffix"], "ini": ini, "fim": fim}
+        )
+    last = max((a["n"] for a in anchors), default=0)
+    return anchors, article_closes(report), int(last)
 
 
 def make_trecho(text: str, max_chars: int = TRECHO_MAX_CHARS) -> str:
@@ -273,12 +289,12 @@ FONTE_PROPRIA = "propria"
 
 
 def read_closure(text: str) -> tuple[bool, int]:
-    """``(nível dos artigos fecha, nº de artigos próprios)`` segundo o leitor."""
-    report = read_hierarchy(text)
-    own = sum(
-        1 for n in report["nodes"] if n["kind"] == "artigo" and n["status"] == "own"
-    )
-    return bool(report["levels"]["artigo"]["closes"]), own
+    """``(nível dos artigos fecha, nº de artigos próprios)`` segundo o leitor.
+
+    Atalho de ``hierarchy_sequence.article_closure``: a mesma noção de "fecha" do
+    placar do ratchet e da camada de texto.
+    """
+    return article_closure(text)
 
 
 def choose_text_source(ia_text: str, own_text: str) -> str:
