@@ -86,7 +86,8 @@
           "max_head_checks": 2000,
           "max_scan_seconds": 3600,
           "scan_order": "descending",
-          "max_ambiguous_retries": 200
+          "max_ambiguous_retries": 200,
+          "skip_if_year_index_complete": true
         }
       ],
       "probe": [

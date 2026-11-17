@@ -1099,6 +1099,9 @@ class CasacivilYearIndexDiscovery:
         )
         self.ente = ente
         self.fonte = fonte
+        # True só depois de um run() que leu todos os anos e não foi bloqueado pelo
+        # robots: aí o índice é o inventário completo do tipo (ver discover_resources).
+        self.complete = False
 
     def _allowed(self, url: str) -> bool:
         from leizilla.scraper import robots
@@ -1143,6 +1146,7 @@ class CasacivilYearIndexDiscovery:
                     html_content, url, self.tipo, self.ente, self.fonte
                 )
             )
+        self.complete = not failed_years
         logger.info(
             f"CasacivilYearIndex Discovery concluído: {len(resources)} recursos "
             f"(tipo={self.tipo}); anos com falha: {failed_years or 'nenhum'}"
@@ -1372,6 +1376,12 @@ def discover_resources(
     """
     manifest = load_manifest(ente)
     out: List[Dict[str, Any]] = []
+    # (fonte, tipo) cujo índice anual oficial rodou inteiro neste discover: as
+    # estratégias marcadas com ``skip_if_year_index_complete`` daquele tipo são
+    # redundantes (o índice já lista o nome real de cada arquivo) e não rodam.
+    # Só vale com ``storage`` (caminho operacional): a reconciliação, que
+    # re-deriva tudo com storage=None, segue varrendo como antes.
+    covered: set[tuple[str, str]] = set()
     for f, fonte_cfg in manifest.get("fontes", {}).items():
         if fonte is not None and f != fonte:
             continue
@@ -1382,12 +1392,27 @@ def discover_resources(
                     f"Estratégia '{discovery_cfg.get('strategy')}' não suportada."
                 )
                 continue
-            if tipo is not None:
-                cfg_tipo = _discovery_cfg_tipo(discovery_cfg)
-                if cfg_tipo is not None and cfg_tipo != tipo:
-                    continue
+            cfg_tipo = _discovery_cfg_tipo(discovery_cfg)
+            if tipo is not None and cfg_tipo is not None and cfg_tipo != tipo:
+                continue
+            if (
+                storage is not None
+                and discovery_cfg.get("skip_if_year_index_complete")
+                and cfg_tipo is not None
+                and (f, cfg_tipo) in covered
+            ):
+                logger.info(
+                    f"Pulando {discovery_cfg.get('strategy')} para {ente}/{f} "
+                    f"tipo={cfg_tipo}: índice anual completo já cobre o tipo"
+                )
+                continue
             try:
-                out.extend(strategy_cls(discovery_cfg, ente, f).run(storage))
+                strategy = strategy_cls(discovery_cfg, ente, f)
+                out.extend(strategy.run(storage))
+                if isinstance(strategy, CasacivilYearIndexDiscovery) and (
+                    strategy.complete
+                ):
+                    covered.add((f, strategy.tipo))
             except Exception as e:
                 logger.error(
                     f"Falha na estratégia '{discovery_cfg.get('strategy')}' "

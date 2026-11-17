@@ -1,6 +1,6 @@
 """Testes para discover_casacivil_laws — enumeração sem Playwright."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from leizilla.discovery import CasacivilIndexDiscovery
 
 import pytest
@@ -145,3 +145,98 @@ class TestCasacivilIndexDiscovery:
         resources = discoverer.run()
 
         assert resources == []
+
+
+# --------------------------------------------------------------------------- ADR-0016
+# Decreto: a varredura DEC{num}.pdf (2000 HEAD, ~36 min) é redundante quando o índice
+# anual oficial rodou inteiro para o tipo — o índice já lista o nome real do arquivo.
+
+
+class _FakeSequential:
+    calls: list = []
+
+    def __init__(self, config: dict, ente: str, fonte: str) -> None:
+        self.config = config
+
+    def run(self, storage: object = None) -> list:
+        _FakeSequential.calls.append(self.config["templates"][0])
+        return []
+
+
+def _decreto_manifest() -> dict:
+    year = {
+        "strategy": "casacivil-year-index",
+        "tipo": "decreto",
+        "url_template": "https://x.example/listdecnum.aspx?ano={ano}",
+        "start_year": 2020,
+        "end_year": 2020,
+    }
+    dec = {
+        "strategy": "sequential",
+        "templates": ["https://x.example/Files/DEC{num}.pdf"],
+        "skip_if_year_index_complete": True,
+    }
+    return {"fontes": {"casacivil": {"discovery": [year, dec]}}}
+
+
+@pytest.fixture
+def fake_casacivil(monkeypatch: pytest.MonkeyPatch) -> None:
+    from leizilla import discovery
+
+    _FakeSequential.calls = []
+    monkeypatch.setitem(discovery.STRATEGIES, "sequential", _FakeSequential)
+    monkeypatch.setattr(discovery, "load_manifest", lambda ente: _decreto_manifest())
+    monkeypatch.setattr(
+        discovery.CasacivilYearIndexDiscovery, "_allowed", lambda *a: True
+    )
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    monkeypatch.setattr(
+        discovery.CasacivilYearIndexDiscovery, "_fetch", lambda self, url: "<html/>"
+    )
+    monkeypatch.setattr(discovery, "parse_casacivil_year_index", lambda *a, **k: [])
+
+
+def test_decreto_sequential_scan_is_skipped_when_the_year_index_is_complete(
+    fake_casacivil: None,
+) -> None:
+    from leizilla.discovery import discover_resources
+
+    discover_resources("ro", fonte="casacivil", storage=MagicMock(), tipo="decreto")
+
+    assert _FakeSequential.calls == []
+
+
+def test_decreto_sequential_scan_runs_when_a_year_failed(
+    fake_casacivil: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from leizilla import discovery
+    from leizilla.discovery import discover_resources
+
+    monkeypatch.setattr(
+        discovery.CasacivilYearIndexDiscovery, "_fetch", lambda self, url: None
+    )
+
+    discover_resources("ro", fonte="casacivil", storage=MagicMock(), tipo="decreto")
+
+    assert len(_FakeSequential.calls) == 1
+
+
+def test_reconciliation_path_without_storage_still_scans(
+    fake_casacivil: None,
+) -> None:
+    from leizilla.discovery import discover_resources
+
+    discover_resources("ro", fonte="casacivil", storage=None, tipo="decreto")
+
+    assert len(_FakeSequential.calls) == 1
+
+
+def test_manifest_skips_only_the_decreto_sequential_scan() -> None:
+    from leizilla.discovery import load_manifest
+
+    flagged = [
+        d["templates"][0].rsplit("/", 1)[-1]
+        for d in load_manifest("ro")["fontes"]["casacivil"]["discovery"]
+        if d.get("skip_if_year_index_complete")
+    ]
+    assert flagged == ["DEC{num}.pdf"]
