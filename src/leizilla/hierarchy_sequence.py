@@ -194,6 +194,9 @@ _ART_GARBLE = re.compile(
     r"(?=(?:Esta|Este|Fica|Ficam|Revogam|Revoga|VETAD\w*|Os|As|Cabe|Caber\w*|"
     r"Somente|Para)\b)"
 )
+# An inciso numeral ("III-", "XIV —") that opens a line before a caput-like word is a
+# list item, not a garbled article word.
+_ROMAN_ITEM = re.compile(r"[IVXLCDMlI]{1,6}")
 # The closing caput as OCR runs its words together ("entraem vigorna data").
 _FINAL_LOOSE = re.compile(r"\bentr\w*\s*em\s*vigor|\brevogam-se", re.IGNORECASE)
 _ART_GARBLE_TAIL = re.compile(
@@ -222,6 +225,7 @@ _NR = re.compile(r"\(\s?(?:NR|AC)\s?\)")
 _BODY_END = re.compile(
     r"(?:^|\s)(?:Pal[áa]cio\s+do\s+Governo|Pal[áa]cio\s+[A-Z]\w+|Bras[ií]lia,\s+\d"
     r"|Porto\s+Velho,\s+\d)|(?m:^[ \t\W]{0,6}A\s?N\s?E\s?X\s?O\b)"
+    r"|(?m:^[ \t]*ASSEMBL[ÉE]IA\s+LEGISLATIVA[^\n]{0,40}?,[ \t]*\d)"
 )
 
 _ART_HEAD = re.compile(r"\s{0,2}(?:Art|AH|Arl|Aft)\b")
@@ -1235,7 +1239,8 @@ def _fill_article_gaps(
         garbled = [
             m
             for m in _ART_GARBLE.finditer(text, a["end"], b["start"])
-            if m.start("word") not in known
+            if not _ROMAN_ITEM.fullmatch(m.group("word").strip(" \t.,:;-–—"))
+            and m.start("word") not in known
             and m.start("word") not in {w.start("word") for w in wild}
             and not any(lo <= m.start() < hi for lo, hi in masked)
             and not is_reference(text, m.start("word"))
@@ -1543,6 +1548,38 @@ def _quote_under_amending_host(text: str, articles: list[ArticleRead]) -> None:
                 art["status"] = "quoted"
 
 
+def _cited_in_annex(text: str, articles: list[ArticleRead], body_end: int) -> None:
+    """A marker inside a line of an annex heading or table, after the body's end.
+
+    "ANEXO II ... DE ACORDO COM O ART. 39 DA LEI", "(Artigo 4o, § 2o, Inciso I, da Lei
+    Complementar Federal n° 101)", "LC No 67/92 - ART. 6o": the annex cites articles in
+    the middle of a line. A marker that opens its line after the body's end stays
+    unread, since the body may continue there (a second text after an annex).
+    """
+    for art in articles:
+        if (
+            art["status"] == "unexplained"
+            and art["start"] >= body_end
+            and not _opens_line(text, art["start"])
+        ):
+            art["status"] = "quoted"
+
+
+def _before_enacting(articles: list[ArticleRead]) -> None:
+    """A marker the chain left over before the norm's first own article.
+
+    A message or statement of reasons that precedes the enacting formula quotes the
+    articles it proposes ("que segue: Art. 9º. Somente poderão ..."). The articulated
+    body starts at the first own article, so nothing before it is an unread article.
+    """
+    firsts = [a["start"] for a in articles if a["status"] == "own"]
+    if not firsts:
+        return
+    for art in articles:
+        if art["status"] == "unexplained" and art["start"] < min(firsts):
+            art["status"] = "quoted"
+
+
 def find_body_end(text: str, last_article_start: int) -> int:
     """Where the articulated body stops: the closing formula or the first annex."""
     m = _BODY_END.search(text, last_article_start)
@@ -1566,7 +1603,10 @@ _NOTE_MARK = re.compile(r"[()\[\]]")
 # A line opener that is OCR debris rather than prose: at most three short tokens, each
 # punctuation, a digit, a dotted abbreviation or a single capital ("Art. T.", "49 -").
 _DEBRIS_TOKEN = re.compile(r"[\W_]*|.*\d.*|.*\..*|[A-ZÀ-Ý]")
-_NUM_HEAD = re.compile(r"(?m)^[ \t]*(?P<num>\d{1,2})\s?[-–—.]\s+[A-ZÀ-Ý]")
+_DAY_OF_DATE = re.compile(r"[ \t]+de\b")
+# A numbered line that reads as an article opener: no zero padding ("09. Secretaria")
+# and its text on the same line, not after a blank line ("4.\n\nPROCESSO").
+_NUM_HEAD = re.compile(r"(?m)^[ \t]*(?P<num>[1-9]\d?)\s?[-–—.][ \t]+[A-ZÀ-Ý]")
 # The article word as OCR garbles it at a line start ("Arte e Revogam-se", "Ait", "Arl").
 _GARBLED_ART = re.compile(r"[AÁ][rR][tTlI]?[eEaAoO]?|Aft|Arl|Ait|Alt|Apt")
 
@@ -1585,7 +1625,18 @@ def _ends_marker(text: str, nodes: Sequence[Node], pos: int) -> bool:
         if node["status"] != "own":
             continue
         end = node["start"] + len(node["raw"])
-        if end <= pos and pos - end <= 6 and not re.search(r"[^\W\d_]", text[end:pos]):
+        if end > pos or pos - end > 6:
+            continue
+        letters = re.findall(r"[^\W\d_]", text[end:pos])
+        if not letters:
+            return True
+        # The ordinal sign as OCR reads it, glued to the number: "Art. 3s - Revogam-se".
+        if (
+            len(letters) == 1
+            and letters[0] in "SsBeE"
+            and text[end - 1 : end].isdigit()
+            and text[end] == letters[0]
+        ):
             return True
     return False
 
@@ -1661,6 +1712,10 @@ def _tail_clean(
         pos = m.start("word")
         if any(s <= pos < e for s, e in known) or any(s <= pos < e for s, e in masked):
             continue
+        # A citation broken across lines ("exceto em relação ao\nart. 1º") or the day
+        # of a signature date ("Al 15 de dezembro") is not an article the reader lost.
+        if is_reference(text, pos) or _DAY_OF_DATE.match(text, m.end()):
+            continue
         return False
     for m in _NUM_HEAD.finditer(text, lo, hi):
         pos = m.start("num")
@@ -1694,6 +1749,8 @@ def read_hierarchy(text: str) -> HierarchyReport:
     all_articles, gap_articles = _fill_article_gaps(text, second["articles"], masked)
 
     _quote_under_amending_host(text, all_articles)
+    _cited_in_annex(text, all_articles, body_end)
+    _before_enacting(all_articles)
     own = [a for a in all_articles if a["status"] == "own"]
     own_numbers = {a["number"] for a in own if a["number"] is not None}
     last_article = max(own_numbers, default=0)
