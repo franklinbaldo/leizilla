@@ -1091,3 +1091,85 @@ def test_bare_number_before_the_closing_sentence_needs_its_ordinal_sign() -> Non
     # indistinguishable from a list item and keeps the old, open behaviour.
     text = "Art. 1º Fica criado o cargo.\n2º Este Decreto entra em vigor na data."
     assert _own_numbers(read_hierarchy(text)) == [1, 2]
+
+
+# --- tournament round 4 -------------------------------------------------------------
+# lei-00284 (440c8078): a citation ("Art. 42 da Constituição") sits before the enacting
+# formula; the opening "Art. Fica instituído" after it is still Art. 1.
+def test_citation_before_the_formula_does_not_block_the_unnumbered_opening() -> None:
+    text = (
+        "A Assembleia, nos termos do § 70, do Art.\n42 da Constituição do Estado,\n"
+        "promulgo a seguinte Lei:\n\n\n"
+        "Art. Fica instituído o passe escolar, a ser distribuído gratuitamente.\n"
+        "Art. 2º O discente que comprovar a condição fará jus ao benefício.\n"
+        "Art. 3º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2, 3]
+
+
+# lei-00xxx (fcda3829): "Art.\nI5\n-\nOs recursos" right after "seguinte Lei:".
+def test_marker_seen_but_unplaced_right_after_the_formula_is_article_one() -> None:
+    text = (
+        "decreta e eu sanciono a\nseguinte Lei:\n\n\n"
+        "Art.\nI5\n-\nOs\nrecursos do orçamento plurianual são estimados.\n"
+        "Art. 2º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2]
+
+
+def test_unplaced_marker_far_from_the_formula_is_not_article_one() -> None:
+    text = (
+        "decreta e eu sanciono a\nseguinte Lei:\n\n\n"
+        "Preâmbulo sem artigo algum, com bastante texto corrido antes do primeiro.\n"
+        "Art.\nI5\n-\nOs recursos.\n"
+        "Art. 2º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    assert 1 not in _own_numbers(read_hierarchy(text))
+
+
+# lei-00858 (c8f92562): two numbers missing, two unreadable markers between them.
+def test_two_missing_numbers_and_two_markers_are_matched_in_order() -> None:
+    text = (
+        "Art. 1º Fica criado o cargo.\nArt. 2º Fica criado o fundo.\n"
+        "Art. 3º Fica criado o prazo.\nArt. 4º Fica criado o comitê.\n"
+        "Art. 5º Fica criado o cargo.\n"
+        "Árt. 6o / aplicação das multas pertinentes.\n"
+        "Ait. T Esta Lei vigora.\n"
+        "Art. 8º Fica revogado o artigo.\nArt. 9º Esta Lei entra em vigor.\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+
+def test_two_missing_numbers_with_one_marker_stay_open() -> None:
+    text = (
+        "Art. 1º Fica criado o cargo.\nArt. 2º Fica criado o fundo.\n"
+        "Art. 3º Fica criado o prazo.\nArt. 4º Fica criado o comitê.\n"
+        "Ait. T Esta Lei vigora.\n"
+        "Art. 7º Fica revogado o artigo.\nArt. 8º Esta Lei entra em vigor.\n"
+    )
+    numbers = _own_numbers(read_hierarchy(text))
+    assert 5 not in numbers and 6 not in numbers
+
+
+# lei-00388 (3ea8b462): "Art. 59-0 Poder" is 5º - O Poder, after a stray line end.
+def test_glued_ordinal_marker_opening_its_line_fills_the_gap() -> None:
+    text = (
+        "Art. 1º Fica criado o fundo.\n"
+        "Art. 2º Os recursos virão do Estad o\n"
+        "Art. 3º Fica o Poder Executivo autorizado.\n"
+        "Art. 4º Os valores serão devolvidos aos cofres do Estado e\n"
+        "Art. 59-0 Poder Executivo regulamentará esta Lei.\n"
+        "Art. 6º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2, 3, 4, 5, 6]
+
+
+# lei-00166 (2381d54d): "Art-" then a number made of debris.
+def test_lone_marker_over_debris_fills_a_single_gap() -> None:
+    text = (
+        "Art. 1º Fica criado o fundo.\n"
+        "Art-\n2-\n"
+        "Fica instituído o prazo de trinta dias.\n"
+        "Art. 3º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    assert _own_numbers(read_hierarchy(text)) == [1, 2, 3]

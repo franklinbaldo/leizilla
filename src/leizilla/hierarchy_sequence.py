@@ -206,6 +206,12 @@ _NUM_CAPUT = re.compile(
     r"(?m)^[ \t]*(?P<word>(?P<num>\d{1,3})(?:[ \t]?[ºo°ª]|(?=[ \t]*[\-–—.][ \t]))"
     r"[ \t]*[\-–—.]?[ \t]*)(?=[A-ZÀ-Ý][a-zà-ý])"
 )
+# A bare article word closing its line ("Art.", "Art-", "Art™") whose number is on the
+# next line as OCR debris of at most eight characters and no word ("ÍQ", ":14„").
+_ART_LONE = re.compile(
+    r"(?m)^[ \t]*(?P<word>Art[.,:;»«™„\-]{0,3})[ \t]*\n[ \t]*\n?"
+    r"[ \t]*(?!\S*[^\W\d_]{3})\S{1,8}[ \t]*$"
+)
 _FINAL_CLAUSE = re.compile(r"vigo|revog", re.IGNORECASE)
 _ENUM_LEFT = re.compile(r";\s*(?:(?:e|ou)\s*)?$")
 _LEAD = re.compile(r"\s*[.\-–—:]{0,2}\s*")
@@ -1200,7 +1206,8 @@ def _fill_article_gaps(
     for a, b in zip(own, own[1:]):
         if a["number"] is None or b["number"] is None:
             continue
-        if b["number"] - a["number"] != 2:
+        absent = b["number"] - a["number"] - 1
+        if absent < 1:
             continue
         between = [
             x for x in out if a["start"] < x["start"] < b["start"] and x is not b
@@ -1230,8 +1237,41 @@ def _fill_article_gaps(
             and not any(lo <= m.start() < hi for lo, hi in masked)
             and not is_reference(text, m.start("word"))
         ]
+        if absent > 1:
+            # Several numbers missing: only a one-to-one match with sharp candidates.
+            if len(loose) + len(wild) == absent:
+                slots: list[tuple[int, ArticleRead | re.Match[str]]] = [
+                    (x["start"], x) for x in loose
+                ] + [(m.start("word"), m) for m in wild]
+                slots.sort(key=lambda it: it[0])
+                for k, (_, item) in enumerate(slots, 1):
+                    if isinstance(item, re.Match):
+                        added.append(
+                            {
+                                "start": item.start("word"),
+                                "end": item.end(),
+                                "raw": text[item.start("word") : item.end()],
+                                "number": a["number"] + k,
+                                "suffix": None,
+                                "status": "own",
+                                "corrected": True,
+                            }
+                        )
+                    else:
+                        item["status"] = "own"
+                        item["number"] = a["number"] + k
+                        item["corrected"] = True
+                        filled.add(item["start"])
+            continue
         if not loose and not wild:
             wild = garbled  # only when nothing sharper sits in the gap
+        if not loose and not wild:
+            wild = [
+                m
+                for m in _ART_LONE.finditer(text, a["end"], b["start"])
+                if m.start("word") not in known
+                and not any(lo <= m.start() < hi for lo, hi in masked)
+            ]
         if not loose and not wild:
             wild = [
                 m
@@ -1290,6 +1330,9 @@ _HEAD_LINE = re.compile(
 )
 
 
+_KNOWN_HEAD = re.compile(r"(?P<word>Art[^\n]{0,3}\n?[^\n]{0,6})")
+
+
 def _head_article(
     text: str,
     articles: list[ArticleRead],
@@ -1307,16 +1350,21 @@ def _head_article(
     if not own or own[0]["number"] != 2:
         return None
     first = own[0]
-    formula = None
-    for f in _ENACTING.finditer(text, 0, first["start"]):
-        formula = f
-    if formula is None:
-        return None
-    line = formula.end()
-    while line < first["start"] and text[line] in " \t\n":
-        line += 1
-    m = _HEAD_LINE.match(text, line)
-    if m is None or m.end() > first["start"]:
+    line = fend = -1
+    m = None
+    for f in reversed(list(_ENACTING.finditer(text, 0, first["start"]))):
+        pos = f.end()
+        while pos < first["start"] and text[pos] in " \t\n":
+            pos += 1
+        m = _HEAD_LINE.match(text, pos)
+        if m is None and pos in known:
+            # A marker the number reader already saw but could not place ("Art.\nI5"):
+            # right after the formula it needs no caput verb to be the first article.
+            m = _KNOWN_HEAD.match(text, pos)
+        if m is not None and m.end() <= first["start"]:
+            line, fend = pos, f.end()
+            break
+    if m is None or line < 0:
         return None
     if line in known:
         loose = [a for a in articles if a["start"] == line]
@@ -1328,7 +1376,9 @@ def _head_article(
         return loose[0]
     if any(lo <= line < hi for lo, hi in masked):
         return None
-    if any(a["start"] < first["start"] and a["start"] != line for a in articles):
+    if any(
+        fend <= a["start"] < first["start"] and a["start"] != line for a in articles
+    ):
         return None
     end = m.end("word")
     return {
@@ -1361,7 +1411,10 @@ def _opens_line(text: str, pos: int) -> bool:
 
 def _reads_as(text: str, pos: int, number: int) -> bool:
     """True when the literal reading of the marker at ``pos`` is ``number``."""
-    return _article_reading(text, pos) == number
+    m = ARTICLE_CANDIDATE.match(text, pos)
+    if m is None:
+        return False
+    return number in article_readings(m.group("num"), m.group("ord") is not None)
 
 
 def _tail_article(
