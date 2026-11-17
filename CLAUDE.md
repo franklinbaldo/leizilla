@@ -122,7 +122,7 @@ src/leizilla/
 ├── etl.py           # Leizilla XML → Parquet (versioning + revogação cascade)
 ├── completeness.py  # completeness ledger = official catalog: year index × IA holdings (SCHEMA §3.6)
 ├── catalogo.py      # catalog derived fields: busca, situacao_norma, links, release gates (ADR-0017)
-├── reocr.py         # targeted re-OCR (Kreuzberg+PaddleOCR) where the reader does not close; gate + reocr.parquet (ADR-0019)
+├── reocr.py         # targeted re-OCR (Kreuzberg+PaddleOCR): queues nao-fecha + sem-texto, gates, shards, reocr.parquet (ADR-0019)
 ├── relacoes.py      # norm-to-norm relations from ementas, regex rules only (SCHEMA §3.7, ADR-0017)
 ├── cli.py           # Typer CLI, ~20 commands  [largest user-facing, ~1300 LOC]
 ├── fontes/          # source-specific discovery: ro.py (done), federal.py (Planalto), sp.py (stub)
@@ -194,7 +194,8 @@ All commands run as `uv run leizilla <command>`. Most take `--ente` (default `ro
 | `search --ente ro` / `stats --ente ro` | local search / IA item counts |
 | `completeness --output completeness.parquet --catalog-snapshot completeness_catalog.json.gz` | ledger of every norm in the official year index vs. what is preserved / readable / structured (`--max-fetch`, `--fetch-years`, `--refresh-years`, `--textos`, `--sem-ia`, `--relations`, `--upload`); also writes `relacoes.parquet` |
 | `release-catalogo completeness.parquet relacoes.parquet --summary completeness.json` | validate (contract + row floor) and publish the official catalog + relations to IA (`--dry-run`, `--allow-lower-count`; ADR-0017) |
-| `reocr --ente ro --limit 60 --max-pages 40 --output reocr.parquet` | targeted re-OCR (ADR-0019): norms whose `read_hierarchy` does not close → IA PDF → poppler → Kreuzberg+PaddleOCR → deterministic gate; one row per attempt (`--upload`, `--upload-wait-minutes` (default 45: waits out an IA queue throttle), `--dry-run`, `--textos`, `--previous`); needs `uv sync --extra reocr` + poppler; `build-textos --reocr` overlays accepted texts |
+| `reocr --ente ro --limit 60 --max-pages 40 --output reocr.parquet` | targeted re-OCR (ADR-0019), two queues (`--queue nao-fecha\|sem-texto\|ambas`, default `ambas`; `--limit` is the total, `sem-texto` gets up to 2/3, unused share flows over): `nao-fecha` = norms whose `read_hierarchy` does not close; `sem-texto` = preserved PDFs with no IA text and no `textos` row (newest first; accepted if >= 150 non-blank chars/page). IA PDF → poppler → Kreuzberg+PaddleOCR → deterministic gate; one row per attempt with `fila` (`--shard i/n`, `--upload`, `--upload-wait-minutes`, `--dry-run`, `--textos`, `--previous`, `--catalogo`); needs `uv sync --extra reocr` + poppler; `build-textos --reocr` overlays accepted texts and adds `sem-texto` rows (the IA text wins when it arrives, unless only ours closes) |
+| `reocr-merge shard*.parquet --ente ro [--upload]` | join the shard outputs of `reocr --shard` with the published history and publish once (`reocr.yml`) |
 | `pipeline --ente ro --limit 5` | orchestrate discover→harvest→export |
 
 Source-specific discovery currently exists for RO (`fontes/ro.py`) and federal
