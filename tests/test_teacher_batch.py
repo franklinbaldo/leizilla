@@ -1003,7 +1003,7 @@ def test_upload_to_ia_follows_publisher_conventions(tmp_path: Path) -> None:
     summary = {"ente": "ro", "norms_ok": 1, "labels": 3}
     seen: List[List[str]] = []
 
-    def fake_upload(self: Any, args: List[str]) -> None:
+    def fake_upload(self: Any, args: List[str], **_: Any) -> None:
         assert Path(args[3]).name == "labels.tar.gz" and Path(args[3]).is_file()
         seen.append(args)
 
@@ -1019,7 +1019,7 @@ def test_upload_to_ia_follows_publisher_conventions(tmp_path: Path) -> None:
     assert args[:3] == ["ia", "upload", "leizilla-teacher-labels-ro-20261114t120000z"]
     assert "mediatype:data" in args and "creator:leizilla-teacher-batch" in args
 
-    def failing(self: Any, args: List[str]) -> None:
+    def failing(self: Any, args: List[str], **_: Any) -> None:
         raise subprocess.CalledProcessError(1, args, stderr="denied")
 
     with patch.object(tb.publisher.InternetArchivePublisher, "_run_ia_upload", failing):

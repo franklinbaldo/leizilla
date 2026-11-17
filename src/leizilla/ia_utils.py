@@ -23,7 +23,7 @@ import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Mapping, Optional
 
 from leizilla.entes import list_slugs
 
@@ -59,7 +59,55 @@ INDEX_COLUMNS = [
     "sha256",  # hash completo — dedup + detecção de colisão de uuid5
     "captured_at",  # ISO-8601 — ordena versões (newest wins)
     "source",  # chave de colheita / URL de origem (ADR-0010): mapeia arquivo→fonte
+    # Proveniência da captura (ADR-0016, adendo 2026-11-17). Substitui o sidecar
+    # ``_meta.json`` por captura na colheita em lote: uma linha do índice carrega o que
+    # o sidecar tinha e o índice ainda não. Linhas antigas leem vazio ("desconhecido").
+    "fetched_from",  # wayback | source-fallback | source-direct | refile | ...
+    "wayback_url",  # snapshot de onde vieram os bytes (só se fetched_from=wayback)
+    "wayback_timestamp",  # instante imutável desse snapshot (14 dígitos)
+    "wayback_blocked_robots",  # "true" | "false" | "" (desconhecido)
+    "user_agent",  # User-Agent do crawler que baixou os bytes
 ]
+# Colunas de proveniência: as que vêm do sidecar, não da identidade.
+PROVENANCE_COLUMNS = INDEX_COLUMNS[8:]
+
+# --- Limitação de taxa do IA, classificada em um só lugar ----------------------------
+# O IA recusa uploads com "Please reduce your request rate. - {escopo}_tasks_queued
+# exceeds ..." quando há tarefas demais na fila. O ESCOPO da ração vem na mensagem:
+#   bucket_tasks_queued     ração do ITEM (só aquele item está cheio)
+#   accesskey_tasks_queued  ração da CHAVE de acesso (a conta inteira; 2026-11-17)
+#   total_tasks_queued      limite GLOBAL da fila (``exceeds global_limit``)
+# Qualquer outro ``{palavra}_tasks_queued`` ainda não visto é tratado como da conta, o
+# lado conservador (a colheita recua em vez de insistir).
+_IA_TASKS_QUEUED_RE = re.compile(r"\b([a-z0-9_]+?)_tasks_queued\b", re.IGNORECASE)
+_IA_RATE_TEXT_RE = re.compile(r"reduce your request rate|slow ?down", re.IGNORECASE)
+
+
+def classify_ia_throttle(text: Optional[str]) -> Optional[str]:
+    """Escopo de uma recusa por taxa do IA: ``"item"``, ``"account"`` ou ``None``.
+
+    ``None`` = o texto não é uma limitação de taxa. ``"item"`` só quando **todo**
+    marcador ``*_tasks_queued`` da mensagem é ``bucket``; qualquer outro (``total``,
+    ``accesskey`` ou um desconhecido) ou um aviso de taxa sem marcador algum é
+    ``"account"``.
+    """
+    body = text or ""
+    scopes = {m.group(1).lower() for m in _IA_TASKS_QUEUED_RE.finditer(body)}
+    if scopes:
+        return "item" if scopes == {"bucket"} else "account"
+    if _IA_RATE_TEXT_RE.search(body):
+        return "account"
+    return None
+
+
+def is_ia_queue_full(text: Optional[str]) -> bool:
+    """True se o texto traz um marcador ``*_tasks_queued`` (fila de tarefas cheia).
+
+    É a limitação que só passa em minutos ou mais, a que a espera paciente
+    (``IaQueueWait``) e o recuo imediato da colheita tratam; um ``reduce your request
+    rate`` sem marcador é limite de taxa comum e mantém os recuos curtos.
+    """
+    return _IA_TASKS_QUEUED_RE.search(text or "") is not None
 
 
 def compute_hash(data: bytes) -> str:
@@ -175,6 +223,7 @@ def merge_index_row(
     sha256: str,
     captured_at: Optional[str] = None,
     source: str = "",
+    provenance: Optional[Mapping[str, str]] = None,
 ) -> str:
     """Devolve o index.csv com a captura anexada (append-only, newest-wins).
 
@@ -183,6 +232,10 @@ def merge_index_row(
     mesma ``(tipo, numero, rendicao, formato)`` anexam uma linha nova; a mais
     recente é a corrente. Para linhas **não identificadas** (sem número), ``source``
     também entra na chave de idempotência, pois a reconciliação casa por ``source``.
+
+    ``provenance`` preenche as colunas de ``PROVENANCE_COLUMNS`` da linha nova (chaves
+    ausentes ficam vazias). Não entra na chave de idempotência: re-capturar os mesmos
+    bytes continua sendo no-op e **não** reescreve a proveniência da linha existente.
     """
     captured_at = captured_at or datetime.now(tz=timezone.utc).isoformat()
     rows: list[dict[str, str]] = []
@@ -221,6 +274,7 @@ def merge_index_row(
             "sha256": sha256,
             "captured_at": captured_at,
             "source": source,
+            **{c: str((provenance or {}).get(c, "") or "") for c in PROVENANCE_COLUMNS},
         }
     )
     out = io.StringIO()

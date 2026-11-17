@@ -22,7 +22,12 @@ from typing import Any, Callable, Dict, Iterator, List, Optional
 
 from leizilla import config, robots, wayback
 from leizilla.discovery import load_manifest
-from leizilla.ia_utils import parse_identity, range_bounds, range_item_identifier
+from leizilla.ia_utils import (
+    classify_ia_throttle,
+    parse_identity,
+    range_bounds,
+    range_item_identifier,
+)
 from leizilla.parser import fetch_html
 from leizilla.publisher import (
     InternetArchivePublisher,
@@ -331,7 +336,18 @@ _MAX_CONSECUTIVE_TRANSIENT_FETCH = 10
 # não de um PDF — baixar mais da fonte só para perder no upload é desperdício dela.
 _MAX_CONSECUTIVE_FLUSH_FAILURES = 2
 # Motivos de flush que encerram a colheita na hora (repetir agora não ajuda).
-_FATAL_FLUSH_REASONS = frozenset({"ia-throttled", "ia-unavailable"})
+# ``ia-account-throttled``: ração/limite da CONTA (accesskey_/total_/desconhecido
+# ``*_tasks_queued``, ou aviso de taxa sem marcador) — ADR-0016 adendo 2026-11-17;
+# ``flush-timeout``: o flush não coube no que restava do job.
+_FATAL_FLUSH_REASONS = frozenset(
+    {"ia-account-throttled", "flush-timeout", "ia-unavailable"}
+)
+# Dos motivos acima, os que NÃO são culpa do documento: as capturas voltam a ``pending``
+# sem contar como falha (``stats["requeued"]``, não ``stats["failed"]``).
+_REQUEUE_REASONS = frozenset({"ia-account-throttled", "flush-timeout"})
+# Reserva, antes do fim do job, para o resumo e o passo de cache que vêm depois da
+# colheita. O flush e o derive finais têm de terminar antes disso (``--job-deadline``).
+HARVEST_SUMMARY_RESERVE_S = 180.0
 # Sequência de 404/410 confirmados, sem nenhuma captura na execução: a fila traz
 # chutes obsoletos (ex.: números além do último existente). Cada 404 já vira
 # terminal, então a próxima execução segue adiante — isto só limita o desperdício
@@ -343,17 +359,12 @@ _ABSENT_STREAK_REASON = "sequência de documentos inexistentes"
 def ia_throttle_scope(message: Optional[str]) -> str:
     """Classifica uma recusa por taxa do IA: ``"item"`` ou ``"account"``.
 
-    ``bucket_tasks_queued exceeds rationed amount`` é a ração **por item**: só
-    aquele item está com a fila cheia. ``total_tasks_queued`` é o limite da conta
-    inteira. Mensagem sem nenhum dos dois marcadores (ou com os dois) é tratada
-    como da conta — o caso conservador, que encerra a colheita.
+    Usa ``leizilla.ia_utils.classify_ia_throttle`` (a classificação é uma só):
+    ``bucket_tasks_queued`` é a ração **por item**; ``accesskey_``, ``total_`` e
+    qualquer outro ``*_tasks_queued`` são da conta. Mensagem sem marcador algum é
+    tratada como da conta — o caso conservador, que encerra a colheita.
     """
-    text = message or ""
-    if "total_tasks_queued" in text:
-        return "account"
-    if "bucket_tasks_queued" in text:
-        return "item"
-    return "account"
+    return classify_ia_throttle(message) or "account"
 
 
 # Save Page Now em segundo plano: no máximo 1 pedido a cada 5 s (12/min), fila
@@ -389,11 +400,15 @@ class _RawBatcher:
         publisher: InternetArchivePublisher,
         stats: Dict[str, Any],
         batch_size: int,
+        flush_deadline_epoch: Optional[float] = None,
     ) -> None:
         self.storage = storage
         self.publisher = publisher
         self.stats = stats
         self.batch_size = max(1, batch_size)
+        # Instante (Unix) até o qual um flush ou derive pode rodar: o fim do job menos a
+        # reserva do resumo. ``None`` = sem prazo (a colheita sem ``--job-deadline``).
+        self.flush_deadline_epoch = flush_deadline_epoch
         # Índice acumulado por item nesta execução: flushes sucessivos ao mesmo
         # item partem do índice do flush anterior em vez de reler do IA (sem
         # read-after-write) e sobrescrever as linhas recém-gravadas.
@@ -420,15 +435,41 @@ class _RawBatcher:
         if len(buffer) >= self.batch_size:
             self.flush(item_id)
 
+    def _time_left_s(self) -> Optional[float]:
+        """Segundos até o prazo de flush/derive, ou ``None`` se não há prazo."""
+        if self.flush_deadline_epoch is None:
+            return None
+        return self.flush_deadline_epoch - time.time()
+
     def flush(self, item_id: str) -> None:
         staged = self.buffers.pop(item_id, [])
         if not staged:
             return
         results: List[Dict[str, Any]]
+        # O prazo limita o upload em si (o ``ia`` e os seus recuos), não só o laço de
+        # busca: sem isso um throttle prendia o flush até o ``timeout-minutes`` do job.
+        # O argumento só existe com prazo, para quem não o usa (e os fakes) não mudar.
+        deadline_kw: Dict[str, Any] = {}
+        left = self._time_left_s()
+        if left is not None:
+            deadline_kw["timeout_s"] = left
         try:
-            results = self.publisher.upload_raw_batch(
-                item_id, [s.capture for s in staged], index_cache=self.index_cache
-            )
+            if left is not None and left <= 0:
+                results = [
+                    {
+                        "success": False,
+                        "reason": "flush-timeout",
+                        "error": "sem tempo antes do fim do job",
+                    }
+                    for _ in staged
+                ]
+            else:
+                results = self.publisher.upload_raw_batch(
+                    item_id,
+                    [s.capture for s in staged],
+                    index_cache=self.index_cache,
+                    **deadline_kw,
+                )
         except Exception as exc:
             print(f"[ERROR] flush de {item_id} levantou: {exc}", file=sys.stderr)
             results = []
@@ -450,9 +491,20 @@ class _RawBatcher:
             if reason == "ia-rejected":
                 self._record_rejected(entry, str(result.get("rejection") or ""))
                 continue
-            batch_failure = reason
             if reason == "ia-throttled":
                 throttle_error = str(result.get("error", ""))
+                scope = str(result.get("scope") or ia_throttle_scope(throttle_error))
+                if scope == "account":
+                    # Ração da conta (ou limite global): nada mais sobe agora. Não é
+                    # culpa do documento: volta a ``pending`` sem contar como falha.
+                    batch_failure = "ia-account-throttled"
+                    self._record_requeued(entry, batch_failure, throttle_error)
+                    continue
+            if reason in _REQUEUE_REASONS:
+                batch_failure = reason
+                self._record_requeued(entry, reason, str(result.get("error", "?")))
+                continue
+            batch_failure = reason
             self._record_failure(entry, reason, str(result.get("error", "?")))
 
         if any_success and item_id not in self.derive_items:
@@ -460,10 +512,7 @@ class _RawBatcher:
         if batch_failure is None:
             self.consecutive_failures = 0
             return
-        if (
-            batch_failure == "ia-throttled"
-            and ia_throttle_scope(throttle_error) == "item"
-        ):
+        if batch_failure == "ia-throttled":  # escopo item (o de conta saiu acima)
             # Ração por item: só este item recua; os demais seguem. Não conta como
             # flush falho seguido (o problema não é do lote nem da conta).
             self.throttled_items.add(item_id)
@@ -525,6 +574,23 @@ class _RawBatcher:
             {"status": "ia-rejected", "chave": entry.chave, "reason": reason}
         )
 
+    def _record_requeued(self, entry: _Staged, reason: str, error: str) -> None:
+        """Devolve a captura à fila (``pending``) sem contá-la como falha.
+
+        O IA recusou o upload por limite da conta, ou o prazo do job acabou durante o
+        flush: o documento está bom e os bytes não chegaram ao índice do IA. Entra em
+        ``stats["requeued"]`` (não em ``failed``/"Falhas") e a próxima execução o refaz.
+        """
+        print(
+            f"[WARN] {entry.chave} volta à fila (pending) [{reason}]: {error[-200:]}",
+            file=sys.stderr,
+        )
+        self.storage.update_resource_status(entry.url, "pending")
+        self.stats["requeued"] = self.stats.get("requeued", 0) + 1
+        self.stats["items"].append(
+            {"status": "requeued", "chave": entry.chave, "reason": reason}
+        )
+
     def _record_failure(self, entry: _Staged, reason: str, error: str) -> None:
         print(
             f"[WARN] upload failed for {entry.chave} [{reason}]: {error[-300:]}",
@@ -547,7 +613,10 @@ class _RawBatcher:
             # Colheita abortada (ex.: IA limitando a taxa): não insiste. O que
             # ficou no buffer volta para a fila como falha transitória.
             for entry in self.buffers.pop(item_id):
-                self._record_failure(entry, self.abort_reason, "colheita abortada")
+                if self.abort_reason in _REQUEUE_REASONS:
+                    self._record_requeued(entry, self.abort_reason, "colheita abortada")
+                else:
+                    self._record_failure(entry, self.abort_reason, "colheita abortada")
         self._request_derives()
 
     def _pending_in_item(self, item_id: str) -> Optional[int]:
@@ -574,6 +643,13 @@ class _RawBatcher:
         touched_only = [i for i in self.item_meta if i not in uploaded]
         for item_id in [*uploaded, *touched_only]:
             received_files = item_id in uploaded
+            if self.abort_reason in _REQUEUE_REASONS:
+                # Conta limitada ou prazo estourado: um derive agora só gastaria o
+                # que resta do job (e tarefas da ração). Quem recebeu arquivos fica
+                # listado com o comando manual no resumo (``derive-failed``).
+                if received_files:
+                    self.stats["derive-failed"].append(item_id)
+                continue
             if item_id in self.throttled_items:
                 self.stats["derive-postponed"].append(item_id)
                 continue
@@ -586,8 +662,16 @@ class _RawBatcher:
                 if received_files:
                     self.stats["derive-failed"].append(item_id)
                 continue
+            derive_kw: Dict[str, Any] = {}
+            left = self._time_left_s()
+            if left is not None:
+                if left <= 0:
+                    if received_files:
+                        self.stats["derive-failed"].append(item_id)
+                    continue
+                derive_kw["timeout_s"] = left
             try:
-                accepted = bool(self.publisher.request_derive(item_id))
+                accepted = bool(self.publisher.request_derive(item_id, **derive_kw))
             except Exception as exc:
                 print(f"[ERROR] derive de {item_id} levantou: {exc}", file=sys.stderr)
                 accepted = False
@@ -669,6 +753,7 @@ def harvest_pending_resources(
         {
             "success": 0,
             "failed": 0,
+            "requeued": 0,
             "robots-blocked": 0,
             "already-preserved": 0,
             "ia-rejected": 0,
@@ -700,6 +785,11 @@ def harvest_pending_resources(
         publisher,
         stats,
         batch_size if batch_size is not None else config.HARVEST_BATCH_SIZE,
+        flush_deadline_epoch=(
+            job_deadline_epoch - HARVEST_SUMMARY_RESERVE_S
+            if job_deadline_epoch is not None
+            else None
+        ),
     )
     if wayback_saver is None and config.HARVEST_WAYBACK_SAVE:
         wayback_saver = wayback.BackgroundSaver(

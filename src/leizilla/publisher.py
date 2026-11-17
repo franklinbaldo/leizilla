@@ -26,8 +26,11 @@ from leizilla import storage as storage_module
 from leizilla.ia_utils import (
     INDEX_COLUMNS,
     INDEX_FILENAME,
+    PROVENANCE_COLUMNS,
+    classify_ia_throttle,
     compute_hash,
     download_url,
+    is_ia_queue_full,
     list_identities,
     merge_index_row,
     parse_identity,
@@ -879,6 +882,7 @@ def _resolve_uuid5_and_index(
     formato: str,
     source: str = "",
     index_cache: Optional[Dict[str, str]] = None,
+    provenance: Optional[Dict[str, str]] = None,
 ) -> tuple[str, str]:
     """Resolve o nome de arquivo (UUIDv5) e o index.csv mesclado do item (ADR-0011).
 
@@ -911,6 +915,7 @@ def _resolve_uuid5_and_index(
         uuid5=uuid5,
         sha256=sha256,
         source=source,
+        provenance=provenance,
     )
     return uuid5, merged
 
@@ -989,9 +994,13 @@ _IA_BATCH_BASE_DELAY_S = 60.0
 _IA_BATCH_MAX_DELAY_S = 300.0
 # `ia upload --retries/--sleep` (verificado em `ia upload --help`, internetarchive
 # 5.8.0): em 503 SlowDown a biblioteca espera e repete **só o arquivo corrente**,
-# sem reenviar os anteriores do lote.
-_IA_BATCH_S3_RETRIES = 5
-_IA_BATCH_S3_SLEEP_S = 30
+# sem reenviar os anteriores do lote. Eram 5 x 30 s = ~150 s por arquivo recusado, por
+# tentativa do Python (x3, com recuos de 60/120 s): num throttle da fila de tarefas um
+# flush levava ~10 min e vários seguidos, ~30 min (2026-11-17, o job estourou o
+# ``timeout-minutes``). Agora 2 x 15 s: ~30 s por arquivo, e o Python vê o throttle em
+# cerca de um minuto. Um SlowDown de verdade (curto) ainda é absorvido pela CLI.
+_IA_BATCH_S3_RETRIES = 2
+_IA_BATCH_S3_SLEEP_S = 15
 # O IA recusou o conteúdo do PDF. Repetir não muda o resultado: é permanente.
 # Duas mensagens observadas em produção: "error checking pdf file" (PDF inválido) e
 # "Uploaded content is unacceptable. - pdf file looks like spam" (2026-11-16, PDFs
@@ -1014,25 +1023,19 @@ _REJECTION_TEXT_MAX = 120
 # Formato impresso por internetarchive.Item.upload_file em modo verbose:
 # " error uploading {key}: {msg}" — a chave é o nome do arquivo dentro do item.
 _IA_UPLOAD_ERROR_KEY_RE = re.compile(r"error uploading (\S+?):")
-_IA_THROTTLED_RE = re.compile(
-    r"reduce your request rate|total_tasks_queued|slow ?down", re.IGNORECASE
-)
-# Fila de tarefas da conta cheia (ADR-0019, upload do reocr): o IA só esvazia a fila
-# em minutos a dezenas de minutos, então quem opta pela espera longa (``IaQueueWait``)
-# espera por ela. Separado de ``_IA_THROTTLED_RE`` de propósito: alargar aquele
-# mudaria a classificação ``ia-throttled`` do harvest.
-_IA_QUEUE_FULL_RE = re.compile(
-    r"total_tasks_queued exceeds global_limit"
-    r"|bucket_tasks_queued exceeds rationed amount",
-    re.IGNORECASE,
-)
+# Classificação das recusas por taxa/fila do IA: ``leizilla.ia_utils.classify_ia_throttle``
+# (``item`` | ``account`` | ``None``) e ``is_ia_queue_full`` (marcador ``*_tasks_queued``).
+# Esperas em minutos a dezenas de minutos: quem opta pela espera longa (``IaQueueWait``)
+# espera por qualquer escopo; a colheita recua na hora (item: adia o item; conta: encerra).
 # Esperas entre tentativas quando a fila está cheia: 60, 120, 240 s e depois 300 s.
 _IA_QUEUE_WAIT_STEPS_S: tuple[float, ...] = (60.0, 120.0, 240.0, 300.0)
+# Espera paciente (minutos) que os uploads de dataset avulsos aceitam por padrão.
+_DATASET_QUEUE_WAIT_MIN = 30.0
 
 
 @dataclass
 class IaQueueWait:
-    """Orçamento de espera por fila cheia do IA (opt-in, usado só pelo reocr).
+    """Orçamento de espera por fila cheia do IA (opt-in: reocr, textos, catálogo...).
 
     Um objeto por release: as duas chamadas (item datado e ``-latest``) gastam do
     mesmo orçamento, então o total de espera fica limitado ao ``budget_s``.
@@ -1058,20 +1061,24 @@ class IaQueueWait:
         return delay
 
 
-def _is_queue_full(stderr: str) -> bool:
-    return _IA_QUEUE_FULL_RE.search(stderr) is not None
+def _provenance_columns(raw_meta: Dict[str, Any]) -> Dict[str, str]:
+    """Colunas de proveniência do ``index.csv`` a partir do ``raw_meta`` da captura.
 
-
-# Ração por item estourada ("bucket_tasks_queued exceeds rationed amount"): a fila
-# daquele item só esvazia em minutos a horas; esperar na própria chamada não ajuda.
-_IA_ITEM_RATION_RE = re.compile(r"bucket_tasks_queued", re.IGNORECASE)
-
-
-def _is_item_ration(stderr: str) -> bool:
-    return (
-        _IA_ITEM_RATION_RE.search(stderr) is not None
-        and "total_tasks_queued" not in stderr
-    )
+    Carrega o que só existia no sidecar ``_meta.json``: ``fetched_from`` e o snapshot
+    Wayback (``provenance_wayback``) e o ``user_agent``. O resto do sidecar é
+    redundante com o índice (``hash_pdf`` = ``sha256``, ``fonte_url`` = ``source``,
+    ``data_captura`` ~ ``captured_at``, ``ente``/``fonte``/``chave`` = item + identidade)
+    ou derivável (``ia_id_bundle`` = ente + fonte + semana ISO de ``captured_at``).
+    """
+    wayback = raw_meta.get("provenance_wayback") or {}
+    blocked = wayback.get("wayback_blocked_robots")
+    return {
+        "fetched_from": str(wayback.get("fetched_from") or ""),
+        "wayback_url": str(wayback.get("wayback_url") or ""),
+        "wayback_timestamp": str(wayback.get("wayback_timestamp") or ""),
+        "wayback_blocked_robots": "" if blocked is None else str(bool(blocked)).lower(),
+        "user_agent": str(raw_meta.get("user_agent") or ""),
+    }
 
 
 def _rejection_kind(stderr: str) -> str:
@@ -1279,7 +1286,8 @@ class InternetArchivePublisher:
         base_delay: float = _IA_UPLOAD_BASE_DELAY_S,
         max_delay: float = _IA_UPLOAD_MAX_DELAY_S,
         queue_wait: Optional[IaQueueWait] = None,
-        fail_fast_item_ration: bool = False,
+        fail_fast_queue: bool = False,
+        timeout_s: Optional[float] = None,
     ) -> "subprocess.CompletedProcess[str]":
         """Roda ``ia upload ...`` com espaçamento + retry exponencial (ADR-0008).
 
@@ -1310,24 +1318,56 @@ class InternetArchivePublisher:
         pelo IA ("error checking pdf file", "looks like spam") nunca é repetido,
         mesmo que o resto do stderr case um padrão transitório.
 
-        ``fail_fast_item_ration`` (colheita, ADR-0016): a ração por item
-        (``bucket_tasks_queued``) propaga na hora, sem os recuos de minutos — o
-        chamador adia o item e segue para os outros. O limite da conta
-        (``total_tasks_queued``) mantém os recuos.
+        ``fail_fast_queue`` (colheita, ADR-0016): a fila de tarefas cheia, de qualquer
+        escopo (``bucket_`` por item; ``accesskey_``/``total_`` da conta; ver
+        ``classify_ia_throttle``), propaga na hora, sem os recuos de minutos: o
+        chamador adia o item (escopo item) ou encerra a colheita (escopo conta). Um
+        ``reduce your request rate`` sem marcador de fila mantém os recuos.
+
+        ``timeout_s`` é o orçamento TOTAL desta chamada (todas as tentativas, os recuos
+        e a CLI ``ia`` com suas próprias esperas): o subprocess recebe o que resta como
+        ``timeout`` (a CLI é morta ao estourar) e um recuo que não cabe no que resta não
+        é esperado. Estourou: ``subprocess.TimeoutExpired``. ``None`` = sem limite.
         """
         self._upload_rate_limiter(_IA_RATE_LIMIT_KEY)
+        end = time.monotonic() + timeout_s if timeout_s is not None else None
+
+        def time_left() -> Optional[float]:
+            if end is None:
+                return None
+            left = end - time.monotonic()
+            if left <= 0:
+                raise subprocess.TimeoutExpired(args, timeout_s or 0.0)
+            return left
+
+        def pause(seconds: float) -> None:
+            left = time_left()
+            if left is not None and seconds >= left:
+                # Esperar e repetir não cabe mais: é o orçamento que acabou.
+                raise subprocess.TimeoutExpired(args, timeout_s or 0.0)
+            time.sleep(seconds)
+
         env = _ia_subprocess_env(self.access_key, self.secret_key)
         cfg_path = env.get("IA_CONFIG_FILE") if env else None
         short_attempt = 0
         try:
             while True:
+                run_kw: Dict[str, Any] = {}
+                left = time_left()
+                if left is not None:
+                    run_kw["timeout"] = left
                 try:
                     return subprocess.run(
-                        args, capture_output=True, text=True, check=True, env=env
+                        args,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                        env=env,
+                        **run_kw,
                     )
                 except subprocess.CalledProcessError as e:
                     stderr = e.stderr or ""
-                    if queue_wait is not None and _is_queue_full(stderr):
+                    if queue_wait is not None and is_ia_queue_full(stderr):
                         # Espera longa e limitada (reocr): não conta nas tentativas
                         # curtas abaixo; acaba quando o orçamento acaba.
                         wait_s = queue_wait.take()
@@ -1339,9 +1379,9 @@ class InternetArchivePublisher:
                             wait_s,
                             round(queue_wait.remaining_s / 60),
                         )
-                        time.sleep(wait_s)
+                        pause(wait_s)
                         continue
-                    if fail_fast_item_ration and _is_item_ration(stderr):
+                    if fail_fast_queue and is_ia_queue_full(stderr):
                         raise
                     short_attempt += 1
                     if (
@@ -1359,7 +1399,7 @@ class InternetArchivePublisher:
                         delay,
                         stderr.strip()[-200:],
                     )
-                    time.sleep(delay)
+                    pause(delay)
         finally:
             if cfg_path is not None:
                 Path(cfg_path).unlink(missing_ok=True)
@@ -1374,6 +1414,10 @@ class InternetArchivePublisher:
         index_cache: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Upload raw PDF + raw_meta.json sidecar para IA.
+
+        Caminho unitário (refile, scrape de intervalo): mantém o sidecar ``_meta.json``
+        (já são poucos PUTs por chamada) e grava também a proveniência nas colunas do
+        ``index.csv``, como a colheita em lote — o índice é o lugar canônico.
 
         Identifier: leizilla-raw-{ente}-{fonte}-{chave} (SCHEMA.md §1.2).
         Retorna dict com 'success', 'ia_id', 'ia_url'.
@@ -1428,6 +1472,7 @@ class InternetArchivePublisher:
                 formato="pdf",
                 source=source,
                 index_cache=index_cache,
+                provenance=_provenance_columns(raw_meta),
             )
         except IndexFetchError as e:
             return {
@@ -1507,12 +1552,14 @@ class InternetArchivePublisher:
         item_id: str,
         captures: List[RawCapture],
         index_cache: Optional[Dict[str, str]] = None,
+        timeout_s: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
         """Sobe um lote de capturas do MESMO item num único ``ia upload`` (ADR-0016).
 
-        Uma invocação do CLI envia todos os PDFs e sidecars e, **por último**, o
-        ``index.csv`` já mesclado com todas as linhas do lote — escrito uma vez
-        por flush. ``--no-derive`` impede o IA de enfileirar um derive por
+        Uma invocação do CLI envia os PDFs (**um PUT por captura**, sem sidecar: a
+        proveniência vai nas colunas do índice, ADR-0016 adendo 2026-11-17) e, **por
+        último**, o ``index.csv`` já mesclado com todas as linhas do lote — escrito
+        uma vez por flush. ``--no-derive`` impede o IA de enfileirar um derive por
         upload; o chamador pede um único derive por item ao fim da execução
         (:meth:`request_derive`).
 
@@ -1525,8 +1572,13 @@ class InternetArchivePublisher:
           ``pdf-syntax`` | ``pdf-check`` | ``other: ...``).
           Permanente: o arquivo sai do lote e o restante é reenviado (``--checksum``
           pula o que já subiu) e o ``index.csv`` sai nesse reenvio;
-        - ``ia-throttled`` — o IA pediu para reduzir a taxa e os recuos se
-          esgotaram. O chamador deve parar a colheita;
+        - ``ia-throttled`` — o IA pediu para reduzir a taxa (fila de tarefas cheia
+          propaga na hora, sem recuo; ``scope`` = ``item`` | ``account``, de
+          ``classify_ia_throttle``; um aviso de taxa sem marcador de fila recua e,
+          esgotado, sai como ``account``). O chamador adia o item (``item``) ou
+          encerra a colheita (``account``);
+        - ``flush-timeout`` — ``timeout_s`` (o que resta do job) acabou antes de o
+          flush terminar; nada do lote vale (o ``index.csv`` é o último arquivo);
         - ``ia-unavailable`` — sem credenciais ou sem o CLI ``ia``;
         - ``index-unreadable`` — o índice atual não pôde ser lido; nada é
           enviado, para não sobrescrever o histórico do item;
@@ -1536,8 +1588,15 @@ class InternetArchivePublisher:
         flush que falhou a meio, os PDFs que chegaram ao IA ficam sem linha no
         índice (o índice é o último arquivo); a recaptura posterior encontra os
         mesmos bytes sob o mesmo nome e ``--checksum`` os pula.
+
+        ``timeout_s``: orçamento total do flush (todas as tentativas, recuos e a CLI),
+        para um upload nunca sobreviver ao job. ``None`` = sem limite.
         """
         results: List[Optional[Dict[str, Any]]] = [None] * len(captures)
+        end = time.monotonic() + timeout_s if timeout_s is not None else None
+
+        def budget() -> Optional[float]:
+            return None if end is None else end - time.monotonic()
 
         def fail(indices: List[int], reason: str, error: str) -> None:
             for i in indices:
@@ -1566,8 +1625,17 @@ class InternetArchivePublisher:
                     f"could not read existing index (aborting to avoid data loss): {e}",
                 )
                 break
+            left = budget()
+            if left is not None and left <= 0:
+                fail(remaining, "flush-timeout", "sem tempo para o flush")
+                break
             try:
-                self._put_raw_batch(item_id, batch, names, index_csv)
+                self._put_raw_batch(item_id, batch, names, index_csv, timeout_s=left)
+            except subprocess.TimeoutExpired:
+                fail(
+                    remaining, "flush-timeout", f"flush excedeu {timeout_s or 0:.0f} s"
+                )
+                break
             except FileNotFoundError:
                 fail(
                     remaining,
@@ -1590,15 +1658,20 @@ class InternetArchivePublisher:
                     # o culpado se identificar sozinho sem condenar o lote.
                     for i in remaining:
                         results[i] = self.upload_raw_batch(
-                            item_id, [captures[i]], cache
+                            item_id, [captures[i]], cache, timeout_s=budget()
                         )[0]
                     break
-                throttled = _IA_THROTTLED_RE.search(stderr) is not None
+                scope = classify_ia_throttle(stderr)
                 fail(
                     remaining,
-                    "ia-throttled" if throttled else "upload-failed",
+                    "ia-throttled" if scope else "upload-failed",
                     stderr[-500:],
                 )
+                if scope:
+                    for i in remaining:
+                        r = results[i]
+                        if r is not None:
+                            r["scope"] = scope
                 break
             # Flush OK: só agora o índice mesclado vale para os próximos flushes
             # deste item (o IA não garante read-after-write).
@@ -1619,7 +1692,7 @@ class InternetArchivePublisher:
 
     @staticmethod
     def _rejected_capture(
-        stderr: str, remaining: List[int], names: List[tuple[str, str, str]]
+        stderr: str, remaining: List[int], names: List[tuple[str, str]]
     ) -> Optional[int]:
         """Índice (em ``captures``) do PDF que o IA recusou, ou ``None``.
 
@@ -1641,10 +1714,10 @@ class InternetArchivePublisher:
     @staticmethod
     def _plan_raw_batch(
         item_id: str, captures: List[RawCapture], index_cache: Dict[str, str]
-    ) -> tuple[List[tuple[str, str, str]], str]:
+    ) -> tuple[List[tuple[str, str]], str]:
         """Nomes dos arquivos e ``index.csv`` final de um lote, sem tocar ``index_cache``.
 
-        Devolve ``([(uuid5, nome_pdf, nome_meta), ...], index_csv)``. As linhas são
+        Devolve ``([(uuid5, nome_pdf), ...], index_csv)``. As linhas são
         mescladas uma a uma sobre uma cópia de trabalho do índice (lido do IA uma
         vez, se ainda não estiver no cache), reusando ``_resolve_uuid5_and_index``
         — mesma detecção de colisão e mesma idempotência do upload unitário.
@@ -1653,7 +1726,7 @@ class InternetArchivePublisher:
         working: Dict[str, str] = {}
         if item_id in index_cache:
             working[item_id] = index_cache[item_id]
-        names: List[tuple[str, str, str]] = []
+        names: List[tuple[str, str]] = []
         index_csv = ""
         for cap in captures:
             target = cap.target
@@ -1671,6 +1744,7 @@ class InternetArchivePublisher:
                 formato="pdf",
                 source=source,
                 index_cache=working,
+                provenance=_provenance_columns(cap.raw_meta),
             )
             working[item_id] = index_csv
             prefix = (
@@ -1678,35 +1752,31 @@ class InternetArchivePublisher:
                 if target.numero is not None
                 else None
             )
-            names.append(
-                (
-                    uuid5,
-                    raw_filename(uuid5, ".pdf", name_prefix=prefix),
-                    raw_filename(uuid5, "_meta.json", name_prefix=prefix),
-                )
-            )
+            names.append((uuid5, raw_filename(uuid5, ".pdf", name_prefix=prefix)))
         return names, index_csv
 
     def _put_raw_batch(
         self,
         item_id: str,
         captures: List[RawCapture],
-        names: List[tuple[str, str, str]],
+        names: List[tuple[str, str]],
         index_csv: str,
+        timeout_s: Optional[float] = None,
     ) -> None:
-        """Escreve o lote num diretório temporário e roda um único ``ia upload``."""
+        """Escreve o lote num diretório temporário e roda um único ``ia upload``.
+
+        Um arquivo por captura (o PDF): a proveniência que ia num ``_meta.json`` por
+        captura está nas colunas do ``index.csv`` (``_provenance_columns``).
+        """
         target = captures[0].target
         with tempfile.TemporaryDirectory() as tmp:
             files: List[str] = []
-            for cap, (_uuid5, pdf_name, meta_name) in zip(captures, names):
+            for cap, (_uuid5, pdf_name) in zip(captures, names):
                 # Mesmos bytes para a mesma identidade → mesmo nome: um arquivo só.
-                for dst in (Path(tmp) / pdf_name, Path(tmp) / meta_name):
-                    if str(dst) not in files:
-                        files.append(str(dst))
-                (Path(tmp) / pdf_name).write_bytes(cap.content)
-                (Path(tmp) / meta_name).write_text(
-                    json.dumps(cap.raw_meta, indent=2, ensure_ascii=False)
-                )
+                dst = Path(tmp) / pdf_name
+                if str(dst) not in files:
+                    files.append(str(dst))
+                dst.write_bytes(cap.content)
             # index.csv por ÚLTIMO: se qualquer PDF falhar, o CLI aborta antes de
             # o índice apontar para arquivos que não chegaram.
             index_path = Path(tmp) / INDEX_FILENAME
@@ -1747,10 +1817,11 @@ class InternetArchivePublisher:
                 max_attempts=_IA_BATCH_MAX_ATTEMPTS,
                 base_delay=_IA_BATCH_BASE_DELAY_S,
                 max_delay=_IA_BATCH_MAX_DELAY_S,
-                fail_fast_item_ration=True,
+                fail_fast_queue=True,
+                timeout_s=timeout_s,
             )
 
-    def request_derive(self, item_id: str) -> bool:
+    def request_derive(self, item_id: str, timeout_s: Optional[float] = None) -> bool:
         """Pede ao IA **um** derive do item (OCR dos PDFs novos). ``True`` se aceito.
 
         Usa a Tasks API pelo CLI: ``ia tasks <item> --cmd derive.php`` (verificado
@@ -1760,21 +1831,33 @@ class InternetArchivePublisher:
         o derive pendente cobre o item inteiro. Se o IA recusar por limite de
         taxa, tenta uma vez com ``--reduced-priority`` (aceito com mais folga, roda
         mais tarde).
+
+        ``timeout_s``: orçamento total do pedido (as duas tentativas somadas), para o
+        derive final nunca sobreviver ao job; estourou, devolve ``False``.
         """
         if not self.access_key or not self.secret_key:
             return False
         base = ["ia", "tasks", item_id, "--cmd", "derive.php"]
+        end = time.monotonic() + timeout_s if timeout_s is not None else None
         for args in (base, [*base, "--reduced-priority"]):
             try:
-                self._run_ia_upload(args, max_attempts=2, base_delay=30.0)
+                self._run_ia_upload(
+                    args,
+                    max_attempts=2,
+                    base_delay=30.0,
+                    timeout_s=None if end is None else end - time.monotonic(),
+                )
             except FileNotFoundError:
+                return False
+            except subprocess.TimeoutExpired:
+                logger.warning("derive de %s: sem tempo (timeout)", item_id)
                 return False
             except subprocess.CalledProcessError as e:
                 stderr = e.stderr or ""
                 if "already queued/running" in stderr:
                     return True
                 logger.warning("derive de %s recusado: %s", item_id, stderr[-200:])
-                if not _IA_THROTTLED_RE.search(stderr):
+                if classify_ia_throttle(stderr) is None:
                     return False
             else:
                 return True
@@ -1789,6 +1872,8 @@ class InternetArchivePublisher:
         index_cache: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Upload raw HTML + raw_meta.json sidecar para IA.
+
+        Mantém o sidecar (caminho unitário) e grava a proveniência no ``index.csv``.
 
         Identifier: leizilla-raw-{ente}-{fonte}-{chave} (SCHEMA.md §1.2).
         Análogo a upload_raw mas para fontes que servem HTML (ex: Planalto).
@@ -1838,6 +1923,7 @@ class InternetArchivePublisher:
                 formato="html",
                 source=source,
                 index_cache=index_cache,
+                provenance=_provenance_columns(raw_meta),
             )
         except IndexFetchError as e:
             return {
@@ -2140,6 +2226,10 @@ class InternetArchivePublisher:
         cleanup_files: List[str] = []
         for row, wrong_file, _ in captures:
             cleanup_files.append(wrong_file)
+            # Capturas da colheita em lote não têm ``_meta.json`` (ADR-0016 adendo
+            # 2026-11-17). ``ia delete`` com um nome que o item não tem o ignora (casa
+            # arquivos por nome em ``item.get_files``; só sai com erro se NENHUM nome
+            # casar, e o PDF e o index.csv sempre casam), então a lista vale para os dois.
             cleanup_files.append(
                 raw_filename(
                     row["uuid5"], "_meta.json", name_prefix=f"{tipo}-{wrong_numero:05d}"
@@ -2302,8 +2392,10 @@ class InternetArchivePublisher:
             except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
                 logger.warning("reconcile: download de %s falhou: %s", row["uuid5"], e)
                 continue
-            # Sidecar de proveniência (_meta.json) — best-effort: preserva a
-            # proveniência Wayback/fonte no item de range (paridade com upload_raw).
+            # Sidecar de proveniência (_meta.json) — best-effort: capturas do lote
+            # (ADR-0016 adendo 2026-11-17) não têm sidecar (404 → ``None``, nada a
+            # copiar: a proveniência já vai nas colunas do índice acima); as unitárias
+            # e as anteriores a esse adendo têm, e o sidecar é copiado ao range.
             try:
                 meta_bytes: Optional[bytes] = _fetch_item_file_bytes(
                     holding_id, raw_filename(row["uuid5"], "_meta.json")
@@ -2336,6 +2428,9 @@ class InternetArchivePublisher:
                 uuid5=uuid5,
                 sha256=sha256,
                 source=row["source"],
+                # A proveniência colhida (colunas do índice de espera) segue o arquivo;
+                # linhas antigas, sem as colunas, copiam vazio.
+                provenance={c: row.get(c, "") for c in PROVENANCE_COLUMNS},
             )
             name_prefix = f"{tipo}-{numero:05d}"
             meta = (
@@ -2815,6 +2910,7 @@ class InternetArchivePublisher:
             ente=ente,
             version=version,
             publish_latest=publish_latest,
+            queue_wait_minutes=_DATASET_QUEUE_WAIT_MIN,
         )
 
     def upload_reocr(
@@ -3017,7 +3113,8 @@ class InternetArchivePublisher:
             )
             try:
                 self._run_ia_upload(
-                    ["ia", "upload", ia_id, str(coverage_path), "--no-derive"]
+                    ["ia", "upload", ia_id, str(coverage_path), "--no-derive"],
+                    queue_wait=IaQueueWait(_DATASET_QUEUE_WAIT_MIN * 60.0),
                 )
                 return {
                     "success": True,
@@ -3052,7 +3149,8 @@ class InternetArchivePublisher:
         ia_id = f"leizilla-dataset-{ente}-v{version}-{_DATASET_LATEST_SUFFIX}"
         try:
             self._run_ia_upload(
-                ["ia", "upload", ia_id, *(str(f) for f in files), "--no-derive"]
+                ["ia", "upload", ia_id, *(str(f) for f in files), "--no-derive"],
+                queue_wait=IaQueueWait(_DATASET_QUEUE_WAIT_MIN * 60.0),
             )
         except FileNotFoundError:
             return {

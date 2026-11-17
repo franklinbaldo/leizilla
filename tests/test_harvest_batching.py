@@ -35,6 +35,10 @@ REPO = Path(__file__).resolve().parents[1]
 ITEM = "leizilla_ro_casacivil_decreto_31001-32000"
 REJECTED = "Uploaded content is unacceptable. - error checking pdf file"
 THROTTLED = "Please reduce your request rate. - total_tasks_queued exceeds global_limit"
+PLAIN_RATE = "Please reduce your request rate."
+ACCESSKEY_FULL = (
+    "Please reduce your request rate. - accesskey_tasks_queued exceeds rationed amount"
+)
 
 
 # --------------------------------------------------------------------------- helpers
@@ -170,7 +174,10 @@ def test_batch_is_one_ia_upload_without_derive_and_index_last(
     assert args[2] == ITEM
     assert "--no-derive" in args and "--checksum" in args
     files = ia.files(args)
-    assert len(files) == 7  # 3 PDFs + 3 sidecars + the index, written once
+    # 3 PDFs + the index, written once: one PUT per capture (no _meta.json sidecar;
+    # ADR-0016 addendum 2026-11-17 puts the provenance in index.csv columns)
+    assert len(files) == 4
+    assert not any(f.endswith("_meta.json") for f in files)
     assert files[-1] == "index.csv"
     assert [f for f in files if f.endswith(".pdf")] == [
         f"decreto-{n:05d}_{r['uuid5']}.pdf"
@@ -307,14 +314,17 @@ def test_unattributable_rejection_isolates_one_capture_per_upload(
         results = pub.upload_raw_batch(ITEM, captures, cache)
 
     assert [r.get("reason") for r in results] == [None, "ia-rejected", None]
-    assert [len(ia.files(a)) for a in ia.uploads] == [7, 3, 3, 3]
+    assert [len(ia.files(a)) for a in ia.uploads] == [4, 2, 2, 2]
     assert [row["numero"] for row in _index_rows(cache[ITEM])] == ["31250", "31248"]
 
 
 def test_throttled_flush_backs_off_then_reports_throttled(
     pub: InternetArchivePublisher, ia: FakeIA
 ) -> None:
-    ia.fail_when(lambda args: f" error uploading x.pdf: {THROTTLED}")
+    # A plain "reduce your request rate" (no *_tasks_queued marker) is an ordinary rate
+    # limit: short backoffs, then reported (as account scope). The queue-full messages
+    # fail fast instead (see test_queue_full_..._fails_fast below).
+    ia.fail_when(lambda args: f" error uploading x.pdf: {PLAIN_RATE}")
     cache: Dict[str, str] = {}
     with (
         patch.object(publisher, "_fetch_existing_index", return_value=None),
@@ -323,6 +333,7 @@ def test_throttled_flush_backs_off_then_reports_throttled(
         results = pub.upload_raw_batch(ITEM, [_capture(1), _capture(2)], cache)
 
     assert [r["reason"] for r in results] == ["ia-throttled"] * 2
+    assert [r["scope"] for r in results] == ["account"] * 2
     assert len(ia.uploads) == publisher._IA_BATCH_MAX_ATTEMPTS
     waits = [call.args[0] for call in sleep.call_args_list]
     assert len(waits) == 2 and waits[0] >= 60 and waits[1] >= 120
@@ -440,7 +451,10 @@ def test_status_changes_only_after_the_flush_that_holds_the_file(
     seen_at_flush: List[Dict[str, str]] = []
 
     def upload(
-        item_id: str, captures: List[RawCapture], index_cache: Any = None
+        item_id: str,
+        captures: List[RawCapture],
+        index_cache: Any = None,
+        **_: Any,
     ) -> Any:
         seen_at_flush.append(_statuses(temp_db))
         return [{"success": True, "ia_url": "u"} for _ in captures]
@@ -506,7 +520,10 @@ def test_ia_rejected_pdf_is_terminal_and_counted(
         temp_db.insert_resource(_resource(n))
 
     def upload(
-        item_id: str, captures: List[RawCapture], index_cache: Any = None
+        item_id: str,
+        captures: List[RawCapture],
+        index_cache: Any = None,
+        **_: Any,
     ) -> Any:
         return [
             {"success": False, "reason": "ia-rejected", "error": REJECTED}
@@ -555,7 +572,8 @@ def test_throttled_flush_stops_the_harvest_and_stops_hitting_the_source(
 
     stats = _harvest(temp_db, pub, fetch=fetch, limit=10, batch_size=2)
 
-    assert stats["aborted"] == "ia-throttled"
+    # total_tasks_queued is account scope: ia-account-throttled (was ia-throttled)
+    assert stats["aborted"] == "ia-account-throttled"
     # the trip happens at the flush of the 2nd capture of 31xxx (3rd fetch, since
     # buckets alternate); nothing more is taken from the source after it
     assert len(fetched) == 3
@@ -985,7 +1003,7 @@ def test_cli_summary_surfaces_rejected_batches_derive_and_early_stop() -> None:
     assert "Lotes enviados ao IA: 2" in out
     assert "sem derive: leizilla_ro_casacivil_decreto_30001-31000" in out
     assert "50 pedidos, 40 aceitos, 4 falhas, 6 descartados" in out
-    assert "Colheita interrompida cedo: ia-throttled" in out
+    assert "Colheita interrompida cedo: ia-throttled" in out  # echo of any reason
 
 
 def test_cli_summary_tolerates_stats_from_before_batching() -> None:
@@ -1000,11 +1018,12 @@ def test_cli_summary_tolerates_stats_from_before_batching() -> None:
     assert "Recusados pelo IA (PDF inválido, não serão retentados): 0" in result.output
 
 
-def test_workflow_runs_three_tipos_in_parallel_and_bounds_the_harvest_in_time() -> None:
+def test_workflow_runs_two_tipos_in_parallel_and_bounds_the_harvest_in_time() -> None:
     text = (REPO / ".github/workflows/discover-harvest.yml").read_text()
-    # ADR-0016 (adendo 2026-11-16): 3 tipos at a time, each on its own IA items
+    # ADR-0016 (adendo 2026-11-17 (2)): back to 2 tipos at a time (was 3): the
+    # account-wide IA ration (accesskey_tasks_queued) is shared by every job
     settings = re.findall(r"^\s*max-parallel: (\d+)\s*$", text, flags=re.MULTILINE)
-    assert settings == ["3"]
+    assert settings == ["2"]
     jobs = text.split("\n  harvest-")[1:]
     assert len(jobs) == 2
     single, parallel = jobs
@@ -1017,13 +1036,13 @@ def test_workflow_runs_three_tipos_in_parallel_and_bounds_the_harvest_in_time() 
     ]
     budget = int(harvest_step.split('HARVEST_MAX_SECONDS: "')[1].split('"')[0])
     job_minutes = int(re.search(r"timeout-minutes: (\d+)", parallel).group(1))  # type: ignore[union-attr]
-    assert 0 < budget <= 4500
+    assert 0 < budget <= 2700
     assert budget + 40 * 60 <= job_minutes * 60
     # ADR-0016 adendo 2026-11-17: the harvest also stops in time for the job's own
     # end. The deadline is recorded by the first step (before checkout/discovery) and
     # the harvest is handed it, so a slow discovery shortens the harvest, not the job.
-    assert job_minutes == 120
-    assert parallel.index("JOB_DEADLINE_EPOCH=$(( $(date +%s) + 120 * 60 ))") < (
+    assert job_minutes == 85
+    assert parallel.index("JOB_DEADLINE_EPOCH=$(( $(date +%s) + 85 * 60 ))") < (
         parallel.index("uses: actions/checkout@v4")
     )
     assert '--job-deadline "${JOB_DEADLINE_EPOCH}"' in harvest_step
@@ -1034,8 +1053,15 @@ def test_workflow_runs_three_tipos_in_parallel_and_bounds_the_harvest_in_time() 
     # politeness (ADR-0008): per-job pacing x parallel jobs keeps ~1 req/s combined
     interval = float(harvest_step.split('HARVEST_HOST_INTERVAL_S: "')[1].split('"')[0])
     assert interval >= int(settings[0]) * 1.0
-    # worst case: 7 tipos on 3 slots = 3 waves of full-length jobs, inside 6 h
-    assert 3 * job_minutes <= 360
+    # the discovery step hits the same host: same pacing factor
+    discover_step = parallel[parallel.index("name: Discover") :].split(
+        "\n      - name:"
+    )[0]
+    assert 'HARVEST_HOST_INTERVAL_S: "2.0"' in discover_step
+    assert interval == 2.0
+    # worst case: 7 tipos on 2 slots = ceil(7/2) = 4 full-length jobs back to back on
+    # the busiest slot, inside the 6 h between crons
+    assert 4 * job_minutes <= 360
 
 
 # ------------------------------------- per-item throttle, derive timing, absent streak
@@ -1053,7 +1079,10 @@ def _throttle_item_only(blocked: str, fetched: Optional[List[str]] = None) -> An
     """upload_raw_batch fake: ``blocked`` has a full queue, every other item works."""
 
     def _upload(
-        item_id: str, captures: List[RawCapture], index_cache: Any = None
+        item_id: str,
+        captures: List[RawCapture],
+        index_cache: Any = None,
+        **_: Any,
     ) -> List[Dict[str, Any]]:
         if item_id == blocked:
             return [
@@ -1148,7 +1177,7 @@ def test_account_wide_throttle_still_stops_the_run(
 
     stats = _harvest(temp_db, pub, limit=10, batch_size=2)
 
-    assert stats["aborted"] == "ia-throttled"
+    assert stats["aborted"] == "ia-account-throttled"
     assert stats["deferred"] == 0
     assert pub.upload_raw_batch.call_count == 1
     assert set(_statuses(temp_db).values()) == {"pending"}
@@ -1375,10 +1404,11 @@ def test_workflow_runs_four_times_a_day_and_the_whole_run_fits_the_interval() ->
     text = (REPO / ".github/workflows/discover-harvest.yml").read_text()
     for hour in (2, 8, 14, 20):
         assert f'cron: "0 {hour} * * *"' in text
-    assert text.count('HARVEST_MAX_SECONDS: "4500"') == 1
+    assert text.count('HARVEST_MAX_SECONDS: "2700"') == 1
     assert "inputs.limit || '3000'" in text and 'default: "3000"' in text
-    # 7 tipos / 3 slots = 3 waves; each job <= 75 min harvest + 40 min margin
-    assert 3 * (4500 + 40 * 60) <= 6 * 3600
+    # 7 tipos / 2 slots = 4 jobs in sequence on the busiest slot; each job is at most
+    # 45 min of harvest + 40 min margin = 85 min (the job timeout)
+    assert 4 * (2700 + 40 * 60) <= 6 * 3600
     # overlapping runs queue behind the singleton group instead of cancelling it
     assert "cancel-in-progress: false" in text
 
@@ -1410,7 +1440,8 @@ def test_end_to_end_one_index_write_per_flush_and_a_single_final_derive(
     assert [c[1] for c in ia.calls] == ["upload", "upload", "upload", "tasks"]
     assert ia.calls[-1] == ["ia", "tasks", ITEM, "--cmd", "derive.php"]
     assert all("--no-derive" in c for c in ia.uploads)
-    assert [len(ia.files(c)) for c in ia.uploads] == [11, 11, 3]
+    # 5 + 5 + 1 PDFs, each flush plus its index (was 11/11/3 with sidecars)
+    assert [len(ia.files(c)) for c in ia.uploads] == [6, 6, 2]
     # one read for "what is already preserved", one for the first flush; the later
     # flushes build on the cached index instead of re-reading IA
     assert fetch.call_count == 2
@@ -1491,17 +1522,24 @@ def test_item_ration_fails_fast_without_long_backoff(
     sleep.assert_not_called()
 
 
-def test_account_queue_full_keeps_the_long_backoff_in_harvest(
-    pub: InternetArchivePublisher, ia: FakeIA
+@pytest.mark.parametrize(
+    "message",
+    [ACCOUNT_FULL, ACCESSKEY_FULL, THROTTLED, "x: foo_tasks_queued exceeds y"],
+)
+def test_account_queue_full_fails_fast_in_harvest(
+    pub: InternetArchivePublisher, ia: FakeIA, message: str
 ) -> None:
-    ia.fail_when(lambda args: f" error uploading x.pdf: {ACCOUNT_FULL}")
+    # Was: the account limit kept the 60 s + 120 s backoffs (3 attempts). Now every
+    # queue-full scope fails fast: one attempt, no sleep, scope reported as account.
+    ia.fail_when(lambda args: f" error uploading x.pdf: {message}")
     with (
         patch.object(publisher, "_fetch_existing_index", return_value=None),
         patch("time.sleep") as sleep,
     ):
-        pub.upload_raw_batch(ITEM, [_capture(1)], {})
-    assert len(ia.uploads) == publisher._IA_BATCH_MAX_ATTEMPTS
-    assert sleep.call_count == 2
+        results = pub.upload_raw_batch(ITEM, [_capture(1)], {})
+    assert results[0]["reason"] == "ia-throttled" and results[0]["scope"] == "account"
+    assert len(ia.uploads) == 1
+    sleep.assert_not_called()
 
 
 def test_item_ration_still_waits_for_dataset_uploads_with_queue_wait(
@@ -1529,7 +1567,10 @@ def test_spam_rejections_in_consecutive_flushes_do_not_abort_the_harvest(
     spam_numbers = {31249, 31247}
 
     def upload(
-        item_id: str, captures: List[RawCapture], index_cache: Any = None
+        item_id: str,
+        captures: List[RawCapture],
+        index_cache: Any = None,
+        **_: Any,
     ) -> Any:
         return [
             {
@@ -1725,7 +1766,10 @@ def test_syntax_rejection_is_stored_with_its_reason_and_counted(
         temp_db.insert_resource(_resource(n))
 
     def upload(
-        item_id: str, captures: List[RawCapture], index_cache: Any = None
+        item_id: str,
+        captures: List[RawCapture],
+        index_cache: Any = None,
+        **_: Any,
     ) -> Any:
         return [
             {"success": False, "reason": "ia-rejected", "rejection": "pdf-syntax"}
@@ -1896,3 +1940,333 @@ def test_cache_restore_prefix_never_matches_another_tipo() -> None:
         prefix = f"discover-db-{tipo}--"
         keys = [f"discover-db-{other}--123" for other in tipos]
         assert [k.startswith(prefix) for k in keys].count(True) == 1
+
+
+# ------------------------------- account throttle, flush deadline, one PUT per capture
+# (ADR-0016 addendum 2026-11-17 (2))
+
+
+class _SubprocessSpy:
+    """``subprocess.run`` stand-in that records the ``timeout`` it was handed."""
+
+    def __init__(
+        self, fail: Optional[Callable[[List[str]], Optional[Exception]]] = None
+    ):
+        self.fail = fail
+        self.calls: List[List[str]] = []
+        self.timeouts: List[Optional[float]] = []
+
+    def __call__(
+        self, args: List[str], **kwargs: Any
+    ) -> "subprocess.CompletedProcess[str]":
+        self.calls.append(list(args))
+        self.timeouts.append(kwargs.get("timeout"))
+        if self.fail is not None:
+            exc = self.fail(args)
+            if exc is not None:
+                raise exc
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+
+def _real_harvest(
+    db: DuckDBStorage, pub: InternetArchivePublisher, **kwargs: Any
+) -> Dict[str, Any]:
+    with (
+        patch.object(publisher, "_fetch_existing_index", return_value=None),
+        patch("leizilla.scraper.robots.is_allowed", return_value=True),
+        patch(
+            "leizilla.scraper.wayback.fetch_bytes_detailed",
+            side_effect=lambda url: (f"%PDF-1.4 {url}".encode(), False),
+        ),
+    ):
+        return harvest_pending_resources(db, pub, **kwargs)
+
+
+def test_account_throttle_ends_the_run_with_captures_back_to_pending(
+    temp_db: DuckDBStorage,
+    fast_source: None,
+    pub: InternetArchivePublisher,
+    ia: FakeIA,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The 2026-11-17 message: a ration per ACCESS KEY, not per item.
+    ia.fail_when(lambda args: f" error uploading x.pdf: {ACCESSKEY_FULL}")
+    sleeps: List[float] = []
+    monkeypatch.setattr("time.sleep", sleeps.append)
+    for n in range(31250, 31244, -1):
+        temp_db.insert_resource(_resource(n))
+
+    stats = _real_harvest(temp_db, pub, limit=20, batch_size=3)
+
+    assert stats["aborted"] == "ia-account-throttled"
+    assert stats["success"] == 0
+    # not a failure of the documents: counted as requeued, never as "failed"
+    assert stats["failed"] == 0 and stats["requeued"] == 3
+    assert set(_statuses(temp_db).values()) == {"pending"}
+    assert len(ia.uploads) == 1  # one attempt, no retry...
+    assert sleeps == []  # ...and no sleep at all (zero long waits)
+    assert [
+        c for c in ia.calls if c[1] == "tasks"
+    ] == []  # no derive on a throttled run
+    assert {item["status"] for item in stats["items"]} == {"requeued"}
+    # nothing more is fetched/uploaded after the trip: only the first flush happened
+    assert stats["flushes"] == 1
+
+
+def test_account_throttle_requeues_the_other_buffers_too(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    for n in (31250, 31249, 30010, 31248):
+        temp_db.insert_resource(_resource(n))
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    pub.upload_raw_batch.side_effect = (
+        lambda item_id, captures, index_cache=None, **_: [
+            {
+                "success": False,
+                "reason": "ia-throttled",
+                "scope": "account",
+                "error": ACCESSKEY_FULL,
+            }
+            for _ in captures
+        ]
+    )
+
+    stats = _harvest(temp_db, pub, limit=10, batch_size=2)
+
+    assert stats["aborted"] == "ia-account-throttled"
+    # the 30xxx capture was still buffered when the run stopped: back to pending too,
+    # as requeued (not failed)
+    assert stats["failed"] == 0
+    assert stats["requeued"] == 3
+    assert set(_statuses(temp_db).values()) == {"pending"}
+    pub.request_derive.assert_not_called()
+
+
+def test_cli_exit_code_on_an_account_throttle() -> None:
+    base = {
+        "failed": 0,
+        "requeued": 4,
+        "robots-blocked": 0,
+        "aborted": "ia-account-throttled",
+        "items": [{"status": "requeued", "reason": "ia-account-throttled"}] * 4,
+    }
+
+    def run(success: int) -> Any:
+        with (
+            patch(
+                "leizilla.scraper.harvest_pending_resources",
+                return_value={**base, "success": success},
+            ),
+            patch("leizilla.storage.DuckDBStorage"),
+            patch("leizilla.publisher.InternetArchivePublisher"),
+        ):
+            return CliRunner().invoke(app, ["harvest"])
+
+    partial = run(success=7)
+    assert partial.exit_code == 0  # something was preserved: a throttle is not a break
+    assert "Colheita interrompida cedo: ia-account-throttled" in partial.output
+    assert "Falhas: 0" in partial.output
+    assert "Devolvidas à fila (pending, não são falhas dos documentos): 4" in (
+        partial.output
+    )
+    nothing = run(success=0)
+    assert nothing.exit_code == 1  # nothing preserved: the job must not look green
+    assert "nenhuma captura preservada" in nothing.output
+
+
+def test_run_ia_upload_deadline_bounds_the_subprocess_and_the_backoff(
+    pub: InternetArchivePublisher, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spy = _SubprocessSpy()
+    monkeypatch.setattr(subprocess, "run", spy)
+    pub._run_ia_upload(["ia", "upload", "x"], timeout_s=100.0)
+    assert spy.timeouts[0] is not None and 0 < spy.timeouts[0] <= 100.0
+
+    # a retryable failure whose backoff does not fit in what is left: no sleep, no
+    # second attempt, TimeoutExpired
+    spy2 = _SubprocessSpy(
+        lambda a: subprocess.CalledProcessError(1, a, stderr="connection reset")
+    )
+    monkeypatch.setattr(subprocess, "run", spy2)
+    slept: List[float] = []
+    monkeypatch.setattr("time.sleep", slept.append)
+    with pytest.raises(subprocess.TimeoutExpired):
+        pub._run_ia_upload(
+            ["ia", "upload", "x"], timeout_s=30.0, max_attempts=3, base_delay=60.0
+        )
+    assert len(spy2.calls) == 1 and slept == []
+
+    # without a budget the call is exactly what it was: no `timeout` kwarg at all
+    spy3 = _SubprocessSpy()
+    monkeypatch.setattr(subprocess, "run", spy3)
+    pub._run_ia_upload(["ia", "upload", "x"])
+    assert spy3.timeouts == [None]
+
+
+def test_flush_timeout_returns_the_captures_to_pending_and_prints_the_summary(
+    temp_db: DuckDBStorage,
+    fast_source: None,
+    pub: InternetArchivePublisher,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spy = _SubprocessSpy(
+        lambda a: subprocess.TimeoutExpired(a, 1.0) if a[1] == "upload" else None
+    )
+    monkeypatch.setattr(subprocess, "run", spy)
+    for n in (31250, 31249):
+        temp_db.insert_resource(_resource(n))
+    deadline = time.time() + 2000  # 20 min tail reserve leaves ~13 min of harvest
+
+    stats = _real_harvest(
+        temp_db, pub, limit=10, batch_size=2, job_deadline_epoch=deadline
+    )
+
+    # the upload got what is left of the job minus the 3 min for the summary
+    upload_timeout = next(
+        t for c, t in zip(spy.calls, spy.timeouts) if c[1] == "upload"
+    )
+    assert upload_timeout is not None
+    assert 2000 - 180 - 60 < upload_timeout <= 2000 - 180
+    assert stats["aborted"] == "flush-timeout"
+    assert stats["failed"] == 0 and stats["requeued"] == 2 and stats["success"] == 0
+    assert set(_statuses(temp_db).values()) == {"pending"}
+    assert [c for c in spy.calls if c[1] == "tasks"] == []  # no derive after it
+
+    # the same stats print as a normal summary (the run is not killed silently)
+    with (
+        patch("leizilla.scraper.harvest_pending_resources", return_value=stats),
+        patch("leizilla.storage.DuckDBStorage"),
+        patch("leizilla.publisher.InternetArchivePublisher"),
+    ):
+        result = CliRunner().invoke(app, ["harvest"])
+    assert "Colheita interrompida cedo: flush-timeout" in result.output
+    assert result.exit_code == 1  # nothing preserved
+
+
+def test_batcher_with_no_time_left_never_calls_ia(temp_db: DuckDBStorage) -> None:
+    from leizilla.scraper import _RawBatcher, _Staged
+
+    pub = MagicMock()
+    stats: Dict[str, Any] = {
+        "success": 0,
+        "failed": 0,
+        "requeued": 0,
+        "flushes": 0,
+        "items": [],
+        "derive-failed": [],
+        "derive-postponed": [],
+        "derive-requested": 0,
+        "ia-rejected-reasons": {},
+    }
+    batcher = _RawBatcher(
+        temp_db, pub, stats, batch_size=10, flush_deadline_epoch=time.time() - 1
+    )
+    cap = _capture(31250)
+    url = "https://fonte.example/Files/D31250.pdf"
+    temp_db.insert_resource(_resource(31250))
+    batcher.add(
+        _Staged(
+            capture=cap,
+            url=url,
+            chave="decreto-31250",
+            ente="ro",
+            tipo="decreto",
+            wayback_snapshot=None,
+        )
+    )
+    batcher.finish()
+
+    pub.upload_raw_batch.assert_not_called()
+    pub.request_derive.assert_not_called()
+    assert batcher.abort_reason == "flush-timeout"
+    assert stats["requeued"] == 1 and stats["failed"] == 0
+    assert _statuses(temp_db) == {"decreto-31250": "pending"}
+
+
+def test_derive_gets_the_remaining_time_when_there_is_a_deadline(
+    temp_db: DuckDBStorage, fast_source: None
+) -> None:
+    temp_db.insert_resource(_resource(31250))
+    pub = MagicMock()
+    pub.preserved_sources.return_value = set()
+    batch_ok(pub)
+    _harvest(
+        temp_db, pub, limit=10, batch_size=5, job_deadline_epoch=time.time() + 3000
+    )
+    assert pub.request_derive.call_count == 1
+    assert 0 < pub.request_derive.call_args.kwargs["timeout_s"] <= 3000 - 180
+    assert pub.upload_raw_batch.call_args.kwargs["timeout_s"] <= 3000 - 180
+
+
+def test_batched_flush_is_one_put_per_capture_plus_the_index(
+    pub: InternetArchivePublisher, ia: FakeIA
+) -> None:
+    captures = [_capture(n) for n in (31250, 31249, 31248, 31247)]
+    with patch.object(publisher, "_fetch_existing_index", return_value=None):
+        pub.upload_raw_batch(ITEM, captures, {})
+    files = ia.files(ia.uploads[0])
+    # before: 2 per capture + the index (9 PUTs for 4 captures); now 1 per capture
+    assert len(files) == len(captures) + 1 == 5
+    assert files[-1] == "index.csv"
+    assert not any("_meta" in f for f in files)
+
+
+def test_index_rows_carry_the_provenance_the_sidecar_used_to_hold(
+    pub: InternetArchivePublisher, ia: FakeIA
+) -> None:
+    snapshot = (
+        "https://web.archive.org/web/20261115120000/"
+        "https://fonte.example/Files/D31249.pdf"
+    )
+    direct = _capture(31250)
+    lei_data = {**_capture(31249).lei_data, "wayback_timestamp": "20261115120000"}
+    from_wayback = make_raw_capture(
+        lei_data, b"%PDF-1.4 snapshot bytes", "wayback", wayback_url=snapshot
+    )
+    with patch.object(publisher, "_fetch_existing_index", return_value=None):
+        pub.upload_raw_batch(ITEM, [direct, from_wayback], {})
+
+    rows = {r["numero"]: r for r in _index_rows(ia.indexes[0])}
+    assert rows["31250"]["fetched_from"] == "source-direct"
+    assert rows["31250"]["wayback_url"] == ""
+    assert rows["31250"]["wayback_timestamp"] == ""
+    assert rows["31250"]["wayback_blocked_robots"] == "false"
+    assert rows["31250"]["user_agent"] == publisher._USER_AGENT
+    assert rows["31249"]["fetched_from"] == "wayback"
+    assert rows["31249"]["wayback_url"] == snapshot
+    assert rows["31249"]["wayback_timestamp"] == "20261115120000"
+    # the identity columns are untouched
+    assert rows["31249"]["sha256"] == publisher.compute_hash(b"%PDF-1.4 snapshot bytes")
+
+
+def test_old_index_without_provenance_columns_is_extended_not_broken(
+    pub: InternetArchivePublisher, ia: FakeIA
+) -> None:
+    old_index = (
+        "tipo,numero,rendicao,formato,uuid5,sha256,captured_at,source\n"
+        "decreto,31200,,pdf,aaaa1111,hash1,2026-11-10T00:00:00+00:00,https://x/D31200.pdf\n"
+    )
+    with patch.object(publisher, "_fetch_existing_index", return_value=old_index):
+        results = pub.upload_raw_batch(ITEM, [_capture(31250)], {})
+    assert results[0]["success"]
+    rows = _index_rows(ia.indexes[0])
+    assert [r["numero"] for r in rows] == ["31200", "31250"]
+    assert rows[0]["source"] == "https://x/D31200.pdf"
+    assert rows[0]["fetched_from"] == "" and rows[0]["user_agent"] == ""  # unknown
+    assert rows[1]["fetched_from"] == "source-direct"
+
+
+def test_unit_upload_keeps_its_sidecar_and_also_fills_the_index(
+    pub: InternetArchivePublisher, ia: FakeIA, tmp_path: Path
+) -> None:
+    pdf = b"%PDF-1.4 unit"
+    pdf_path = tmp_path / "d.pdf"
+    pdf_path.write_bytes(pdf)
+    lei_data = _capture(31250).lei_data
+    with patch.object(publisher, "_fetch_existing_index", return_value=None):
+        result = pub.upload_raw(pdf_path, lei_data, pdf, fetched_from="source-direct")
+    assert result["success"]
+    files = ia.files(ia.uploads[0])
+    assert [f.endswith("_meta.json") for f in files] == [False, True, False]
+    assert _index_rows(ia.indexes[0])[0]["fetched_from"] == "source-direct"

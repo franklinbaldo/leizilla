@@ -10,7 +10,10 @@ def batch_ok(pub: MagicMock, **fields: Any) -> MagicMock:
     """Make ``pub.upload_raw_batch`` succeed for every capture of every flush."""
 
     def _upload(
-        item_id: str, captures: List[RawCapture], index_cache: Any = None
+        item_id: str,
+        captures: List[RawCapture],
+        index_cache: Any = None,
+        **_: Any,
     ) -> List[Dict[str, Any]]:
         return [{"success": True, "item_id": item_id, **fields} for _ in captures]
 

@@ -7,6 +7,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import duckdb
@@ -643,7 +644,7 @@ class TestNoDeriveOnDatasetUploads:
         pub = _publisher()
         calls: list[list[str]] = []
 
-        def fake_run(args: list[str]) -> MagicMock:
+        def fake_run(args: list[str], **_: Any) -> MagicMock:
             calls.append(args)
             return MagicMock(returncode=0)
 
