@@ -1466,14 +1466,26 @@ def render_request(slots: Sequence[MarkSlot]) -> str:
     return "\n\n".join([intro, *(render_slot(s) for s in slots)])
 
 
+def _nonblank_lines(norm: MarkNorm) -> int:
+    """Lines a chunk can own: the non-blank ones (``norm.lines`` keeps the blanks, and
+    OCR texts interleave one blank line per text line, so it is about twice that)."""
+    return sum(1 for line in norm.lines if line.strip())
+
+
+def _share_marks(norm: MarkNorm, owned: int) -> int:
+    """The norm's expected marks that fall to ``owned`` of its non-blank lines."""
+    return norm.expected_marks * owned // max(1, _nonblank_lines(norm))
+
+
 def _slot_marks(slot: MarkSlot) -> int:
     """Marks the ceiling allows for a slot: one per shown line, and for a re-flowed
-    variant (many marks on a line) the base norm's expected count for its share."""
+    variant (many marks on a line) the base norm's expected count for its share (the
+    share is over the non-blank lines: dividing by every line, blanks included, halved
+    the budget of the stress run, 2026-11-17)."""
     shown = len(slot.chunk.owned)
     norm = slot.norm
     if norm.reflow:
-        share = norm.expected_marks * shown // max(1, len(norm.lines))
-        return max(shown, int(share * 1.5))
+        return max(shown, int(_share_marks(norm, shown) * 1.5))
     return shown
 
 
@@ -1635,7 +1647,7 @@ def estimate_mark_cost(
     est_out = 0
     for r in plan.requests:
         marks = sum(
-            s.norm.expected_marks * len(s.chunk.owned) // max(1, len(s.norm.lines))
+            _share_marks(s.norm, len(s.chunk.owned))
             if s.chunk.total > 1
             else s.norm.expected_marks
             for s in r.slots

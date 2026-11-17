@@ -271,7 +271,14 @@ próprio sha256, `texto_id` (`BASE~reflow`) e `uuid5` (`…-reflow`); o manifest
 das quebras trocadas, de onde sai o texto original, `synthetic: true`). Os marcadores caem
 em colunas arbitrárias, depois de acentos e pontuação. Nada disso se parece com o texto
 real; serve só para medir a âncora. O orçamento de saída conta as marcas esperadas da
-norma-base (não as poucas linhas).
+norma-base (não as poucas linhas). A
+primeira rodada (2026-11-17, haiku-5-5, effort medium, 15 requisições) truncou em 15 de 15:
+todas as respostas só têm bloco de raciocínio (`thinking_tokens` = `output_tokens` =
+`max_tokens`, 10 166 a 15 988 por requisição), nenhum texto, nenhuma marca; é comportamento
+do modelo (raciocínio sem fim com marcadores em colunas de 100-400), não de âncora. O
+orçamento tinha um defeito menor, corrigido: a parte da norma-base que cabe a uma
+requisição era dividida por todas as linhas (as em branco entre as linhas do OCR
+incluídas), metade do certo.
 
 `score_mark` (bloco "Stress set"): a verdade é o offset do marcador do leitor lido sobre
 o texto original e levado à variante, para os dispositivos casados por linha, tipo e
