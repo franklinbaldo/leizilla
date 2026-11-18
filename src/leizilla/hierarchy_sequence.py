@@ -77,9 +77,9 @@ from leizilla.article_sequence import (
 # "5" or "&"; the look-alike glyphs are only trusted at the start of a line.
 _PAR = re.compile(
     r"(?<![A-Za-z0-9$§])"
-    r"(?P<glyph>§|\$|(?:\d{1,2}|[SsqgBfE&£]{1,2})(?=[\s-])|S(?=\d{1,2}[º°]))[\s-]{0,3}"
+    r"(?P<glyph>§|\$|(?:\d{1,2}|[SsqgBfE&£]{1,2})(?=[\s-])|[S84](?=\d{1,2}[º°]))[\s-]{0,3}"
     r"(?P<num>[0-9IlO]{1,3})(?:(?P<ord>\s?\.?[ºo°ªQ^?])|(?![.,]?\d))"
-    r"(?:-(?P<suffix>[A-Z])\b)?"
+    r"(?:-(?P<suffix>[A-Z])\b(?![ \t]+[a-zà-ý]))?"
 )
 # "§ T" for "§ 7º": a paragraph sign whose number is unreadable. It has no reading of
 # its own and can only be read by the chain around it.
@@ -98,7 +98,11 @@ _INC_WILD = re.compile(
     r"(?m)^[ \t]*(?P<mark>(?P<tok>[^\W_]{1,4})[ \t]{0,2}[-–—]+)(?P<gap>[ \t]*)\S"
 )
 # A roman numeral of two or more letters opening a line, two spaces and lower-case prose.
-_INC_BARE = re.compile(r"(?m)^[ \t]*(?P<tok>[IVXL]{2,6})[ \t]{2}(?=[a-zà-ý])")
+_INC_BARE = re.compile(
+    r"(?m)^[ \t]*(?P<tok>[IVXL]{1,6})(?:[ \t]{2}|[ \t]"
+    r"(?!(?:e|ou|a|o|as|os|de|do|da|dos|das|deste|desta|destes|destas|ao|aos|à|às)\b))"
+    r"(?=[a-zà-ý])"
+)
 _ALI = re.compile(r"(?<![\w(])(?P<let>[a-zA-Z06])\s?[)\]}]")
 _ALI_WILD = re.compile(r"(?m)^[ \t]*(?P<tok>[^\s(]{1,2})[ \t]?[)\]}]")
 _ITEM = re.compile(r"(?m)^[ \t]*(?P<num>\d{1,2})(?:\s?[.)]|\s?[-–—])(?=\s)(?!\s*\d)")
@@ -132,6 +136,7 @@ _ROMAN_GLYPHS: dict[str, tuple[str, ...]] = {
     "C": ("C",),
 }
 _MAX_ROMAN = 150
+_RESTART_KINDS = ("paragrafo",)
 # Letters OCR swaps in an alínea marker, by reading order (literal first).
 _ALI_GLYPHS: dict[str, str] = {
     "c": "ceo",
@@ -363,6 +368,7 @@ class _Cand:
     ref: bool = False  # an in-sentence citation, decided before any chain
     unico: bool = False
     digit: bool = False  # an arabic token read as roman ("1 -" as I)
+    bare: bool = False  # the separator is lost: only usable beside a strong member
 
 
 # --- readings -------------------------------------------------------------------------
@@ -450,13 +456,22 @@ def _paragraph_candidates(text: str) -> list[_Cand]:
         readings = tuple(article_readings(m.group("num"), has_ord))
         if not readings:
             continue
+        # "§ 12." is the printed form from the tenth paragraph on (no ordinal sign):
+        # the period is the marker's, not an ordinal read as a digit.
+        if (
+            not has_ord
+            and glyph == "§"
+            and len(m.group("num")) == 2
+            and text.startswith(". ", m.end())
+        ):
+            readings = readings[:1]
         sign = glyph in "§$"
         line_start = _at_line_start(text, m.start())
         if not sign:
             # A look-alike glyph ("S", "8", "94", "q") needs the line start and an
             # ordinal sign; the classic ones also pass with an ordinal read as a digit.
             ordinal = m.group("ord") or ""
-            classic = glyph in "S895&" and (has_ord or len(readings) > 1)
+            classic = glyph in "S8495&" and (has_ord or len(readings) > 1)
             if not line_start or not (classic or ordinal[-1:] in ("º", "°")):
                 continue
         # "§ 2º do art. 5º" is a citation wherever it sits; a citing word on the left
@@ -568,7 +583,13 @@ def _inciso_candidates(text: str) -> list[_Cand]:
         readings = roman_readings(m.group("tok"))
         if readings:
             out.append(
-                _Cand(m.start("tok"), m.end("tok"), readings, literal=readings[0])
+                _Cand(
+                    m.start("tok"),
+                    m.end("tok"),
+                    readings,
+                    literal=readings[0],
+                    bare=True,
+                )
             )
             taken.add(m.start("tok"))
     for m in _INC_WILD.finditer(text):
@@ -667,6 +688,20 @@ def _is_closing(text: str, k: int) -> bool:
     if text[k] == "”" and not before.isspace():
         return True
     return not before.isspace() and (after.isspace() or after in ".,;)(")
+
+
+def _inline_quotation_end(text: str, k: int) -> bool:
+    """A closing mark after a word, with lower-case prose going on after it ("...Pontes
+    para Vida" tem por objetivos"): a quoted title inside a sentence, not the end of a
+    block (a block ends after its last sentence's punctuation)."""
+    before = text[k - 1] if k > 0 else "\n"
+    return (
+        text[k] == '"'
+        and before.isalnum()
+        and k + 2 < len(text)
+        and text[k + 1] == " "
+        and text[k + 2].islower()
+    )
 
 
 def _article_reading(text: str, pos: int) -> int | None:
@@ -806,6 +841,8 @@ def find_quoted_blocks(
             if text[j] in "'‘’" and text[k] not in "'‘’":
                 continue  # an apostrophe ("de' 5/5") never closes a double-quoted block
             if _is_closing(text, j):
+                if _inline_quotation_end(text, j):
+                    continue
                 depth -= 1
                 if depth == 0:
                     end, closed = j + 1, True
@@ -1024,6 +1061,24 @@ class _Builder:
                 small = [r for r in cands[i].readings if r < 10]
                 if small and not any(abs(w - v) <= 1 for w in around):
                     chosen[i] = small[0]
+        if lenient and kind in _RESTART_KINDS:
+            # A quoted block that holds several quoted articles whose markers were lost
+            # restarts its paragraphs: "§ 1º" at a line start after a run that already
+            # passed 1 is the first paragraph of the next quoted article, not noise.
+            top = 0
+            for i, v in enumerate(chosen):
+                if v is not None:
+                    top = max(top, v)
+                elif (
+                    top > 1
+                    and cands[i].strong
+                    and not cands[i].ref
+                    and not cands[i].unico
+                    and cands[i].readings[:1] == (1,)
+                    and _at_line_start(self.text, cands[i].start)
+                ):
+                    chosen[i] = 1
+                    top = 1
         free_skips = _ALI_FREE_SKIPS if kind == "alinea" else frozenset()
         filled = (
             _fill_single_gaps(
@@ -1032,6 +1087,16 @@ class _Builder:
             if not lenient
             else frozenset()
         )
+        if (
+            not lenient
+            and any(chosen[i] is not None and cands[i].bare for i in range(len(cands)))
+            and not any(
+                chosen[i] is not None and cands[i].strong and not cands[i].bare
+                for i in range(len(cands))
+            )
+        ):
+            # Markers without a separator only complete a chain that has a real one.
+            chosen = [None if cands[i].bare else v for i, v in enumerate(chosen)]
         members = [i for i, v in enumerate(chosen) if v is not None]
         values = [v for v in chosen if v is not None]
         keep = bool(members)
@@ -1979,7 +2044,15 @@ def read_hierarchy(text: str) -> HierarchyReport:
     masked += [h for h in heads if not any(s <= h[0] < e for s, e in masked)]
     masked.sort()
     second = read_articles(text, masked) if masked else first
-    builder.masked = masked
+    # Overlapping spans (a block opened inside another) are one masked region: the
+    # membership test looks at a single span, so a nested one would unmask the rest.
+    merged: list[tuple[int, int]] = []
+    for s_, e_ in masked:
+        if merged and s_ < merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e_))
+        else:
+            merged.append((s_, e_))
+    builder.masked = merged
     all_articles, gap_articles = _fill_article_gaps(text, second["articles"], masked)
 
     _quote_under_amending_host(text, all_articles)

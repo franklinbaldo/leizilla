@@ -1802,3 +1802,132 @@ def test_enumeration_cue_tolerates_a_stray_bar_before_the_marker() -> None:
         "Art. 2º Esta Lei entra em vigor.\n"
     )
     assert "art-1-inc-2" in _paths(read_hierarchy(text))
+
+
+# --- full-scale tournament, round 1 (docs/okf/reader-ratchet.md) -----------------------
+def _numbers(report: HierarchyReport, kind: str, status: str = "own") -> list[str]:
+    nodes = sorted(report["nodes"], key=lambda n: n["start"])
+    return [
+        f"{n['number']}{n['suffix'] or ''}"
+        for n in nodes
+        if n["kind"] == kind and n["status"] == status
+    ]
+
+
+def test_article_suffix_with_spaced_dash_and_period() -> None:
+    text = (
+        "Art. 1º Fica alterada a Lei:\n"
+        "“Art. 124 - A. Os órgãos e entidades da administração pública.\n"
+        "Art. 125 - B. Fica criado o cargo.”\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "artigo", "quoted")[0] == "124A"
+    # the spaced form is only for "A.": "Art. 6º - B." is "É" misread, not a suffix
+    other = read_hierarchy(
+        "Art. 1º Texto.\nArt. 2º - B. vedado ao Conselheiro:\nArt. 3º Fim.\n"
+    )
+    assert _numbers(other, "artigo") == ["1", "2", "3"]
+
+
+def test_quoted_article_with_suffix_a_glued_to_the_ordinal() -> None:
+    text = (
+        "Art. 1º A Lei nº 1 passa a vigorar acrescida do seguinte artigo:\n\n"
+        "“Art. 2º-A Constitui de igual modo objetivo do Fundo.”\n\n"
+        "Art. 2º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "artigo", "quoted") == ["2A"]
+    assert _numbers(report, "artigo") == ["1", "2"]
+
+
+def test_overlapping_quoted_spans_do_not_leave_duplicate_nodes() -> None:
+    from leizilla import marcacao
+
+    text = (
+        "Art. 1º Altera a Lei:\n"
+        "“Art. 2º-A Os valores:\n\n"
+        "I - um;\n\n"
+        "II - dois.”\n"
+        "Art. 2º Fim.\n"
+    )
+    # building the marked document must not raise on nested quoted spans
+    marcacao.from_hierarchy(text, read_hierarchy(text), tipo="lei", numero=1)
+
+
+def test_paragraph_sign_read_as_8_or_4_glued_to_the_ordinal() -> None:
+    text = (
+        "Art. 1º Texto principal da norma.\n"
+        "§ 1º Primeiro paragrafo da norma.\n"
+        "82º Segundo paragrafo da norma aqui.\n"
+        "43º Terceiro paragrafo da norma aqui.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "paragrafo") == ["1", "2", "3"]
+
+
+def test_paragraph_twelve_with_a_period_keeps_the_literal_for_the_section_sign() -> (
+    None
+):
+    text = (
+        "Art. 1º Altera a Lei nº 1:\n"
+        "“Art. 5º Texto:\n"
+        "§ 12. Aos servidores no efetivo exercício.”\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "paragrafo", "quoted") == ["12"]
+
+
+def test_paragraph_suffix_letter_before_lower_case_prose_is_no_suffix() -> None:
+    text = (
+        "Art. 1º Texto.\n"
+        "§ 4º-O exercício das funções do Conselho é gratuito.\n"
+        "§ 5º-A Gratificação será paga.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "paragrafo") == ["4", "5A"]
+
+
+def test_quoted_block_restarts_paragraphs_at_a_lone_first_one() -> None:
+    text = (
+        "Art. 1º Altera a Lei nº 1:\n"
+        "“Art. 5º Texto:\n"
+        "§ 1º Primeiro.\n"
+        "§ 2º Segundo.\n"
+        "II - inciso solto;\n"
+        "§ 1º Primeiro do outro artigo, de marca perdida.”\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "paragrafo", "quoted") == ["1", "2", "1"]
+
+
+def test_bare_inciso_without_separator_completes_a_chain() -> None:
+    text = (
+        "Art. 1º São diretrizes:\n"
+        "I - garantir o acesso;\n"
+        "II promover a inclusão;\n"
+        "III - respeitar a cultura;\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    assert _numbers(read_hierarchy(text), "inciso") == ["1", "2", "3"]
+    # a conjunction after one space is a citation of the list, not a marker
+    cited = "Art. 1º Texto:\nI - um;\nII - dois;\nIII e IV do artigo anterior.\n"
+    assert _numbers(read_hierarchy(cited), "inciso") == ["1", "2"]
+    # no strong member in the chain: a table of "I TRIMESTRE" rows is no list
+    table = "Art. 1º Texto:\nI trimestre 10\nII trimestre 20\nIII trimestre 30\n"
+    assert _numbers(read_hierarchy(table), "inciso") == []
+
+
+def test_inline_quotation_mark_before_lower_case_prose_does_not_close_a_block() -> None:
+    text = (
+        "Art. 1º Acrescenta artigo:\n"
+        '“Art. 3º-A Fica instituída a Campanha “Pontes para Vida" no Estado.\n'
+        '§ 2º A Campanha Pontes para Vida" tem por objetivos:\n'
+        "I - afixar cartazes;\n"
+        "II - divulgar telefones.”\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "inciso", "quoted") == ["1", "2"]
+    assert _numbers(report, "inciso") == []

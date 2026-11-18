@@ -52,7 +52,8 @@ ARTICLE_CANDIDATE = re.compile(
     r")"
     r"(?:\s*[.,:;»«„“”\"'^™_]{0,3}\s*|-\s?(?=[0-9IlO]))(?P<num>[0-9IlO]{1,4})"
     r"(?P<ord>\s?[ºo°ªQ^?])?"
-    r"(?:-(?P<suffix>[A-Z])(?=[.:\-–—]|[ \t]*[\-–—]|[ \t]*(?:\n|\Z)))?"
+    r"(?:(?:-|[ \t]?-[ \t]?(?=A\.))(?P<suffix>[A-Z])"
+    r"(?=[.:\-–—]|[ \t]*[\-–—]|[ \t]*(?:\n|\Z)|(?<=[ºo°ª]-A)[ \t]+(?=[A-ZÀ-Ý])))?"
 )
 _OCR_DIGITS = str.maketrans({"I": "1", "l": "1", "O": "0"})
 # Digits the ordinal indicator is misread as when glued to the number ("4º" -> "42").
