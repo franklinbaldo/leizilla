@@ -1,0 +1,16 @@
+# mark-compiladas-longlines-2026-11
+# Whole-layer mark-mode selection, built by scripts/select_mark_full.py from textos.parquet (88 norms).
+# Exclusions in order: reference norms with unchanged text sha (0), more than 8 parts (11), line > 200 chars or p95 > 150 (10).
+# Reference norms whose text changed (kept in play): none; reference ids missing from the layer: none.
+# Restricted to rendicao=compilada. Over 8 parts (excluded, listed): leizilla-raw-ro-casacivil-lc-00680 (26 parts), leizilla-raw-ro-casacivil-lc-00703 (16 parts), leizilla-raw-ro-casacivil-lc-00728 (17 parts), leizilla-raw-ro-casacivil-lc-00827 (119 parts), leizilla-raw-ro-casacivil-lc-01089 (48 parts), leizilla-raw-ro-casacivil-lei-02771 (10 parts), leizilla-raw-ro-casacivil-lei-05036 (13 parts), leizilla-raw-ro-casacivil-lei-05073 (34 parts), leizilla-raw-ro-casacivil-lei-05527 (430 parts), leizilla-raw-ro-casacivil-lei-05584 (39 parts), leizilla-raw-ro-casacivil-lei-05832 (50 parts)
+# 10 norms; by type {'lc': 2, 'lei': 8}; by source {'other': 10}; chars 170431; max parts 5
+leizilla-raw-ro-casacivil-lc-00940
+leizilla-raw-ro-casacivil-lc-01086
+leizilla-raw-ro-casacivil-lei-03500
+leizilla-raw-ro-casacivil-lei-03830
+leizilla-raw-ro-casacivil-lei-04700
+leizilla-raw-ro-casacivil-lei-05246
+leizilla-raw-ro-casacivil-lei-05361
+leizilla-raw-ro-casacivil-lei-05535
+leizilla-raw-ro-casacivil-lei-05621
+leizilla-raw-ro-casacivil-lei-05734

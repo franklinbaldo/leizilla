@@ -1,0 +1,13 @@
+# mark-compiladas-probe-2026-11
+# 10 of the 67 norms of mark-compiladas-2026-11, picked by hand for the probe of the CURRENT mark prompt (teacher-mark-v2) on compiled texts.
+# Rule: 8 whose reader (hierarchy_sequence, rules A/S) reads superseded article printings (lei 3674: 10; 5970: 5; 4458: 4; 5788: 4; 3910: 2; 6284: 2; 4983: 2, the norm of a reference erratum; 5886: 1, read end to end in the held-out set) and 2 controls with none (lei 4096, 4706); all short (<= 13 000 characters), all in text layer leizilla-textos-ro-v0-latest (2026-11-18).
+leizilla-raw-ro-casacivil-lei-03674
+leizilla-raw-ro-casacivil-lei-03910
+leizilla-raw-ro-casacivil-lei-04096
+leizilla-raw-ro-casacivil-lei-04458
+leizilla-raw-ro-casacivil-lei-04706
+leizilla-raw-ro-casacivil-lei-04983
+leizilla-raw-ro-casacivil-lei-05788
+leizilla-raw-ro-casacivil-lei-05886
+leizilla-raw-ro-casacivil-lei-05970
+leizilla-raw-ro-casacivil-lei-06284

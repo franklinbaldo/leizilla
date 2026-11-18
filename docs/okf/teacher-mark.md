@@ -586,6 +586,93 @@ base é `docs/okf/mark-ratchet-baseline.json`). Esboço:
   chamar API. Mudar a referência (novo prompt, novo modelo, nova errata) é uma atualização
   da linha de base com motivo, nunca implícita.
 
+## Textos compilados no modo mark (`mark-compiladas-2026-11`)
+
+A camada publicada (2026-11-18) tem **88 normas cujo texto de leitura é a rendição compilada**
+(`rendicao = 'compilada'`: 56 leis, 30 LCs, 2 decretos); nenhuma está na referência de 3 213
+normas, então a leitura de um texto compilado não está travada pelo gate por nível.
+`scripts/select_mark_full.py --rendicao compilada` (offline, determinístico; mesmas três
+exclusões da camada inteira) escreve as listas em `docs/okf/review-samples/`:
+
+| arquivo | normas | requisições | estimativa | teto |
+|---|---:|---:|---:|---:|
+| `mark-compiladas-2026-11` | 67 | 134 | US$ 0,18 | US$ 0,64 |
+| `mark-compiladas-longlines-2026-11` (`anchors=snippet`) | 10 | 27 | US$ 0,03 | US$ 0,12 |
+| mais de 8 partes (fora, só listadas no cabeçalho) | 11 | | | |
+
+As 11 com mais de 8 partes: lc 680 (26), 703 (16), 728 (17), 827 (119), 1089 (48); lei 2771 (10),
+5036 (13), 5073 (34), 5527 (430), 5584 (39), 5832 (50). Plano local (`claude-haiku-5-5`, effort
+medium, `--shuffle-seed 20261119`, `--text-source textos`); pior realista +15%. **18** das 67 já
+estão em `mark-full-2026-11-a` (6) ou `-b` (12): se a rodada da camada inteira sair antes, tirar
+essas da lista das compiladas (ou o contrário), para não marcar duas vezes.
+
+### O que o prompt `teacher-mark-v2` fará com um artigo impresso duas vezes
+
+O prompt não conhece o gênero: diz "marque apenas o que o texto traz", pede `n` interpretado
+"pela sequência" e só trata `alteracao` (texto de **outra** norma entre aspas). Um compilado traz
+"Art. 2º ... / Art. 2º ... (Redação dada pela Lei ...)". Leitura do que o modelo tende a fazer
+(**inferência, não medida**; o probe abaixo mede):
+
+1. o mais provável: marcar as duas impressões como `art` com o mesmo `n` (cada uma abre uma linha com
+   marcador; nada manda descartar). O conversor aceita (verificado com uma resposta sintética:
+   `xml` válido, nada descartado) e `suspects()` dispara **`suspect_sequence`** na segunda impressão
+   ("own article 2 after 2"), uma por impressão repetida; um bloco `alteracao` antes do artigo
+   (se o modelo tomar a nota por citação) daria `suspect_alteracao`;
+2. o desvio perigoso: "corrija pela sequência" empurra o modelo a **renumerar** a repetida (2, 3, 4
+   em vez de 2, 2, 3). Isso não gera suspeita (a sequência sobe), sai silenciosamente errado e só
+   aparece como `number_differs` no placar;
+3. o documento nunca marca `estado="superado"` (o campo `e` só aceita `vetado`): as duas impressões
+   são dispositivos próprios no documento, enquanto o leitor lê a primeira como `superseded`. Contra
+   o leitor a norma discorda (`reader_missing`/`reader_extra`) sem que o leitor esteja errado.
+
+Medido no leitor sobre as 67: 36 têm impressões superadas (até 10 por norma, lei 3674 e 5245), 31 não.
+
+### O que o construtor da referência precisa para uma norma compilada entrar no gate
+
+Hoje `reader_ratchet_levels.py build-reference` guarda `[kind, n, sufixo, quoted, offset]` por
+dispositivo e **deixa de fora do gate toda norma com `suspect_*`** (a bandeira fica em `flags`;
+só um `clear_suspect` com evidência a libera). Para uma compilada entrar é preciso: (a) o
+conversor do modo `mark` ler `e="superado"` (e `suspects()`/`own_closes` ignorarem as
+impressões superadas ao conferir a sequência); (b) `norm_record` guardar o estado (um 6.º campo,
+ou não gravar as linhas superadas) e o gate comparar só a vista vigente, como o
+`compare_mark_reader.devices` já faz do lado do documento.
+
+**Independência, dita sem rodeio.** Se o conversor mapear as impressões repetidas para
+`estado="superado"` **com a mesma regra do leitor** (A/S: a última impressão é a vigente, as
+anteriores são superadas; C1 a C4), a referência concorda com o leitor *por construção* nesse
+ponto: não é evidência independente de que a impressão vigente é a última, só repete a regra.
+O resto continua independente (quais linhas são artigos, números, subníveis, quoted x own).
+
+Desenho menos ruim, em ordem: (1) **`teacher-mark-v3`**: o modelo aponta a impressão superada
+(`e="superado"`, o campo já existe, só ganha um valor) com a regra do gênero no prompt (a
+impressão anterior à que traz a nota "(Redação dada ...)" no fim do texto próprio; a posição e a
+nota são os dois sinais que sobrevivem à extração). O modelo e as regras do leitor erram por
+motivos diferentes, e **cada divergência é lida à mão** (como nas 5 normas retidas do torneio) em vez de
+resolvida por uma das duas; (2) o conversor aceita o `superado` do modelo, **nunca infere** a
+partir do leitor; uma norma só entra na referência com `superado` do modelo e sem `suspect_*`
+restante; (3) antes de o gate depender disso, **julgar o v3 em 10 normas** (as mesmas do probe)
+comparando o conjunto superado do modelo com o do leitor e lendo as divergências. Se o modelo
+concordar com o leitor em quase tudo, a referência não ganha independência no *estado*, mas
+ganha uma verificação cruzada humana nos casos difíceis; se divergir, o gate expõe um defeito
+real do leitor ou do prompt. Alternativa descartada: converter por regra (circular) ou deixar as
+compiladas fora do gate para sempre (o leitor é regredido sem aviso nelas).
+
+### Probe de 10 normas com o prompt ATUAL (sem mudar o prompt)
+
+`docs/okf/review-samples/mark-compiladas-probe-2026-11.txt`: 8 normas com impressões superadas
+(lei 3674, 3910, 4458, 4983, 5788, 5886, 5970, 6284) e 2 controles sem (lei 4096, 4706). Plano
+local: 10 normas, 5 requisições, estimativa **US$ 0,01** (~58 mil tokens de entrada, ~22 mil de
+saída), teto US$ 0,03.
+
+1. `step=plan`, `mode=mark`, `ids_file=mark-compiladas-probe-2026-11`, `shuffle_seed=20261119`,
+   `model=claude-haiku-5-5`, `effort=medium`, `text_source=textos`, `anchors=col+snippet`;
+2. `step=submit`, os mesmos insumos, `max_usd=0.05`, `guard=ceiling`;
+3. `step=collect` com o `manifest_run_id` do submit.
+
+Ler no collect: por norma, `suspects` (`suspect_sequence`/`suspect_alteracao`), quantos `art` com o
+mesmo `n`, se algum foi renumerado (compare o `n` do modelo com o do leitor), e o `compare_mark_reader`
+por nível. É isso que decide o desenho do v3.
+
 ## Simulação seca (sem API)
 
 `scripts/simulate_mark.py` gera a resposta de um modelo perfeito a partir do leitor (de

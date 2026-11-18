@@ -15,6 +15,12 @@ reason that applies):
    worked; the re-flow set (every line 200-400) truncated 48 of 48. Those norms go to a
    separate file for ``anchors=snippet``.
 
+``--rendicao compilada`` restricts the layer to the norms whose reading text is that
+rendition (the ``rendicao`` column of ``textos.parquet``) and writes
+``mark-compiladas-2026-11`` / ``mark-compiladas-longlines-2026-11`` instead (same three
+exclusions; the norms with more than ``--max-parts`` are listed in the file header, not
+silently dropped).
+
 The main file can be split in two of similar cost (``--split``): norms sorted by
 (characters, id) and dealt alternately to ``-a`` and ``-b``.
 
@@ -31,6 +37,8 @@ import statistics
 import sys
 from pathlib import Path
 from typing import Any, Optional
+
+import duckdb
 
 from leizilla import teacher_batch as tb
 from leizilla import teacher_mark as tm
@@ -100,9 +108,36 @@ def profile_record(rec: tb.TextoRecord) -> dict[str, Any]:
     }
 
 
-def profile_layer(textos: Path) -> list[dict[str, Any]]:
+def rendicao_of(textos: Path) -> dict[str, str]:
+    """``texto_id`` -> ``rendicao`` of the reading text (empty when the column is absent)."""
+    con = duckdb.connect()
+    try:
+        cols = {
+            r[0]
+            for r in con.execute(
+                "describe select * from read_parquet(?)", [str(textos)]
+            ).fetchall()
+        }
+        if "rendicao" not in cols:
+            return {}
+        return {
+            str(i): str(r or "original")
+            for i, r in con.execute(
+                "select texto_id, rendicao from read_parquet(?)", [str(textos)]
+            ).fetchall()
+        }
+    finally:
+        con.close()
+
+
+def profile_layer(textos: Path, rendicao: Optional[str] = None) -> list[dict[str, Any]]:
     corpus = tb.load_textos(textos)
-    rows = [profile_record(rec) for rec in corpus.records if rec.texto_id]
+    keep = rendicao_of(textos) if rendicao else {}
+    rows = [
+        profile_record(rec)
+        for rec in corpus.records
+        if rec.texto_id and (not rendicao or keep.get(str(rec.texto_id)) == rendicao)
+    ]
     return sorted(rows, key=lambda r: r["id"])
 
 
@@ -184,11 +219,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "--split", action="store_true", help="write the main file as -a and -b"
     )
+    parser.add_argument(
+        "--rendicao",
+        default=None,
+        help="only norms whose reading text is this rendition (e.g. compilada); "
+        "output stem becomes mark-<rendicao>s-2026-11",
+    )
     parser.add_argument("--profile-json", type=Path, default=None)
     parser.add_argument("--exclusions-md", type=Path, default=None)
     args = parser.parse_args(argv)
 
-    rows = profile_layer(args.textos)
+    rows = profile_layer(args.textos, args.rendicao)
     ref_ids = tr.read_ids_file(args.reference_ids)
     ref_doc = json.loads(args.reference_json.read_text(encoding="utf-8"))
     ref_sha = {k: v["text_sha256"] for k, v in ref_doc["norms"].items()}
@@ -200,6 +241,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         long_line=args.long_line,
         long_p95=args.long_p95,
     )
+    if args.rendicao:
+        part["missing"] = []  # every reference id is "missing" from a restricted subset
     base = [
         f"Whole-layer mark-mode selection, built by scripts/select_mark_full.py from "
         f"{args.textos.name} ({len(rows)} norms).",
@@ -211,15 +254,30 @@ def main(argv: Optional[list[str]] = None) -> int:
         f"{[r['id'] for r in part['changed']] or 'none'}; "
         f"reference ids missing from the layer: {part['missing'] or 'none'}.",
     ]
+    stem, long_stem = STEM, LONG_STEM
+    if args.rendicao:
+        stem = f"mark-{args.rendicao}s-2026-11"
+        long_stem = f"mark-{args.rendicao}s-longlines-2026-11"
+        base.append(
+            f"Restricted to rendicao={args.rendicao}. Over {args.max_parts} parts "
+            f"(excluded, listed): "
+            + (
+                ", ".join(
+                    f"{r['id']} ({r['parts']} parts)"
+                    for r in sorted(part["parts"], key=lambda r: r["id"])
+                )
+                or "none"
+            )
+        )
     out = args.out_dir
     written: dict[str, list[dict[str, Any]]] = {}
     if args.split:
         a, b = split_in_two(part["main"])
-        written[f"{STEM}-a"] = a
-        written[f"{STEM}-b"] = b
+        written[f"{stem}-a"] = a
+        written[f"{stem}-b"] = b
     else:
-        written[STEM] = part["main"]
-    written[LONG_STEM] = part["longlines"]
+        written[stem] = part["main"]
+    written[long_stem] = part["longlines"]
     for name, sel in written.items():
         write_ids(out / f"{name}.txt", [name, *base, describe(sel)], sel)
         print(f"{name}: {describe(sel)}")

@@ -1,0 +1,73 @@
+# mark-compiladas-2026-11
+# Whole-layer mark-mode selection, built by scripts/select_mark_full.py from textos.parquet (88 norms).
+# Exclusions in order: reference norms with unchanged text sha (0), more than 8 parts (11), line > 200 chars or p95 > 150 (10).
+# Reference norms whose text changed (kept in play): none; reference ids missing from the layer: none.
+# Restricted to rendicao=compilada. Over 8 parts (excluded, listed): leizilla-raw-ro-casacivil-lc-00680 (26 parts), leizilla-raw-ro-casacivil-lc-00703 (16 parts), leizilla-raw-ro-casacivil-lc-00728 (17 parts), leizilla-raw-ro-casacivil-lc-00827 (119 parts), leizilla-raw-ro-casacivil-lc-01089 (48 parts), leizilla-raw-ro-casacivil-lei-02771 (10 parts), leizilla-raw-ro-casacivil-lei-05036 (13 parts), leizilla-raw-ro-casacivil-lei-05073 (34 parts), leizilla-raw-ro-casacivil-lei-05527 (430 parts), leizilla-raw-ro-casacivil-lei-05584 (39 parts), leizilla-raw-ro-casacivil-lei-05832 (50 parts)
+# 67 norms; by type {'decreto': 2, 'lc': 23, 'lei': 42}; by source {'other': 37, 'own-reocr': 30}; chars 972879; max parts 8
+leizilla-raw-ro-casacivil-decreto-29000
+leizilla-raw-ro-casacivil-decreto-29987
+leizilla-raw-ro-casacivil-lc-00697
+leizilla-raw-ro-casacivil-lc-00829
+leizilla-raw-ro-casacivil-lc-00908
+leizilla-raw-ro-casacivil-lc-00911
+leizilla-raw-ro-casacivil-lc-00926
+leizilla-raw-ro-casacivil-lc-00944
+leizilla-raw-ro-casacivil-lc-00945
+leizilla-raw-ro-casacivil-lc-00948
+leizilla-raw-ro-casacivil-lc-00955
+leizilla-raw-ro-casacivil-lc-00964
+leizilla-raw-ro-casacivil-lc-01033
+leizilla-raw-ro-casacivil-lc-01064
+leizilla-raw-ro-casacivil-lc-01076
+leizilla-raw-ro-casacivil-lc-01102
+leizilla-raw-ro-casacivil-lc-01107
+leizilla-raw-ro-casacivil-lc-01109
+leizilla-raw-ro-casacivil-lc-01115
+leizilla-raw-ro-casacivil-lc-01117
+leizilla-raw-ro-casacivil-lc-01247
+leizilla-raw-ro-casacivil-lc-01257
+leizilla-raw-ro-casacivil-lc-01264
+leizilla-raw-ro-casacivil-lc-01296
+leizilla-raw-ro-casacivil-lc-01308
+leizilla-raw-ro-casacivil-lei-02997
+leizilla-raw-ro-casacivil-lei-03270
+leizilla-raw-ro-casacivil-lei-03674
+leizilla-raw-ro-casacivil-lei-03784
+leizilla-raw-ro-casacivil-lei-03910
+leizilla-raw-ro-casacivil-lei-03925
+leizilla-raw-ro-casacivil-lei-03943
+leizilla-raw-ro-casacivil-lei-03945
+leizilla-raw-ro-casacivil-lei-03949
+leizilla-raw-ro-casacivil-lei-03959
+leizilla-raw-ro-casacivil-lei-04096
+leizilla-raw-ro-casacivil-lei-04097
+leizilla-raw-ro-casacivil-lei-04423
+leizilla-raw-ro-casacivil-lei-04458
+leizilla-raw-ro-casacivil-lei-04592
+leizilla-raw-ro-casacivil-lei-04706
+leizilla-raw-ro-casacivil-lei-04781
+leizilla-raw-ro-casacivil-lei-04952
+leizilla-raw-ro-casacivil-lei-04983
+leizilla-raw-ro-casacivil-lei-05076
+leizilla-raw-ro-casacivil-lei-05229
+leizilla-raw-ro-casacivil-lei-05245
+leizilla-raw-ro-casacivil-lei-05364
+leizilla-raw-ro-casacivil-lei-05488
+leizilla-raw-ro-casacivil-lei-05512
+leizilla-raw-ro-casacivil-lei-05537
+leizilla-raw-ro-casacivil-lei-05598
+leizilla-raw-ro-casacivil-lei-05639
+leizilla-raw-ro-casacivil-lei-05695
+leizilla-raw-ro-casacivil-lei-05709
+leizilla-raw-ro-casacivil-lei-05735
+leizilla-raw-ro-casacivil-lei-05788
+leizilla-raw-ro-casacivil-lei-05802
+leizilla-raw-ro-casacivil-lei-05809
+leizilla-raw-ro-casacivil-lei-05831
+leizilla-raw-ro-casacivil-lei-05886
+leizilla-raw-ro-casacivil-lei-05970
+leizilla-raw-ro-casacivil-lei-06150
+leizilla-raw-ro-casacivil-lei-06151
+leizilla-raw-ro-casacivil-lei-06271
+leizilla-raw-ro-casacivil-lei-06284
+leizilla-raw-ro-casacivil-lei-06310

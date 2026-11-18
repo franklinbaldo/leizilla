@@ -96,3 +96,21 @@ def test_split_in_two_is_deterministic_and_balanced() -> None:
     assert [r["id"] for r in a] == ["n0", "n2", "n4", "n6"]
     assert [r["id"] for r in b] == ["n1", "n3", "n5"]
     assert smf.split_in_two(list(reversed(rows))) == (a, b)
+
+
+def test_rendicao_restricts_the_layer_and_names_the_files(tmp_path: Path) -> None:
+    import duckdb
+
+    textos = tmp_path / "textos.parquet"
+    con = duckdb.connect()
+    con.execute(
+        "create table t as select * from (values "
+        "('a', 'compilada'), ('b', 'original'), ('c', NULL)) v(texto_id, rendicao)"
+    )
+    con.execute(f"copy t to '{textos}' (format parquet)")
+    got = smf.rendicao_of(textos)
+    assert got == {"a": "compilada", "b": "original", "c": "original"}
+    # no rendicao column (an old layer): nothing is filtered by it, nothing breaks
+    old = tmp_path / "old.parquet"
+    con.execute(f"copy (select texto_id from t) to '{old}' (format parquet)")
+    assert smf.rendicao_of(old) == {}
