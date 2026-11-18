@@ -158,7 +158,9 @@ data/                # local DuckDB + artifacts (gitignored)
   fetching 20 min before the job's `--job-deadline` (ADR-0016 addendum 2026-11-17),
   and each flush/derive is capped by that deadline minus 3 min (`flush-timeout`).
   An account-wide IA throttle (`accesskey_`/`total_tasks_queued`) ends the run at once
-  (`ia-account-throttled`, captures back to pending). The batched harvest writes one
+  (`ia-account-throttled`, captures back to pending; exit 0 "adiado" when nothing was
+  preserved, bytes kept in `data/spool`); before fetching, the harvest probes IA
+  `check_limit` (read-only, fail-open) and skips the run/item when over ration. The batched harvest writes one
   PUT per capture (no `_meta.json`; provenance is in `index.csv` columns). The 7 tipo
   jobs run 2 in parallel at `HARVEST_HOST_INTERVAL_S=2` each (~1 req/s combined).
 - **ADR-0011 — identity-keyed navigable catalog; identity is evidence, not an
@@ -260,6 +262,8 @@ manifest exists.
 | `HARVEST_BATCH_SIZE` | captures per `ia upload` flush, per IA item (ADR-0016) | `25` |
 | `HARVEST_MAX_SECONDS` | harvest stops fetching after this long and ends with flush + derive (`0` = no budget); also bounded by the `--job-deadline` minus a 20 min tail reserve | `0` |
 | `HARVEST_HOST_INTERVAL_S` | min seconds between harvest hits on the same source host (ADR-0008); N parallel jobs → N × 1.0 | `1.0` |
+| `HARVEST_FIRST_FLUSH` / `HARVEST_MAX_UNFLUSHED` | captures held before the run's first flush / total unflushed across IA items before the fullest item is flushed (ADR-0016, 2026-11-18 (2)) | `5` / `100` |
+| `HARVEST_SPOOL_MAX_FILES` / `_MAX_BYTES` / `_MAX_AGE_DAYS` | local spool of downloaded-not-uploaded captures kept across runs (`data/spool`; `0` files = off) | `200` / `104857600` / `7` |
 | `HARVEST_WAYBACK_SAVE` / `HARVEST_DERIVE` | `0` turns off the background Save Page Now / the end-of-run derive requests | `1` / `1` |
 | `LOG_LEVEL` | CLI root logger level (`leizilla.cli:main`) — without this, `logger.info`/`logger.debug` in `discovery.py`/`parser.py`/`publisher.py` produce no output at all, in CI or locally | `INFO` |
 

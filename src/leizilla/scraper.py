@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional
 from leizilla import config, robots, wayback
 from leizilla.discovery import load_manifest
 from leizilla.ia_utils import (
+    IaCapacity,
     classify_ia_throttle,
     parse_identity,
     range_bounds,
@@ -37,6 +38,7 @@ from leizilla.publisher import (
 )
 from leizilla.ratelimit import make_rate_limiter
 from leizilla.rendicao import RENDICAO_ORIGINAL, rendicao_da_url
+from leizilla.spool import DownloadSpool
 from leizilla.storage import DuckDBStorage
 
 logger = logging.getLogger(__name__)
@@ -413,6 +415,9 @@ class _RawBatcher:
         stats: Dict[str, Any],
         batch_size: int,
         flush_deadline_epoch: Optional[float] = None,
+        first_flush_at: Optional[int] = None,
+        max_unflushed: Optional[int] = None,
+        spool: Optional[DownloadSpool] = None,
     ) -> None:
         self.storage = storage
         self.publisher = publisher
@@ -421,6 +426,19 @@ class _RawBatcher:
         # Instante (Unix) até o qual um flush ou derive pode rodar: o fim do job menos a
         # reserva do resumo. ``None`` = sem prazo (a colheita sem ``--job-deadline``).
         self.flush_deadline_epoch = flush_deadline_epoch
+        # Limite GLOBAL de capturas baixadas e ainda não enviadas (ADR-0016, 2026-11-18
+        # (2)): o buffer é por item e o rodízio da fila espalha as capturas por todos os
+        # itens, então "25 por item" deixou 330 downloads no ar (decreto, 14 itens a ~24).
+        # Antes do 1º flush da execução o limite é ``first_flush_at`` (testa a ração da
+        # conta gastando poucos downloads); depois, ``max_unflushed``.
+        self.first_flush_at = max(
+            1, config.HARVEST_FIRST_FLUSH if first_flush_at is None else first_flush_at
+        )
+        self.max_unflushed = max(
+            1,
+            config.HARVEST_MAX_UNFLUSHED if max_unflushed is None else max_unflushed,
+        )
+        self.spool = spool
         # Índice acumulado por item nesta execução: flushes sucessivos ao mesmo
         # item partem do índice do flush anterior em vez de reler do IA (sem
         # read-after-write) e sobrescrever as linhas recém-gravadas.
@@ -446,6 +464,25 @@ class _RawBatcher:
         buffer.append(staged)
         if len(buffer) >= self.batch_size:
             self.flush(item_id)
+            return
+        self._flush_if_too_many_unflushed()
+
+    def unflushed(self) -> int:
+        """Capturas baixadas e ainda não enviadas, somando todos os itens."""
+        return sum(len(b) for b in self.buffers.values())
+
+    def _flush_if_too_many_unflushed(self) -> None:
+        """Sobe o item mais cheio enquanto o total no buffer passar do limite global."""
+        while self.abort_reason is None and self.buffers:
+            limit = (
+                self.first_flush_at
+                if self.stats.get("flushes", 0) == 0
+                else self.max_unflushed
+            )
+            if self.unflushed() < limit:
+                return
+            fullest = max(self.buffers, key=lambda i: len(self.buffers[i]))
+            self.flush(fullest)
 
     def _time_left_s(self) -> Optional[float]:
         """Segundos até o prazo de flush/derive, ou ``None`` se não há prazo."""
@@ -535,7 +572,27 @@ class _RawBatcher:
         elif self.consecutive_failures >= _MAX_CONSECUTIVE_FLUSH_FAILURES:
             self.abort_reason = "ia-upload-failing"
 
+    def _spool_discard(self, entry: _Staged) -> None:
+        if self.spool is not None:
+            self.spool.discard(entry.url)
+
+    def _spool_keep(self, entry: _Staged) -> None:
+        """Guarda os bytes de uma captura que não subiu, para a próxima execução."""
+        if self.spool is None:
+            return
+        meta = entry.capture.raw_meta
+        prov = meta.get("provenance_wayback") or {}
+        if self.spool.put(
+            entry.url,
+            entry.capture.content,
+            fetched_from=str(prov.get("fetched_from") or "source-direct"),
+            wayback_url=prov.get("wayback_url"),
+            captured_at=str(meta.get("data_captura") or ""),
+        ):
+            self.stats["spooled"] = self.stats.get("spooled", 0) + 1
+
     def _record_success(self, entry: _Staged, result: Dict[str, Any]) -> None:
+        self._spool_discard(entry)
         self.storage.update_resource_status(
             entry.url, "downloaded", wayback_snapshot=entry.wayback_snapshot
         )
@@ -568,6 +625,7 @@ class _RawBatcher:
         # get_pending_resources() não o re-seleciona. URL e motivo ficam no banco
         # (coluna ``motivo``) para uma estratégia especial futura (ADR-0011); nada
         # é apagado do IA. Não conta para _MAX_CONSECUTIVE_FLUSH_FAILURES.
+        self._spool_discard(entry)
         kind = rejection or "pdf-check"
         reason = f"ia-rejected: {kind}"
         reasons: Dict[str, int] = self.stats["ia-rejected-reasons"]
@@ -597,6 +655,7 @@ class _RawBatcher:
             f"[WARN] {entry.chave} volta à fila (pending) [{reason}]: {error[-200:]}",
             file=sys.stderr,
         )
+        self._spool_keep(entry)
         self.storage.update_resource_status(entry.url, "pending")
         self.stats["requeued"] = self.stats.get("requeued", 0) + 1
         self.stats["items"].append(
@@ -610,6 +669,8 @@ class _RawBatcher:
         )
         # 'pending', nunca 'downloaded' nem 'failed': os bytes não estão no
         # índice do IA, e o motivo (limite de taxa, índice ilegível, rede) passa.
+        if reason == "ia-throttled":  # ração do item: os bytes estão bons
+            self._spool_keep(entry)
         self.storage.update_resource_status(entry.url, "pending")
         self.stats["failed"] += 1
         self.stats["items"].append(
@@ -699,6 +760,31 @@ class _RawBatcher:
                 self.stats["derive-failed"].append(item_id)
 
 
+def _probe_capacity(
+    publisher: Any, item_id: Optional[str] = None
+) -> Optional[IaCapacity]:
+    """Sonda somente leitura do IA; ``None`` = não sei (fail-open, a colheita segue)."""
+    probe = getattr(publisher, "check_ia_capacity", None)
+    if probe is None:
+        return None
+    try:
+        capacity = probe(item_id)
+    except Exception as exc:  # a sonda nunca derruba a colheita
+        print(f"[WARN] sonda de capacidade do IA falhou: {exc}", file=sys.stderr)
+        return None
+    return capacity if isinstance(capacity, IaCapacity) else None
+
+
+def _capacity_text(capacity: IaCapacity) -> str:
+    d = capacity.detail
+    return (
+        f"limit_reason={capacity.reason!r} "
+        f"accesskey={d.get('accesskey_tasks_queued')}/{d.get('accesskey_ration')} "
+        f"total={d.get('total_tasks_queued')}/{d.get('total_global_limit')} "
+        f"bucket={d.get('bucket_tasks_queued')}/{d.get('bucket_ration')}"
+    )
+
+
 # Reserva, antes do fim do job, para o flush final, o derive e o resumo (ADR-0016,
 # adendo 2026-11-17). Medido: o flush final do lei levou ~630 s além do orçamento.
 HARVEST_TAIL_RESERVE_S = 1200.0
@@ -739,6 +825,9 @@ def harvest_pending_resources(
     wayback_saver: Optional[wayback.BackgroundSaver] = None,
     stats: Optional[Dict[str, Any]] = None,
     job_deadline_epoch: Optional[float] = None,
+    first_flush_at: Optional[int] = None,
+    max_unflushed: Optional[int] = None,
+    spool: Optional[DownloadSpool] = None,
 ) -> Dict[str, Any]:
     """Processa recursos pendentes da tabela discovered_resources (ADR-0016).
 
@@ -758,6 +847,14 @@ def harvest_pending_resources(
     ``job_deadline_epoch`` (instante em que o job morre), a busca para
     ``HARVEST_TAIL_RESERVE_S`` antes dele; sem orçamento útil, nada é buscado
     (``aborted = "no-time-left"``).
+
+    Antes de baixar qualquer coisa a colheita pergunta ao IA, sem gravar, se a conta
+    aceita uploads (``check_ia_capacity``): acima da ração, termina com
+    ``aborted = "ia-account-ration-skip"`` e nada é baixado; o item de cada captura é
+    sondado uma vez, e um item acima da ração é adiado. O primeiro flush sai com
+    ``first_flush_at`` capturas no buffer e depois o item mais cheio sobe sempre que o
+    total chega a ``max_unflushed``. ``spool`` (opcional) devolve os bytes de uma
+    colheita encerrada cedo, sem novo download. Sonda com erro: segue como antes.
     """
     if stats is None:
         stats = {}
@@ -778,10 +875,25 @@ def harvest_pending_resources(
             "deferred": 0,
             "deferred-items": [],
             "aborted": None,
+            "ration-skip": None,
+            "spooled": 0,
+            "from-spool": 0,
             "wayback-save": None,
             "items": [],
         }
     )
+    capacity = _probe_capacity(publisher)
+    if capacity is not None and capacity.over_limit:
+        # A conta está acima da ração agora: baixar da fonte do governo para não poder
+        # subir nada é o desperdício que o ADR-0004/0008 querem evitar. Adia sem falha.
+        stats["aborted"] = "ia-account-ration-skip"
+        stats["ration-skip"] = _capacity_text(capacity)
+        print(
+            f"[WARN] colheita adiada: o IA recusa uploads da conta agora "
+            f"({stats['ration-skip']}); nada foi baixado da fonte",
+            file=sys.stderr,
+        )
+        return stats
     # ``limit`` conta tentativas reais (rede/upload). Recurso que o index.csv do
     # IA mostra já preservado é só marcado e não consome o limite — senão um
     # banco local recém-criado gastaria a execução inteira revendo o que já existe.
@@ -802,7 +914,11 @@ def harvest_pending_resources(
             if job_deadline_epoch is not None
             else None
         ),
+        first_flush_at=first_flush_at,
+        max_unflushed=max_unflushed,
+        spool=spool,
     )
+    probed_items: set[str] = set()
     if wayback_saver is None and config.HARVEST_WAYBACK_SAVE:
         wayback_saver = wayback.BackgroundSaver(
             config.IA_ACCESS_KEY,
@@ -871,6 +987,18 @@ def harvest_pending_resources(
                 if item_id and item_key:
                     batcher.register_item(item_id, item_key)
                 continue
+            if item_id is not None and item_id not in probed_items:
+                probed_items.add(item_id)
+                item_cap = _probe_capacity(publisher, item_id)
+                if item_cap is not None and item_cap.over_limit:
+                    if item_cap.scope == "item":
+                        batcher.throttled_items.add(item_id)
+                    else:
+                        # A conta passou da ração durante a colheita: o buffer volta
+                        # à fila (e à reserva) no ``finish``, sem baixar mais nada.
+                        batcher.abort_reason = "ia-account-throttled"
+                        stats["ration-skip"] = _capacity_text(item_cap)
+                        break
             if item_id is not None and item_id in batcher.throttled_items:
                 # Fila cheia no IA para este item: nem baixamos da fonte um
                 # arquivo que não conseguimos subir agora. Continua 'pending'.
@@ -981,13 +1109,24 @@ def harvest_pending_resources(
             )
             pdf_bytes: Optional[bytes] = None
             fetched_from = "source-direct"
+            # Reserva de uma colheita anterior encerrada cedo: bytes já baixados e
+            # revalidados (existe, %PDF, sha256) — não bate na fonte de novo.
+            spooled = spool.get(url) if spool is not None else None
+            captured_at: Optional[str] = None
+            if spooled is not None:
+                pdf_bytes, spooled_meta = spooled
+                fetched_from = str(spooled_meta.get("fetched_from") or fetched_from)
+                wb_url = spooled_meta.get("wayback_url") or None
+                wb_ts = wayback.snapshot_timestamp(wb_url) if wb_url else None
+                captured_at = str(spooled_meta.get("captured_at") or "") or None
+                stats["from-spool"] += 1
             # Só uma falha CONFIRMADA (404/410 no fetch direto) é permanente;
             # qualquer outra (429/5xx esgotado, timeout, erro de rede) é transitória
             # e não deve virar 'failed' terminal — get_pending_resources() só
             # re-seleciona status='pending' (#121).
             permanent_failure = False
 
-            if wb_url:
+            if wb_url and pdf_bytes is None:
                 pdf_bytes = wayback.fetch_bytes(wb_url)
                 fetched_from = "wayback"
                 # Wayback pode retornar uma página HTML de erro para snapshots que
@@ -1060,7 +1199,7 @@ def harvest_pending_resources(
                 )
                 continue
 
-            if wb_url is None and wayback_saver is not None:
+            if wb_url is None and wayback_saver is not None and spooled is None:
                 # Best-effort e sem bloquear: a testemunha independente do Wayback
                 # é pedida, não esperada. Nada é registrado na proveniência — o
                 # snapshot ainda não existe.
@@ -1083,11 +1222,15 @@ def harvest_pending_resources(
             }
             if item_id and item_key:
                 batcher.register_item(item_id, item_key)
+            capture = make_raw_capture(
+                lei_data, pdf_bytes, fetched_from, wayback_url=wb_url
+            )
+            if captured_at:
+                # Proveniência honesta: o instante do download real, não o do upload.
+                capture.raw_meta["data_captura"] = captured_at
             batcher.add(
                 _Staged(
-                    capture=make_raw_capture(
-                        lei_data, pdf_bytes, fetched_from, wayback_url=wb_url
-                    ),
+                    capture=capture,
                     url=url,
                     chave=chave,
                     ente=ente,
@@ -1099,6 +1242,8 @@ def harvest_pending_resources(
         # Mesmo se o laço levantar: o que já foi baixado da fonte sobe, e os itens
         # tocados recebem o seu derive — os uploads foram feitos com --no-derive.
         batcher.finish()
+        if spool is not None:
+            spool.save()
         if batcher.abort_reason is not None:
             stats["aborted"] = batcher.abort_reason
         if wayback_saver is not None:

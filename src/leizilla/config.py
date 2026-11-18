@@ -43,5 +43,21 @@ HARVEST_HOST_INTERVAL_S = max(
     0.1, float(os.getenv("HARVEST_HOST_INTERVAL_S", "1.0") or 1.0)
 )
 
+# Capturas baixadas e ainda não enviadas ao IA (ADR-0016, adendo 2026-11-18 (2)): o
+# primeiro flush sai com HARVEST_FIRST_FLUSH capturas no total (testa a ração da conta
+# gastando poucos downloads) e, depois, o item mais cheio sobe sempre que o total no
+# buffer chega a HARVEST_MAX_UNFLUSHED, não importa como as capturas se espalhem.
+HARVEST_FIRST_FLUSH = max(1, int(os.getenv("HARVEST_FIRST_FLUSH", "5")))
+HARVEST_MAX_UNFLUSHED = max(1, int(os.getenv("HARVEST_MAX_UNFLUSHED", "100")))
+# Capturas que sobraram de uma colheita encerrada cedo (ração da conta, prazo) ficam
+# aqui para a próxima execução subir sem baixar da fonte de novo. Tetos: arquivos,
+# bytes e idade. HARVEST_SPOOL_MAX_FILES=0 desliga.
+HARVEST_SPOOL_DIR = Path(os.getenv("HARVEST_SPOOL_DIR", "") or str(DATA_DIR / "spool"))
+HARVEST_SPOOL_MAX_FILES = max(0, int(os.getenv("HARVEST_SPOOL_MAX_FILES", "200")))
+HARVEST_SPOOL_MAX_BYTES = max(
+    0, int(os.getenv("HARVEST_SPOOL_MAX_BYTES", str(100 * 1024 * 1024)))
+)
+HARVEST_SPOOL_MAX_AGE_DAYS = max(1, int(os.getenv("HARVEST_SPOOL_MAX_AGE_DAYS", "7")))
+
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 TEMP_DIR.mkdir(parents=True, exist_ok=True)

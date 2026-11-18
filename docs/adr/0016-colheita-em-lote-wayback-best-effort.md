@@ -365,3 +365,74 @@ por execução.
    mesmos bytes seguir sendo no-op. `year_index_rendicao` passou para `leizilla.rendicao`:
    `L{n}_compressed.pdf` (257 dos 466 "outra") é o original recomprimido, e `- COMP.pdf` é
    compilada.
+
+## Adendo 2026-11-18 (2) — sondar o IA antes de baixar, flush global, adiar não é falhar
+
+**Medido** (run 44300475999, `workflow_dispatch` às 12:04 UTC, entre as execuções agendadas
+de 09:52 e 14:00; log do job `decreto`): a colheita baixou **330** PDFs de
+`ditel.casacivil.ro.gov.br` em 16,5 min (~3 s cada, de 12:44:27 a 13:01:04) e o **primeiro**
+flush, a 13:01:04, recebeu `accesskey_tasks_queued exceeds rationed amount`. Resultado: 0
+preservados, 330 de volta a `pending`, job vermelho e comentário na issue #319. Na mesma
+execução o `lc` teve 36 uploads adiados pela ração do item. O dia já tinha releases de
+camada de texto e de catálogo na mesma conta.
+
+*Por que 330 antes do primeiro flush.* O buffer é por item (25 capturas), mas a fila sai em
+rodízio por bucket (adendo 2026-11-16 (2)): os 330 decretos estavam em 14 itens de 1000
+números, ~24 por item (nenhum tinha chegado a 25). O limite "25 por item" não limita o
+total: com B itens ativos o buffer chega a ~24 x B. O 25º de algum item só veio depois de 330.
+
+*Cache.* Só o banco DuckDB é guardado entre execuções (`discover-db-<tipo>--`, salvo com
+`if: always()`, e foi salvo nesta execução: 13:01:36). Os **bytes não eram guardados**:
+as 330 voltaram a `pending` e seriam baixadas da fonte de novo. O Save Page Now ainda fez
+302 pedidos (o robô do Wayback também bate na fonte).
+
+1. *Sonda antes de baixar.* `ia_utils.probe_ia_capacity`: `GET
+   https://s3.us.archive.org/?check_limit=1&accesskey=<chave>[&bucket=<item>]`, o mesmo
+   ponto de `ArchiveSession.s3_is_overloaded` da biblioteca `internetarchive` (conferido no
+   código instalado e numa chamada real sem credencial, 2026-11-18). Somente leitura, não
+   usa a chave secreta. O veredito é `over_limit != 0`; a resposta traz `detail` com
+   `accesskey_`/`bucket_`/`total_` `*_tasks_queued` e a ração de cada um. O escopo vem de
+   `detail.limit_reason` pela mesma `classify_ia_throttle`; sem ele, do contador que passou da
+   ração (conta/total antes de item); sem nenhum, `account` (conservador). Atenção:
+   `bucket_tasks_queued` (150) pode passar de `bucket_ration` (149) com `over_limit` 0; só o
+   veredito vale. O formato de `limit_reason` com `over_limit` != 0 **não foi observado**
+   (só o caso 0); por isso o escopo tem os dois caminhos. A biblioteca trata resposta ilegível
+   como sobrecarregado; aqui é **fail-open**: erro de rede, JSON inválido ou formato
+   desconhecido = `None` e a colheita segue como antes.
+   - Conta acima da ração, antes de qualquer download: `aborted = ia-account-ration-skip`,
+     nada é baixado, nada muda no banco.
+   - Cada item é sondado uma vez, antes da primeira captura dele: item acima da ração é
+     adiado (os recursos dele ficam `pending`, os demais itens seguem); se a resposta for de
+     conta, a colheita para (`ia-account-throttled`, buffer devolvido).
+   - A descoberta continua rodando antes (HEAD no mesmo host, ~6 min): mantém o cache do banco
+     vivo e a fila crescendo, e não depende do IA.
+2. *Flush global.* Além dos 25 por item (`HARVEST_BATCH_SIZE`): o **primeiro** flush da
+   execução sai quando há `HARVEST_FIRST_FLUSH` = 5 capturas no total (o item mais cheio sobe);
+   depois, o item mais cheio sobe sempre que o total no buffer chega a
+   `HARVEST_MAX_UNFLUSHED` = 100. Escolha de 100: os 330 = 14 itens x ~24, então o pior caso
+   sem o limite é ~24 x B; 100 (~5 min de download a ~3 s) limita a perda a uma fração disso e
+   ainda deixa o item mais cheio com >= 100/B capturas (>= 7 com B = 14), de modo que o custo
+   extra é um `index.csv` + uma chamada `ia` por flush: ~130 flushes por 1000 capturas em vez
+   de ~40, +~90 PUTs (+9% sobre os 1000 de arquivos). Um primeiro flush com 5 capturas custa
+   uma chamada `ia` com 1 arquivo: o aviso mais barato possível se a sonda errou.
+3. *Adiar não é falhar.* Nada preservado por ração da conta (`ia-account-ration-skip` ou
+   `ia-account-throttled` sem falha real) sai com código 0, linha "adiado: cota da conta no
+   Internet Archive; N capturas devolvidas à fila", `::notice::` e a mesma linha em
+   `$GITHUB_STEP_SUMMARY`; o passo `Notify on failure` (`failure() || cancelled()`) não roda,
+   então não há issue nem comentário. Continuam vermelhos (código 1): `flush-timeout` sem
+   captura, falhas reais de download/PDF, e itens adiados por ração do item sem nenhuma
+   captura (`deferred`).
+4. *Reserva de bytes.* `spool.DownloadSpool` (`data/spool/`, endereçado por sha256, índice
+   `index.json` com URL, `fetched_from`, `wayback_url`, instante do download): as capturas
+   devolvidas à fila por ração da conta/item ou prazo são gravadas lá; a próxima colheita, antes
+   de buscar na fonte, consulta a reserva e **revalida** (existe, `%PDF`, sha256 igual ao do
+   índice; senão descarta e baixa). O que sobe (ou o IA recusa) sai da reserva. Tetos
+   (`HARVEST_SPOOL_*`): 200 arquivos, 100 MiB, 7 dias; acima disso a captura não é guardada
+   (continua `pending`, como antes). Com o limite global do item 2, o que pode estar em
+   voo numa interrupção é <= 100 capturas, ~10-30 MiB. O workflow restaura/salva `data/spool`
+   por tipo (`harvest-spool-<tipo>--`, salvo com `always()` quando existe o índice).
+   Conteúdo e identidade seguem o ADR-0010 (nome = sha256; a linha do `index.csv` sai do
+   fluxo normal do lote).
+5. *Guarda do operador* em `docs/okf/pipeline/overview.md`: não disparar colheitas extras entre
+   as agendadas quando um release de texto/catálogo/reocr rodou nas últimas horas.
+

@@ -176,8 +176,19 @@ def _echo_harvest_summary(stats: Dict[str, Any], partial: bool = False) -> None:
         )
         for item_id in deferred_items:
             echo(f"    - adiado: {item_id}")
+    if stats.get("from-spool"):
+        echo(
+            f"  Reaproveitadas da reserva local (sem novo download): "
+            f"{stats['from-spool']}"
+        )
+    if stats.get("spooled"):
+        echo(
+            f"  Guardadas na reserva local para a próxima execução: {stats['spooled']}"
+        )
     if stats.get("aborted"):
         echo(f"  Colheita interrompida cedo: {stats['aborted']}")
+    if stats.get("ration-skip"):
+        echo(f"  Sonda do IA: {stats['ration-skip']}")
     if stats.get("failed"):
         # Issue #297: o resumo dos motivos sai aqui, depois do laço, onde a saída
         # já se provou confiável em CI (per-item prints não apareceram).
@@ -190,6 +201,45 @@ def _echo_harvest_summary(stats: Dict[str, Any], partial: bool = False) -> None:
         )
         for reason, count in reasons.most_common():
             echo(f"    - {reason}: {count}")
+
+
+def _harvest_postponed_message(stats: Dict[str, Any]) -> Optional[str]:
+    """Mensagem de "adiado" se a colheita terminou só por ração do IA, senão ``None``.
+
+    Só vale sem nenhuma captura preservada (com ao menos uma já era verde). Cobre: a
+    sonda acima da ração antes de baixar (``ia-account-ration-skip``), a recusa da conta
+    no flush (``ia-account-throttled``). Item com fila cheia (``deferred``) segue sendo falha.
+    Qualquer outra causa de "nada preservado" continua falha.
+    """
+    if stats.get("success"):
+        return None
+    aborted = stats.get("aborted")
+    if aborted == "ia-account-ration-skip":
+        return (
+            "adiado: cota da conta no Internet Archive acima da ração; "
+            "nada foi baixado da fonte"
+        )
+    if aborted == "ia-account-throttled" and not stats.get("failed"):
+        n = stats.get("requeued", 0)
+        kept = stats.get("spooled", 0)
+        return (
+            "adiado: cota da conta no Internet Archive; "
+            f"{n} capturas devolvidas à fila ({kept} guardadas na reserva local)"
+        )
+    return None
+
+
+def _announce_postponed(message: str) -> None:
+    """Imprime o aviso e o grava no resumo do job do GitHub Actions, se houver."""
+    echo(message)
+    echo(f"::notice title=Colheita adiada::{message}")
+    summary = os.getenv("GITHUB_STEP_SUMMARY")
+    if summary:
+        try:
+            with open(summary, "a", encoding="utf-8") as fh:
+                fh.write(f"**Colheita adiada.** {message}\n")
+        except OSError:
+            pass
 
 
 @app.command("harvest")
@@ -218,6 +268,8 @@ def cmd_harvest(
         from leizilla.scraper import harvest_pending_resources
         from leizilla.storage import DuckDBStorage
 
+        from leizilla.spool import DownloadSpool
+
         db = DuckDBStorage()
         pub = InternetArchivePublisher()
 
@@ -229,6 +281,7 @@ def cmd_harvest(
             tipo=tipo,
             stats=stats,
             job_deadline_epoch=job_deadline,
+            spool=DownloadSpool(),
         )
     except Exception as e:
         # O resumo sai mesmo se a colheita levantar: o que já foi feito precisa ser
@@ -237,6 +290,14 @@ def cmd_harvest(
         echo(f"Erro: {e}")
         raise typer.Exit(1)
     _echo_harvest_summary(stats)
+    # Ração do IA: adiar não é falha (ADR-0016, adendo 2026-11-18 (2)). A conta é
+    # compartilhada com os outros workflows; o que não subiu volta a ``pending`` (e os
+    # bytes já baixados ficam na reserva local), e a próxima execução refaz. Sai 0 e
+    # escreve o motivo no resumo do job — sem issue de falha.
+    postponed = _harvest_postponed_message(stats)
+    if postponed:
+        _announce_postponed(postponed)
+        return
     # Uma colheita em que nada foi capturado e houve falha que não é "a fonte
     # confirmou que o documento não existe" não é sucesso: sem isto o job fica
     # verde por semanas sem preservar nada. Um 404 confirmado ("fetch-failed") é
