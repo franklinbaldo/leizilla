@@ -229,10 +229,86 @@ incisos, blocos citados sem aspas nem `(NR)`, `Art. T` de primeiro artigo citado
 50% dos casos), "Art. 22" por 2º em bloco citado (19% dos casos), cópias repetidas do mesmo
 texto, marcadores perdidos que o modelo infere.
 
+Rodada 6 (continuação, mesma escala): 4 regras promovidas (`s lo -` com `s` minúsculo como
+`§`: treino +9 / teste +6, 18 de 18 dispositivos novos certos; `Parágrafo 1º -` por extenso
+no início de linha: +2 / +1; sinal de parágrafo seguido de `.` ou `:` e glifo duplo `S$`:
++2 / +1; algarismo romano depois de palavra capitalizada no meio da linha, `Assessor IV -
+CDS-04`, não é inciso: +1 / 0) e 16 errata `add_device` (dispositivos que o conversor
+omitiu e o leitor lê, com a evidência citada: 6 de lista própria, 10 de bloco citado).
+Rejeitadas: numeral romano sozinho na linha antes de prosa minúscula (precisão 2/3), `a)`
+sozinho como detrito (perde 5 unidades), lista de itens que começa depois de 1 (precisão
+0,58, 0 unidades), glifo parecido e número na mesma linha (0 unidades, perde 1).
+
+Rodada 7: 5 regras promovidas. Numeral romano puro sem o traço antes de palavra
+capitalizada (`III Cabo da Polícia`), só dentro de uma cadeia: treino +10 / teste +2, 11 de 11
+dispositivos. Bloco citado recomeça a cadeia depois de linha só de pontos (`I`, `.....`, `VII`,
+`.....`, `XXIII`): +6 / 0. Parágrafo e inciso citados podem pular números (`§ 1º`, `§ 6º`,
+`§ 7º`) quando o candidato é um `§` ou romano puro que abre a linha, com a penalidade de salto
+limitada a 0,5 (`best_chain(gap_cap, capped)`): +8 / +2 em incisos e +9 / +2 em parágrafos, 14
+de 14 em parágrafos e 30 de 34 em incisos (dois dos quatro erros são lacunas da referência).
+`Paraâgrafo único` com vogal dobrada: +1 / 0. Rejeitadas: `t` minúsculo como traço de `I`
+(precisão 0,8), romano seguido de título em maiúsculas não é inciso (perde 5 unidades e uma do
+teste), mesma regra de salto para alíneas (3 de 7 errados), elisão entre colchetes
+(`[...]`, precisão 0,53), `Paraágrato` (0,875).
+
+Rodada 8: 1 regra promovida e 4 errata. Um artigo com sufixo (`Art.49-A`) não é lido como
+`N-A` antes do `Art. N` simples que vem depois (`best_chain(suffix_repeats)`): treino +4
+(uma norma, quatro níveis), teste 0, 12 de 12 dispositivos; o professor do modo `label` lê
+`4A` ali, então 17 dispositivos dessa norma deixam de casar com ele. Rejeitadas: item
+isolado em bloco citado (precisão 0,5), salto de parágrafo também para o glifo `$` (0,33),
+item seguido de dígito com sinal ordinal (`1) 1º Ten`, 0 unidades, 5 de 5 certos).
+
+Rodada 9: 1 regra promovida e 1 errata. Dois ou três marcadores ilegíveis seguidos entre
+dois vizinhos da cadeia preenchem os números que faltam (`XQ -`, `ym -` entre XI e XIV), a
+generalização de `_fill_single_gaps`: treino +1, teste 0, 10 de 10 dispositivos. Rejeitadas:
+`II -` repetido lido como III só se nenhum `III -` vem depois (perde 4 unidades do treino e 2
+do teste), `e os artigos` como citação à direita do `§` (0 unidades).
+
+Rodada 10: 2 regras promovidas. `1)` ou `|)` abrindo a linha é a alínea `l` quando um `k)`
+vem antes (700 caracteres): treino +2, teste 0, 2 de 2 (sem a guarda do `k)`, precisão 0,71).
+O artigo de fecho com ordinal impresso claro mantém o número quando a cadeia está curta
+(`Art. 6º Esta Lei entra em vigor` depois de `Art. 2º`): treino +1, teste 0; a norma
+`lei-01296` deixa de fechar, correto, porque os artigos 3 a 5 não estão no texto.
+
+Rodada 11: 1 regra promovida e 1 errata. `£)` é a alínea `f` (glifo de OCR): treino +2, teste
++2, 5 de 5 no treino (3 de 4 no teste). Rejeitadas: `9)` como alínea `g` (0 unidades), "seguinte
+parágrafo/inciso/alínea:" como sinal de bloco citado (sem efeito). Errata `set_device` em
+`lei-06520`: `Art. 4ºA concessão` é o artigo 4º e a frase "A concessão", não o sufixo `A`.
+
+Rodada 12: 1 regra promovida e 1 errata. Alíneas de bloco citado podem pular até duas letras
+(`a)`, `d)`, `e)`): treino +2, teste 0, 3 de 3 (sem limite, 3 de 7 errados). Rejeitadas: preencher
+um marcador isolado no fim da cadeia também para alíneas e parágrafos (0,67 / 0 unidades), `.-`
+como separador de inciso (0 unidades), item seguido de título em maiúsculas (0 unidades, perde
+3 dispositivos certos), `(` antes de `Art.` como citação (reprova o gate de artigo). Errata
+`set_device` em `decreto-10227`: o terceiro marcador (`II —` depois de `H —`) é III pela cadeia.
+
+Rodada 13: 2 regras promovidas, as duas de glifo de numeral romano: `Q` vale `II` (`XQ -`,
+`VQ -`; treino +1, teste 0, 2 de 2) e `ü`, `Ü`, `Í`, `Ì`, `Î` valem `II` ou `I` (`ü - manter`;
++1 / 0, 2 de 2). Rejeitadas: `E` como `I` (precisão 0,5), alínea `a)` isolada sem prosa em 120
+caracteres (0 unidades).
+
+Rodada 14: 1 regra promovida: a letra de alínea impressa duas vezes no começo da linha
+(`Cc) Quadro de Oficiais`): treino +1, teste 0, 1 de 1. Rodadas 15 e 16: nenhuma regra
+promovida. Rejeitadas na 15: janela do `1.` isolado de 400 para 1500 caracteres, `(NR)` como
+quebra de cadeia, cadeia de inciso citado recomeça depois de linha terminada em `:` (precisão
+0,3), parágrafo no começo da linha depois de vírgula é citação (perde unidade do teste). Na 16:
+lista de itens citada que começa depois de 1 (precisão 0,4), `1º.` sem o `§` ao lado de uma
+cadeia (0 unidades). **Duas rodadas seguidas sem promoção: o torneio satura na rodada 16.**
+
+**Balanço das rodadas 6 a 16** (2026-11-18, mesma referência de 3161 normas): 18 regras
+promovidas, 33 rejeitadas, 23 errata novas (41 no total). Unidades (norma, nível) que
+concordam, antes -> depois, tudo / treino / teste: art 2995 -> 3002 / 2393 -> 2400 / 602 -> 602,
+par 1534 -> 1571 / 1236 -> 1265 / 298 -> 306, inc 747 -> 786 / 594 -> 628 / 153 -> 158, ali 232
+-> 244 / 183 -> 192 / 49 -> 52, item 13 -> 13 / 9 -> 9 / 4 -> 4. O teste ganhou bem menos que o
+treino em quase toda regra; ganhou nas regras `s lo -` (+6), `Parágrafo 1º -` (+1), `§` com `.` ou
+`:` (+1), romano sem traço (+2), salto de parágrafo e inciso em bloco citado (+2 e +2) e `£)` (+2);
+as outras regras ganharam só no treino.
+
 **Erros sistemáticos da referência.** Nenhuma classe de erro do conversor apareceu em
-número que pedisse reconstruir a referência: as 18 errata (13 + 5) são pontuais
+número que pedisse reconstruir a referência: as 41 errata (13 + 5 + 23) são pontuais
 (13 `add_device`: dispositivo que o modelo deixou de marcar; 5 `set_device`: status
-citado/próprio ou sufixo de parágrafo). As suspeitas do conversor (`suspect_*`, 38 normas) continuam
+citado/próprio ou sufixo de parágrafo). As 23 das rodadas 6 a 12: 21 `add_device` (omissões do
+modelo: 15 de dispositivos citados, entre eles 5 artigos de bloco com elisão `..`, e 6 de lista própria) e 2 `set_device` (sufixo `A` que é a primeira palavra da frase; `II` que é III pela cadeia). As suspeitas do conversor (`suspect_*`, 38 normas) continuam
 fora do gate.
 
 ## Conjunto de avaliação (held-out)

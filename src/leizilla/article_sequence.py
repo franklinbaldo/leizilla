@@ -181,6 +181,10 @@ def best_chain(
     *,
     anchored: bool = True,
     free_skips: frozenset[int] = frozenset(),
+    gap_cap: float | None = None,
+    capped: Sequence[bool] | None = None,
+    suffix_repeats: bool = False,
+    max_jump: int | None = None,
 ) -> list[int | None]:
     """Pick one reading per candidate (or None) forming the best increasing chain.
 
@@ -190,7 +194,9 @@ def best_chain(
     ``anchored`` charges the numbers skipped before the first member, so the chain is
     pulled towards starting at 1 (a norm's own numbering). An unanchored chain may start
     anywhere (a fragment quoted from another norm). Numbers in ``free_skips`` may be
-    skipped at no cost (alíneas of older norms skip k, w and y).
+    skipped at no cost (alíneas of older norms skip k, w and y). ``gap_cap`` bounds the
+    penalty of a jump to a candidate flagged in ``capped``: a block quoted from another norm reproduces only the
+    dispositivos that change ("§ 1º", "§ 6º", "§ 7º").
     """
 
     def skipped(lo: int, hi: int) -> int:
@@ -210,7 +216,23 @@ def best_chain(
             for j in range(max(0, i - _LOOKBACK), i):
                 for u, s in best[j].items():
                     if v > u:
-                        cand = s + 1.0 - _GAP_PENALTY * skipped(u, v)
+                        if (
+                            suffix_repeats
+                            and suffixed[i]
+                            and any(
+                                v in cands[j2] and not suffixed[j2]
+                                for j2 in range(i + 1, min(n, i + _LOOKBACK))
+                            )
+                        ):
+                            continue  # "Art. 4-A" is not read ahead of the "Art. 4" after it
+                        jump = _GAP_PENALTY * skipped(u, v)
+                        if (
+                            gap_cap is not None
+                            and (capped is None or capped[i])
+                            and (max_jump is None or v - u - 1 <= max_jump)
+                        ):
+                            jump = min(jump, gap_cap)
+                        cand = s + 1.0 - jump
                     elif v == u and suffixed[i]:
                         cand = s + 1.0
                     else:
@@ -263,7 +285,11 @@ def read_articles(
             if ref or quoted
             else article_readings(m.group("num"), m.group("ord") is not None)
         )
-    chosen = best_chain(cands, [m.group("suffix") is not None for m in matches])
+    chosen = best_chain(
+        cands,
+        [m.group("suffix") is not None for m in matches],
+        suffix_repeats=True,
+    )
 
     articles: list[ArticleRead] = []
     own_numbers: set[int] = set()

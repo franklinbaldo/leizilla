@@ -7,6 +7,7 @@ import pytest
 from leizilla.hierarchy_sequence import (
     HierarchyReport,
     alinea_readings,
+    article_closes,
     marker_spans,
     read_hierarchy,
     roman_readings,
@@ -2040,3 +2041,195 @@ def test_misspelled_paragrafo_unico_with_i_for_r() -> None:
     text = "Art. 1º Texto.\nParágiafo único - Todas as unidades dispõem de espaço.\n"
     report = read_hierarchy(text)
     assert _paths(report) == ["art-1", "art-1-par-unico"]
+
+
+def test_lower_case_s_with_ordinal_sign_is_a_paragraph_sign() -> None:
+    text = (
+        "Art. 1º Fica autorizado o Poder Executivo.\n\n"
+        "s lo - Terá preferência o servidor que neles residir.\n\n"
+        "s 2o - Feita a avaliação do imóvel.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _paths(report)[:3] == ["art-1", "art-1-par-1", "art-1-par-2"]
+
+
+def test_lower_case_s_before_a_clock_time_is_no_paragraph_sign() -> None:
+    text = (
+        "Art. 1º A biblioteca funciona das 8:00 horas às\n\n"
+        "s\n22:00 horas, ininterruptamente.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "paragrafo") == []
+
+
+def test_paragraph_spelled_out_with_a_number_opening_a_line() -> None:
+    text = (
+        "Art. 1º Os cargos são os seguintes.\n\n"
+        "Parágrafo 1º - Serão nomeados pelo Presidente.\n\n"
+        "Parágrafo 2º - Serão nomeados pelo Tribunal.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _paths(report)[:3] == ["art-1", "art-1-par-1", "art-1-par-2"]
+
+
+def test_paragraph_sign_followed_by_a_period_or_a_colon() -> None:
+    text = (
+        "Art. 1º O orçamento do Estado.\n\n"
+        "§. 1º - O orçamento consignará dotação.\n\n"
+        "$:2º - As provas serão realizadas.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _paths(report)[:3] == ["art-1", "art-1-par-1", "art-1-par-2"]
+
+
+def test_roman_numeral_after_a_capitalised_word_is_a_grade_not_an_inciso() -> None:
+    text = (
+        "Art. 1º Ficam criados cargos de Assessor IV - CDS-04, 25 cargos de Assessor "
+        "V - CDS-05.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "inciso") == []
+
+
+def test_bare_roman_numeral_before_a_capitalised_word_completes_a_chain() -> None:
+    text = (
+        "Art. 1º Ficam nomeados:\n\n"
+        "I - Maria da Silva;\n\n"
+        "II Mérito da Diretoria de Atividades;\n\n"
+        "III - José de Souza.\n\n"
+        "Art. 2º Este Decreto entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "inciso") == ["1", "2", "3"]
+
+
+def test_quoted_block_restarts_its_chain_after_an_elision_line() -> None:
+    text = (
+        "Art. 1º Os incisos I, VII e XXIII passam a vigorar com a seguinte redação:\n\n"
+        "“Art. 97. .....................\n\n"
+        "I - formular a política estadual;\n\n"
+        "..........\n\n"
+        "VII - atuar com as Secretarias de Estado;\n\n"
+        "..........\n\n"
+        "XXIII - formular planos e programas.”\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "inciso", "quoted") == ["1", "7", "23"]
+
+
+def test_quoted_block_paragraphs_and_incisos_may_jump_over_numbers() -> None:
+    text = (
+        "Art. 1º Os dispositivos abaixo passam a vigorar com a seguinte redação:\n\n"
+        "“Art. 134. ...\n\n"
+        "§ 1º A direção será constituída por Diretor.\n\n"
+        "§ 6º O Diretor indicará um juiz de direito.\n\n"
+        "§ 7º A escola funciona na capital.\n\n"
+        "Art. 135. Compete ao Diretor:\n\n"
+        "I - dirigir a escola;\n\n"
+        "V - representar a escola.”\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "paragrafo", "quoted") == ["1", "6", "7"]
+    assert _numbers(report, "inciso", "quoted") == ["1", "5"]
+
+
+def test_paragrafo_unico_with_a_doubled_vowel() -> None:
+    text = (
+        "Art. 1º Todas as unidades dispõem de espaço.\n"
+        "Paraâgrafo único - Será firmado convênio com o Banco.\n"
+    )
+    report = read_hierarchy(text)
+    assert _paths(report) == ["art-1", "art-1-par-unico"]
+
+
+def test_two_unreadable_markers_fill_two_missing_numbers_of_the_chain() -> None:
+    text = (
+        "Art. 1º Compete ao Conselho:\n\n"
+        "I - emitir parecer sobre a proposta;\n\n"
+        "II - estabelecer intercâmbio com os Conselhos;\n\n"
+        "XQ - emitir parecer sobre assuntos técnicos;\n\n"
+        "ym - apreciar os regimentos e currículos;\n\n"
+        "V - zelar pelo cumprimento da lei;\n\n"
+        "VI - fiscalizar a execução.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "inciso") == ["1", "2", "3", "4", "5", "6"]
+
+
+def test_digit_one_after_alinea_k_is_the_letter_l() -> None:
+    text = (
+        "Art. 1º Ficam isentos:\n\n"
+        "a) os órgãos;\n\nb) as autarquias;\n\nc) as fundações;\n\nd) os fundos;\n\n"
+        "e) os conselhos;\n\nf) as escolas;\n\ng) os hospitais;\n\nh) os museus;\n\n"
+        "i) as bibliotecas;\n\nj) os arquivos;\n\nk) os teatros.\n\n"
+        "ASSEMBLÉIA LEGISLATIVA\n\n1) os projetos de assentamento;\n\nm) os demais casos.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "alinea")[-2:] == ["12", "13"]
+
+
+def test_closing_article_keeps_its_printed_number_when_articles_are_missing() -> None:
+    text = (
+        "Art. 1º Fica criada a gratificação.\n\n"
+        "Art. 2º O Poder Executivo enviará projeto de lei.\n\n"
+        "4\n\nGOVERNO DO ESTADO\n\n"
+        "Art. 6º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "artigo") == ["1", "2", "6"]
+    assert not article_closes(report)
+
+
+def test_pound_sign_is_the_alinea_letter_f() -> None:
+    text = (
+        "Art. 1º Fica vedado:\n\n"
+        "d) vender bens;\n\ne) alienar imóveis.\n\nGOVERNADORIA\n\n£) ceder veículos;\n\n"
+        "g) doar valores.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "alinea") == ["4", "5", "6", "7"]
+
+
+def test_quoted_block_alineas_may_skip_up_to_two_letters() -> None:
+    text = (
+        "Art. 1º O artigo 5º passa a vigorar com a seguinte redação:\n\n"
+        "“Art. 5º Compete ao Conselho:\n\n"
+        "I - fiscalizar:\n\n"
+        "a) as contas;\n\n"
+        "d) os contratos;\n\n"
+        "e) os convênios.”\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "alinea", "quoted") == ["1", "4", "5"]
+
+
+def test_inciso_glyph_q_is_a_stroke_pair() -> None:
+    assert 12 in roman_readings("XQ")
+    assert 7 in roman_readings("VQ")
+
+
+def test_inciso_glyph_u_umlaut_is_a_stroke_pair() -> None:
+    assert 2 in roman_readings("ü")
+    assert 2 in roman_readings("ÍÍ")
+
+
+def test_alinea_letter_printed_twice_at_a_line_start() -> None:
+    text = (
+        "Art. 1º Os quadros são:\n\n"
+        "a) Quadro de Oficiais;\n\nb) Quadro de Praças.\n\nGOVERNADORIA\n\n"
+        "Cc) Quadro de Oficiais Femininos;\n\nd) Quadro de Apoio.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "alinea") == ["1", "2", "3", "4"]

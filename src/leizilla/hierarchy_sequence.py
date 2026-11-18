@@ -77,7 +77,8 @@ from leizilla.article_sequence import (
 # "5" or "&"; the look-alike glyphs are only trusted at the start of a line.
 _PAR = re.compile(
     r"(?<![A-Za-z0-9$§])"
-    r"(?P<glyph>§|\$|(?:\d{1,2}|[SsqgBfE&£]{1,2})(?=[\s-])|[S84](?=\d{1,2}[º°]))[\s-]{0,3}"
+    r"(?P<glyph>§|\$|Par[áâãa]{1,2}grafo(?=[ \t]+[0-9IlO])|(?:\d{1,2}|[SsqgBfE&£]{1,2})(?=[\s-])|[S84](?=\d{1,2}[º°])|[Ssg]\$(?=[\s-]))"
+    r"(?:[\s-]{0,3}|(?<=[§$])[.:][ \t]?)"
     r"(?P<num>[0-9IlO]{1,3})(?:(?P<ord>\s?\.?[ºo°ªQ^?])|(?![.,]?\d))"
     r"(?:-(?P<suffix>[A-Z])\b(?![ \t]+[a-zà-ý]))?"
 )
@@ -85,11 +86,12 @@ _PAR = re.compile(
 # its own and can only be read by the chain around it.
 _PAR_WILD = re.compile(r"[§$]\s?[^\W\d_]{1,2}\b(?!\s?[ºo°])")
 _PAR_UNICO = re.compile(
-    r"\bPar[áâàa]g[rti]?a[fgt]o\s+[ÚúUuOÜüÙù][nmr][ijl]?c[oa]\b", re.IGNORECASE
+    r"\b(?:Par[áâàa]g[rti]?a[fgt]o|Par[aá][âãáà]grafo)\s+[ÚúUuOÜüÙù][nmr][ijl]?c[oa]\b",
+    re.IGNORECASE,
 )
 # Roman numeral (or what OCR makes of one) followed by a separator.
 _INC = re.compile(
-    r"(?<![\w.])(?P<tok>[IVXLCHUTJNYKMl1|!ivxnt¡\]\[]{1,8})\s{0,2}['’]?"
+    r"(?<![\w.])(?P<tok>[IVXLCHUTJNYKMQÜüÍÌÎl1|!ivxnt¡\]\[]{1,8})\s{0,2}['’]?"
     r"(?P<sep>[-–—~=_]{1,2}|[.):])"
 )
 # Any short token before a dash at the start of a line ("Vm -", "NI —", "VÊ -"): no
@@ -98,12 +100,21 @@ _INC_WILD = re.compile(
     r"(?m)^[ \t]*(?P<mark>(?P<tok>[^\W_]{1,4})[ \t]{0,2}[-–—]+)(?P<gap>[ \t]*)\S"
 )
 # A roman numeral of two or more letters opening a line, two spaces and lower-case prose.
+_INC_BARE_CAP = re.compile(
+    r"(?m)^[ \t]*(?P<tok>[IVXL]{1,6})[ \t](?=[A-ZÀ-Ý][a-zà-ý]{2})"
+)
+_ELISION_LINE = re.compile(r"(?m)^[ \t]*[.…]{2,}[ \t]*$")
+_CAPS_HEADING = re.compile(r"[ \t]*[A-ZÀ-Ý][A-ZÀ-Ý ,:.\-/]{7,}[ \t]*(?:\n|\Z)")
+_TITLE_WORD_LEFT = re.compile(r"(?:^|\s)[A-ZÀ-Ý][a-zà-ý]{3,}[ \t]+\Z")
 _INC_BARE = re.compile(
     r"(?m)^[ \t]*(?P<tok>[IVXL]{1,6})(?:[ \t]{2}|[ \t]"
     r"(?!(?:e|ou|a|o|as|os|de|do|da|dos|das|deste|desta|destes|destas|ao|aos|à|às)\b))"
     r"(?=[a-zà-ý])"
 )
-_ALI = re.compile(r"(?<![\w(])(?P<let>[a-zA-Z06])\s?[)\]}]")
+_ALI = re.compile(r"(?<![\w(])(?P<let>[a-zA-Z06£])\s?[)\]}]")
+_K_BEFORE = re.compile(r"(?m)^[ \t]*k[ \t]?\)")
+_ALI_DOUBLE = re.compile(r"(?m)^[ \t]*(?P<up>[A-Z])(?P<let>[a-z])[ \t]?\)")
+_ALI_ONE = re.compile(r"(?m)^[ \t]*(?P<tok>[1|])[ \t]?\)")
 _ALI_WILD = re.compile(r"(?m)^[ \t]*(?P<tok>[^\s(]{1,2})[ \t]?[)\]}]")
 _ITEM = re.compile(r"(?m)^[ \t]*(?P<num>\d{1,2})(?:\s?[.)]|\s?[-–—])(?=\s)(?!\s*\d)")
 
@@ -125,6 +136,12 @@ _ROMAN_GLYPHS: dict[str, tuple[str, ...]] = {
     "[": ("I",),
     "J": ("I",),
     "T": ("I",),
+    "Q": ("II",),
+    "Ü": ("II",),
+    "ü": ("II",),
+    "Í": ("I",),
+    "Ì": ("I",),
+    "Î": ("I",),
     "H": ("II", "I"),
     "U": ("II",),
     "n": ("II",),
@@ -150,6 +167,7 @@ _ALI_GLYPHS: dict[str, str] = {
     "b": "bh",
     "h": "hb",
     "6": "b",
+    "£": "f",
     "g": "gq",
     "q": "qg",
 }
@@ -473,11 +491,19 @@ def _paragraph_candidates(text: str) -> list[_Cand]:
             readings = readings[:1]
         sign = glyph in "§$"
         line_start = _at_line_start(text, m.start())
+        if glyph[0] == "P":
+            # "Parágrafo 1º - Serão nomeados": the word spelled out, at a line start.
+            if not line_start:
+                continue
+            sign = True
         if not sign:
             # A look-alike glyph ("S", "8", "94", "q") needs the line start and an
             # ordinal sign; the classic ones also pass with an ordinal read as a digit.
             ordinal = m.group("ord") or ""
             classic = glyph in "S8495&" and (has_ord or len(readings) > 1)
+            # "s lo -", "s 2o -" for "§ 1º": the lower-case glyph needs its ordinal
+            # sign and the number on its own line.
+            classic = classic or (glyph == "s" and has_ord and "\n" not in m.group(0))
             if not line_start or not (classic or ordinal[-1:] in ("º", "°")):
                 continue
         # "§ 2º do art. 5º" is a citation wherever it sits; a citing word on the left
@@ -552,6 +578,10 @@ def _inciso_candidates(text: str) -> list[_Cand]:
             continue  # "I-A", "V-se": only a line start makes a glued dash a marker
         if not line_start and token in ("C", "L"):
             continue  # "C -" / "L -" inside a sentence is an enumeration letter
+        if not line_start and _TITLE_WORD_LEFT.search(
+            text[max(0, m.start() - 24) : m.start()]
+        ):
+            continue  # "Assessor IV - CDS-04": a grade named after a capitalised word
         out.append(
             _Cand(
                 m.start(),
@@ -584,6 +614,22 @@ def _inciso_candidates(text: str) -> list[_Cand]:
     taken = {c.start for c in out}
     for m in _INC_BARE.finditer(text):
         # "II  o equipamento": the dash lost, two spaces left. Only a chain can use it.
+        if m.start("tok") in taken:
+            continue
+        readings = roman_readings(m.group("tok"))
+        if readings:
+            out.append(
+                _Cand(
+                    m.start("tok"),
+                    m.end("tok"),
+                    readings,
+                    literal=readings[0],
+                    bare=True,
+                )
+            )
+            taken.add(m.start("tok"))
+    for m in _INC_BARE_CAP.finditer(text):
+        # "III Cabo da Polícia Militar": the dash lost before a capitalised word.
         if m.start("tok") in taken:
             continue
         readings = roman_readings(m.group("tok"))
@@ -633,6 +679,26 @@ def _alinea_candidates(text: str) -> list[_Cand]:
             )
         )
     taken = {c.start for c in out}
+    for m in _ALI_DOUBLE.finditer(text):
+        # "Cc) Quadro de Oficiais": the letter printed twice, once as a capital.
+        if m.group("up").lower() != m.group("let") or m.start("let") in taken:
+            continue
+        out.append(
+            _Cand(
+                m.start("let"),
+                m.end(),
+                alinea_readings(m.group("let")),
+                strong=False,
+            )
+        )
+        taken.add(m.start("let"))
+    for m in _ALI_ONE.finditer(text):
+        # "1) projetos", "|) aos proprietários": the letter "l" (or "i") of a list.
+        if m.start("tok") not in taken and _K_BEFORE.search(
+            text[max(0, m.start() - 700) : m.start()]
+        ):
+            out.append(_Cand(m.start("tok"), m.end(), (12,), strong=False))
+            taken.add(m.start("tok"))
     for m in _ALI_WILD.finditer(text):
         start = m.start("tok")
         if start in taken or not _in_enumeration(text, start):
@@ -1036,6 +1102,62 @@ class _Builder:
         k = bisect_right(self.masked, (pos, 1 << 62)) - 1
         return k >= 0 and self.masked[k][0] <= pos < self.masked[k][1]
 
+    def _chain(
+        self,
+        kind: str,
+        cands: list[_Cand],
+        readings: list[tuple[int, ...]],
+        lenient: bool,
+    ) -> list[int | None]:
+        """Chain the candidates; a quoted block restarts after each elision line.
+
+        "..........." between two quoted incisos stands for the dispositivos the
+        amending law does not reproduce: "I", elision, "VII", elision, "XXIII" are
+        three runs of their own, not a chain with gaps.
+        """
+        skips = _ALI_FREE_SKIPS if kind == "alinea" else frozenset()
+        gap_cap = 0.5 if lenient and kind in ("paragrafo", "inciso", "alinea") else None
+        suffixed = [c.suffix is not None for c in cands]
+        # Only a real paragraph sign opening a line may jump over numbers.
+        capped = [
+            c.literal is not None
+            and c.strong
+            and not c.ref
+            and _at_line_start(self.text, c.start)
+            and not _CAPS_HEADING.match(self.text, c.end)
+            for c in cands
+        ]
+        if not lenient or len(cands) < 2:
+            return best_chain(
+                readings,
+                suffixed,
+                anchored=not lenient,
+                free_skips=skips,
+                gap_cap=gap_cap,
+                capped=capped,
+                max_jump=2 if kind == "alinea" else None,
+            )
+        cuts = [0]
+        for i in range(1, len(cands)):
+            gap = self.text[cands[i - 1].end : cands[i].start]
+            if _ELISION_LINE.search(gap):
+                cuts.append(i)
+        cuts.append(len(cands))
+        chosen: list[int | None] = []
+        for a, b in zip(cuts, cuts[1:]):
+            chosen.extend(
+                best_chain(
+                    readings[a:b],
+                    suffixed[a:b],
+                    anchored=False,
+                    free_skips=skips,
+                    gap_cap=gap_cap,
+                    capped=capped[a:b],
+                    max_jump=2 if kind == "alinea" else None,
+                )
+            )
+        return chosen
+
     def descend(
         self, lo: int, hi: int, parent: int | None, level: int, lenient: bool
     ) -> None:
@@ -1052,12 +1174,7 @@ class _Builder:
         readings: list[tuple[int, ...]] = [
             () if c.ref or c.start in arabic else c.readings for c in cands
         ]
-        chosen = best_chain(
-            readings,
-            [c.suffix is not None for c in cands],
-            anchored=not lenient,
-            free_skips=_ALI_FREE_SKIPS if kind == "alinea" else frozenset(),
-        )
+        chosen = self._chain(kind, cands, readings, lenient)
         if lenient and kind == "paragrafo":
             # "§ 29" for "§ 2º" with no chain around it: paragraph numbers rarely pass 9.
             for i, v in enumerate(chosen):
@@ -1322,14 +1439,21 @@ def _fill_single_gaps(
         if lo is None or hi is None:
             continue
         absent = [k for k in range(lo + 1, hi) if k not in free_skips]
-        if len(absent) != 1:
+        if not 1 <= len(absent) <= 3:
             continue
         between = [i for i in range(a + 1, b) if not cands[i].ref]
-        if len(between) == 1 and not cands[between[0]].unico:
-            if cands[between[0]].digit:
-                continue  # "1 -" between II and IV is a list item, not III
-            chosen[between[0]] = absent[0]
-            filled.add(between[0])
+        if len(between) == len(absent) and not any(
+            cands[i].unico
+            or cands[i].digit  # "1 -" between II and IV is a list item, not III
+            # several leftovers fill several missing numbers only when each is a
+            # line-opening marker the chain could not read or one that sits where a
+            # marker sits
+            or (len(absent) > 1 and cands[i].readings and not cands[i].strong)
+            for i in between
+        ):
+            for i, k in zip(between, absent):
+                chosen[i] = k
+                filled.add(i)
     if members and text is not None:
         # The chain's tail: one lone, strong leftover after the last member ("NI —"
         # after I and II, in a list that plainly goes on) is the next number.
@@ -1709,6 +1833,13 @@ def _tail_article(
         loose["status"] = "own"
         loose["number"] = last_number + 1
         loose["corrected"] = True
+        printed = ARTICLE_CANDIDATE.match(text, start)
+        if printed is not None and printed.group("ord") in ("º", "°"):
+            # "Art. 6º Esta Lei entra em vigor" after Art. 2: the printed number is
+            # clear, so the chain is short of articles 3 to 5 and stays open.
+            readings = article_readings(printed.group("num"), True)
+            if readings and readings[0] > last_number + 1:
+                loose["number"] = readings[0]
         return loose
     return {
         "start": start,
