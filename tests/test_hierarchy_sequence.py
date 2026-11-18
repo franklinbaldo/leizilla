@@ -2412,3 +2412,68 @@ def test_number_and_dash_after_an_alinea_marker_is_not_an_inciso() -> None:
         "art-3-inc-1",
         "art-3-inc-2",
     ]
+
+
+# --- rules judged by the empty-level criterion (2026-11-18) ---------------------------
+
+
+def test_paragraph_sign_followed_by_a_citing_word_is_a_citation_not_a_marker() -> None:
+    text = (
+        "Art. 1º Observado o disposto no artigo 43, § 1º e incisos da Lei Federal nº "
+        "4.320, a despesa será executada.\n\n"
+        "Art. 2º Acrescenta § 4º ao artigo 4º da Lei nº 1063, de 2002.\n\n"
+        "Art. 3º Esta Lei entra em vigor.\n"
+    )
+    assert _numbers(read_hierarchy(text), "paragrafo") == []
+
+
+def test_paragraph_that_opens_with_a_capitalised_ao_is_still_a_paragraph() -> None:
+    text = (
+        "Art. 1º Fica criado o benefício.\n\n"
+        "§ 1º Ao servidor licenciado são assegurados os direitos.\n\n"
+        "§ 2º Aos municípios caberá a execução.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    assert _numbers(read_hierarchy(text), "paragrafo") == ["1", "2"]
+
+
+def test_budget_schedule_rows_are_not_incisos() -> None:
+    text = (
+        "Art. 3º Fica alterada a programação.\n\n"
+        "II - TRIMESTRE CR$ 11.000.000,00\n\n"
+        "Art. 4º Este Decreto entra em vigor.\n\n"
+        "Art. 5º Os repasses seguem o cronograma:\n\n"
+        "I - TRIMESTRE 100.000,00\n\nII - TRIMESTRE 200.000,00\n\n"
+        "Art. 6º Revogam-se as disposições em contrário.\n"
+    )
+    assert _numbers(read_hierarchy(text), "inciso") == []
+
+
+def test_incisos_with_amounts_stay_when_the_chain_opens_at_i() -> None:
+    text = (
+        "Art. 1º Os subsídios são fixados em:\n\n"
+        "I - Procurador: R$ 37.589,96;\n\n"
+        "II - Promotor: R$ 35.710,46.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    assert _numbers(read_hierarchy(text), "inciso") == ["1", "2"]
+
+
+def test_capitalised_heading_rows_of_an_annex_are_not_items() -> None:
+    text = (
+        "Art. 1º Fica aprovado o quadro anexo.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n\n"
+        "ANEXO\n\n1. RECEITA PRIMÁRIA\n2. DESPESA PRIMÁRIA\n3. RESULTADO NOMINAL\n"
+    )
+    assert _numbers(read_hierarchy(text), "item") == []
+
+
+def test_capitalised_item_rows_under_an_inciso_stay_items() -> None:
+    text = (
+        "Art. 3º A Receita será arrecadada com o seguinte desdobramento:\n\n"
+        "I - RECEITA DO TESOURO DO ESTADO\n"
+        "1. RECEITAS CORRENTES 1.541.900.469\n"
+        "2. RECEITAS DE CAPITAL 394.722.923\n\n"
+        "Art. 4º Esta Lei entra em vigor.\n"
+    )
+    assert _numbers(read_hierarchy(text), "item") == ["1", "2"]

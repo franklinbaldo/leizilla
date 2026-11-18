@@ -7,9 +7,12 @@ artigo são dado derivado (offsets calculados por
 ``leizilla.hierarchy_sequence.read_hierarchy``, nível dos artigos) e só viram navegação no portal quando a
 sequência fecha (``artigos_fecham``).
 
-Chave: identidade raw ``(ente, fonte, tipo, numero)`` — uma linha por norma, a
-captura mais recente **com texto** vence — mais o hash do arquivo de origem
-(``sha256_fonte``), que diz exatamente de qual captura o texto veio.
+Chave: identidade raw ``(ente, fonte, tipo, numero)`` — uma linha por norma. O texto
+de leitura é o da **rendição** preferida entre as capturas **com texto**
+(``compilada`` > ``original`` > …, ver ``READING_ORDER``; empate: captura mais
+recente, depois sha256), e as demais rendições ficam alcançáveis em
+``outras_rendicoes`` (ADR-0015, adendo 2026-11-18). O hash do arquivo de origem
+(``sha256_fonte``) diz exatamente de qual captura o texto veio.
 
 Enumeração igual à de ``coverage.compute_fonte_coverage``: itens de range por
 prefixo → ``index.csv`` → arquivos do item. Aqui o ``archive.org/metadata`` é lido
@@ -41,6 +44,14 @@ from leizilla.hierarchy_sequence import (
     read_hierarchy,
 )
 from leizilla.ia_utils import download_url
+from leizilla.rendicao import (
+    RENDICAO_COMPILADA,
+    RENDICAO_ORIGINAL,
+    RENDICAO_OUTRA,
+    RENDICAO_RETIFICADO,
+    RENDICAO_REVOGADO,
+    rendicao_da_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +75,7 @@ TEXTOS_SCHEMA: dict[str, str] = {
     "tipo": "VARCHAR",
     "numero": "INTEGER",
     "rendicao": "VARCHAR",
+    "outras_rendicoes": "VARCHAR",
     "qualidade": "VARCHAR",
     "sha256_fonte": "VARCHAR",
     "capturado_em": "VARCHAR",
@@ -155,6 +167,7 @@ def build_row(
     ocr_parametros: Optional[str] = None,
     ocr_derivado_em: Optional[str] = None,
     sha1_texto_ia: Optional[str] = None,
+    outras_rendicoes: str = "[]",
 ) -> dict[str, Any]:
     """Monta uma linha de ``textos`` a partir dos bytes do ``_djvu.txt``."""
     text = text_bytes.decode("utf-8", errors="replace")
@@ -166,6 +179,7 @@ def build_row(
         "tipo": tipo,
         "numero": numero,
         "rendicao": rendicao,
+        "outras_rendicoes": outras_rendicoes,
         "qualidade": QUALIDADE_NAO_ESTRUTURADO,
         "sha256_fonte": sha256_fonte,
         "capturado_em": capturado_em,
@@ -262,6 +276,51 @@ def captures_by_identity(index_csv: str) -> dict[tuple[str, int], list[dict[str,
         key: [r for _, _, r in sorted(rows, key=lambda t: (t[0], t[1]), reverse=True)]
         for key, rows in grouped.items()
     }
+
+
+#: Ordem de preferência das rendições para **leitura** (ADR-0015, adendo 2026-11-18):
+#: a compilada é o texto vigente (com as alterações incorporadas); a original é o
+#: ato como publicado; ``retificado`` (republicação corrigida) e ``outra``
+#: ("ADI", "REPUB", "SEM EFEITO"…) são variantes cujo estatuto não é conhecido pelo
+#: nome; ``revogado`` é o carimbo de norma revogada: só vale quando nada melhor
+#: existe (ainda é o melhor texto *dessa* norma). Rendição ausente = original.
+READING_ORDER: tuple[str, ...] = (
+    RENDICAO_COMPILADA,
+    RENDICAO_ORIGINAL,
+    RENDICAO_RETIFICADO,
+    RENDICAO_OUTRA,
+    RENDICAO_REVOGADO,
+)
+
+
+def capture_rendicao(capture: dict[str, str]) -> str:
+    """Rendição de uma captura: ``index.csv.rendicao``; senão pelo nome em ``source``.
+
+    Capturas anteriores à coluna (ou colhidas direto, sem rendição declarada) caem
+    em ``rendicao_da_url(source)`` e, indefinida, em ``original``.
+    """
+    declared = (capture.get("rendicao") or "").strip().lower()
+    if declared:
+        return declared
+    return rendicao_da_url(capture.get("source") or "") or RENDICAO_ORIGINAL
+
+
+def _reading_rank(rendicao: str) -> int:
+    try:
+        return READING_ORDER.index(rendicao)
+    except ValueError:
+        return READING_ORDER.index(RENDICAO_OUTRA)
+
+
+def order_for_reading(candidates: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Capturas na ordem de leitura: rendição, depois mais recente, depois sha256.
+
+    Determinístico (três ordenações estáveis encadeadas, da chave menos para a mais
+    significativa), independente da ordem de entrada.
+    """
+    by_sha = sorted(candidates, key=lambda c: c.get("sha256") or "")
+    by_date = sorted(by_sha, key=lambda c: c.get("captured_at") or "", reverse=True)
+    return sorted(by_date, key=lambda c: _reading_rank(capture_rendicao(c)))
 
 
 #: Valor de ``ocr_motor`` quando o IA não fez OCR: o PDF já trazia uma camada de
@@ -438,12 +497,27 @@ def collect_fonte(
             stats.truncated = True
             return rows
         chosen = _first_with_text(candidates, files)
+        tid = texto_id(ente, fonte, tipo, numero)
+        if chosen is not None:
+            # A rendição preferida da linha anterior (ex.: a compilada) está sem
+            # ``_djvu.txt`` só porque o IA refaz o derive: não troca de rendição
+            # por isso, mantém o texto de antes (mesmo caso da Lei 1738, abaixo).
+            prev = _keep_previous((previous or {}).get(tid), candidates)
+            prev_capture = _capture_by_sha(
+                candidates, prev.get("sha256_fonte") if prev else None
+            )
+            if (
+                prev_capture is not None
+                and prev_capture.get("sha256") != chosen[0].get("sha256")
+                and _reading_rank(capture_rendicao(prev_capture))
+                < _reading_rank(capture_rendicao(chosen[0]))
+            ):
+                chosen = None
         if chosen is None:
             # S2 sem S3 agora. Se a norma já esteve legível e os bytes de
             # origem são os mesmos, o texto continua valendo: o IA apaga o
             # ``_djvu.txt`` enquanto refaz o derive de um arquivo reenviado
             # (achado de 2026-11-15: a Lei 1738 sumiu de um release assim).
-            tid = texto_id(ente, fonte, tipo, numero)
             kept = _keep_previous((previous or {}).get(tid), candidates)
             own = _own_row(
                 ente, fonte, tipo, numero, item_id, candidates, files, (reocr or {})
@@ -457,6 +531,9 @@ def collect_fonte(
                 rows.append(own)
                 stats.reocr_sem_texto += 1
             elif kept is not None:
+                kept_capture = _capture_by_sha(candidates, kept.get("sha256_fonte"))
+                if kept_capture is not None:
+                    _annotate_rendicoes(kept, kept_capture, candidates, files, item_id)
                 rows.append(kept)
                 stats.mantidos += 1
             continue
@@ -464,7 +541,6 @@ def collect_fonte(
         stats.com_texto += 1
         entry = files[texto_name]
         sha1_ia = str(entry.get("sha1") or "") or None
-        tid = texto_id(ente, fonte, tipo, numero)
 
         old = (previous or {}).get(tid)
         if (
@@ -474,7 +550,11 @@ def collect_fonte(
             and old.get("sha256_fonte") == capture.get("sha256")
             and old.get("texto")
         ):
-            rows.append(refresh_anchors(old))
+            rows.append(
+                _annotate_rendicoes(
+                    refresh_anchors(old), capture, candidates, files, item_id
+                )
+            )
             stats.reaproveitados += 1
             continue
 
@@ -497,7 +577,12 @@ def collect_fonte(
                 fonte=fonte,
                 tipo=tipo,
                 numero=numero,
-                rendicao=capture.get("rendicao") or "",
+                rendicao=capture_rendicao(capture),
+                outras_rendicoes=json.dumps(
+                    other_renditions(capture, candidates, files, item_id),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
                 sha256_fonte=capture.get("sha256") or "",
                 capturado_em=capture.get("captured_at") or "",
                 ia_item=item_id,
@@ -546,7 +631,12 @@ def _own_row(
         fonte=fonte,
         tipo=tipo,
         numero=numero,
-        rendicao=capture.get("rendicao") or "",
+        rendicao=capture_rendicao(capture),
+        outras_rendicoes=json.dumps(
+            other_renditions(capture, candidates, files, item_id),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
         sha256_fonte=capture.get("sha256") or "",
         capturado_em=capture.get("captured_at") or "",
         ia_item=item_id,
@@ -583,7 +673,7 @@ def collect_sem_texto(
         tid = texto_id(ente, fonte, tipo, numero)
         if tid in com_texto or _first_with_text(candidates, files) is not None:
             continue
-        for capture in candidates:
+        for capture in order_for_reading(candidates):
             pdf_name = _pdf_name(capture, files)
             if pdf_name is None or not capture.get("sha256"):
                 continue
@@ -598,23 +688,105 @@ def collect_sem_texto(
                     "pdf_url": download_url(item_id, pdf_name),
                     "sha256_fonte": capture["sha256"],
                     "capturado_em": capture.get("captured_at") or "",
-                    "rendicao": capture.get("rendicao") or "",
+                    "rendicao": capture_rendicao(capture),
                 }
             )
             break
     return out
 
 
+def _djvu_name(
+    capture: dict[str, str], files: dict[str, dict[str, Any]]
+) -> Optional[str]:
+    """Nome do ``_djvu.txt`` da captura dentro do item, se já existe."""
+    suffix = f"{capture['uuid5']}{_DJVU_SUFFIX}"
+    names = sorted(n for n in files if n.endswith(suffix) and "/" not in n)
+    return names[0] if names else None
+
+
 def _first_with_text(
     candidates: list[dict[str, str]], files: dict[str, dict[str, Any]]
 ) -> Optional[tuple[dict[str, str], str]]:
-    """Captura mais recente cujo ``_djvu.txt`` já existe no item, e o nome dele."""
-    for capture in candidates:
-        suffix = f"{capture['uuid5']}{_DJVU_SUFFIX}"
-        names = sorted(n for n in files if n.endswith(suffix) and "/" not in n)
-        if names:
-            return capture, names[0]
+    """Captura de leitura com ``_djvu.txt`` já no item, e o nome dele.
+
+    Entre as capturas com texto vale a primeira em ``order_for_reading``: rendição
+    preferida (``compilada`` > ``original`` > …), depois a mais recente, depois sha256.
+    """
+    for capture in order_for_reading(candidates):
+        name = _djvu_name(capture, files)
+        if name:
+            return capture, name
     return None
+
+
+def other_renditions(
+    chosen: dict[str, str],
+    candidates: list[dict[str, str]],
+    files: dict[str, dict[str, Any]],
+    item_id: str,
+) -> list[dict[str, Any]]:
+    """Os outros arquivos da norma (bytes distintos do escolhido), em ordem de leitura.
+
+    Cada item: ``{rendicao, sha256, capturado_em, pdf_url, texto_url}``; ``texto_url``
+    é ``None`` enquanto o IA não derivou o texto daquele arquivo. Só entram arquivos
+    cujo PDF está no item. Uma recaptura dos mesmos bytes não é outra rendição.
+    """
+    out: list[dict[str, Any]] = []
+    seen = {chosen.get("sha256")}
+    for capture in order_for_reading(candidates):
+        sha = capture.get("sha256")
+        if not sha or sha in seen:
+            continue
+        pdf_name = _pdf_name(capture, files)
+        if pdf_name is None:
+            continue
+        seen.add(sha)
+        # prefere, entre recapturas dos mesmos bytes, a que já tem texto derivado
+        twin = next(
+            (
+                c
+                for c in order_for_reading(candidates)
+                if c.get("sha256") == sha and _djvu_name(c, files)
+            ),
+            capture,
+        )
+        djvu = _djvu_name(twin, files)
+        out.append(
+            {
+                "rendicao": capture_rendicao(capture),
+                "sha256": sha,
+                "capturado_em": capture.get("captured_at") or "",
+                "pdf_url": download_url(item_id, pdf_name),
+                "texto_url": download_url(item_id, djvu) if djvu else None,
+            }
+        )
+    return out
+
+
+def _annotate_rendicoes(
+    row: dict[str, Any],
+    capture: dict[str, str],
+    candidates: list[dict[str, str]],
+    files: dict[str, dict[str, Any]],
+    item_id: str,
+) -> dict[str, Any]:
+    """Põe em ``row`` a rendição do arquivo de origem e as outras (derivado do índice)."""
+    row["rendicao"] = capture_rendicao(capture)
+    row["outras_rendicoes"] = json.dumps(
+        other_renditions(capture, candidates, files, item_id),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return row
+
+
+def _capture_by_sha(
+    candidates: list[dict[str, str]], sha: Optional[str]
+) -> Optional[dict[str, str]]:
+    return next(
+        (c for c in order_for_reading(candidates) if sha and c.get("sha256") == sha),
+        None,
+    )
 
 
 def _keep_previous(

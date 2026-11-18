@@ -133,7 +133,7 @@ não são reescritos.
 
 O gate acima só cobre o nível `art`, contra o professor do modo `label`. Abaixo do artigo
 o leitor tem defeitos conhecidos e a referência é o **documento marcado do modo `mark`**
-([teacher-mark.md](teacher-mark.md)) de 3161 normas: as 300 de
+([teacher-mark.md](teacher-mark.md)) de 3213 normas (3161 até 2026-11-18, mais as 52 "gigantes" de `teacher-mark.md`): as 300 de
 `review-samples/mark-reference-2026-11.txt` mais as duas partes (A: coleta
 `44228356004`, B: coleta `44227337585`) da camada de texto inteira. A referência pode ter erros: a catraca só
 trava o que **já concorda**; o que discorda fica de fora até ser resolvido, e uma regra
@@ -354,6 +354,71 @@ número que pedisse reconstruir a referência: as 41 errata (13 + 5 + 23) são p
 citado/próprio ou sufixo de parágrafo). As 23 das rodadas 6 a 12: 21 `add_device` (omissões do
 modelo: 15 de dispositivos citados, entre eles 5 artigos de bloco com elisão `..`, e 6 de lista própria) e 2 `set_device` (sufixo `A` que é a primeira palavra da frase; `II` que é III pela cadeia). As suspeitas do conversor (`suspect_*`, 38 normas) continuam
 fora do gate.
+
+### Critério de unidade: níveis vazios (2026-11-18)
+
+Cegueira do torneio: ele exigia que a candidata ganhasse pelo menos uma unidade (norma,
+nível), mas uma regra que **remove dispositivos falsos** pode estar certa e não ganhar nada.
+Linha de tabela lida como inciso (`II - TRIMESTRE CR$ 11.000.000,00`) numa norma cuja
+referência não tem inciso: com a linha, o nível tem uma unidade que discorda (`reader_extra`);
+sem ela, o nível fica vazio dos dois lados e **a unidade sumia** em vez de concordar.
+
+Mudança (`run_board`, `EMPTY_UNITS_SINCE`): numa norma em que a referência tem artigos, um
+nível sem dispositivo na referência continua sendo uma unidade. Leitor sem dispositivo ali:
+`agree` (vazio-vazio). Leitor com dispositivos ali: `reader_extra`, a unidade discorda (já era
+assim). Guarda: sem artigos na referência não há unidade em nenhum nível, e um leitor que não
+lê nenhum artigo da norma recebe `reader_blind` nos níveis vazios (nunca é premiado por ler
+nada). A tabela traz **as duas definições**: `units`/`units_agree` (nova) e
+`units_nonempty`/`units_agree_nonempty` (a antiga, só níveis com dispositivo de algum lado),
+para a série continuar comparável. Os dois conjuntos entram em `agree` da linha de base, então
+um leitor que passe a ler dispositivo falso numa norma vazia nesse nível também falha o gate.
+
+Antes -> depois (3170 normas no gate, 35 suspeitas fora; referência de 3213 com os gigantes):
+
+| nível | antiga: unidades (agree) | nova: unidades (agree) |
+|---|---|---|
+| art | 3170 (3052) | 3170 (3052) |
+| par | 1717 (1602) | 3170 (3050) |
+| inc | 1001 (804) | 3170 (2967) |
+| ali | 335 (261) | 3170 (3089) |
+| item | 69 (14) | 3170 (3108) |
+
+As unidades "novas" são quase todas vazio-vazio: o que importa é a diferença entre duas
+medidas feitas com o mesmo critério. A linha de base foi refeita com um registro de histórico
+que explica a mudança.
+
+**Rodada 21** (mesmo dia, critério novo; base: as 4 regras abaixo, uma a uma): **4 regras
+promovidas**, todas de remoção de falso dispositivo. Gate de artigo PASS, gate por nível PASS,
+nenhuma unidade perdida no treino nem no teste, e o que cada regra tira conferido a olho.
+1. Sinal de parágrafo seguido de `ao/aos` ou `e inciso(s)` em minúscula é citação (`artigo 43,
+   § 1º e incisos da Lei Federal`, `Acrescenta § 4º ao artigo 4º`, `"§ 3º" ao art. 1º`):
+   +4 unidades de `par` (3 treino, 1 teste); 7 de 7 dispositivos removidos eram falsos (entre eles um
+   `Parágrafo único ao artigo 2º` de ementa). `§ 1º Ao servidor` (maiúscula) segue
+   parágrafo: sem distinguir maiúscula a regra tiraria 26 parágrafos certos que começam por
+   "Ao/Aos/À".
+2. Numeral romano + travessão + `TRIMESTRE`/`SEMESTRE`/`QUADRIMESTRE`/`BIMESTRE` em maiúsculas é
+   linha de cronograma orçamentário, não inciso (`IV - TRIMESTRE 641.100.000,00`); e numeral
+   que não abre cadeia (sem `I` antes no artigo) com valor em moeda na linha (`II - TRIMESTRE
+   CR$ 11.000.000,00`). Juntas: +2 unidades de `inc` (1 treino, 1 teste); 6 de 6 removidos
+   falsos. O sinal de moeda **sozinho**, sem a guarda "não há `I` antes", tiraria 129 incisos
+   certos de 137 com valor na linha (precisão 4%): rejeitado.
+3. Item cujo resto da linha é um título em maiúsculas (≥ 6 letras, ≥ 90% maiúsculas) é linha
+   de quadro de anexo (`1. RECEITA PRIMÁRIA`, `3 - OUTRAS DESPESAS CORRENTES`, `4. MINISTÉRIO
+   PÚBLICO 2.500.000`), **salvo** se há linha de inciso entre o último artigo e o item (a lei
+   que desdobra o próprio artigo em `I - RECEITA ... 1. RECEITAS CORRENTES`, lei-00445, tem itens
+   de verdade). +3 unidades de `item` (3 treino, 0 teste); 22 de 22 removidos falsos. Sem a
+   guarda do inciso a regra tirava 28 dispositivos, 5 deles certos (precisão 0,82): rejeitada
+   nessa forma.
+
+Já promovido e **confirmado**: `Assessor IV - CDS-04` (rodada 6: numeral romano depois de
+palavra capitalizada no meio da linha não é inciso; teste novo em `test_hierarchy_sequence.py`).
+
+Rejeitada: item `N.` sozinho na linha (precisão 8/12 = 0,67: 4 dos 12 são itens que a referência
+marca, em lei-00250 e lei-00313).
+Antes -> depois da rodada, definição nova (art par inc ali item): 3052 3050 2967 3089 3108 ->
+3052 3054 2969 3089 3111 de 3170 por nível; definição antiga: 3052 1602 804 261 14 -> 3052 1603
+804 261 14 (de 3170 1717 1001 335 69 -> 3170 1714 999 335 66). A definição antiga mal se mexe, e
+é por isso que a nova existe.
 
 ### Suspeitas fechadas (`clear_suspect`)
 

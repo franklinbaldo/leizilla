@@ -462,6 +462,16 @@ outras 53 passam pelo plano abaixo (`shuffle_seed=20261119`, `text_source=textos
 `mark-full-giants-2026-11` com `max_usd=1.5`, `guard=estimate`; `mark-full-giants-longlines-2026-11`
 com `anchors=snippet`, `max_usd=0.15`, `guard=estimate`.
 
+Resultado (2026-11-18): coleta `44289315841` (49 de 50 marcadas: ok 32, degraded 17, partial 1;
+artifact de rótulos `14421510840`, lote na execução de submit `44288322098`) e coleta
+`44290030110` (3 de 3, `anchors=snippet`; artifact `14420044780`, submit `44288433856`)
+entraram na referência por `reader_ratchet_levels.py build-reference`: 52 normas
+(`decreto-lei-00036`, a parcial, fica de fora), 3213 no total. Os textos são os da camada
+`…t061620z`, mas os 52 sha256 existem na revisão fixada `…t003626z` (conferido: 52/52), então o
+gate continua com **uma** revisão fixada. Unidades acrescentadas (norma x nível): art 44, par 32,
+inc 28, ali 18, item 11; o leitor concorda em art 31, par 21, inc 10, ali 11, item 1. Oito das
+52 têm marca suspeita e ficam fora do gate (35 no total).
+
 `scripts/compare_mark_reader.py` (offline) compara, **por nível** (`art par inc ali item`,
 próprio e citado), o leitor por regras com os documentos do modo `mark` de uma coleta, via
 `marcacao.to_rows` dos dois (o documento do modo `mark` é a referência; no subnível ele é

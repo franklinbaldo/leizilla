@@ -143,3 +143,54 @@ export function paragrafos(texto: string): string[] {
 export function ocrEhProprio(ocrMotor: string | null | undefined): boolean {
   return (ocrMotor ?? '').trim().toLowerCase().startsWith('kreuzberg');
 }
+
+/** Outro arquivo da mesma norma (ADR-0015, adendo 2026-11-18): a coluna `outras_rendicoes`. */
+export interface OutraRendicao {
+  rendicao: string;
+  sha256: string;
+  capturado_em: string | null;
+  pdf_url: string;
+  /** Texto derivado pelo IA; null enquanto o IA não derivou aquele arquivo. */
+  texto_url: string | null;
+}
+
+/** A coluna é JSON serializado; ausente em `textos.parquet` antigos. Fail-open: []. */
+export function parseOutrasRendicoes(json: string | null | undefined): OutraRendicao[] {
+  if (!json) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out: OutraRendicao[] = [];
+  for (const item of parsed) {
+    if (typeof item !== 'object' || item === null) return [];
+    const o = item as Record<string, unknown>;
+    if (typeof o.rendicao !== 'string' || typeof o.sha256 !== 'string' || typeof o.pdf_url !== 'string') {
+      return [];
+    }
+    out.push({
+      rendicao: o.rendicao,
+      sha256: o.sha256,
+      capturado_em: typeof o.capturado_em === 'string' && o.capturado_em ? o.capturado_em : null,
+      pdf_url: o.pdf_url,
+      texto_url: typeof o.texto_url === 'string' && o.texto_url ? o.texto_url : null,
+    });
+  }
+  return out;
+}
+
+const ROTULO_RENDICAO: Record<string, string> = {
+  compilada: 'texto compilado',
+  original: 'texto original',
+  retificado: 'texto retificado',
+  revogado: 'texto com carimbo de revogação',
+  outra: 'outra versão do arquivo',
+};
+
+/** Rótulo curto da rendição ("texto compilado"). Linha antiga sem `rendicao` = original. */
+export function rotuloRendicao(rendicao: string | null | undefined): string {
+  return ROTULO_RENDICAO[(rendicao ?? '').trim().toLowerCase() || 'original'] ?? 'outra versão do arquivo';
+}

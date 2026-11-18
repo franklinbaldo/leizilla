@@ -4,7 +4,14 @@
   // de artigo só dividem o texto em trechos com id, e só quando a sequência fecha.
   import { getStructuredLeiId, getTexto, type TextoRow } from '../../lib/db';
   import { formatDate, formatEnte, iaDetailsUrl, leiTitle, leiUrl, withBase } from '../../lib/format';
-  import { ocrEhProprio, paragrafos, parseAncoras, segmentar } from '../../lib/textos';
+  import {
+    ocrEhProprio,
+    paragrafos,
+    parseAncoras,
+    parseOutrasRendicoes,
+    rotuloRendicao,
+    segmentar,
+  } from '../../lib/textos';
   import DatasetUnavailable from '../DatasetUnavailable.svelte';
 
   // `embedded`: a página da norma (catálogo oficial) já mostra o título; aqui só o texto.
@@ -31,6 +38,10 @@
   const artigos = $derived(segmentos.filter((s) => s.id !== null));
   // OCR feito pelo próprio Leizilla (ADR-0019), quando o IA não tem texto deste documento.
   const ocrProprio = $derived(row ? ocrEhProprio(row.ocr_motor) : false);
+  // Rendição do arquivo exibido e os outros arquivos da norma (ADR-0015, adendo 2026-11-18).
+  const compilada = $derived(row?.rendicao === 'compilada');
+  const outras = $derived(row ? parseOutrasRendicoes(row.outras_rendicoes) : []);
+  const publicadaPor = $derived(row?.fonte === 'casacivil' ? 'pela Casa Civil' : 'pela fonte oficial');
 
   $effect(() => {
     let cancelled = false;
@@ -109,6 +120,7 @@
       <p>
         <span class="selo">{formatEnte(row.ente)}</span>
         <span class="selo selo-nao-estruturado">Texto não estruturado</span>
+        <span class="selo selo-rendicao">{rotuloRendicao(row.rendicao)}</span>
       </p>
     {:else}
       <hgroup>
@@ -116,17 +128,26 @@
         <p>
           <span class="selo">{formatEnte(row.ente)}</span>
           <span class="selo selo-nao-estruturado">Texto não estruturado</span>
+          <span class="selo selo-rendicao">{rotuloRendicao(row.rendicao)}</span>
         </p>
       </hgroup>
     {/if}
 
     <article class="aviso">
       <p>
-        Este é o texto extraído por OCR do documento original, <strong>sem revisão
+        Este é o texto extraído por OCR {compilada ? 'do documento compilado' : 'do documento original'}, <strong>sem revisão
         e sem estrutura</strong>: pode conter erros de reconhecimento, e a divisão
-        em dispositivos ainda não foi validada. Em caso de dúvida, vale o documento
-        original.
+        em dispositivos ainda não foi validada. Em caso de dúvida, vale o ato como
+        publicado oficialmente.
       </p>
+      {#if compilada}
+        <p class="rendicao-compilada">
+          Este é o <strong>texto compilado</strong>: a versão compilada publicada
+          {publicadaPor}{#if row.capturado_em}, capturada em {formatDate(row.capturado_em)}{/if}.
+          Não é uma consolidação feita ou conferida pelo Leizilla; a compilação pode trazer
+          trechos anotados ou tachados (redações dadas, revogações).
+        </p>
+      {/if}
       {#if ocrProprio}
         <p>
           Este texto foi feito pelo OCR do próprio Leizilla, porque o Internet Archive
@@ -135,13 +156,27 @@
       {/if}
       <p class="acoes">
         <a href={row.pdf_url} target="_blank" rel="noopener noreferrer">
-          Abrir o PDF original no Internet Archive
+          {compilada ? 'Abrir o PDF compilado no Internet Archive' : 'Abrir o PDF original no Internet Archive'}
         </a>
         {#if estruturadaId}
           &nbsp;·&nbsp;
           <a href={leiUrl(estruturadaId)}>Ver a versão estruturada desta norma</a>
         {/if}
       </p>
+      {#if outras.length > 0}
+        <p class="outras" data-testid="outras-rendicoes">
+          Também preservado{outras.length > 1 ? 's' : ''} no Internet Archive:
+          {#each outras as outra, i (outra.sha256)}
+            {#if i > 0}&nbsp;·&nbsp;{/if}
+            <a href={outra.pdf_url} target="_blank" rel="noopener noreferrer">
+              PDF do {rotuloRendicao(outra.rendicao)}
+            </a>
+            {#if outra.texto_url}
+              (<a href={outra.texto_url} target="_blank" rel="noopener noreferrer">texto</a>)
+            {/if}
+          {/each}
+        </p>
+      {/if}
     </article>
   </header>
 
@@ -173,7 +208,7 @@
   <section aria-labelledby="titulo-origem">
     <h3 id="titulo-origem">Origem do texto</h3>
     <dl class="origem">
-      <dt>Documento original</dt>
+      <dt>{compilada ? 'Documento compilado' : 'Documento original'}</dt>
       <dd>
         <a href={row.pdf_url} target="_blank" rel="noopener noreferrer">PDF</a>
         no item
@@ -227,6 +262,10 @@
     text-transform: uppercase;
     letter-spacing: 0.03em;
   }
+  .selo-rendicao {
+    text-transform: none;
+    font-weight: 500;
+  }
   .selo-nao-estruturado {
     border-color: var(--pico-primary, #0172ad);
     color: var(--pico-primary, #0172ad);
@@ -239,8 +278,9 @@
   .aviso p {
     margin: 0 0 0.4rem;
   }
-  .aviso .acoes {
-    margin: 0;
+  .aviso .acoes,
+  .aviso .outras {
+    margin: 0 0 0.4rem;
   }
   .artigos {
     margin-bottom: 1rem;

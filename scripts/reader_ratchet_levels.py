@@ -25,7 +25,19 @@ of the reference does. Without ``--textos`` only the offline 300 are checked.
 Unit = (norm, level). The unit is ``agree`` when the reader's devices at that level
 (own and quoted together) pair one-to-one with the reference's with the same number,
 suffix and status (pairing: ``compare_mark_reader.pair_devices``). Norms with suspect
-flags are outside the gate, and a level the reference lacks in a norm is not a unit.
+flags are outside the gate.
+
+EMPTY LEVELS (criterion since 2026-11-18, ``EMPTY_UNITS_SINCE``): in a norm whose
+reference has articles, a level where the reference has NO device is still a unit. If
+the reader also reads none there it is ``agree`` (both empty); if it reads some, those
+are ``reader_extra`` and the unit disagrees (as before). So a rule that removes FALSE
+devices (table rows read as incisos) gains a unit when the level ends up empty, which
+the old criterion could not see (the unit vanished instead of agreeing). Guard: the
+empty-empty unit exists only when the reference has articles in the norm, and agrees
+only if the reader reads at least one article there (``reader_blind`` otherwise), so a
+reader that reads nothing is never rewarded. ``table`` reports both definitions
+(``units``/``units_agree`` with empty units, ``units_nonempty``/``units_agree_nonempty``
+the old one) so the series stays comparable.
 
 Gate: FAIL if a (norm, level) in the baseline's ``agree`` is no longer ``agree`` (or
 the norm can no longer be compared: text sha256 mismatch), or if a reference erratum
@@ -73,6 +85,8 @@ READER_MODULES: tuple[str, ...] = (
     "src/leizilla/marcacao.py",
 )
 SCHEMA_VERSION = 1
+EMPTY_UNITS_SINCE = "2026-11-18"
+READER_BLIND = "reader_blind"
 LEVELS = cmr.LEVELS
 AGREE = "agree"
 OPS = ("add_device", "remove_device", "set_device", "clear_suspect")
@@ -479,6 +493,9 @@ class Board:
     errata_sha256: Optional[str] = None
     reference_sha256: Optional[str] = None
     reader_outcomes: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # level -> norms whose unit is empty on both sides (reference and reader): the
+    # units the pre-2026-11-18 criterion did not have.
+    empty: dict[str, set[str]] = field(default_factory=dict)
     reference_norms: int = 0
     textos_given: bool = True
 
@@ -498,6 +515,7 @@ def run_board(
     reader = reader or reader_devices
     board = Board(
         groups={lv: {} for lv in LEVELS},
+        empty={lv: set() for lv in LEVELS},
         devices={lv: collections.Counter() for lv in LEVELS},
         errata_sha256=errata.sha256 if errata else None,
         errata_total=len(errata.corrections) if errata else 0,
@@ -542,9 +560,23 @@ def run_board(
         outcomes = cmr.classify_pairs(pairs, m_only, r_only)
         if keep_outcomes:
             board.reader_outcomes[texto_id] = outcomes
+        ref_has_articles = any(
+            o["level"] == "art" and o["mark"] is not None for o in outcomes
+        )
+        reader_has_articles = any(
+            o["level"] == "art" and o["reader"] is not None for o in outcomes
+        )
         for level in LEVELS:
             lv = [o for o in outcomes if o["level"] == level]
             if not lv:
+                # Empty on both sides: a unit only where the reference has articles;
+                # it agrees only if the reader reads articles too (never rewards a
+                # reader that reads nothing).
+                if ref_has_articles:
+                    board.groups[level][texto_id] = (
+                        AGREE if reader_has_articles else READER_BLIND
+                    )
+                    board.empty[level].add(texto_id)
                 continue
             board.groups[level][texto_id] = level_group(lv)
             for o in lv:
@@ -591,9 +623,13 @@ def table(
         groups = {
             n: g for n, g in board.groups[lv].items() if subset is None or subset(n)
         }
+        nonempty = {n: g for n, g in groups.items() if n not in board.empty[lv]}
         row = {
             "units": len(groups),
             "units_agree": sum(1 for g in groups.values() if g == AGREE),
+            # the criterion before EMPTY_UNITS_SINCE: units with devices on a side
+            "units_nonempty": len(nonempty),
+            "units_agree_nonempty": sum(1 for g in nonempty.values() if g == AGREE),
         }
         if subset is None:
             counts = board.devices[lv]
@@ -665,6 +701,7 @@ def render_table(
 ) -> list[str]:
     head = f"{'level':<6}{'units':>6}{'agree.before':>13}{'agree.now':>10}"
     head += f"{'dev agree':>11}{'misses':>8}{'extra':>7}{'number':>8}{'status':>8}{'kind':>6}"
+    head += f"{'| non-empty':>12}{'agree':>7}"
     lines = [head]
     for lv in LEVELS:
         r = now[lv]
@@ -674,6 +711,7 @@ def render_table(
             f"{r.get('agree', 0):>11}{r.get('reader_misses', 0):>8}"
             f"{r.get('reader_extra', 0):>7}{r.get('number_differs', 0):>8}"
             f"{r.get('status_differs', 0):>8}{r.get('kind_differs', 0):>6}"
+            f"{r.get('units_nonempty', 0):>12}{r.get('units_agree_nonempty', 0):>7}"
         )
     return lines
 
@@ -787,6 +825,7 @@ def cmd_update(args: argparse.Namespace) -> int:
         "date": today,
         "reader_commit": _git("rev-parse", "HEAD"),
         "forced": bool(args.force),
+        "empty_units": EMPTY_UNITS_SINCE,
         "reason": args.reason or ("initial baseline" if previous is None else None),
         "table": table(board),
         "entered_count": len(verdict.entered),
@@ -801,6 +840,7 @@ def cmd_update(args: argparse.Namespace) -> int:
         "reader_last_change": _git("log", "-1", "--format=%H", "--", *READER_MODULES),
         "reference": ref.meta,
         "reference_sha256": ref.sha256,
+        "empty_units": EMPTY_UNITS_SINCE,
         "errata_sha256": board.errata_sha256,
         "errata_applied": len(board.errata_applied),
         "flagged": sorted(board.flagged),

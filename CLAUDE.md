@@ -232,7 +232,7 @@ manifest exists.
   `docs/okf/reader-ratchet-baseline.json` leaves, or a new `disagree_closed`
   appears (see `docs/okf/reader-ratchet.md`); its `levels` job runs
   `scripts/reader_ratchet_levels.py check --textos PATH` (per-level gate below article level
-  against the committed mark-mode reference of 3161 norms, ~10 s; texts are not in the repo:
+  against the committed mark-mode reference of 3213 norms, ~12 s; texts are not in the repo:
   the job downloads the pinned `textos.parquet` revision and matches them by sha256;
   without `--textos` only the 300 offline texts are checked).
 
