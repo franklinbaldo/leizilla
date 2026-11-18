@@ -1,0 +1,70 @@
+# parts > 8 (id, parts, chars)
+leizilla-raw-ro-casacivil-decreto-29991	122	274451
+leizilla-raw-ro-casacivil-lei-01297	89	645357
+leizilla-raw-ro-casacivil-lei-00254	70	204608
+leizilla-raw-ro-casacivil-lei-01306	51	327837
+leizilla-raw-ro-casacivil-lc-01024	36	381366
+leizilla-raw-ro-casacivil-lei-01584	36	106413
+leizilla-raw-ro-casacivil-lei-00446	32	37699
+leizilla-raw-ro-casacivil-lei-00528	31	53423
+leizilla-raw-ro-casacivil-decreto-32247	29	60614
+leizilla-raw-ro-casacivil-lc-01079	29	163758
+leizilla-raw-ro-casacivil-lei-01440	29	88584
+leizilla-raw-ro-casacivil-decreto-lei-00004	26	150701
+leizilla-raw-ro-casacivil-decreto-lei-00008	23	117310
+leizilla-raw-ro-casacivil-lc-00039	22	146778
+leizilla-raw-ro-casacivil-decreto-lei-00036	21	130900
+leizilla-raw-ro-casacivil-decreto-10237	20	177721
+leizilla-raw-ro-casacivil-lc-00042	20	48137
+leizilla-raw-ro-casacivil-lc-00001	19	126780
+leizilla-raw-ro-casacivil-lc-00086	18	28142
+leizilla-raw-ro-casacivil-lc-00096	18	32683
+leizilla-raw-ro-casacivil-lei-01489	17	61223
+leizilla-raw-ro-casacivil-decreto-lei-00009	16	87796
+leizilla-raw-ro-casacivil-lei-00508	15	36064
+leizilla-raw-ro-casacivil-lei-00137	14	47610
+leizilla-raw-ro-casacivil-lei-00300	14	35560
+leizilla-raw-ro-casacivil-lei-00159	13	20613
+leizilla-raw-ro-casacivil-lei-00381	13	13525
+leizilla-raw-ro-casacivil-lei-06413	13	80969
+leizilla-raw-ro-casacivil-decreto-lei-00002	12	29480
+leizilla-raw-ro-casacivil-lc-00089	12	16324
+leizilla-raw-ro-casacivil-lei-00277	12	30674
+leizilla-raw-ro-casacivil-lei-00415	12	13206
+leizilla-raw-ro-casacivil-lei-00958	12	39560
+leizilla-raw-ro-casacivil-lei-01081	12	17013
+leizilla-raw-ro-casacivil-lei-00401	11	36701
+leizilla-raw-ro-casacivil-lei-00444	11	15340
+leizilla-raw-ro-casacivil-lei-01066	11	80460
+leizilla-raw-ro-casacivil-decreto-lei-00040	10	64938
+leizilla-raw-ro-casacivil-lc-01132	10	24739
+leizilla-raw-ro-casacivil-lc-01163	10	33839
+leizilla-raw-ro-casacivil-lc-01254	10	50899
+leizilla-raw-ro-casacivil-lei-00007	10	24166
+leizilla-raw-ro-casacivil-lei-00431	10	22191
+leizilla-raw-ro-casacivil-lei-01197	10	8547
+leizilla-raw-ro-casacivil-lei-06327	10	32434
+leizilla-raw-ro-casacivil-decreto-lei-00006	9	59395
+leizilla-raw-ro-casacivil-lc-00097	9	54779
+leizilla-raw-ro-casacivil-lc-01182	9	29007
+leizilla-raw-ro-casacivil-lc-01213	9	81625
+leizilla-raw-ro-casacivil-lc-01260	9	23591
+leizilla-raw-ro-casacivil-lei-00305	9	19342
+leizilla-raw-ro-casacivil-lei-00451	9	11303
+leizilla-raw-ro-casacivil-lei-00453	9	21732
+leizilla-raw-ro-casacivil-lei-00605	9	20651
+leizilla-raw-ro-casacivil-lei-00617	9	13821
+leizilla-raw-ro-casacivil-lei-01459	9	35978
+leizilla-raw-ro-casacivil-lei-01550	9	16101
+
+# long lines (id, max, p95, median, share>200, nonblank)
+leizilla-raw-ro-casacivil-lc-00251	545	69	18	0.004	233
+leizilla-raw-ro-casacivil-lei-05988	319	184	24	0.047	360
+leizilla-raw-ro-casacivil-lei-01581	258	157	82	0.002	550
+leizilla-raw-ro-casacivil-lc-01063	229	97	59	0.025	120
+leizilla-raw-ro-casacivil-lc-01324	211	19	8	0.005	392
+leizilla-raw-ro-casacivil-lc-01278	209	17	8	0.002	462
+leizilla-raw-ro-casacivil-lc-01166	171	163	22	0.000	92
+leizilla-raw-ro-casacivil-lc-01067	164	164	98	0.000	106
+leizilla-raw-ro-casacivil-lc-00316	160	158	90	0.000	68
+leizilla-raw-ro-casacivil-lc-01092	159	157	73	0.000	52

@@ -404,6 +404,46 @@ estimativa, então espera-se US$ 0,3 a 0,4):
 2. `step=submit`, os mesmos insumos, `max_usd=1.2`, `guard=ceiling`;
 3. `step=collect` com o `manifest_run_id` do submit (`upload_ia` opcional).
 
+## Camada inteira (`mark-full-2026-11`)
+
+`scripts/select_mark_full.py` (offline, determinístico) perfila o `textos.parquet`
+publicado (3 228 normas) e escreve as seleções de uma rodada do modo `mark` sobre a
+camada inteira. Fora, nesta ordem (cada norma entra no primeiro motivo):
+
+1. **referência** (300): as normas de `mark-reference-2026-11` cujo sha256 do texto é o de
+   `docs/okf/mark-reference/reference.json` (já medidas); uma norma da referência cujo
+   texto mudou entraria (o cabeçalho do arquivo as lista; hoje nenhuma mudou);
+2. **mais de 8 partes** (57; a maior com 122): um tratamento à parte, depois; custam
+   centenas de requisições seguidas e o teto delas é o que mais pesa;
+3. **linhas longas** (10): alguma linha acima de 200 caracteres ou p95 das linhas não
+   brancas acima de 150. Medido: o piloto (mediana 36, máximo 128) funcionou, o
+   estresse (toda linha de 200 a 400) truncou 48 de 48. A camada não tem texto
+   reflowed (nenhuma norma com mediana acima de 120), então o limite é pelo que sobra
+   fora do medido: uma linha na faixa que falhou (acima de 200) ou mais de 5% das linhas
+   acima de 150 (o piloto não passou de 128). Vão para `mark-full-longlines-2026-11` (`anchors=snippet`, rodada à
+   parte).
+
+Sobram 2 861 normas, partidas em dois arquivos de custo parecido
+(`mark-full-2026-11-a`/`-b`: ordenadas por (caracteres, id) e distribuídas
+alternadamente), porque o teto do arquivo único (US$ 11,43) passa de US$ 8.
+
+Plano local (claude-haiku-5-5, effort medium, `--shuffle-seed 20261119`):
+
+| arquivo | normas | requisições | estimativa | teto | pior realista (+15%) |
+|---|---:|---:|---:|---:|---:|
+| `mark-full-2026-11` (junto) | 2 861 | 2 244 | US$ 2,75 | US$ 11,43 | US$ 3,17 |
+| `mark-full-2026-11-a` | 1 431 | 1 133 | US$ 1,38 | US$ 5,77 | US$ 1,59 |
+| `mark-full-2026-11-b` | 1 430 | 1 112 | US$ 1,37 | US$ 5,66 | US$ 1,58 |
+| `mark-full-longlines-2026-11` (`--anchors snippet`) | 10 | 19 | US$ 0,02 | US$ 0,09 | US$ 0,03 |
+
+O teto (toda requisição gasta o `max_tokens`) é 4x a estimativa: o piso de 8 192 tokens de
+saída por requisição domina. Os 5% maiores pedidos (por `max_tokens`) pesam 8% do teto
+(US$ 0,92 de 11,43); se esses estourassem o teto e o resto custasse +15%, o total seria
+US$ 3,86 (a e b somadas dão o mesmo). As listas das excluídas por partes e por linhas longas (id, partes, caracteres; id,
+máximo, p95, mediana) estão em `docs/okf/review-samples/mark-full-excluded-2026-11.tsv`.
+Rodar com `guard=estimate`, `max_usd=2` em cada metade e `0.05`
+nas linhas longas: a trava recusa só se a estimativa passar disso.
+
 `scripts/compare_mark_reader.py` (offline) compara, **por nível** (`art par inc ali item`,
 próprio e citado), o leitor por regras com os documentos do modo `mark` de uma coleta, via
 `marcacao.to_rows` dos dois (o documento do modo `mark` é a referência; no subnível ele é

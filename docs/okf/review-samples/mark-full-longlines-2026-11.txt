@@ -1,0 +1,15 @@
+# mark-full-longlines-2026-11
+# Whole-layer mark-mode selection, built by scripts/select_mark_full.py from textos.parquet (3228 norms).
+# Exclusions in order: reference norms with unchanged text sha (300), more than 8 parts (57), line > 200 chars or p95 > 150 (10).
+# Reference norms whose text changed (kept in play): none; reference ids missing from the layer: none.
+# 10 norms; by type {'lc': 8, 'lei': 2}; by source {'ia': 2, 'own-reocr': 4, 'own-tesseract': 2, 'pdf-text': 2}; chars 112394; max parts 4
+leizilla-raw-ro-casacivil-lc-00251
+leizilla-raw-ro-casacivil-lc-00316
+leizilla-raw-ro-casacivil-lc-01063
+leizilla-raw-ro-casacivil-lc-01067
+leizilla-raw-ro-casacivil-lc-01092
+leizilla-raw-ro-casacivil-lc-01166
+leizilla-raw-ro-casacivil-lc-01278
+leizilla-raw-ro-casacivil-lc-01324
+leizilla-raw-ro-casacivil-lei-01581
+leizilla-raw-ro-casacivil-lei-05988
