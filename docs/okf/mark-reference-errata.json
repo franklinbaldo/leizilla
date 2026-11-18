@@ -447,6 +447,58 @@
    "reason": "Alínea b) of the quoted inciso IV, inside the block closed by '(NR)' on line 47; the mark document omits it.",
    "text_sha256": "d083e167326c871fd22fc51c9cc4d732169b817b3dcd39c1ab67413498bbdbd7",
    "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "“Art. 19 ..",
+   "kind": "art",
+   "line": 69,
+   "n": "19",
+   "norm": "leizilla-raw-ro-casacivil-lc-01305",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Line 65-67 'Ficam acrescidos ... ao artigo 19 da Lei Complementar ... com a seguinte redação:' introduces the quote and line 69 opens it with '“Art. 19 ..' (elided caput) before the quoted § 3°; the mark document keeps the paragraph and omits its article.",
+   "text_sha256": "ad5e2de930ccfcebf1747e0fdbb2c203b67f20bcc5e50d642db1157eaef98ed3",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "“Art. 13 ..",
+   "kind": "art",
+   "line": 53,
+   "n": "13",
+   "norm": "leizilla-raw-ro-casacivil-lc-01315",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Line 49-51 'Fica acrescentado o § 3°-A ao artigo 13 ... com a seguinte redação:' introduces the quote and line 53 opens it with '“Art. 13 ..' before the quoted § 3°-A; the mark document keeps the paragraph and omits its article.",
+   "text_sha256": "ee4b4eee991a86835858ffc9d3ccf44cb2b7b926c0439384fb240c6bf21b3737",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "“Art. 1º Fica nomeado",
+   "kind": "art",
+   "line": 61,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-decreto-10090",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "A rectification ('ONDE SE LÊ:' on line 59): the wrong wording is quoted between marks on line 61 and starts with 'Art. 1º'; the mark document has no article here.",
+   "text_sha256": "45f0568236a87b579c3d38902170724fb0991f6f394ab37753ffaf7ea066b74c",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "“Art. 1º Fica nomeado",
+   "kind": "art",
+   "line": 65,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-decreto-10090",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "The corrected wording ('LEIA-SE:' on line 63) is quoted between marks on line 65 and starts with 'Art. 1º'; the mark document has no article here.",
+   "text_sha256": "45f0568236a87b579c3d38902170724fb0991f6f394ab37753ffaf7ea066b74c",
+   "verified_by": "leitura do texto"
   }
  ],
  "schema_version": 1

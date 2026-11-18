@@ -183,6 +183,7 @@ def best_chain(
     free_skips: frozenset[int] = frozenset(),
     gap_cap: float | None = None,
     capped: Sequence[bool] | None = None,
+    suffix_repeats: bool = False,
 ) -> list[int | None]:
     """Pick one reading per candidate (or None) forming the best increasing chain.
 
@@ -214,6 +215,15 @@ def best_chain(
             for j in range(max(0, i - _LOOKBACK), i):
                 for u, s in best[j].items():
                     if v > u:
+                        if (
+                            suffix_repeats
+                            and suffixed[i]
+                            and any(
+                                v in cands[j2] and not suffixed[j2]
+                                for j2 in range(i + 1, min(n, i + _LOOKBACK))
+                            )
+                        ):
+                            continue  # "Art. 4-A" is not read ahead of the "Art. 4" after it
                         jump = _GAP_PENALTY * skipped(u, v)
                         if gap_cap is not None and (capped is None or capped[i]):
                             jump = min(jump, gap_cap)
@@ -270,7 +280,11 @@ def read_articles(
             if ref or quoted
             else article_readings(m.group("num"), m.group("ord") is not None)
         )
-    chosen = best_chain(cands, [m.group("suffix") is not None for m in matches])
+    chosen = best_chain(
+        cands,
+        [m.group("suffix") is not None for m in matches],
+        suffix_repeats=True,
+    )
 
     articles: list[ArticleRead] = []
     own_numbers: set[int] = set()

@@ -251,6 +251,13 @@ de 14 em parágrafos e 30 de 34 em incisos (dois dos quatro erros são lacunas d
 teste), mesma regra de salto para alíneas (3 de 7 errados), elisão entre colchetes
 (`[...]`, precisão 0,53), `Paraágrato` (0,875).
 
+Rodada 8: 1 regra promovida e 4 errata. Um artigo com sufixo (`Art.49-A`) não é lido como
+`N-A` antes do `Art. N` simples que vem depois (`best_chain(suffix_repeats)`): treino +4
+(uma norma, quatro níveis), teste 0, 12 de 12 dispositivos; o professor do modo `label` lê
+`4A` ali, então 17 dispositivos dessa norma deixam de casar com ele. Rejeitadas: item
+isolado em bloco citado (precisão 0,5), salto de parágrafo também para o glifo `$` (0,33),
+item seguido de dígito com sinal ordinal (`1) 1º Ten`, 0 unidades, 5 de 5 certos).
+
 **Erros sistemáticos da referência.** Nenhuma classe de erro do conversor apareceu em
 número que pedisse reconstruir a referência: as 18 errata (13 + 5) são pontuais
 (13 `add_device`: dispositivo que o modelo deixou de marcar; 5 `set_device`: status

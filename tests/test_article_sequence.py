@@ -426,3 +426,21 @@ def test_truncated_article_word_with_number_on_the_next_line_is_a_marker() -> No
     # lei-00433 (4f773c3e): "rt." alone on its line, the number below.
     text = "Art. 1º Fica criado o fundo.\nrt.\n2º - Esta Lei entra em vigor.\n"
     assert [a["number"] for a in read_articles(text)["articles"]] == [1, 2]
+
+
+def test_suffixed_article_is_not_read_ahead_of_the_plain_one_after_it() -> None:
+    text = (
+        "Art. 1º Fica criada a Turma.\n\n"
+        "Art. 2º Ficam acrescidos os arts.:\n\n"
+        "Art. 3º Fica criado o cargo.\n\n"
+        "Art. 49-A. Compõem o Sistema.\n\n"
+        "Art.49-B. A Turma de Uniformização.\n\n"
+        "Art. 49-C. As Turmas Recursais têm sede.\n\n"
+        "Art. 4° Esta Lei entra em vigor.\n"
+    )
+    report = read_articles(text)
+    own = [
+        (a["number"], a["suffix"]) for a in report["articles"] if a["status"] == "own"
+    ]
+    assert (4, None) in own
+    assert not any(n == 4 and sfx for n, sfx in own)
