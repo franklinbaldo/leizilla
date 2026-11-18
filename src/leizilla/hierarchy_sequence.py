@@ -86,7 +86,8 @@ _PAR = re.compile(
 # its own and can only be read by the chain around it.
 _PAR_WILD = re.compile(r"[§$]\s?[^\W\d_]{1,2}\b(?!\s?[ºo°])")
 _PAR_UNICO = re.compile(
-    r"\bPar[áâàa]g[rti]?a[fgt]o\s+[ÚúUuOÜüÙù][nmr][ijl]?c[oa]\b", re.IGNORECASE
+    r"\b(?:Par[áâàa]g[rti]?a[fgt]o|Par[aá][âãáà]grafo)\s+[ÚúUuOÜüÙù][nmr][ijl]?c[oa]\b",
+    re.IGNORECASE,
 )
 # Roman numeral (or what OCR makes of one) followed by a separator.
 _INC = re.compile(
@@ -99,6 +100,11 @@ _INC_WILD = re.compile(
     r"(?m)^[ \t]*(?P<mark>(?P<tok>[^\W_]{1,4})[ \t]{0,2}[-–—]+)(?P<gap>[ \t]*)\S"
 )
 # A roman numeral of two or more letters opening a line, two spaces and lower-case prose.
+_INC_BARE_CAP = re.compile(
+    r"(?m)^[ \t]*(?P<tok>[IVXL]{1,6})[ \t](?=[A-ZÀ-Ý][a-zà-ý]{2})"
+)
+_ELISION_LINE = re.compile(r"(?m)^[ \t]*[.…]{2,}[ \t]*$")
+_CAPS_HEADING = re.compile(r"[ \t]*[A-ZÀ-Ý][A-ZÀ-Ý ,:.\-/]{7,}[ \t]*(?:\n|\Z)")
 _TITLE_WORD_LEFT = re.compile(r"(?:^|\s)[A-ZÀ-Ý][a-zà-ý]{3,}[ \t]+\Z")
 _INC_BARE = re.compile(
     r"(?m)^[ \t]*(?P<tok>[IVXL]{1,6})(?:[ \t]{2}|[ \t]"
@@ -612,6 +618,22 @@ def _inciso_candidates(text: str) -> list[_Cand]:
                 )
             )
             taken.add(m.start("tok"))
+    for m in _INC_BARE_CAP.finditer(text):
+        # "III Cabo da Polícia Militar": the dash lost before a capitalised word.
+        if m.start("tok") in taken:
+            continue
+        readings = roman_readings(m.group("tok"))
+        if readings:
+            out.append(
+                _Cand(
+                    m.start("tok"),
+                    m.end("tok"),
+                    readings,
+                    literal=readings[0],
+                    bare=True,
+                )
+            )
+            taken.add(m.start("tok"))
     for m in _INC_WILD.finditer(text):
         start, end = m.start("tok"), m.end("mark")
         token = m.group("tok")
@@ -1050,6 +1072,60 @@ class _Builder:
         k = bisect_right(self.masked, (pos, 1 << 62)) - 1
         return k >= 0 and self.masked[k][0] <= pos < self.masked[k][1]
 
+    def _chain(
+        self,
+        kind: str,
+        cands: list[_Cand],
+        readings: list[tuple[int, ...]],
+        lenient: bool,
+    ) -> list[int | None]:
+        """Chain the candidates; a quoted block restarts after each elision line.
+
+        "..........." between two quoted incisos stands for the dispositivos the
+        amending law does not reproduce: "I", elision, "VII", elision, "XXIII" are
+        three runs of their own, not a chain with gaps.
+        """
+        skips = _ALI_FREE_SKIPS if kind == "alinea" else frozenset()
+        gap_cap = 0.5 if lenient and kind in ("paragrafo", "inciso") else None
+        suffixed = [c.suffix is not None for c in cands]
+        # Only a real paragraph sign opening a line may jump over numbers.
+        capped = [
+            c.literal is not None
+            and c.strong
+            and not c.ref
+            and _at_line_start(self.text, c.start)
+            and not _CAPS_HEADING.match(self.text, c.end)
+            for c in cands
+        ]
+        if not lenient or len(cands) < 2:
+            return best_chain(
+                readings,
+                suffixed,
+                anchored=not lenient,
+                free_skips=skips,
+                gap_cap=gap_cap,
+                capped=capped,
+            )
+        cuts = [0]
+        for i in range(1, len(cands)):
+            gap = self.text[cands[i - 1].end : cands[i].start]
+            if _ELISION_LINE.search(gap):
+                cuts.append(i)
+        cuts.append(len(cands))
+        chosen: list[int | None] = []
+        for a, b in zip(cuts, cuts[1:]):
+            chosen.extend(
+                best_chain(
+                    readings[a:b],
+                    suffixed[a:b],
+                    anchored=False,
+                    free_skips=skips,
+                    gap_cap=gap_cap,
+                    capped=capped[a:b],
+                )
+            )
+        return chosen
+
     def descend(
         self, lo: int, hi: int, parent: int | None, level: int, lenient: bool
     ) -> None:
@@ -1066,12 +1142,7 @@ class _Builder:
         readings: list[tuple[int, ...]] = [
             () if c.ref or c.start in arabic else c.readings for c in cands
         ]
-        chosen = best_chain(
-            readings,
-            [c.suffix is not None for c in cands],
-            anchored=not lenient,
-            free_skips=_ALI_FREE_SKIPS if kind == "alinea" else frozenset(),
-        )
+        chosen = self._chain(kind, cands, readings, lenient)
         if lenient and kind == "paragrafo":
             # "§ 29" for "§ 2º" with no chain around it: paragraph numbers rarely pass 9.
             for i, v in enumerate(chosen):

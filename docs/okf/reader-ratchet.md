@@ -239,6 +239,18 @@ Rejeitadas: numeral romano sozinho na linha antes de prosa minúscula (precisão
 sozinho como detrito (perde 5 unidades), lista de itens que começa depois de 1 (precisão
 0,58, 0 unidades), glifo parecido e número na mesma linha (0 unidades, perde 1).
 
+Rodada 7: 4 regras promovidas. Numeral romano puro sem o traço antes de palavra
+capitalizada (`III Cabo da Polícia`), só dentro de uma cadeia: treino +10 / teste +2, 11 de 11
+dispositivos. Bloco citado recomeça a cadeia depois de linha só de pontos (`I`, `.....`, `VII`,
+`.....`, `XXIII`): +6 / 0. Parágrafo e inciso citados podem pular números (`§ 1º`, `§ 6º`,
+`§ 7º`) quando o candidato é um `§` ou romano puro que abre a linha, com a penalidade de salto
+limitada a 0,5 (`best_chain(gap_cap, capped)`): +8 / +2 em incisos e +9 / +2 em parágrafos, 14
+de 14 em parágrafos e 30 de 34 em incisos (dois dos quatro erros são lacunas da referência).
+`Paraâgrafo único` com vogal dobrada: +1 / 0. Rejeitadas: `t` minúsculo como traço de `I`
+(precisão 0,8), romano seguido de título em maiúsculas não é inciso (perde 5 unidades e uma do
+teste), mesma regra de salto para alíneas (3 de 7 errados), elisão entre colchetes
+(`[...]`, precisão 0,53), `Paraágrato` (0,875).
+
 **Erros sistemáticos da referência.** Nenhuma classe de erro do conversor apareceu em
 número que pedisse reconstruir a referência: as 18 errata (13 + 5) são pontuais
 (13 `add_device`: dispositivo que o modelo deixou de marcar; 5 `set_device`: status

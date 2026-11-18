@@ -2093,3 +2093,56 @@ def test_roman_numeral_after_a_capitalised_word_is_a_grade_not_an_inciso() -> No
     )
     report = read_hierarchy(text)
     assert _numbers(report, "inciso") == []
+
+
+def test_bare_roman_numeral_before_a_capitalised_word_completes_a_chain() -> None:
+    text = (
+        "Art. 1º Ficam nomeados:\n\n"
+        "I - Maria da Silva;\n\n"
+        "II Mérito da Diretoria de Atividades;\n\n"
+        "III - José de Souza.\n\n"
+        "Art. 2º Este Decreto entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "inciso") == ["1", "2", "3"]
+
+
+def test_quoted_block_restarts_its_chain_after_an_elision_line() -> None:
+    text = (
+        "Art. 1º Os incisos I, VII e XXIII passam a vigorar com a seguinte redação:\n\n"
+        "“Art. 97. .....................\n\n"
+        "I - formular a política estadual;\n\n"
+        "..........\n\n"
+        "VII - atuar com as Secretarias de Estado;\n\n"
+        "..........\n\n"
+        "XXIII - formular planos e programas.”\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "inciso", "quoted") == ["1", "7", "23"]
+
+
+def test_quoted_block_paragraphs_and_incisos_may_jump_over_numbers() -> None:
+    text = (
+        "Art. 1º Os dispositivos abaixo passam a vigorar com a seguinte redação:\n\n"
+        "“Art. 134. ...\n\n"
+        "§ 1º A direção será constituída por Diretor.\n\n"
+        "§ 6º O Diretor indicará um juiz de direito.\n\n"
+        "§ 7º A escola funciona na capital.\n\n"
+        "Art. 135. Compete ao Diretor:\n\n"
+        "I - dirigir a escola;\n\n"
+        "V - representar a escola.”\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "paragrafo", "quoted") == ["1", "6", "7"]
+    assert _numbers(report, "inciso", "quoted") == ["1", "5"]
+
+
+def test_paragrafo_unico_with_a_doubled_vowel() -> None:
+    text = (
+        "Art. 1º Todas as unidades dispõem de espaço.\n"
+        "Paraâgrafo único - Será firmado convênio com o Banco.\n"
+    )
+    report = read_hierarchy(text)
+    assert _paths(report) == ["art-1", "art-1-par-unico"]

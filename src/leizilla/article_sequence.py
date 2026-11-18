@@ -181,6 +181,8 @@ def best_chain(
     *,
     anchored: bool = True,
     free_skips: frozenset[int] = frozenset(),
+    gap_cap: float | None = None,
+    capped: Sequence[bool] | None = None,
 ) -> list[int | None]:
     """Pick one reading per candidate (or None) forming the best increasing chain.
 
@@ -190,7 +192,9 @@ def best_chain(
     ``anchored`` charges the numbers skipped before the first member, so the chain is
     pulled towards starting at 1 (a norm's own numbering). An unanchored chain may start
     anywhere (a fragment quoted from another norm). Numbers in ``free_skips`` may be
-    skipped at no cost (alíneas of older norms skip k, w and y).
+    skipped at no cost (alíneas of older norms skip k, w and y). ``gap_cap`` bounds the
+    penalty of a jump to a candidate flagged in ``capped``: a block quoted from another norm reproduces only the
+    dispositivos that change ("§ 1º", "§ 6º", "§ 7º").
     """
 
     def skipped(lo: int, hi: int) -> int:
@@ -210,7 +214,10 @@ def best_chain(
             for j in range(max(0, i - _LOOKBACK), i):
                 for u, s in best[j].items():
                     if v > u:
-                        cand = s + 1.0 - _GAP_PENALTY * skipped(u, v)
+                        jump = _GAP_PENALTY * skipped(u, v)
+                        if gap_cap is not None and (capped is None or capped[i]):
+                            jump = min(jump, gap_cap)
+                        cand = s + 1.0 - jump
                     elif v == u and suffixed[i]:
                         cand = s + 1.0
                     else:
