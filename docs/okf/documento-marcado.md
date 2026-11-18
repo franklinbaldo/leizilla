@@ -50,11 +50,11 @@ página depois do corpo).
 
 | Grupo | Elementos | Atributos |
 |---|---|---|
-| Dispositivos | `art`, `par`, `inc`, `ali`, `item` | `n`, `sufixo`, `lido-por`, `corrigido`, `estado` |
+| Dispositivos | `art`, `par`, `inc`, `ali`, `item` | `n`, `sufixo`, `lido-por`, `corrigido`, `estado` (`vetado`, `ausente`, `superado`) |
 | Organizacionais (declarados; o leitor ainda não os emite) | `parte`, `liv`, `tit`, `cap`, `sec`, `subsec` | idem |
 | Partes (declaradas; o leitor ainda não as delimita) | `epigrafe`, `ementa`, `preambulo`, `fecho`, `assinatura`, `anexo` | `anexo`: `n` |
 | Texto de outra norma | `alteracao` | `alvo`, `acao` (opcionais, ainda não emitidos) |
-| Citação / não-norma | `ref` (`alvo`), `ruido` | declarados; ainda não emitidos |
+| Citação / não-norma | `ref` (`alvo`, `rel`), `ruido` | `ref` emitido só para a nota oficial de um ato compilado; `ruido` declarado, ainda não emitido |
 | Anotação nossa | `nota` (`por`, `tipo`) | o **único** cujo conteúdo é nosso; o `strip` o remove com o conteúdo |
 | Marcador | `m` | o marcador como impresso ("Art. 5º", "§ 2º", "III -", "a)") |
 | Caractere | `c` (`v`) | code point que XML não carrega |
@@ -76,6 +76,12 @@ página depois do corpo).
   `gap`); `corrigido="true"` quando o número interpretado difere do literal.
 - **Ausência declarada**: elemento vazio `<art n="4" estado="ausente"/>` (largura zero) ou
   `estado="vetado"` num elemento com conteúdo.
+- **Versões de um dispositivo (ato compilado)**: a versão compilada da Casa Civil imprime a
+  redação superada e, depois, a nova com "(Redação dada pela Lei …)". A impressão anterior é o
+  mesmo elemento (`n` igual) com `estado="superado"`, e também os dispositivos dentro dela; a
+  vigente não leva `estado`. A nota oficial é `<ref rel="redacao|acrescimo|revogacao|veto|vide|outra">`
+  em volta do parêntese impresso (texto intocado; só quando ele fica inteiro dentro de um
+  dispositivo). Proposta que aguarda o ADR-0020: [textos-compilados.md](textos-compilados.md).
 - **O caminho não é escrito**: `art-5-par-2-inc-3` (token map, SCHEMA.md §4.2) deriva do
   aninhamento e de `n`. `to_rows` o devolve (visão tabular "dispositivos").
 - **`alteracao`**: envolve um bloco transcrito de OUTRA norma. Os dispositivos dentro dele

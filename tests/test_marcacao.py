@@ -546,3 +546,83 @@ def test_fixtures_hold_their_own_invariant() -> None:
 def test_fixtures_validate_against_the_xsd() -> None:
     result = _xmllint(*FIXTURES)
     assert result.returncode == 0, result.stderr
+
+
+# --- compiled acts: superseded versions and official notes ------------------------
+COMPILED = (
+    "Art. 1º Fica criado o fundo.\n"
+    "Art. 2º O prazo é de 30 dias.\n"
+    "Art. 2º O prazo é de 60 dias. (Redação dada pela Lei n. 12, de 3/4/2020)\n"
+    "Art. 3º Esta Lei entra em vigor."
+)
+
+
+def _compiled_marks() -> list[Mark]:
+    a1, a2a, a2b, a3 = (
+        COMPILED.index(s)
+        for s in ("Art. 1", "Art. 2", "Art. 2º O prazo é de 60", "Art. 3")
+    )
+    note = COMPILED.index("(Redação")
+    return [
+        _mk("lei", 0, len(COMPILED)),
+        Mark("art", a1, a2a - 1, {"n": "1"}, (a1, a1 + 7)),
+        Mark("art", a2a, a2b - 1, {"n": "2", "estado": "superado"}, (a2a, a2a + 7)),
+        Mark("art", a2b, a3 - 1, {"n": "2"}, (a2b, a2b + 7)),
+        Mark("ref", note, a3 - 1, {"rel": "redacao"}),
+        Mark("art", a3, len(COMPILED), {"n": "3"}, (a3, a3 + 7)),
+    ]
+
+
+def test_a_superseded_version_is_a_device_with_estado_superado() -> None:
+    xml = M.build(COMPILED, _compiled_marks())
+    assert M.verify(xml, COMPILED) == []
+    assert M.strip(xml) == COMPILED  # the strip invariant is untouched
+    assert '<art n="2" estado="superado">' in xml
+    assert '<ref rel="redacao">(Redação dada pela Lei n. 12, de 3/4/2020)</ref>' in xml
+    rows = M.to_rows(xml)
+    assert [(r["path"], r["estado"]) for r in rows] == [
+        ("art-1", None),
+        ("art-2", "superado"),
+        ("art-2", None),
+        ("art-3", None),
+    ]
+    current = [r["path"] for r in rows if r["estado"] != "superado"]
+    assert current == ["art-1", "art-2", "art-3"]  # the "current text only" view
+
+
+def test_verify_rejects_an_unknown_estado_and_a_rel_outside_ref() -> None:
+    xml = M.build(COMPILED, _compiled_marks())
+    assert any(
+        "inválido" in p for p in M.verify(xml.replace("superado", "velho"), COMPILED)
+    )
+    bad = xml.replace('<ref rel="redacao">', '<ref rel="outro">')
+    assert any("rel=" in p for p in M.verify(bad, COMPILED))
+
+
+def test_official_notes_are_found_and_classified() -> None:
+    text = (
+        "A (Redação dada pela Lei n. 1, de 2/3/2004) B (Revogado pela Lei n. 5) "
+        "C (Acrescido pela Lei n. 6) D (Dispositivo vetado pelo Governador e mantido "
+        "o texto pela Assembleia) E (NR) F (conforme o art. 5º) G (Vide Lei n. 7)"
+    )
+    rels = [r for _, _, r in M.official_notes(text)]
+    assert rels == ["redacao", "revogacao", "acrescimo", "veto", "redacao", "vide"]
+
+
+def test_a_note_that_straddles_two_devices_is_left_out() -> None:
+    text = "Art. 1º Um (Redação dada\nArt. 2º pela Lei n. 3) fim."
+    a2 = text.index("Art. 2")
+    marks = [
+        _mk("lei", 0, len(text)),
+        Mark("art", 0, a2 - 1, {"n": "1"}, (0, 7)),
+        Mark("art", a2, len(text), {"n": "2"}, (a2, a2 + 7)),
+    ]
+    assert M._add_notes(marks, text) == marks
+
+
+@needs_xmllint
+def test_the_xsd_accepts_superado_and_rel(tmp_path: Path) -> None:
+    path = tmp_path / "compiled.xml"
+    path.write_bytes(M.build(COMPILED, _compiled_marks()).encode("utf-8"))
+    result = _xmllint(path)
+    assert result.returncode == 0, result.stderr

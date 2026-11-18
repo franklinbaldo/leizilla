@@ -38,6 +38,18 @@
     <xs:restriction base="xs:token">
       <xs:enumeration value="vetado"/>
       <xs:enumeration value="ausente"/>
+      <xs:enumeration value="superado"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Rel">
+    <xs:restriction base="xs:token">
+      <xs:enumeration value="redacao"/>
+      <xs:enumeration value="acrescimo"/>
+      <xs:enumeration value="revogacao"/>
+      <xs:enumeration value="veto"/>
+      <xs:enumeration value="vide"/>
+      <xs:enumeration value="outra"/>
     </xs:restriction>
   </xs:simpleType>
 
@@ -413,6 +425,7 @@
       <xs:element ref="nota"/>
     </xs:choice>
     <xs:attribute name="alvo" type="xs:token" use="optional"/>
+    <xs:attribute name="rel" type="Rel" use="optional"/>
   </xs:complexType>
 
   <xs:element name="documento" type="t-documento"/>
