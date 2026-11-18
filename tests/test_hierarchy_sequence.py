@@ -2366,7 +2366,9 @@ def test_quoted_block_closes_at_a_mark_followed_by_a_full_stop() -> None:
 
 
 # --- a closing mark misplaced to the end of the previous line ---------------------
-def test_quoted_block_closes_at_a_mark_a_few_words_before_the_resuming_article() -> None:
+def test_quoted_block_closes_at_a_mark_a_few_words_before_the_resuming_article() -> (
+    None
+):
     # Stray marks in OCR noise unbalance the count; the block's mark ended up on the
     # line before the last words of the block ('oficial"' / 'Ajudante de Ordens.').
     text = (
@@ -2376,9 +2378,9 @@ def test_quoted_block_closes_at_a_mark_a_few_words_before_the_resuming_article()
         "Art. 2º - Compete à Polícia Militar:\n"
         "I - executar o policiamento ostensivo;\n"
         "II - atuar de maneira preventiva.\n"
-        "“ “ ; \"” ruído\n"
+        '“ “ ; "” ruído\n'
         "§ 1º - O Comandante-Geral será oficial da ativa.\n"
-        "§ 2º - O Comandante-Geral disporá de um oficial\"\n"
+        '§ 2º - O Comandante-Geral disporá de um oficial"\n'
         "Ajudante de Ordens.\n"
         "Art. 2º - Revogam-se as disposições em contrário.\n"
         "Art. 3º - Este Decreto-Lei entrará em vigor na data de sua publicação."

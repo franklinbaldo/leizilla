@@ -816,15 +816,16 @@ def _resume_after_quote(
         before = text[: m.start()].rstrip()
         # The closing mark may be followed by the sentence's full stop (``."`` and
         # ``".`` both occur in the OCR text).
-        mark = len(before) - 1
-        if before.endswith(".") and mark > 0 and _QUOTE_CHAR.match(before[mark - 1]):
-            mark -= 1
-        if mark < 0 or not _QUOTE_CHAR.match(before[mark]):
+        at: int | None = len(before) - 1
+        if before.endswith(".") and len(before) > 1 and _QUOTE_CHAR.match(before[-2]):
+            at = len(before) - 2
+        if at is None or at < 0 or not _QUOTE_CHAR.match(before[at]):
             # OCR often leaves the closing mark at the end of the previous line, a
             # word or two before the last one ('oficial"' / 'Ajudante de Ordens.').
-            mark = _late_closing_mark(before)
-            if mark is None:
-                continue
+            at = _late_closing_mark(before)
+        if at is None:
+            continue
+        mark = at
         if not _is_closing(text, mark):
             continue
         if _article_reading(text, m.start()) != host_number + 1:
