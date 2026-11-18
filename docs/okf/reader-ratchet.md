@@ -264,6 +264,12 @@ generalização de `_fill_single_gaps`: treino +1, teste 0, 10 de 10 dispositivo
 `II -` repetido lido como III só se nenhum `III -` vem depois (perde 4 unidades do treino e 2
 do teste), `e os artigos` como citação à direita do `§` (0 unidades).
 
+Rodada 10: 2 regras promovidas. `1)` ou `|)` abrindo a linha é a alínea `l` quando um `k)`
+vem antes (700 caracteres): treino +2, teste 0, 2 de 2 (sem a guarda do `k)`, precisão 0,71).
+O artigo de fecho com ordinal impresso claro mantém o número quando a cadeia está curta
+(`Art. 6º Esta Lei entra em vigor` depois de `Art. 2º`): treino +1, teste 0; a norma
+`lei-01296` deixa de fechar, correto, porque os artigos 3 a 5 não estão no texto.
+
 **Erros sistemáticos da referência.** Nenhuma classe de erro do conversor apareceu em
 número que pedisse reconstruir a referência: as 18 errata (13 + 5) são pontuais
 (13 `add_device`: dispositivo que o modelo deixou de marcar; 5 `set_device`: status

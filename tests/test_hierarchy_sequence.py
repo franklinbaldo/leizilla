@@ -7,6 +7,7 @@ import pytest
 from leizilla.hierarchy_sequence import (
     HierarchyReport,
     alinea_readings,
+    article_closes,
     marker_spans,
     read_hierarchy,
     roman_readings,
@@ -2161,3 +2162,28 @@ def test_two_unreadable_markers_fill_two_missing_numbers_of_the_chain() -> None:
     )
     report = read_hierarchy(text)
     assert _numbers(report, "inciso") == ["1", "2", "3", "4", "5", "6"]
+
+
+def test_digit_one_after_alinea_k_is_the_letter_l() -> None:
+    text = (
+        "Art. 1º Ficam isentos:\n\n"
+        "a) os órgãos;\n\nb) as autarquias;\n\nc) as fundações;\n\nd) os fundos;\n\n"
+        "e) os conselhos;\n\nf) as escolas;\n\ng) os hospitais;\n\nh) os museus;\n\n"
+        "i) as bibliotecas;\n\nj) os arquivos;\n\nk) os teatros.\n\n"
+        "ASSEMBLÉIA LEGISLATIVA\n\n1) os projetos de assentamento;\n\nm) os demais casos.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "alinea")[-2:] == ["12", "13"]
+
+
+def test_closing_article_keeps_its_printed_number_when_articles_are_missing() -> None:
+    text = (
+        "Art. 1º Fica criada a gratificação.\n\n"
+        "Art. 2º O Poder Executivo enviará projeto de lei.\n\n"
+        "4\n\nGOVERNO DO ESTADO\n\n"
+        "Art. 6º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "artigo") == ["1", "2", "6"]
+    assert not article_closes(report)

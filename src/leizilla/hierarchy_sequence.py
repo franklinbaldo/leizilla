@@ -112,6 +112,8 @@ _INC_BARE = re.compile(
     r"(?=[a-zà-ý])"
 )
 _ALI = re.compile(r"(?<![\w(])(?P<let>[a-zA-Z06])\s?[)\]}]")
+_K_BEFORE = re.compile(r"(?m)^[ \t]*k[ \t]?\)")
+_ALI_ONE = re.compile(r"(?m)^[ \t]*(?P<tok>[1|])[ \t]?\)")
 _ALI_WILD = re.compile(r"(?m)^[ \t]*(?P<tok>[^\s(]{1,2})[ \t]?[)\]}]")
 _ITEM = re.compile(r"(?m)^[ \t]*(?P<num>\d{1,2})(?:\s?[.)]|\s?[-–—])(?=\s)(?!\s*\d)")
 
@@ -669,6 +671,13 @@ def _alinea_candidates(text: str) -> list[_Cand]:
             )
         )
     taken = {c.start for c in out}
+    for m in _ALI_ONE.finditer(text):
+        # "1) projetos", "|) aos proprietários": the letter "l" (or "i") of a list.
+        if m.start("tok") not in taken and _K_BEFORE.search(
+            text[max(0, m.start() - 700) : m.start()]
+        ):
+            out.append(_Cand(m.start("tok"), m.end(), (12,), strong=False))
+            taken.add(m.start("tok"))
     for m in _ALI_WILD.finditer(text):
         start = m.start("tok")
         if start in taken or not _in_enumeration(text, start):
@@ -1801,6 +1810,13 @@ def _tail_article(
         loose["status"] = "own"
         loose["number"] = last_number + 1
         loose["corrected"] = True
+        printed = ARTICLE_CANDIDATE.match(text, start)
+        if printed is not None and printed.group("ord") in ("º", "°"):
+            # "Art. 6º Esta Lei entra em vigor" after Art. 2: the printed number is
+            # clear, so the chain is short of articles 3 to 5 and stays open.
+            readings = article_readings(printed.group("num"), True)
+            if readings and readings[0] > last_number + 1:
+                loose["number"] = readings[0]
         return loose
     return {
         "start": start,
