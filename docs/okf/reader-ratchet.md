@@ -282,6 +282,11 @@ como separador de inciso (0 unidades), item seguido de título em maiúsculas (0
 3 dispositivos certos), `(` antes de `Art.` como citação (reprova o gate de artigo). Errata
 `set_device` em `decreto-10227`: o terceiro marcador (`II —` depois de `H —`) é III pela cadeia.
 
+Rodada 13: 2 regras promovidas, as duas de glifo de numeral romano: `Q` vale `II` (`XQ -`,
+`VQ -`; treino +1, teste 0, 2 de 2) e `ü`, `Ü`, `Í`, `Ì`, `Î` valem `II` ou `I` (`ü - manter`;
++1 / 0, 2 de 2). Rejeitadas: `E` como `I` (precisão 0,5), alínea `a)` isolada sem prosa em 120
+caracteres (0 unidades).
+
 **Erros sistemáticos da referência.** Nenhuma classe de erro do conversor apareceu em
 número que pedisse reconstruir a referência: as 18 errata (13 + 5) são pontuais
 (13 `add_device`: dispositivo que o modelo deixou de marcar; 5 `set_device`: status

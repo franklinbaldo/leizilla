@@ -2212,3 +2212,13 @@ def test_quoted_block_alineas_may_skip_up_to_two_letters() -> None:
     )
     report = read_hierarchy(text)
     assert _numbers(report, "alinea", "quoted") == ["1", "4", "5"]
+
+
+def test_inciso_glyph_q_is_a_stroke_pair() -> None:
+    assert 12 in roman_readings("XQ")
+    assert 7 in roman_readings("VQ")
+
+
+def test_inciso_glyph_u_umlaut_is_a_stroke_pair() -> None:
+    assert 2 in roman_readings("ü")
+    assert 2 in roman_readings("ÍÍ")

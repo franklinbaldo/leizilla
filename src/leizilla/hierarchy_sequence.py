@@ -91,7 +91,7 @@ _PAR_UNICO = re.compile(
 )
 # Roman numeral (or what OCR makes of one) followed by a separator.
 _INC = re.compile(
-    r"(?<![\w.])(?P<tok>[IVXLCHUTJNYKMl1|!ivxnt¡\]\[]{1,8})\s{0,2}['’]?"
+    r"(?<![\w.])(?P<tok>[IVXLCHUTJNYKMQÜüÍÌÎl1|!ivxnt¡\]\[]{1,8})\s{0,2}['’]?"
     r"(?P<sep>[-–—~=_]{1,2}|[.):])"
 )
 # Any short token before a dash at the start of a line ("Vm -", "NI —", "VÊ -"): no
@@ -135,6 +135,12 @@ _ROMAN_GLYPHS: dict[str, tuple[str, ...]] = {
     "[": ("I",),
     "J": ("I",),
     "T": ("I",),
+    "Q": ("II",),
+    "Ü": ("II",),
+    "ü": ("II",),
+    "Í": ("I",),
+    "Ì": ("I",),
+    "Î": ("I",),
     "H": ("II", "I"),
     "U": ("II",),
     "n": ("II",),

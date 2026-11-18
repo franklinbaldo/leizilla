@@ -3416,6 +3416,7 @@
    "leizilla-raw-ro-casacivil-lc-00186",
    "leizilla-raw-ro-casacivil-lc-00187",
    "leizilla-raw-ro-casacivil-lc-00189",
+   "leizilla-raw-ro-casacivil-lc-00191",
    "leizilla-raw-ro-casacivil-lc-00192",
    "leizilla-raw-ro-casacivil-lc-00198",
    "leizilla-raw-ro-casacivil-lc-00200",
@@ -3739,6 +3740,7 @@
    "leizilla-raw-ro-casacivil-lei-00711",
    "leizilla-raw-ro-casacivil-lei-00717",
    "leizilla-raw-ro-casacivil-lei-00720",
+   "leizilla-raw-ro-casacivil-lei-00721",
    "leizilla-raw-ro-casacivil-lei-00760",
    "leizilla-raw-ro-casacivil-lei-00767",
    "leizilla-raw-ro-casacivil-lei-00768",
@@ -7282,10 +7284,70 @@
      "units_agree": 1571
     }
    }
+  },
+  {
+   "date": "2026-11-18",
+   "entered": [
+    "inc leizilla-raw-ro-casacivil-lc-00191",
+    "inc leizilla-raw-ro-casacivil-lei-00721"
+   ],
+   "entered_count": 2,
+   "forced": false,
+   "left": [],
+   "left_count": 0,
+   "reader_commit": "638fdab8edc48fa9a714a0cde14f3513202fd861",
+   "reason": null,
+   "table": {
+    "ali": {
+     "agree": 2178,
+     "kind_differs": 1,
+     "number_differs": 9,
+     "reader_extra": 43,
+     "reader_misses": 144,
+     "status_differs": 41,
+     "units": 312,
+     "units_agree": 243
+    },
+    "art": {
+     "agree": 16362,
+     "number_differs": 28,
+     "reader_extra": 39,
+     "reader_misses": 158,
+     "status_differs": 50,
+     "units": 3113,
+     "units_agree": 3002
+    },
+    "inc": {
+     "agree": 10775,
+     "number_differs": 33,
+     "reader_extra": 160,
+     "reader_misses": 368,
+     "status_differs": 68,
+     "units": 967,
+     "units_agree": 786
+    },
+    "item": {
+     "agree": 289,
+     "kind_differs": 7,
+     "reader_extra": 26,
+     "reader_misses": 110,
+     "units": 58,
+     "units_agree": 13
+    },
+    "par": {
+     "agree": 5688,
+     "number_differs": 5,
+     "reader_extra": 30,
+     "reader_misses": 94,
+     "status_differs": 54,
+     "units": 1676,
+     "units_agree": 1571
+    }
+   }
   }
  ],
- "reader_commit": "e55f518ca1b968b230cb7e0a3269e2554abdd6dc",
- "reader_last_change": "e55f518ca1b968b230cb7e0a3269e2554abdd6dc",
+ "reader_commit": "638fdab8edc48fa9a714a0cde14f3513202fd861",
+ "reader_last_change": "638fdab8edc48fa9a714a0cde14f3513202fd861",
  "reference": {
   "batch_ids": [
    "msgbatch_013t25UFTPJ8mH2YkVQAVPy1"
@@ -7377,13 +7439,13 @@
    "units_agree": 3002
   },
   "inc": {
-   "agree": 10771,
+   "agree": 10775,
    "number_differs": 33,
    "reader_extra": 160,
-   "reader_misses": 372,
+   "reader_misses": 368,
    "status_differs": 68,
    "units": 967,
-   "units_agree": 784
+   "units_agree": 786
   },
   "item": {
    "agree": 289,
