@@ -1407,14 +1407,21 @@ def _fill_single_gaps(
         if lo is None or hi is None:
             continue
         absent = [k for k in range(lo + 1, hi) if k not in free_skips]
-        if len(absent) != 1:
+        if not 1 <= len(absent) <= 3:
             continue
         between = [i for i in range(a + 1, b) if not cands[i].ref]
-        if len(between) == 1 and not cands[between[0]].unico:
-            if cands[between[0]].digit:
-                continue  # "1 -" between II and IV is a list item, not III
-            chosen[between[0]] = absent[0]
-            filled.add(between[0])
+        if len(between) == len(absent) and not any(
+            cands[i].unico
+            or cands[i].digit  # "1 -" between II and IV is a list item, not III
+            # several leftovers fill several missing numbers only when each is a
+            # line-opening marker the chain could not read or one that sits where a
+            # marker sits
+            or (len(absent) > 1 and cands[i].readings and not cands[i].strong)
+            for i in between
+        ):
+            for i, k in zip(between, absent):
+                chosen[i] = k
+                filled.add(i)
     if members and text is not None:
         # The chain's tail: one lone, strong leftover after the last member ("NI —"
         # after I and II, in a list that plainly goes on) is the next number.

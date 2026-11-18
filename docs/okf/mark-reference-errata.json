@@ -499,6 +499,19 @@
    "reason": "The corrected wording ('LEIA-SE:' on line 63) is quoted between marks on line 65 and starts with 'Art. 1º'; the mark document has no article here.",
    "text_sha256": "45f0568236a87b579c3d38902170724fb0991f6f394ab37753ffaf7ea066b74c",
    "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "§ 2º - No caso de ser extinta a Fundação",
+   "kind": "par",
+   "line": 91,
+   "n": "2",
+   "norm": "leizilla-raw-ro-casacivil-lei-00168",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "'§ 2º -' opens a line right after § 1º of the same article (line 75), a page break in between, and states the destination of the Fundação's goods; it is the norm's own paragraph and the mark document has none here.",
+   "text_sha256": "3d415b1358d6a6fd49d319138c59f3491b00711cfa70d2e3cdd45d916e41fbfe",
+   "verified_by": "leitura do texto"
   }
  ],
  "schema_version": 1

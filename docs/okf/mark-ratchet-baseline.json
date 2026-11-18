@@ -3403,6 +3403,7 @@
    "leizilla-raw-ro-casacivil-lc-00183",
    "leizilla-raw-ro-casacivil-lc-00184",
    "leizilla-raw-ro-casacivil-lc-00186",
+   "leizilla-raw-ro-casacivil-lc-00187",
    "leizilla-raw-ro-casacivil-lc-00189",
    "leizilla-raw-ro-casacivil-lc-00192",
    "leizilla-raw-ro-casacivil-lc-00198",
@@ -4636,6 +4637,7 @@
    "leizilla-raw-ro-casacivil-lei-00151",
    "leizilla-raw-ro-casacivil-lei-00160",
    "leizilla-raw-ro-casacivil-lei-00165",
+   "leizilla-raw-ro-casacivil-lei-00168",
    "leizilla-raw-ro-casacivil-lei-00174",
    "leizilla-raw-ro-casacivil-lei-00176",
    "leizilla-raw-ro-casacivil-lei-00178",
@@ -5612,8 +5614,8 @@
   ]
  },
  "date": "2026-11-18",
- "errata_applied": 38,
- "errata_sha256": "fe6abf3e52191daaa52e4491d40647b4ea284e0ed000bdb441fae1a2f642f361",
+ "errata_applied": 39,
+ "errata_sha256": "241665fc6672e199af0cbf5122fda6522e3fd0d9905fe0684a5aa7a25d6a42c0",
  "flagged": [
   "leizilla-raw-ro-casacivil-decreto-10050",
   "leizilla-raw-ro-casacivil-decreto-29000",
@@ -7024,10 +7026,70 @@
      "units_agree": 1570
     }
    }
+  },
+  {
+   "date": "2026-11-18",
+   "entered": [
+    "par leizilla-raw-ro-casacivil-lei-00168",
+    "inc leizilla-raw-ro-casacivil-lc-00187"
+   ],
+   "entered_count": 2,
+   "forced": false,
+   "left": [],
+   "left_count": 0,
+   "reader_commit": "c77e3e22f876588553beb7f7bb796ca474cebc0a",
+   "reason": null,
+   "table": {
+    "ali": {
+     "agree": 2165,
+     "kind_differs": 1,
+     "number_differs": 8,
+     "reader_extra": 43,
+     "reader_misses": 158,
+     "status_differs": 41,
+     "units": 312,
+     "units_agree": 235
+    },
+    "art": {
+     "agree": 16360,
+     "number_differs": 30,
+     "reader_extra": 39,
+     "reader_misses": 158,
+     "status_differs": 50,
+     "units": 3113,
+     "units_agree": 3000
+    },
+    "inc": {
+     "agree": 10770,
+     "number_differs": 34,
+     "reader_extra": 160,
+     "reader_misses": 372,
+     "status_differs": 68,
+     "units": 967,
+     "units_agree": 783
+    },
+    "item": {
+     "agree": 289,
+     "kind_differs": 7,
+     "reader_extra": 26,
+     "reader_misses": 110,
+     "units": 58,
+     "units_agree": 13
+    },
+    "par": {
+     "agree": 5688,
+     "number_differs": 5,
+     "reader_extra": 30,
+     "reader_misses": 94,
+     "status_differs": 54,
+     "units": 1676,
+     "units_agree": 1571
+    }
+   }
   }
  ],
- "reader_commit": "c46c6306bc10cbedd4e56d7ad19a52fc60da76fe",
- "reader_last_change": "c46c6306bc10cbedd4e56d7ad19a52fc60da76fe",
+ "reader_commit": "c77e3e22f876588553beb7f7bb796ca474cebc0a",
+ "reader_last_change": "c77e3e22f876588553beb7f7bb796ca474cebc0a",
  "reference": {
   "batch_ids": [
    "msgbatch_013t25UFTPJ8mH2YkVQAVPy1"
@@ -7119,13 +7181,13 @@
    "units_agree": 3000
   },
   "inc": {
-   "agree": 10760,
+   "agree": 10770,
    "number_differs": 34,
    "reader_extra": 160,
-   "reader_misses": 382,
+   "reader_misses": 372,
    "status_differs": 68,
    "units": 967,
-   "units_agree": 782
+   "units_agree": 783
   },
   "item": {
    "agree": 289,
@@ -7136,13 +7198,13 @@
    "units_agree": 13
   },
   "par": {
-   "agree": 5687,
+   "agree": 5688,
    "number_differs": 5,
-   "reader_extra": 31,
+   "reader_extra": 30,
    "reader_misses": 94,
    "status_differs": 54,
    "units": 1676,
-   "units_agree": 1570
+   "units_agree": 1571
   }
  }
 }

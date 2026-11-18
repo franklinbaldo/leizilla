@@ -258,6 +258,12 @@ Rodada 8: 1 regra promovida e 4 errata. Um artigo com sufixo (`Art.49-A`) não �
 isolado em bloco citado (precisão 0,5), salto de parágrafo também para o glifo `$` (0,33),
 item seguido de dígito com sinal ordinal (`1) 1º Ten`, 0 unidades, 5 de 5 certos).
 
+Rodada 9: 1 regra promovida e 1 errata. Dois ou três marcadores ilegíveis seguidos entre
+dois vizinhos da cadeia preenchem os números que faltam (`XQ -`, `ym -` entre XI e XIV), a
+generalização de `_fill_single_gaps`: treino +1, teste 0, 10 de 10 dispositivos. Rejeitadas:
+`II -` repetido lido como III só se nenhum `III -` vem depois (perde 4 unidades do treino e 2
+do teste), `e os artigos` como citação à direita do `§` (0 unidades).
+
 **Erros sistemáticos da referência.** Nenhuma classe de erro do conversor apareceu em
 número que pedisse reconstruir a referência: as 18 errata (13 + 5) são pontuais
 (13 `add_device`: dispositivo que o modelo deixou de marcar; 5 `set_device`: status

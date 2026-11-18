@@ -2146,3 +2146,18 @@ def test_paragrafo_unico_with_a_doubled_vowel() -> None:
     )
     report = read_hierarchy(text)
     assert _paths(report) == ["art-1", "art-1-par-unico"]
+
+
+def test_two_unreadable_markers_fill_two_missing_numbers_of_the_chain() -> None:
+    text = (
+        "Art. 1º Compete ao Conselho:\n\n"
+        "I - emitir parecer sobre a proposta;\n\n"
+        "II - estabelecer intercâmbio com os Conselhos;\n\n"
+        "XQ - emitir parecer sobre assuntos técnicos;\n\n"
+        "ym - apreciar os regimentos e currículos;\n\n"
+        "V - zelar pelo cumprimento da lei;\n\n"
+        "VI - fiscalizar a execução.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "inciso") == ["1", "2", "3", "4", "5", "6"]
