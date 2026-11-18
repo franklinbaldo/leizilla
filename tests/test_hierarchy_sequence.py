@@ -567,7 +567,7 @@ def test_lost_alinea_letters_are_read_inside_the_list() -> None:
 
 def test_read_by_tells_literal_confusion_and_gap_apart() -> None:
     text = (
-        "Art. 1º Compete:\nI - um;\nH - dois;\nNI — três;\nIV - quatro.\n"
+        "Art. 1º Compete:\nI - um;\nH - dois;\nWI — três;\nIV - quatro.\n"
         "Art. 2º Vigora."
     )
     report = read_hierarchy(text)
@@ -1931,3 +1931,68 @@ def test_inline_quotation_mark_before_lower_case_prose_does_not_close_a_block() 
     report = read_hierarchy(text)
     assert _numbers(report, "inciso", "quoted") == ["1", "2"]
     assert _numbers(report, "inciso") == []
+
+
+# --- full-scale tournament, rounds 2 and 3 ---------------------------------------------
+def test_inciso_glyph_n_is_a_stroke_pair_or_a_single_stroke() -> None:
+    text = (
+        "Art. 1º Os recursos serão destinados:\n"
+        "I - programa de prevenção;\n"
+        "N - programa de formação;\n"
+        "NI - organizações de apoio;\n"
+        "IV - outras ações.\n"
+    )
+    assert _numbers(read_hierarchy(text), "inciso") == ["1", "2", "3", "4"]
+    text_in = (
+        "Art. 1º Compõem:\n"
+        "I - Tribunal Pleno;\n"
+        "IN - Câmara Cível;\n"
+        "HI - Câmara Criminal;\n"
+        "IV - Câmara Especial.\n"
+    )
+    assert _numbers(read_hierarchy(text_in), "inciso") == ["1", "2", "3", "4"]
+
+
+def test_inciso_inverted_exclamation_is_a_stroke() -> None:
+    text = (
+        "Art. 1º Compõem:\nI - um;\nII - dois;\nIII - tres;\n¡V - quatro;\nV - cinco.\n"
+    )
+    assert _numbers(read_hierarchy(text), "inciso") == ["1", "2", "3", "4", "5"]
+
+
+def test_paragraph_number_ending_in_5_or_6_may_be_the_ordinal_sign() -> None:
+    text = (
+        "Art. 1º Texto principal da norma.\n"
+        "§ 15 - Primeiro paragrafo da norma aqui.\n"
+        "§ 26 - Segundo paragrafo da norma aqui.\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    assert _numbers(read_hierarchy(text), "paragrafo") == ["1", "2"]
+
+
+def test_lower_case_art_opening_a_line_with_dash_and_capital_is_a_marker() -> None:
+    text = (
+        "art. 1º - Fica criado o Fundo de Previdência.\n"
+        "art. 2º - Esta Lei entra em vigor.\n"
+    )
+    assert _numbers(read_hierarchy(text), "artigo") == ["1", "2"]
+    # in running prose the lower-case form stays a citation
+    prose = "Art. 1º Aplica-se o disposto no art. 5º - Para os fins.\n"
+    assert _numbers(read_hierarchy(prose), "artigo") == ["1"]
+
+
+def test_quoted_article_inserted_with_a_letter_suffix_reads_the_letter() -> None:
+    text = (
+        "Art. 1º A Lei nº 5 passa a vigorar acrescida dos artigos:\n\n"
+        "“Art. 114-A À Superintendência compete:\n\n"
+        "I - planejar;\n\n"
+        "Art. 9° -B Ao Subdefensor cabe:\n\n"
+        "Art. 6º A. As atribuições de cada cargo.”\n\n"
+        "Art. 2º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "artigo", "quoted") == ["114A", "9B", "6A"]
+    assert _numbers(report, "artigo") == ["1", "2"]
+    # without a quoted block the same marker stays a plain separator + word
+    own = "Art. 1º Texto.\nArt. 2º A Comissão decide.\nArt. 3º Fim.\n"
+    assert _numbers(read_hierarchy(own), "artigo") == ["1", "2", "3"]

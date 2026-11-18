@@ -43,6 +43,7 @@ ARTICLE_CANDIDATE = re.compile(
     r"(?:"
     r"\b(?:ART(?:IGO)?(?![IlO])|ARt|Art(?:igo)?|AH|Arl|Aft)"
     r"|\bArt[eos](?=\.?\s*[0-9IlO])"
+    r"|(?<![^\n])[ \t]*art(?=\.[ \t]?[0-9IlO]{1,4}[ºo°ª]?[ \t]?[-–—][ \t]+[A-ZÀ-Ý])"
     r"|(?<![^\n])[ \t]*(?:Ait|Alt)(?=\.?\s*[0-9Il])"
     r"|\bA\s?r/t(?=\.?\s*[0-9Il])"
     r"|(?<![^\n])[ \t|/_]{0,3}(?:rt|Ant)(?=\.\s*[0-9IlO])"

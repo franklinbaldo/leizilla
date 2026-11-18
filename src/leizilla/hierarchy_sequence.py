@@ -89,7 +89,7 @@ _PAR_UNICO = re.compile(
 )
 # Roman numeral (or what OCR makes of one) followed by a separator.
 _INC = re.compile(
-    r"(?<![\w.])(?P<tok>[IVXLCHUTJNYKMl1|!ivxnt\]\[]{1,8})\s{0,2}['’]?"
+    r"(?<![\w.])(?P<tok>[IVXLCHUTJNYKMl1|!ivxnt¡\]\[]{1,8})\s{0,2}['’]?"
     r"(?P<sep>[-–—~=_]{1,2}|[.):])"
 )
 # Any short token before a dash at the start of a line ("Vm -", "NI —", "VÊ -"): no
@@ -128,6 +128,8 @@ _ROMAN_GLYPHS: dict[str, tuple[str, ...]] = {
     "H": ("II", "I"),
     "U": ("II",),
     "n": ("II",),
+    "N": ("II", "I"),
+    "¡": ("I",),
     "V": ("V",),
     "v": ("V",),
     "X": ("X",),
@@ -456,6 +458,10 @@ def _paragraph_candidates(text: str) -> list[_Cand]:
         readings = tuple(article_readings(m.group("num"), has_ord))
         if not readings:
             continue
+        num = m.group("num")
+        if not has_ord and len(num) == 2 and num[1] in "56" and num[0] in "123456789":
+            # "§ 15", "§ 16" for "§ 1º": the ordinal sign comes out as 5 or 6 as well
+            readings = (*readings, int(num[0]))
         # "§ 12." is the printed form from the tenth paragraph on (no ordinal sign):
         # the period is the marker's, not an ordinal read as a digit.
         if (
@@ -1229,6 +1235,10 @@ class _Builder:
             art_end = arts[pos + 1].start() if pos + 1 < len(arts) else end
             number = numbers[pos]
             marker_end, suffix = _article_marker_end(self.text, m.start(), m.end())
+            if suffix is None:
+                loose = _quoted_suffix(self.text, marker_end)
+                if loose is not None:
+                    marker_end, suffix = loose
             node = self.add_node(
                 "artigo",
                 m.start(),
@@ -1368,6 +1378,22 @@ def _article_marker_end(text: str, start: int, fallback: int) -> tuple[int, str 
     if suffix is not None:
         return m.end(), suffix
     return (m.end("ord") if m.group("ord") is not None else m.end("num")), None
+
+
+# The letter suffix of a quoted article ("“Art. 114-A À Superintendência", "Art. 9° -A Ao",
+# "Art. 98-B ..", "Art. 6º A. As"): inside a block that amends another norm a letter
+# glued by a dash, or set off by a period, after the number is an inserted article.
+_QUOTED_SUFFIX = re.compile(
+    r"(?:[ \t]?-(?P<dashed>[A-Z])(?=[ \t]+[A-ZÀ-Ý.]|[ \t]*\n)"
+    r"|[ \t](?P<spaced>[A-Z])(?=\.(?:[ \t]|\n)))"
+)
+
+
+def _quoted_suffix(text: str, marker_end: int) -> tuple[int, str] | None:
+    m = _QUOTED_SUFFIX.match(text, marker_end)
+    if m is None:
+        return None
+    return m.end(), m.group("dashed") or m.group("spaced")
 
 
 def _fill_article_gaps(
