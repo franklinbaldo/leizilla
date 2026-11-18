@@ -19,7 +19,7 @@ on:
       - "scripts/reader_ratchet.py"
       - "docs/okf/reader-ratchet-baseline.json"
       - "docs/okf/teacher-label-errata.json"
-      # gate por nível (job `levels`): referência commitada, sem rede
+      # gate por nível (job `levels`): referência commitada; textos da revisão fixada
       - "src/leizilla/marcacao.py"
       - "scripts/compare_mark_reader.py"
       - "scripts/reader_ratchet_levels.py"
@@ -88,10 +88,16 @@ jobs:
 
   levels:
     # Gate por nível (art par inc ali item) contra os documentos marcados do modo mark
-    # (docs/okf/reader-ratchet.md, "Gate por nível"). A referência está no repositório
-    # (docs/okf/mark-reference/), então não há download nem rede: ~2 s.
+    # (docs/okf/reader-ratchet.md, "Gate por nível"). A referência (linhas dos
+    # dispositivos + sha256 de cada texto) está no repositório; os textos não: vêm da
+    # revisão FIXADA do textos.parquet, baixada uma vez e guardada em cache pela
+    # revisão. Cada sha256 é verificado; norma sem texto não falha o gate, mais de 2%
+    # sem texto falha. ~10 s depois do download.
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      # Deve bater com `source.textos_revision` de docs/okf/mark-reference/reference.json.
+      TEXTOS_REVISION: leizilla-textos-ro-v0-20261118t003626z
     steps:
       - uses: actions/checkout@v4
 
@@ -101,5 +107,24 @@ jobs:
 
       - run: uv sync --frozen --extra dev
 
+      - name: Cache do textos.parquet fixado
+        id: textos-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/textos-pinned
+          key: reader-ratchet-textos-${{ env.TEXTOS_REVISION }}
+
+      - name: Baixar a revisão fixada do textos.parquet
+        if: steps.textos-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/textos-pinned"
+          curl -sSL --fail --retry 3 --max-time 600 \
+            -o "$RUNNER_TEMP/textos-pinned/textos.parquet" \
+            "https://archive.org/download/${TEXTOS_REVISION}/textos.parquet"
+
       - name: Check por nível — placar e comparação com a linha de base
-        run: uv run python scripts/reader_ratchet_levels.py check
+        run: |
+          set -euo pipefail
+          uv run python scripts/reader_ratchet_levels.py check --splits \
+            --textos "$RUNNER_TEMP/textos-pinned/textos.parquet"

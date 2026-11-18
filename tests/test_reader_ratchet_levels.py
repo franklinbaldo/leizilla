@@ -174,11 +174,99 @@ def test_committed_baseline_passes_with_the_live_reader() -> None:
     baseline = rl.load_baseline(rl.DEFAULT_BASELINE)
     assert baseline is not None
     board = rl.run_board(ref, errata)
+    board.textos_given = False  # offline subset: only the 300 committed texts
     verdict = rl.evaluate(baseline, board)
     assert not verdict.failed, verdict.lost[:5]
     assert baseline["reference_sha256"] == ref.sha256
+    assert len(ref.texts) == 300 < len(ref.norms)
+    assert len(board.not_compared) == len(ref.norms) - len(ref.texts)
 
 
 def test_cli_check_exit_codes(capsys: pytest.CaptureFixture[str]) -> None:
     assert rl.main(["check"]) == 0
     assert rl.main(["check", "--baseline", "/nonexistent/baseline.json"]) == 2
+
+
+def _write_parquet(
+    path: Path, texts: list[str], sha_col: list[str] | None = None
+) -> None:
+    import duckdb
+
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t (texto VARCHAR, sha256_texto VARCHAR)")
+    for i, text in enumerate(texts):
+        sha = (sha_col or [hashlib.sha256(t.encode()).hexdigest() for t in texts])[i]
+        con.execute("INSERT INTO t VALUES (?, ?)", [text, sha])
+    con.execute(f"COPY t TO '{path}' (FORMAT PARQUET)")
+    con.close()
+
+
+def test_textos_parquet_is_matched_by_recomputed_sha(tmp_path: Path) -> None:
+    other = "Art. 2º Outro.\n"
+    # the sha256 column of the second row lies: the text is matched by its own hash
+    parquet = tmp_path / "textos.parquet"
+    _write_parquet(parquet, [TEXT, other], [SHA, SHA])
+    found = rl.read_textos_parquet(parquet, {SHA, "f" * 64})
+    assert found == {SHA: TEXT}
+
+
+def test_reference_without_committed_text_uses_textos(tmp_path: Path) -> None:
+    ref = _ref()
+    bare = rl.Reference(ref.meta, ref.norms, {}, ref.sha256)
+    assert "n1" in rl.run_board(bare, reader=_reader(PERFECT)).not_compared
+    parquet = tmp_path / "textos.parquet"
+    _write_parquet(parquet, [TEXT])
+    full = rl.with_textos(bare, parquet)
+    assert full.texts == {SHA: TEXT}
+    assert rl.run_board(full, reader=_reader(PERFECT)).agree("art") == ["n1"]
+
+
+def test_not_comparable_threshold() -> None:
+    norms = {}
+    for i in range(100):
+        rec = dict(_ref().norms["n1"])
+        rec["text_sha256"] = SHA if i < 97 else f"missing{i}"
+        norms[f"n{i}"] = rec
+    ref = rl.Reference({}, norms, {SHA: TEXT}, "s")
+    board = rl.run_board(ref, reader=_reader(PERFECT))
+    assert len(board.not_compared) == 3
+    # 3 of 100 > 2%: fails; the units of the missing norms are not "lost" though
+    verdict = rl.evaluate({"agree": {lv: [] for lv in rl.LEVELS}}, board)
+    assert verdict.too_many_not_comparable and verdict.failed and not verdict.lost
+    assert not rl.evaluate({}, board, max_not_comparable=0.05).failed
+    board.textos_given = False
+    assert not rl.evaluate({}, board).failed  # offline subset: not enforced
+    # a baseline agree unit of a norm that cannot be compared is not a loss
+    base = {"agree": {"art": ["n99"]}}
+    assert rl.evaluate(base, board).lost == []
+
+
+def test_split_is_stable_and_about_a_fifth() -> None:
+    ids = [f"leizilla-raw-ro-casacivil-lei-{i:05d}" for i in range(2000)]
+    first = [rl.split_of(i) for i in ids]
+    assert first == [rl.split_of(i) for i in ids]
+    share = first.count("test") / len(ids)
+    assert 0.17 < share < 0.23
+
+
+def test_table_by_split() -> None:
+    board = rl.run_board(_ref(), reader=_reader(PERFECT[:3]))
+    everything = rl.table(board)
+    assert everything["inc"]["units"] == 1
+    none = rl.table(board, lambda n: False)
+    assert none["inc"]["units"] == 0 and none["inc"].get("agree", 0) == 0
+    only = rl.table(board, lambda n: True)
+    assert only == everything
+
+
+def test_cli_textos_and_update_guards(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # update without --textos is a usage error: it would shrink the baseline
+    assert rl.main(["update", "--baseline", str(tmp_path / "b.json")]) == 2
+    # a --textos that holds none of the reference texts: too many not comparable
+    parquet = tmp_path / "textos.parquet"
+    _write_parquet(parquet, [TEXT])
+    assert rl.main(["check", "--textos", str(parquet)]) == 1
+    assert "FAIL not comparable" in capsys.readouterr().out
+    assert rl.main(["check", "--textos", str(tmp_path / "nope.parquet")]) == 2

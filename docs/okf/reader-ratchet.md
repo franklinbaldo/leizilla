@@ -133,24 +133,49 @@ não são reescritos.
 
 O gate acima só cobre o nível `art`, contra o professor do modo `label`. Abaixo do artigo
 o leitor tem defeitos conhecidos e a referência é o **documento marcado do modo `mark`**
-([teacher-mark.md](teacher-mark.md)) das 300 normas de
-`review-samples/mark-reference-2026-11.txt`. A referência pode ter erros: a catraca só
+([teacher-mark.md](teacher-mark.md)) de 3161 normas: as 300 de
+`review-samples/mark-reference-2026-11.txt` mais as duas partes (A: coleta
+`44228356004`, B: coleta `44227337585`) da camada de texto inteira. A referência pode ter erros: a catraca só
 trava o que **já concorda**; o que discorda fica de fora até ser resolvido, e uma regra
 que discorda da referência e está certa vira uma errata, não uma rejeição.
 
-`scripts/reader_ratchet_levels.py` (job `levels` de `reader-ratchet.yml`, ~2 s, sem rede):
+`scripts/reader_ratchet_levels.py` (job `levels` de `reader-ratchet.yml`, ~10 s depois de
+ter o `textos.parquet`):
 
 ```bash
+# textos.parquet = a revisão FIXADA em reference.json (source.textos_revision)
+curl -sSL -o textos.parquet \
+  https://archive.org/download/leizilla-textos-ro-v0-20261118t003626z/textos.parquet
+uv run scripts/reader_ratchet_levels.py check --textos textos.parquet [--splits]
+uv run scripts/reader_ratchet_levels.py update --textos textos.parquet [--force --reason "texto"]
+# raro: acrescenta normas de uma ou mais coletas mark à referência
+uv run scripts/reader_ratchet_levels.py build-reference --run COLLECT_DIR [--run ...] \
+    --textos textos.parquet --textos-revision ITEM_ID
+# sem --textos: só as 300 normas com texto no repositório (caminho rápido, testes)
 uv run scripts/reader_ratchet_levels.py check
-uv run scripts/reader_ratchet_levels.py update [--force --reason "texto"]
-uv run scripts/reader_ratchet_levels.py build-reference --run COLLECT_DIR   # raro
 ```
 
-- **Referência** (`docs/okf/mark-reference/`, ~470 KB): `reference.json` (por norma, as
-  linhas `[tipo, número, sufixo, citado, offset]` do documento marcado, a variante usada
+- **Textos fora do repositório.** `reference.json` guarda só as linhas dos dispositivos e o
+  `text_sha256` de cada norma. O texto vem do `textos.parquet` da revisão fixada no
+  cabeçalho (`source.textos_revision`; o ponteiro `-latest` anda, a revisão não): o
+  `check` recalcula o sha256 de cada `texto` e casa por ele. Norma sem texto ou com sha256
+  diferente é **não comparável**: aparece na contagem e **não** falha o gate (as unidades
+  dela não contam como perdidas); mais de 2% da referência não comparável
+  (`--max-not-comparable`) falha. Sem `--textos`, só as 300 normas de `texts.json.gz` são
+  checadas e a contagem não é imposta. `update` exige `--textos` e recusa se houver norma
+  não comparável (senão ela sairia da linha de base), salvo `--force --reason`.
+- **Cache no CI.** O job baixa a revisão fixada uma vez e a guarda com `actions/cache`
+  pela chave `reader-ratchet-textos-<revisão>`.
+- **Divisão de teste.** `--splits` imprime também as tabelas dos 80% `train` e dos 20%
+  `test` (`split_of`: sha256 de `semente:texto_id`, semente `SPLIT_SEED`). O gate e a linha
+  de base cobrem 100%; o torneio de regras só projeta e julga regras no `train` e usa o
+  `test` para medir fora da amostra.
+
+- **Referência** (`docs/okf/mark-reference/`, `reference.json` 1,7 MB + `texts.json.gz`
+  317 KB): `reference.json` (por norma, as linhas `[tipo, número, sufixo, citado, offset]` do documento marcado, a variante usada
   --- a reparada quando o conversor fez uma ---, as suspeitas que sobram e o sha256 do
-  texto) e `texts.json.gz` (`sha256 -> texto`, os textos do próprio manifesto da coleta
-  `44200532103`; legislação pública). Os documentos XML completos estão só no artifact
+  texto) e `texts.json.gz` (`sha256 -> texto` das 300 normas originais, do manifesto da coleta
+  `44200532103`; legislação pública; caminho rápido offline dos testes). Os documentos XML completos estão só no artifact
   `teacher-batch-labels` dessa coleta (expira em 90 dias); as linhas bastam para o gate.
 - **Unidade** = (norma, nível). `agree` quando os dispositivos do leitor no nível (próprios e
   citados) pareiam um a um com os da referência, com mesmo número, sufixo e estado
@@ -179,13 +204,36 @@ normas), passa o gate por nível, ganha pelo menos uma unidade (norma, nível) p
 não perde nenhuma e, nos dispositivos que passa a ler, acerta pelo menos 90% contra a
 referência (um dispositivo que só troca de número conta contra o que lia antes). Uma regra
 que falha é tentada uma vez com guarda mais estreita. Uma rodada é um lote de candidatas; o
-torneio para quando duas rodadas seguidas não promovem nada. A medida fora da amostra é a
-concordância do leitor com o professor do modo `label` nas normas rotuladas que **não**
-estão nas 300 (`compare_mark_reader.teacher_set` por nível, próprio e citado): ela vem
-antes e depois de cada regra. Quando uma regra acerta e a referência erra, a saída é uma
-errata da referência, não a rejeição da regra. Rodada de 2026-11-18: 12 regras promovidas
-(7 na primeira rodada, 5 depois; as candidatas e o motivo de cada rejeição ficam no relatório
-da sessão) e 13 errata da referência; parou depois de duas rodadas sem promoção (candidatas que sobram dependem do texto da norma).
+torneio para quando duas rodadas seguidas não promovem nada. Quando uma regra acerta e a
+referência erra, a saída é uma errata da referência, não a rejeição da regra.
+
+**Divisão de teste.** Com a referência em escala total (3161 normas), 20% das normas
+(`split_of`, semente `SPLIT_SEED`: 636 normas) são o conjunto de **teste**: as candidatas
+são projetadas e julgadas só nos outros 80% (`train`; as listas de defeitos, os exemplos e
+a leitura "a olho" do dispositivo novo vêm só dele). O gate e a linha de base cobrem 100%,
+então uma candidata que perde uma unidade do teste é rejeitada sem ler o motivo. O teste
+mede o resultado: `check --splits` imprime as três tabelas.
+
+Rodadas de 2026-11-18 em escala total (rodada anterior, nas 300 normas: 12 regras e 13
+errata): **16 regras promovidas em 5 rodadas** (8, 3, 2, 1 e 2) e 5 errata novas.
+Resultado em unidades (norma, nível) que concordam, antes -> depois: art 2961 -> 2995 de
+3113, par 1509 -> 1534 de 1676, inc 721 -> 747 de 970, ali 228 -> 232 de 312, item 13 -> 13
+de 58; no teste: art 598 -> 602, par 296 -> 298, inc 151 -> 153, ali 48 -> 49, item 4 -> 4.
+Rejeitadas (e porquê): sufixo colado à ordinal para toda letra (perde unidades onde o
+artigo "Art. 1°-C" já é próprio), "m" sozinho como III (perde uma unidade do teste),
+reinício de inciso em bloco citado (precisão 3/9), troca do artigo duplicado que fecha a
+norma (0 unidades), `ao/aos` como citação de parágrafo (0), `T = ...` como fórmula (0),
+5/6 como sinal ordinal em artigo (perde unidades), troca por aspas de fechamento (falha o
+gate de artigo). O que não cede a regras (ver o relatório): tabelas e anexos lidos como
+incisos, blocos citados sem aspas nem `(NR)`, `Art. T` de primeiro artigo citado (1 ou 7:
+50% dos casos), "Art. 22" por 2º em bloco citado (19% dos casos), cópias repetidas do mesmo
+texto, marcadores perdidos que o modelo infere.
+
+**Erros sistemáticos da referência.** Nenhuma classe de erro do conversor apareceu em
+número que pedisse reconstruir a referência: as 18 errata (13 + 5) são pontuais
+(13 `add_device`: dispositivo que o modelo deixou de marcar; 5 `set_device`: status
+citado/próprio ou sufixo de parágrafo). As suspeitas do conversor (`suspect_*`, 38 normas) continuam
+fora do gate.
 
 ## Conjunto de avaliação (held-out)
 

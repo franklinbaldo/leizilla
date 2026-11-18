@@ -172,6 +172,73 @@
    "reason": "Alíneas a) to g) listing municipalities in the annex of article 5; the model marked them but the converter dropped the marks (conflict: 'ali não cabe em lei', the lei ends before the annex).",
    "text_sha256": "f3b6b1ca4dc70fdb591d73074529d63e9189da02c20c9be396e900a91623d472",
    "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "§ 5°-A A Gratificação",
+   "kind": "par",
+   "line": 39,
+   "n": "5",
+   "norm": "leizilla-raw-ro-casacivil-lc-01192",
+   "op": "set_device",
+   "reason": "The printed marker is '§ 5°-A' (a paragraph inserted into the quoted article, followed by the caput 'A Gratificação por Atividade...'); the mark document numbers it plain 5 and drops the suffix.",
+   "set": {
+    "sufixo": "A"
+   },
+   "text_sha256": "57af731c75fd701a8b1479ef6f3c1ef19afd8e1309f45263564690923bf8864a",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Parágrafo único. O superávit",
+   "kind": "par",
+   "line": 69,
+   "n": "unico",
+   "norm": "leizilla-raw-ro-casacivil-lei-06365",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "'Parágrafo único.' opens a line right after the article's caput ('a ser alocada conforme Anexo I.') and is the norm's own paragraph; the mark document has no paragraph here.",
+   "text_sha256": "405371dc2186bb7940b2c63b78fa654aa56237a17a5c3393fe3b6624a62e6f2b",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Parágrafo único. O recurso",
+   "kind": "par",
+   "line": 83,
+   "n": "unico",
+   "norm": "leizilla-raw-ro-casacivil-lei-06365",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "'Parágrafo único.' opens a line right after the article's caput ('a ser alocada conforme Anexo III.') and is the norm's own paragraph; the mark document has no paragraph here.",
+   "text_sha256": "405371dc2186bb7940b2c63b78fa654aa56237a17a5c3393fe3b6624a62e6f2b",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Parágrafo único - Para atendimento",
+   "kind": "par",
+   "line": 405,
+   "n": "unico",
+   "norm": "leizilla-raw-ro-casacivil-lei-00655",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "'Parágrafo único -' opens a line right after the caput 'operação de crédito de que trata este artigo.' and is the norm's own paragraph; the mark document has none.",
+   "text_sha256": "852849adb901a072e6ced50ad5b74486ee075019d4fc83e66f635f80b78c2a98",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "IV - se as atividades desempenhadas",
+   "kind": "inc",
+   "line": 110,
+   "n": "4",
+   "norm": "leizilla-raw-ro-casacivil-decreto-10214",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "Line 107 'III — condições ambientais do local de trabalho;' opens the list and line 110 'IV - se as atividades ...' continues it with the same layout and a ';' ending line 104; the mark document stops the list at III.",
+   "text_sha256": "266a0e7b570eec3bd7c193179d116f8c0a3bbd47056737a28ad6af31a252e971",
+   "verified_by": "leitura do texto"
   }
  ],
  "schema_version": 1

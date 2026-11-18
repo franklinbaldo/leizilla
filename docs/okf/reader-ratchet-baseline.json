@@ -533,6 +533,7 @@
     "leizilla_ro_casacivil_lc_1001-2000/379a1f8e",
     "leizilla_ro_casacivil_lc_1001-2000/391e5951",
     "leizilla_ro_casacivil_lc_1001-2000/3b2ffe02",
+    "leizilla_ro_casacivil_lc_1001-2000/635e648f",
     "leizilla_ro_casacivil_lc_1001-2000/74b7f361",
     "leizilla_ro_casacivil_lc_1001-2000/8711898c",
     "leizilla_ro_casacivil_lc_1001-2000/8adc44da",
@@ -1173,6 +1174,7 @@
     "leizilla_ro_casacivil_lei_0001-1000/ca1b034a",
     "leizilla_ro_casacivil_lei_0001-1000/ca26fdea",
     "leizilla_ro_casacivil_lei_0001-1000/ca307bfa",
+    "leizilla_ro_casacivil_lei_0001-1000/ca7508dc",
     "leizilla_ro_casacivil_lei_0001-1000/ca9e75aa",
     "leizilla_ro_casacivil_lei_0001-1000/cae948a1",
     "leizilla_ro_casacivil_lei_0001-1000/cafce04c",
@@ -1930,13 +1932,13 @@
     "leizilla_ro_casacivil_lei_1001-2000/ffccf04f"
   ],
   "counts": {
-    "agree_closed": 1928,
+    "agree_closed": 1930,
     "agree_open": 48,
     "disagree_closed": 1,
-    "disagree_open": 94,
+    "disagree_open": 92,
     "teacher_inconsistent": 15
   },
-  "date": "2026-11-17",
+  "date": "2026-11-18",
   "disagree_closed": [
     "leizilla_ro_casacivil_lei_0001-1000/7b984c6e"
   ],
@@ -2280,6 +2282,48 @@
       "left_disagree_closed": [],
       "reader_commit": "94637b9128a290560fcb092bd8871330a1fe4395",
       "reason": null
+    },
+    {
+      "counts": {
+        "agree_closed": 1929,
+        "agree_open": 48,
+        "disagree_closed": 1,
+        "disagree_open": 93,
+        "teacher_inconsistent": 15
+      },
+      "date": "2026-11-18",
+      "entered_agree_closed": [
+        "leizilla_ro_casacivil_lei_0001-1000/ca7508dc"
+      ],
+      "entered_disagree_closed": [],
+      "errata_applied": 3,
+      "errata_sha256": "86e22e7ee61ffaea46964d61bb2d8a348947d71386acd0eb09676aaed1cb0ac4",
+      "forced": false,
+      "left_agree_closed": [],
+      "left_disagree_closed": [],
+      "reader_commit": "58677e8f8b2df316933d74db6ae9445654b5f856",
+      "reason": null
+    },
+    {
+      "counts": {
+        "agree_closed": 1930,
+        "agree_open": 48,
+        "disagree_closed": 1,
+        "disagree_open": 92,
+        "teacher_inconsistent": 15
+      },
+      "date": "2026-11-18",
+      "entered_agree_closed": [
+        "leizilla_ro_casacivil_lc_1001-2000/635e648f"
+      ],
+      "entered_disagree_closed": [],
+      "errata_applied": 3,
+      "errata_sha256": "86e22e7ee61ffaea46964d61bb2d8a348947d71386acd0eb09676aaed1cb0ac4",
+      "forced": false,
+      "left_agree_closed": [],
+      "left_disagree_closed": [],
+      "reader_commit": "29e87992aea47198805506af3eab90c9d360a3a6",
+      "reason": null
     }
   ],
   "labels": {
@@ -2294,7 +2338,7 @@
     "prompt_version": "teacher-labels-v1",
     "source": "teacher-batch-labels artifact of run 43937274430 (expires 2027-02-14T19:14:38Z)"
   },
-  "reader_commit": "94637b9128a290560fcb092bd8871330a1fe4395",
-  "reader_last_change": "94637b9128a290560fcb092bd8871330a1fe4395",
+  "reader_commit": "29e87992aea47198805506af3eab90c9d360a3a6",
+  "reader_last_change": "29e87992aea47198805506af3eab90c9d360a3a6",
   "schema_version": 1
 }
