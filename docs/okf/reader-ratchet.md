@@ -239,7 +239,7 @@ Rejeitadas: numeral romano sozinho na linha antes de prosa minúscula (precisão
 sozinho como detrito (perde 5 unidades), lista de itens que começa depois de 1 (precisão
 0,58, 0 unidades), glifo parecido e número na mesma linha (0 unidades, perde 1).
 
-Rodada 7: 4 regras promovidas. Numeral romano puro sem o traço antes de palavra
+Rodada 7: 5 regras promovidas. Numeral romano puro sem o traço antes de palavra
 capitalizada (`III Cabo da Polícia`), só dentro de uma cadeia: treino +10 / teste +2, 11 de 11
 dispositivos. Bloco citado recomeça a cadeia depois de linha só de pontos (`I`, `.....`, `VII`,
 `.....`, `XXIII`): +6 / 0. Parágrafo e inciso citados podem pular números (`§ 1º`, `§ 6º`,
@@ -287,10 +287,28 @@ Rodada 13: 2 regras promovidas, as duas de glifo de numeral romano: `Q` vale `II
 +1 / 0, 2 de 2). Rejeitadas: `E` como `I` (precisão 0,5), alínea `a)` isolada sem prosa em 120
 caracteres (0 unidades).
 
+Rodada 14: 1 regra promovida: a letra de alínea impressa duas vezes no começo da linha
+(`Cc) Quadro de Oficiais`): treino +1, teste 0, 1 de 1. Rodadas 15 e 16: nenhuma regra
+promovida. Rejeitadas na 15: janela do `1.` isolado de 400 para 1500 caracteres, `(NR)` como
+quebra de cadeia, cadeia de inciso citado recomeça depois de linha terminada em `:` (precisão
+0,3), parágrafo no começo da linha depois de vírgula é citação (perde unidade do teste). Na 16:
+lista de itens citada que começa depois de 1 (precisão 0,4), `1º.` sem o `§` ao lado de uma
+cadeia (0 unidades). **Duas rodadas seguidas sem promoção: o torneio satura na rodada 16.**
+
+**Balanço das rodadas 6 a 16** (2026-11-18, mesma referência de 3161 normas): 18 regras
+promovidas, 33 rejeitadas, 23 errata novas (41 no total). Unidades (norma, nível) que
+concordam, antes -> depois, tudo / treino / teste: art 2995 -> 3002 / 2393 -> 2400 / 602 -> 602,
+par 1534 -> 1571 / 1236 -> 1265 / 298 -> 306, inc 747 -> 786 / 594 -> 628 / 153 -> 158, ali 232
+-> 244 / 183 -> 192 / 49 -> 52, item 13 -> 13 / 9 -> 9 / 4 -> 4. O teste ganhou bem menos que o
+treino em quase toda regra; ganhou nas regras `s lo -` (+6), `Parágrafo 1º -` (+1), `§` com `.` ou
+`:` (+1), romano sem traço (+2), salto de parágrafo e inciso em bloco citado (+2 e +2) e `£)` (+2);
+as outras regras ganharam só no treino.
+
 **Erros sistemáticos da referência.** Nenhuma classe de erro do conversor apareceu em
-número que pedisse reconstruir a referência: as 18 errata (13 + 5) são pontuais
+número que pedisse reconstruir a referência: as 41 errata (13 + 5 + 23) são pontuais
 (13 `add_device`: dispositivo que o modelo deixou de marcar; 5 `set_device`: status
-citado/próprio ou sufixo de parágrafo). As suspeitas do conversor (`suspect_*`, 38 normas) continuam
+citado/próprio ou sufixo de parágrafo). As 23 das rodadas 6 a 12: 21 `add_device` (omissões do
+modelo: 15 de dispositivos citados, entre eles 5 artigos de bloco com elisão `..`, e 6 de lista própria) e 2 `set_device` (sufixo `A` que é a primeira palavra da frase; `II` que é III pela cadeia). As suspeitas do conversor (`suspect_*`, 38 normas) continuam
 fora do gate.
 
 ## Conjunto de avaliação (held-out)

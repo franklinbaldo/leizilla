@@ -2222,3 +2222,14 @@ def test_inciso_glyph_q_is_a_stroke_pair() -> None:
 def test_inciso_glyph_u_umlaut_is_a_stroke_pair() -> None:
     assert 2 in roman_readings("ü")
     assert 2 in roman_readings("ÍÍ")
+
+
+def test_alinea_letter_printed_twice_at_a_line_start() -> None:
+    text = (
+        "Art. 1º Os quadros são:\n\n"
+        "a) Quadro de Oficiais;\n\nb) Quadro de Praças.\n\nGOVERNADORIA\n\n"
+        "Cc) Quadro de Oficiais Femininos;\n\nd) Quadro de Apoio.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "alinea") == ["1", "2", "3", "4"]

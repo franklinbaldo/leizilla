@@ -49,6 +49,7 @@
    "leizilla-raw-ro-casacivil-decreto-32219",
    "leizilla-raw-ro-casacivil-decreto-32233",
    "leizilla-raw-ro-casacivil-decreto-lei-00019",
+   "leizilla-raw-ro-casacivil-decreto-lei-00028",
    "leizilla-raw-ro-casacivil-decreto-lei-00029",
    "leizilla-raw-ro-casacivil-decreto-lei-00030",
    "leizilla-raw-ro-casacivil-decreto-lei-00034",
@@ -7344,10 +7345,69 @@
      "units_agree": 1571
     }
    }
+  },
+  {
+   "date": "2026-11-18",
+   "entered": [
+    "ali leizilla-raw-ro-casacivil-decreto-lei-00028"
+   ],
+   "entered_count": 1,
+   "forced": false,
+   "left": [],
+   "left_count": 0,
+   "reader_commit": "ae09d924ffcb1dfbb4b8bffda9749c2558d96151",
+   "reason": null,
+   "table": {
+    "ali": {
+     "agree": 2179,
+     "kind_differs": 1,
+     "number_differs": 9,
+     "reader_extra": 43,
+     "reader_misses": 143,
+     "status_differs": 41,
+     "units": 312,
+     "units_agree": 244
+    },
+    "art": {
+     "agree": 16362,
+     "number_differs": 28,
+     "reader_extra": 39,
+     "reader_misses": 158,
+     "status_differs": 50,
+     "units": 3113,
+     "units_agree": 3002
+    },
+    "inc": {
+     "agree": 10775,
+     "number_differs": 33,
+     "reader_extra": 160,
+     "reader_misses": 368,
+     "status_differs": 68,
+     "units": 967,
+     "units_agree": 786
+    },
+    "item": {
+     "agree": 289,
+     "kind_differs": 7,
+     "reader_extra": 26,
+     "reader_misses": 110,
+     "units": 58,
+     "units_agree": 13
+    },
+    "par": {
+     "agree": 5688,
+     "number_differs": 5,
+     "reader_extra": 30,
+     "reader_misses": 94,
+     "status_differs": 54,
+     "units": 1676,
+     "units_agree": 1571
+    }
+   }
   }
  ],
- "reader_commit": "638fdab8edc48fa9a714a0cde14f3513202fd861",
- "reader_last_change": "638fdab8edc48fa9a714a0cde14f3513202fd861",
+ "reader_commit": "ae09d924ffcb1dfbb4b8bffda9749c2558d96151",
+ "reader_last_change": "ae09d924ffcb1dfbb4b8bffda9749c2558d96151",
  "reference": {
   "batch_ids": [
    "msgbatch_013t25UFTPJ8mH2YkVQAVPy1"
@@ -7420,14 +7480,14 @@
  "schema_version": 1,
  "table": {
   "ali": {
-   "agree": 2178,
+   "agree": 2179,
    "kind_differs": 1,
    "number_differs": 9,
    "reader_extra": 43,
-   "reader_misses": 144,
+   "reader_misses": 143,
    "status_differs": 41,
    "units": 312,
-   "units_agree": 243
+   "units_agree": 244
   },
   "art": {
    "agree": 16362,

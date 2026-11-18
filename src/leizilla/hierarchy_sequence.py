@@ -113,6 +113,7 @@ _INC_BARE = re.compile(
 )
 _ALI = re.compile(r"(?<![\w(])(?P<let>[a-zA-Z06£])\s?[)\]}]")
 _K_BEFORE = re.compile(r"(?m)^[ \t]*k[ \t]?\)")
+_ALI_DOUBLE = re.compile(r"(?m)^[ \t]*(?P<up>[A-Z])(?P<let>[a-z])[ \t]?\)")
 _ALI_ONE = re.compile(r"(?m)^[ \t]*(?P<tok>[1|])[ \t]?\)")
 _ALI_WILD = re.compile(r"(?m)^[ \t]*(?P<tok>[^\s(]{1,2})[ \t]?[)\]}]")
 _ITEM = re.compile(r"(?m)^[ \t]*(?P<num>\d{1,2})(?:\s?[.)]|\s?[-–—])(?=\s)(?!\s*\d)")
@@ -678,6 +679,19 @@ def _alinea_candidates(text: str) -> list[_Cand]:
             )
         )
     taken = {c.start for c in out}
+    for m in _ALI_DOUBLE.finditer(text):
+        # "Cc) Quadro de Oficiais": the letter printed twice, once as a capital.
+        if m.group("up").lower() != m.group("let") or m.start("let") in taken:
+            continue
+        out.append(
+            _Cand(
+                m.start("let"),
+                m.end(),
+                alinea_readings(m.group("let")),
+                strong=False,
+            )
+        )
+        taken.add(m.start("let"))
     for m in _ALI_ONE.finditer(text):
         # "1) projetos", "|) aos proprietários": the letter "l" (or "i") of a list.
         if m.start("tok") not in taken and _K_BEFORE.search(
