@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Optional, TypedDict
+import json
+from typing import Any, Mapping, Optional, TypedDict
 
 # OCR troca "I" por "l"/"1" em "SEI" e o "o" de "o código" por "0".
 _VERIFICADOR_CRC = re.compile(
@@ -112,3 +113,159 @@ def extract_sei_ids(text: Optional[str]) -> SeiIds:
 def has_sei_footer(ids: SeiIds) -> bool:
     """Verdadeiro quando há verificador e CRC — o que identifica o documento no SEI."""
     return bool(ids["verificador"] and ids["crc"])
+
+
+# ---------------------------------------------------------------------------
+# Rodapé **próprio** da norma (proveniência na camada de texto, ADR-0015)
+# ---------------------------------------------------------------------------
+#
+# ``extract_sei_ids`` vale o primeiro par verificador+CRC do texto, e um PDF pode trazer
+# um documento SEI impresso *dentro* dele (um ofício do TJ citado numa lei de 2017, um
+# requerimento numa lei complementar). Para a camada de texto só vale o rodapé da própria
+# norma, e o que o distingue é a frase que o SEI imprime logo depois do código CRC:
+# "Referência: Caso responda esta Lei/Decreto/Lei Complementar, indicar expressamente o
+# Processo nº ...". Um ofício traz "esta Ofício", um requerimento "este(a) Requerimento".
+_ATO = r"(?:lei\s+complementar|lei|decreto(?:\s*-\s*lei|\s+legislativo)?|emenda\s+constitucional)"
+# OCR junta ou parte palavras ("estaLei", "nda esta Lei Complementar"): só a parte final conta.
+_CAUSA_PROPRIA = re.compile(
+    r"est[ae]\s*(?:\(a\)\s*)?" + _ATO + r"\s*,?\s*indicar\s+expressamente",
+    re.IGNORECASE,
+)
+_JANELA_APOS_CRC = 400
+_JANELA_ASSINATURAS = 2500
+_MENCAO_ASSINATURA = re.compile(r"assinado\s+eletronicamente", re.IGNORECASE)
+_FICHA_RUIM = re.compile(r"[0-9!]|\bsei\b", re.IGNORECASE)
+
+
+class SeiProprio(TypedDict):
+    verificador: str
+    crc: str
+    numero_sei: Optional[str]
+    processo: Optional[str]
+    assinantes: Optional[list[Assinante]]
+
+
+def _nome_legivel(nome: str) -> bool:
+    """Falso quando o OCR deixou uma letra solta em caixa trocada ("AFONsO", "FRANKLiN")."""
+    for token in nome.split():
+        if not (token.isupper() or token.islower() or token == token.capitalize()):
+            return False
+    return True
+
+
+def _assinantes_confiaveis(segmento: str) -> Optional[list[Assinante]]:
+    """Os assinantes do trecho, ou ``None`` se não dá para garantir a lista inteira.
+
+    Precisão antes de cobertura: vale só se há tantas assinaturas lidas quantas menções a
+    "assinado eletronicamente" e se cada uma tem nome legível e cargo curto sem ruído
+    do SEI (o regex corta o cargo na data; quando o OCR quebra a data, o cargo engole
+    a assinatura vizinha, e essa lista inteira é descartada).
+    """
+    mencoes = len(_MENCAO_ASSINATURA.findall(segmento))
+    lidos: list[Assinante] = []
+    for achado in _ASSINATURA.finditer(segmento):
+        nome, cargo, dd, mm, aaaa, hora = achado.groups()
+        lidos.append(
+            {
+                "nome": nome.strip(),
+                "cargo": cargo.strip(),
+                "data": f"{aaaa}-{mm}-{dd}",
+                "hora": hora,
+            }
+        )
+    if not lidos or len(lidos) != mencoes:
+        return None
+    for lido in lidos:
+        if (
+            len(lido["nome"]) > 60
+            or len(lido["cargo"]) > 60
+            or _FICHA_RUIM.search(lido["nome"])
+            or _FICHA_RUIM.search(lido["cargo"])
+            or not _nome_legivel(lido["nome"])
+        ):
+            return None
+    return lidos
+
+
+def extract_own_sei_footer(text: Optional[str]) -> Optional[SeiProprio]:
+    """O rodapé do SEI **da própria norma**, ou ``None`` (o caso comum antes de 2018).
+
+    Só vale um par verificador+CRC seguido, em até 400 caracteres, da frase "Caso
+    responda esta Lei/Decreto/Lei Complementar, indicar expressamente o Processo"; um
+    documento SEI impresso dentro do PDF (ofício, despacho, requerimento) não passa nessa
+    guarda. Havendo mais de um, vale o último (o rodapé de uma norma fica no fim do
+    arquivo). ``numero_sei`` e ``processo`` vêm só da janela depois desse par, e um ``SEI nº`` que
+    difere do verificador descarta o rodapé inteiro (OCR errou um dos dois);
+    ``assinantes`` só se a lista é íntegra (``_assinantes_confiaveis``).
+    """
+    if not text:
+        return None
+    flat = re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text))
+    proprios: list[tuple[re.Match[str], int]] = []
+    anterior_fim = 0
+    for par in _VERIFICADOR_CRC.finditer(flat):
+        if par.group(2) and _CAUSA_PROPRIA.search(
+            flat, par.end(), par.end() + _JANELA_APOS_CRC
+        ):
+            proprios.append((par, anterior_fim))
+        anterior_fim = par.end()
+    if not proprios:
+        return None
+    par, limite = proprios[-1]
+    janela = flat[par.end() : par.end() + _JANELA_APOS_CRC + 300]
+    numero = _NUMERO_SEI.search(janela)
+    processo = _PROCESSO.search(janela)
+    if numero and numero.group(1) != par.group(1):
+        # "SEI nº" é o mesmo número do código verificador: se divergem, o OCR errou um dos
+        # dois e não há como saber qual. Sem verificador de confiança, a linha fica sem nada.
+        return None
+    inicio = max(limite, par.start() - _JANELA_ASSINATURAS)
+    return {
+        "verificador": par.group(1),
+        "crc": par.group(2).upper(),
+        "numero_sei": numero.group(1) if numero else None,
+        "processo": processo.group(1) if processo else None,
+        "assinantes": _assinantes_confiaveis(flat[inicio : par.start()]),
+    }
+
+
+def sei_columns(text: Optional[str]) -> dict[str, Optional[str]]:
+    """As colunas ``sei_*`` de ``textos`` (ADR-0015, adendo 2026-11-18); tudo NULL sem rodapé."""
+    footer = extract_own_sei_footer(text)
+    if footer is None:
+        return {
+            "sei_verificador": None,
+            "sei_crc": None,
+            "sei_numero": None,
+            "sei_processo": None,
+            "sei_assinantes": None,
+        }
+    assinantes = footer["assinantes"]
+    return {
+        "sei_verificador": footer["verificador"],
+        "sei_crc": footer["crc"],
+        "sei_numero": footer["numero_sei"],
+        "sei_processo": footer["processo"],
+        "sei_assinantes": (
+            None
+            if assinantes is None
+            else json.dumps(assinantes, ensure_ascii=False, separators=(",", ":"))
+        ),
+    }
+
+
+def valida_assinantes_json(texto: Optional[str]) -> bool:
+    """``sei_assinantes`` é um JSON ``[{"nome","cargo","data","hora"}, ...]`` não vazio."""
+    try:
+        value: Any = json.loads(texto or "")
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(value, list) or not value:
+        return False
+    chaves = {"nome", "cargo", "data", "hora"}
+    return all(
+        isinstance(a, Mapping)
+        and set(a) == chaves
+        and all(isinstance(a[k], str) and a[k] for k in chaves)
+        for a in value
+    )

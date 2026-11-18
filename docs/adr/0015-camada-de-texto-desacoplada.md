@@ -197,6 +197,33 @@ a preferência por rendição vale entre todos os arquivos da identidade (como j
 recente"). Tipos sem `_djvu.txt` da compilada ainda (derive pendente) mostram o original e
 listam a compilada em `outras_rendicoes` com `texto_url` nulo.
 
+Defeito do arquivo oficial (2026-11-18): coluna `defeito_fonte` (VARCHAR, anulável). Uma norma
+pode não fechar porque o **arquivo da fonte** está incompleto (a lei ordinária 1296/2003 salta do
+art. 2º para o 6º: nenhuma das 3 páginas escaneadas tem os arts. 3º a 5º). `docs/okf/defeitos-da-fonte.json`
+(`leizilla.defeitos`) lista essas normas com motivo e evidência, **atreladas ao `sha256_fonte`
+inspecionado**; `build-textos` copia a nota da entrada para a coluna e a página de texto a mostra.
+A coluna não mexe em `artigos_fecham` (a norma segue sem fechar) e uma captura nova com outro hash
+perde a nota. A mesma lista tira a norma da fila `nao-fecha` do re-OCR (ADR-0019, adendo).
+
+Identificadores do SEI como proveniência (2026-11-18, RFC-0008 opção (i), aprovada pelo dono):
+colunas anuláveis `sei_verificador`, `sei_crc`, `sei_numero`, `sei_processo` e `sei_assinantes`,
+preenchidas por `build-textos` a partir do texto já preservado (`leizilla.sei.sei_columns`), sem
+nenhuma requisição. Guardas: (1) só o **rodapé da própria norma** vale: um par verificador+CRC
+seguido, em até 400 caracteres, de "Caso responda esta Lei/Decreto/Lei Complementar, indicar
+expressamente o Processo"; um ofício, despacho ou requerimento do SEI impresso dentro do PDF traz
+"este Ofício", "este Despacho", "este(a) Requerimento" e não passa (as leis 1403, 1635 e 3935,
+de 2017/2018, ficam NULL); (2) verificador e CRC juntos ou nenhum dos dois; (3) `SEI nº`, quando
+lido, é o mesmo número do verificador, e uma divergência (OCR errou um dos dois) deixa a linha
+sem as colunas; (4) `sei_assinantes` só com a lista íntegra (tantas assinaturas lidas quantas
+menções a "assinado eletronicamente", nomes sem letra de caixa trocada, cargos curtos e sem
+ruído do SEI), senão NULL: antes de ligar, 40 textos lidos a olho tinham 40 de 40 listas certas,
+mas o extrator geral errava ou perdia a lista em ~22% dos rodapés, que a guarda descarta. O gate
+`release-textos` confere o formato, a regra "os dois ou nenhum" e que as colunas dependentes só
+existem com o verificador. As colunas são **proveniência**, não acesso: o portal mostra os
+códigos e um link para a página pública de conferência do SEI-RO, onde quem lê digita os códigos
+e resolve o captcha; o Leizilla não preenche nem automatiza essa página (RFC-0008, enquadramento
+jurídico). O endereçamento por conteúdo e o HTML original são as opções (ii) e (iii) da RFC.
+
 Medida do leitor sobre textos compilados (2026-11-18, camada `…t061620z` + `pdftotext` nos PDFs
 sem texto no IA ainda): ver o nó `reader-compiled-texts` do DAG. Em resumo, o nível dos artigos
 fecha em metade dos compilados lidos pelo IA (15 de 30), contra 96,6% dos demais; a causa

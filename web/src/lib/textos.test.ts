@@ -4,6 +4,8 @@ import {
   ancoraId,
   ancoraRotulo,
   ocrEhProprio,
+  SEI_CONFERENCIA_URL,
+  seiProveniencia,
   paragrafos,
   parseAncoras,
   segmentar,
@@ -136,5 +138,26 @@ describe('text-layer catalog filters', () => {
       where: 'ente = ? AND tipo IN (?, ?)',
       params: ['ro', 'lc', 'lei.complementar'],
     });
+  });
+});
+
+describe('seiProveniencia', () => {
+  it('shows the codes only when verifier and CRC both exist', () => {
+    expect(seiProveniencia({ sei_verificador: '27366482', sei_crc: 'BEF99C54' })).toEqual({
+      verificador: '27366482',
+      crc: 'BEF99C54',
+      url: SEI_CONFERENCIA_URL,
+    });
+    expect(seiProveniencia({ sei_verificador: '27366482', sei_crc: null })).toBeNull();
+    expect(seiProveniencia({ sei_verificador: null, sei_crc: 'BEF99C54' })).toBeNull();
+    // Linhas de um textos.parquet anterior às colunas: campos ausentes.
+    expect(seiProveniencia({})).toBeNull();
+  });
+
+  it('points to the public conferência page without any prefilled code', () => {
+    expect(SEI_CONFERENCIA_URL).toBe(
+      'https://sei.sistemas.ro.gov.br/sei/controlador_externo.php?acao=documento_conferir&id_orgao_acesso_externo=0',
+    );
+    expect(SEI_CONFERENCIA_URL).not.toMatch(/verificador|crc/i);
   });
 });

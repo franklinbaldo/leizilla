@@ -36,9 +36,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 import unicodedata
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from leizilla import publisher, textlayer
+from leizilla.defeitos import defeito_de
 from leizilla.textlayer import FILA_NAO_FECHA, FILA_SEM_TEXTO, read_closure
 
 logger = logging.getLogger(__name__)
@@ -139,6 +140,8 @@ class ReocrStats:
     nao_fecham: int = 0
     #: Não fecham mas já tentadas com o mesmo PDF + motor (ou grandes demais).
     ja_tentadas: int = 0
+    #: Não fecham por defeito registrado do arquivo oficial (``defeitos-da-fonte.json``).
+    defeitos_da_fonte: int = 0
     na_fila: int = 0
     #: Da fila, quantas já leem ao menos 1 artigo próprio no texto do IA (vão primeiro).
     fila_com_artigos: int = 0
@@ -259,6 +262,7 @@ def select_queue(
     kreuzberg_version: str,
     max_pages: int = DEFAULT_MAX_PAGES,
     stats: Optional[ReocrStats] = None,
+    defeitos: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> list[dict[str, Any]]:
     """Normas com texto cujo leitor não fecha o nível dos artigos, em ordem estável.
 
@@ -266,7 +270,9 @@ def select_queue(
     (``read_hierarchy``) não fecha. Sai quem já foi tentado com o mesmo PDF e o
     mesmo motor (aceito ou rejeitado). Ordem: primeiro quem lê ao menos 1 artigo
     próprio no texto do IA (o caso do re-OCR-piloto: a leitura já está parcial), depois
-    quem lê zero; dentro de cada classe, ``texto_id``. Nenhum é descartado. Cada linha devolvida
+    quem lê zero; dentro de cada classe, ``texto_id``. Nenhum é descartado, salvo as que
+    ``defeitos`` (``leizilla.defeitos``) registra como defeito do arquivo oficial, para
+    **os mesmos bytes** (``sha256_fonte``): o OCR não tem o que ganhar. Cada linha devolvida
     ganha ``_artigos_ia``/``_fecha_ia`` (medidas do texto de entrada).
     """
     stats = stats or ReocrStats()
@@ -281,6 +287,9 @@ def select_queue(
         if fecha:
             continue
         stats.nao_fecham += 1
+        if defeito_de(row, defeitos) is not None:
+            stats.defeitos_da_fonte += 1
+            continue
         if _already_done(row, done, kreuzberg_version, max_pages):
             stats.ja_tentadas += 1
             continue

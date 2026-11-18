@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Optional, Union
 
 from leizilla import publisher
+from leizilla.defeitos import defeito_de
 from leizilla.hierarchy_sequence import (
     article_closes,
     article_closure,
@@ -44,6 +45,7 @@ from leizilla.hierarchy_sequence import (
     read_hierarchy,
 )
 from leizilla.ia_utils import download_url
+from leizilla.sei import sei_columns, valida_assinantes_json
 from leizilla.rendicao import (
     RENDICAO_COMPILADA,
     RENDICAO_ORIGINAL,
@@ -94,6 +96,12 @@ TEXTOS_SCHEMA: dict[str, str] = {
     "artigos_ultimo": "INTEGER",
     "ancoras": "VARCHAR",
     "trecho": "VARCHAR",
+    "defeito_fonte": "VARCHAR",
+    "sei_verificador": "VARCHAR",
+    "sei_crc": "VARCHAR",
+    "sei_numero": "VARCHAR",
+    "sei_processo": "VARCHAR",
+    "sei_assinantes": "VARCHAR",
     "texto": "VARCHAR",
 }
 
@@ -931,6 +939,25 @@ def apply_reocr_overlay(
     return applied
 
 
+def annotate_row(
+    row: dict[str, Any],
+    *,
+    defeitos: Optional[Mapping[str, Mapping[str, Any]]] = None,
+) -> dict[str, Any]:
+    """Colunas que não vêm do texto nem do IA, recalculadas a cada construção.
+
+    ``defeito_fonte``: a nota de ``docs/okf/defeitos-da-fonte.json`` quando a lista
+    registra um defeito do arquivo oficial **para estes mesmos bytes** (``sha256_fonte``);
+    senão ``None``. ``sei_*``: os identificadores do SEI lidos do **rodapé da própria
+    norma** (``leizilla.sei.sei_columns``; ADR-0015, adendo 2026-11-18), tudo ``None`` sem
+    ele. As duas sobrescrevem o valor de uma linha reaproveitada.
+    """
+    entry = defeito_de(row, defeitos)
+    row["defeito_fonte"] = str(entry["nota"]) if entry is not None else None
+    row.update(sei_columns(row.get("texto")))
+    return row
+
+
 def build_textos(
     ente: str,
     fontes: list[str],
@@ -940,6 +967,7 @@ def build_textos(
     previous: Optional[dict[str, dict[str, Any]]] = None,
     fetch: Optional[Fetcher] = None,
     reocr: Optional[dict[str, dict[str, Any]]] = None,
+    defeitos: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> tuple[list[dict[str, Any]], BuildStats]:
     """Constrói as linhas de ``textos`` de um ente (todas as fontes pedidas).
 
@@ -968,6 +996,8 @@ def build_textos(
         )
     if reocr:
         stats.reocr_aplicados = apply_reocr_overlay(rows, reocr)
+    for row in rows:
+        annotate_row(row, defeitos=defeitos)
     rows.sort(key=lambda r: str(r["texto_id"]))
     return rows, stats
 
@@ -1050,12 +1080,37 @@ def validate_textos_parquet(path: Path) -> list[str]:
         ).fetchone()
         if bad and bad[0]:
             problems.append(f"{bad[0]} linha(s) violam os campos obrigatórios")
+        sei_bad = conn.execute(
+            f"SELECT count(*) FROM {src} WHERE "
+            "(sei_verificador IS NULL) != (sei_crc IS NULL) "
+            "OR (sei_verificador IS NULL AND (sei_numero IS NOT NULL "
+            "OR sei_processo IS NOT NULL OR sei_assinantes IS NOT NULL)) "
+            "OR (sei_verificador IS NOT NULL AND NOT regexp_full_match("
+            "sei_verificador, '[0-9]{6,10}')) "
+            "OR (sei_crc IS NOT NULL AND NOT regexp_full_match(sei_crc, '[0-9A-F]{8}')) "
+            "OR (sei_numero IS NOT NULL AND sei_numero IS DISTINCT FROM sei_verificador) "
+            "OR (sei_processo IS NOT NULL AND NOT regexp_full_match("
+            "sei_processo, '[0-9]{4}\\.[0-9]{6}/[0-9]{4}-[0-9]{2}'))",
+            [str(path)],
+        ).fetchone()
+        if sei_bad and sei_bad[0]:
+            problems.append(
+                f"{sei_bad[0]} linha(s) violam o contrato das colunas sei_*"
+            )
+        assinantes_rows = conn.execute(
+            f"SELECT texto_id, sei_assinantes FROM {src} "
+            "WHERE sei_assinantes IS NOT NULL",
+            [str(path)],
+        ).fetchall()
         rows = conn.execute(
             f"SELECT texto_id, texto, ancoras FROM {src}", [str(path)]
         ).fetchall()
     finally:
         conn.close()
 
+    for tid, assinantes_json in assinantes_rows:
+        if not valida_assinantes_json(assinantes_json):
+            problems.append(f"{tid}: sei_assinantes não é uma lista de assinantes")
     for tid, text, anchors_json in rows:
         try:
             anchors = json.loads(anchors_json or "[]")

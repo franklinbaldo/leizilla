@@ -11,6 +11,7 @@
     parseOutrasRendicoes,
     rotuloRendicao,
     segmentar,
+    seiProveniencia,
   } from '../../lib/textos';
   import DatasetUnavailable from '../DatasetUnavailable.svelte';
 
@@ -41,6 +42,7 @@
   // Rendição do arquivo exibido e os outros arquivos da norma (ADR-0015, adendo 2026-11-18).
   const compilada = $derived(row?.rendicao === 'compilada');
   const outras = $derived(row ? parseOutrasRendicoes(row.outras_rendicoes) : []);
+  const sei = $derived(row ? seiProveniencia(row) : null);
   const publicadaPor = $derived(row?.fonte === 'casacivil' ? 'pela Casa Civil' : 'pela fonte oficial');
 
   $effect(() => {
@@ -146,6 +148,18 @@
           {publicadaPor}{#if row.capturado_em}, capturada em {formatDate(row.capturado_em)}{/if}.
           Não é uma consolidação feita ou conferida pelo Leizilla; a compilação pode trazer
           trechos anotados ou tachados (redações dadas, revogações).
+        </p>
+      {/if}
+      {#if sei}
+        <p class="sei-proveniencia" data-testid="sei-proveniencia">
+          Documento assinado no SEI — verificador {sei.verificador}, CRC {sei.crc}.
+          <a href={sei.url} target="_blank" rel="noopener noreferrer">Conferir no SEI</a>
+          (você digita os códigos e resolve o captcha).
+        </p>
+      {/if}
+      {#if row.defeito_fonte}
+        <p class="defeito-fonte" data-testid="defeito-fonte">
+          <strong>Nota sobre o arquivo oficial:</strong> {row.defeito_fonte}
         </p>
       {/if}
       {#if ocrProprio}
@@ -279,7 +293,9 @@
     margin: 0 0 0.4rem;
   }
   .aviso .acoes,
-  .aviso .outras {
+  .aviso .outras,
+  .aviso .sei-proveniencia,
+  .aviso .defeito-fonte {
     margin: 0 0 0.4rem;
   }
   .artigos {
