@@ -272,3 +272,35 @@ def test_run_skips_a_text_that_is_not_the_references() -> None:
         reader=lambda text, tipo, numero: rrl.devices_from_rows(BASE, text),
     )
     assert "differs" in next(iter(result["skipped"].values()))
+
+
+def test_flagged_norms_are_skipped_unless_asked_or_settled() -> None:
+    ref = make_ref([ART1, INC1, INC2, ART2])  # reference lacks III
+    ref.norms["leizilla-raw-ro-casacivil-lei-00001"]["flags"] = ["suspect_sequence"]
+    reader = lambda text, tipo, numero: rrl.devices_from_rows(BASE, text)  # noqa: E731
+    skipped = rte.run([review()], ref, None, date="2026-11-19", reader=reader)
+    assert "suspect flags" in next(iter(skipped["skipped"].values()))
+    assert skipped["rows"] == []
+    asked = rte.run(
+        [review()], ref, None, date="2026-11-19", reader=reader, include_flagged=True
+    )
+    assert asked["counts"] == {rte.REFERENCE_ERROR: 1}
+    clear = {
+        "norm": "leizilla-raw-ro-casacivil-lei-00001",
+        "text_sha256": SHA,
+        "op": "clear_suspect",
+        "flags": ["suspect_sequence"],
+        "line": 2,
+        "evidence": "Art. 1º",
+        "reason": "settled",
+        "verified_by": "x",
+        "date": "2026-11-19",
+    }
+    settled = rte.run(
+        [review()],
+        ref,
+        rrl.Errata([clear], "s"),
+        date="2026-11-19",
+        reader=reader,
+    )
+    assert settled["counts"] == {rte.REFERENCE_ERROR: 1}
