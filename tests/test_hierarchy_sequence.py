@@ -2363,3 +2363,27 @@ def test_quoted_block_closes_at_a_mark_followed_by_a_full_stop() -> None:
         *[f"art-{n}" for n in range(3, 11)],
     ]
     assert report["closes"]
+
+
+# --- a closing mark misplaced to the end of the previous line ---------------------
+def test_quoted_block_closes_at_a_mark_a_few_words_before_the_resuming_article() -> None:
+    # Stray marks in OCR noise unbalance the count; the block's mark ended up on the
+    # line before the last words of the block ('oficial"' / 'Ajudante de Ordens.').
+    text = (
+        "Art. 1º - Os artigos 1º e 2º do Decreto-Lei nº 29 passam a vigorar com a "
+        "seguinte redação:\n"
+        "Art. 1º - A Polícia Militar é força auxiliar do Exército.\n"
+        "Art. 2º - Compete à Polícia Militar:\n"
+        "I - executar o policiamento ostensivo;\n"
+        "II - atuar de maneira preventiva.\n"
+        "“ “ ; \"” ruído\n"
+        "§ 1º - O Comandante-Geral será oficial da ativa.\n"
+        "§ 2º - O Comandante-Geral disporá de um oficial\"\n"
+        "Ajudante de Ordens.\n"
+        "Art. 2º - Revogam-se as disposições em contrário.\n"
+        "Art. 3º - Este Decreto-Lei entrará em vigor na data de sua publicação."
+    )
+    report = read_hierarchy(text)
+    assert _paths(report) == ["art-1", "art-2", "art-3"]
+    assert _paths(report, "quoted")[:2] == ["art-1", "art-2"]
+    assert report["closes"]

@@ -786,6 +786,22 @@ def _article_reading(text: str, pos: int) -> int | None:
     return readings[0] if readings else None
 
 
+_LATE_CLOSING_TAIL = 32
+
+
+def _late_closing_mark(before: str) -> int | None:
+    """Index of a quote mark in the last few characters of ``before`` when only a
+    short, mark-free run of words follows it; ``None`` otherwise."""
+    low = max(0, len(before) - _LATE_CLOSING_TAIL)
+    for i in range(len(before) - 1, low - 1, -1):
+        if _QUOTE_CHAR.match(before[i]):
+            tail = before[i + 1 :]
+            if re.fullmatch(r"\s*[^\W\d_]+(?:\s+[^\W\d_]+){0,3}\.?", tail):
+                return i
+            return None
+    return None
+
+
 def _resume_after_quote(
     text: str, limit: int, body_end: int, host_number: int
 ) -> int | None:
@@ -804,7 +820,11 @@ def _resume_after_quote(
         if before.endswith(".") and mark > 0 and _QUOTE_CHAR.match(before[mark - 1]):
             mark -= 1
         if mark < 0 or not _QUOTE_CHAR.match(before[mark]):
-            continue
+            # OCR often leaves the closing mark at the end of the previous line, a
+            # word or two before the last one ('oficial"' / 'Ajudante de Ordens.').
+            mark = _late_closing_mark(before)
+            if mark is None:
+                continue
         if not _is_closing(text, mark):
             continue
         if _article_reading(text, m.start()) != host_number + 1:
