@@ -483,8 +483,13 @@ def run(
     *,
     date: str,
     reader: Any = None,
+    include_flagged: bool = False,
 ) -> dict[str, Any]:
-    """Classify every usable review; returns rows, proposals, patterns and counts."""
+    """Classify every usable review; returns rows, proposals, patterns and counts.
+
+    Norms with suspect flags in the reference are outside the gate and skipped, unless
+    ``include_flagged`` (to read what the model says about them: whether it settles
+    the suspect)."""
     reader = reader or rrl.reader_devices
     by_norm: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     for c in errata.corrections if errata else []:
@@ -504,19 +509,20 @@ def run(
         if rec is None:
             skipped[norm] = "not in the reference"
             continue
-        if rec.get("flags"):
-            skipped[norm] = "suspect flags in the reference (outside the gate)"
-            continue
         sha = rec["text_sha256"]
         text = ref.texts.get(sha)
         if text is None or review.get("text_sha256") != sha:
             skipped[norm] = "text missing or differs from the reference's"
             continue
         ref_rows = rec["devices"]
+        applied_errata: list[dict[str, Any]] = []
         if by_norm.get(norm):
-            ref_rows, _applied, _stale = rrl.apply_corrections(
-                ref_rows, by_norm[norm], text, sha
+            ref_rows, applied_errata, _stale = rrl.apply_corrections(
+                ref_rows, by_norm[norm], text, sha, rec.get("flags", [])
             )
+        if rrl.open_flags(rec, applied_errata) and not include_flagged:
+            skipped[norm] = "suspect flags in the reference (outside the gate)"
+            continue
         devs = reader(text, rec.get("tipo"), rec.get("numero"))
         if reader_article_set(devs) != recorded_article_set(review):
             skipped[norm] = "the reader's articles differ from the ones the model saw"
@@ -639,12 +645,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--reference", type=Path, default=rrl.DEFAULT_REFERENCE)
     parser.add_argument("--errata", type=Path, default=rrl.DEFAULT_ERRATA)
     parser.add_argument("--date", default=dt.date.today().isoformat())
+    parser.add_argument(
+        "--include-flagged",
+        action="store_true",
+        help="also classify norms with suspect flags in the reference",
+    )
     args = parser.parse_args(argv)
 
     ref = rrl.with_textos(rrl.load_reference(args.reference), args.textos)
     errata = rrl.load_errata(args.errata)
     reviews = load_reviews(args.reviews)
-    result = run(reviews, ref, errata, date=args.date)
+    result = run(
+        reviews, ref, errata, date=args.date, include_flagged=args.include_flagged
+    )
     result["reader_drift"] = reader_drift(reviews)
     write_outputs(args.out, result, args.date)
     if any(result["reader_drift"].values()):

@@ -1881,6 +1881,7 @@
     "leizilla_ro_casacivil_lei_1001-2000/e821baaf",
     "leizilla_ro_casacivil_lei_1001-2000/e82d0805",
     "leizilla_ro_casacivil_lei_1001-2000/e9834f21",
+    "leizilla_ro_casacivil_lei_1001-2000/ea123eef",
     "leizilla_ro_casacivil_lei_1001-2000/ea6700c9",
     "leizilla_ro_casacivil_lei_1001-2000/ebcf6c17",
     "leizilla_ro_casacivil_lei_1001-2000/ecf20f6f",
@@ -1938,11 +1939,11 @@
     "leizilla_ro_casacivil_lei_1001-2000/ffccf04f"
   ],
   "counts": {
-    "agree_closed": 1936,
+    "agree_closed": 1937,
     "agree_open": 43,
     "disagree_closed": 1,
-    "disagree_open": 92,
-    "teacher_inconsistent": 14
+    "disagree_open": 90,
+    "teacher_inconsistent": 15
   },
   "date": "2026-11-18",
   "disagree_closed": [
@@ -2356,6 +2357,27 @@
       "left_disagree_closed": [],
       "reader_commit": "33ad1f36ec18a75dad1c190b8518b8c8efb74372",
       "reason": null
+    },
+    {
+      "counts": {
+        "agree_closed": 1937,
+        "agree_open": 43,
+        "disagree_closed": 1,
+        "disagree_open": 90,
+        "teacher_inconsistent": 15
+      },
+      "date": "2026-11-18",
+      "entered_agree_closed": [
+        "leizilla_ro_casacivil_lei_1001-2000/ea123eef"
+      ],
+      "entered_disagree_closed": [],
+      "errata_applied": 9,
+      "errata_sha256": "7c7f9451b4612f4e8e7b5aa9d3f94e02df95210788420e6217b030654feb5ee5",
+      "forced": false,
+      "left_agree_closed": [],
+      "left_disagree_closed": [],
+      "reader_commit": "908970565cfc5173e1d4b31efa3a22adb497f017",
+      "reason": null
     }
   ],
   "labels": {
@@ -2370,7 +2392,7 @@
     "prompt_version": "teacher-labels-v1",
     "source": "teacher-batch-labels artifact of run 43937274430 (expires 2027-02-14T19:14:38Z)"
   },
-  "reader_commit": "33ad1f36ec18a75dad1c190b8518b8c8efb74372",
-  "reader_last_change": "65d662068a76e908ec29b5c27d0736881ceb5b4e",
+  "reader_commit": "908970565cfc5173e1d4b31efa3a22adb497f017",
+  "reader_last_change": "d73f5dcfc217dd80dd13684aeb750981f7df07bc",
   "schema_version": 1
 }

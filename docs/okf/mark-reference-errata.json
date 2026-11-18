@@ -569,6 +569,1282 @@
    "sufixo": "",
    "text_sha256": "9f9df746b7f9379c0ab8edc7aa26d5253ba1a95269d050cdefc77d589cfb612f",
    "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 21. ..",
+   "kind": "art",
+   "line": 81,
+   "n": "21",
+   "norm": "leizilla-raw-ro-casacivil-lei-01591",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Omission in the mark document: the line is a real quoted article that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: `“Art. 21. ..` opens a quoted article with an elided caput after \"seguinte redação:\".",
+   "sufixo": "",
+   "text_sha256": "b85eda952d2fa698e0f7b76b4371f2457d7523707ea98edf632fa64df52cfd0a",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "1 - Secretaria de",
+   "kind": "inc",
+   "line": 72,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-00476",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "Omission in the mark document: the line is a real inciso that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: item I of the list of budget units that follows \"passa a vigorar com as seguintes alterações:\".",
+   "sufixo": "",
+   "text_sha256": "c751fdc8f590d242180dc539736ffd7f5ef4146e73edd292ec3c42a3e8177bc8",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "II",
+   "kind": "inc",
+   "line": 451,
+   "n": "2",
+   "norm": "leizilla-raw-ro-casacivil-lei-00476",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "Omission in the mark document: the line is a real inciso that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: item II of the same list (`II - Secretaria de Estado da Indústria`).",
+   "sufixo": "",
+   "text_sha256": "c751fdc8f590d242180dc539736ffd7f5ef4146e73edd292ec3c42a3e8177bc8",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "H - QPMG 1 - Praças Poli",
+   "kind": "inc",
+   "line": 57,
+   "n": "2",
+   "norm": "leizilla-raw-ro-casacivil-lei-00756",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "Omission in the mark document: the line is a real inciso that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: `H - QPMG 1 - Praças Policiais Militares:` is inciso II (OCR H for II) between the list head and its alíneas.",
+   "sufixo": "",
+   "text_sha256": "94b904c3f239fb45da52aa29b0d9eb82af69f77d489ef8b13a3f671a7e48138a",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "II - localizar-se, no mí",
+   "kind": "inc",
+   "line": 1383,
+   "n": "2",
+   "norm": "leizilla-raw-ro-casacivil-lei-01145",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "Omission in the mark document: the line is a real inciso that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: `II - localizar-se...` follows `I - localizar-se fora de áreas...` in the same list.",
+   "sufixo": "",
+   "text_sha256": "679de1ba38d22c8572b526232cc942d044dd6197ae763323db8989ed8ac143f6",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "III - representar a ALE/",
+   "kind": "inc",
+   "line": 193,
+   "n": "3",
+   "norm": "leizilla-raw-ro-casacivil-lc-01251",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Omission in the mark document: the line is a real quoted inciso that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: inciso III inside the quoted rewording of the ALE/RO competências (closes with `(NR)`).",
+   "sufixo": "",
+   "text_sha256": "7762a28235cc47982f554609a0525174e5659c5e8ca51d957cd088f880f27955",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "X - elaborar relatórios",
+   "kind": "inc",
+   "line": 205,
+   "n": "10",
+   "norm": "leizilla-raw-ro-casacivil-lc-01251",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Omission in the mark document: the line is a real quoted inciso that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: inciso X inside the quoted rewording of the ALE/RO competências (closes with `(NR)`).",
+   "sufixo": "",
+   "text_sha256": "7762a28235cc47982f554609a0525174e5659c5e8ca51d957cd088f880f27955",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Parágrafo único. Compete",
+   "kind": "par",
+   "line": 197,
+   "n": "unico",
+   "norm": "leizilla-raw-ro-casacivil-lc-01251",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Omission in the mark document: the line is a real quoted paragraph that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: `Parágrafo único.` inside the same quoted rewording.",
+   "sufixo": "",
+   "text_sha256": "7762a28235cc47982f554609a0525174e5659c5e8ca51d957cd088f880f27955",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "IV - dirigir, orientar e",
+   "kind": "inc",
+   "line": 245,
+   "n": "4",
+   "norm": "leizilla-raw-ro-casacivil-lc-01251",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Omission in the mark document: the line is a real quoted inciso that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: inciso IV-X of the competências of the Gabinete do Superintendente in the quoted ANEXO VII (art. 2 adds them); line 255 prints VI for VII, the chain asks for VII.",
+   "sufixo": "",
+   "text_sha256": "7762a28235cc47982f554609a0525174e5659c5e8ca51d957cd088f880f27955",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "V - efetuar e acompanhar",
+   "kind": "inc",
+   "line": 247,
+   "n": "5",
+   "norm": "leizilla-raw-ro-casacivil-lc-01251",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Omission in the mark document: the line is a real quoted inciso that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: inciso IV-X of the competências of the Gabinete do Superintendente in the quoted ANEXO VII (art. 2 adds them); line 255 prints VI for VII, the chain asks for VII.",
+   "sufixo": "",
+   "text_sha256": "7762a28235cc47982f554609a0525174e5659c5e8ca51d957cd088f880f27955",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "VI - elaborar sob demand",
+   "kind": "inc",
+   "line": 251,
+   "n": "6",
+   "norm": "leizilla-raw-ro-casacivil-lc-01251",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Omission in the mark document: the line is a real quoted inciso that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: inciso IV-X of the competências of the Gabinete do Superintendente in the quoted ANEXO VII (art. 2 adds them); line 255 prints VI for VII, the chain asks for VII.",
+   "sufixo": "",
+   "text_sha256": "7762a28235cc47982f554609a0525174e5659c5e8ca51d957cd088f880f27955",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "VI - prestar assessoria",
+   "kind": "inc",
+   "line": 255,
+   "n": "7",
+   "norm": "leizilla-raw-ro-casacivil-lc-01251",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Omission in the mark document: the line is a real quoted inciso that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: inciso IV-X of the competências of the Gabinete do Superintendente in the quoted ANEXO VII (art. 2 adds them); line 255 prints VI for VII, the chain asks for VII.",
+   "sufixo": "",
+   "text_sha256": "7762a28235cc47982f554609a0525174e5659c5e8ca51d957cd088f880f27955",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "VIII - dirigir, elaborar",
+   "kind": "inc",
+   "line": 259,
+   "n": "8",
+   "norm": "leizilla-raw-ro-casacivil-lc-01251",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Omission in the mark document: the line is a real quoted inciso that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: inciso IV-X of the competências of the Gabinete do Superintendente in the quoted ANEXO VII (art. 2 adds them); line 255 prints VI for VII, the chain asks for VII.",
+   "sufixo": "",
+   "text_sha256": "7762a28235cc47982f554609a0525174e5659c5e8ca51d957cd088f880f27955",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "IX - acompanhar se as in",
+   "kind": "inc",
+   "line": 263,
+   "n": "9",
+   "norm": "leizilla-raw-ro-casacivil-lc-01251",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Omission in the mark document: the line is a real quoted inciso that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: inciso IV-X of the competências of the Gabinete do Superintendente in the quoted ANEXO VII (art. 2 adds them); line 255 prints VI for VII, the chain asks for VII.",
+   "sufixo": "",
+   "text_sha256": "7762a28235cc47982f554609a0525174e5659c5e8ca51d957cd088f880f27955",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "X - dirigir, avaliar e m",
+   "kind": "inc",
+   "line": 267,
+   "n": "10",
+   "norm": "leizilla-raw-ro-casacivil-lc-01251",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Omission in the mark document: the line is a real quoted inciso that the rule reader reads and Sonnet 5.5 (review mode, residue-review-2026-11) left as read; read against the text: inciso IV-X of the competências of the Gabinete do Superintendente in the quoted ANEXO VII (art. 2 adds them); line 255 prints VI for VII, the chain asks for VII.",
+   "sufixo": "",
+   "text_sha256": "7762a28235cc47982f554609a0525174e5659c5e8ca51d957cd088f880f27955",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 1° Ficam as empresa",
+   "kind": "art",
+   "line": 857,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "§ 1º. Para efeito desta",
+   "kind": "par",
+   "line": 863,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "§ 2° A informação de que",
+   "kind": "par",
+   "line": 865,
+   "n": "2",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "§ 3° O preço de referênc",
+   "kind": "par",
+   "line": 869,
+   "n": "3",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 1º Fica obrigada a",
+   "kind": "art",
+   "line": 1403,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Parágrafo único. A não i",
+   "kind": "par",
+   "line": 1407,
+   "n": "unico",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 1º Ficam as empresa",
+   "kind": "art",
+   "line": 1413,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 149. A ordem econôm",
+   "kind": "art",
+   "line": 1641,
+   "n": "149",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Parágrafo único. A orden",
+   "kind": "par",
+   "line": 1647,
+   "n": "unico",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "III - a livre iniciativa",
+   "kind": "inc",
+   "line": 1651,
+   "n": "3",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "VII - a repressão ao abu",
+   "kind": "inc",
+   "line": 1655,
+   "n": "7",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 181. A política ind",
+   "kind": "art",
+   "line": 1661,
+   "n": "181",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "I - incremento da produç",
+   "kind": "inc",
+   "line": 1663,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Parágrafo único. Para a",
+   "kind": "par",
+   "line": 1673,
+   "n": "unico",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Il - reduzir a intervenç",
+   "kind": "inc",
+   "line": 1687,
+   "n": "2",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: the line is text of a law transcribed in the opinion (\"norma impugnada, por seu turno, apresenta a seguinte redação\", \"Lei Federal n. 12.669/2012\", \"in litteris\"), a quoted dispositivo the mark document omitted; the rule reader and Sonnet read it as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 1º Fica obrigada a",
+   "kind": "art",
+   "line": 673,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: \"Lei Federal nº 12.669/2012\" (line 671) heads this transcription for comparison; the article is quoted, not the Lei 4.989's own (Sonnet: set_quoted); the mark document lacks it",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 1°-A O descumprimen",
+   "kind": "art",
+   "line": 885,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: \"Art. 1°-A\" is part of the text of the impugned law quoted in the opinion (after \"A norma impugnada ... apresenta a seguinte redação\", lines 855-873; the text is cut by the page footer at 875-883); Sonnet: set_quoted; the mark document lacks it",
+   "sufixo": "A",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "§ 1º. Para efeito desta",
+   "kind": "par",
+   "line": 849,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: paragraph of a law transcribed in the opinion (Lei 3.571 as altered; Art. 1°-A), not a paragraph of the norm; Sonnet: remove_node (not own); the mark document lacks it, so it is added as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "§ 2º. A informação de qu",
+   "kind": "par",
+   "line": 851,
+   "n": "2",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: paragraph of a law transcribed in the opinion (Lei 3.571 as altered; Art. 1°-A), not a paragraph of the norm; Sonnet: remove_node (not own); the mark document lacks it, so it is added as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "§ 1° A penalidade de que",
+   "kind": "par",
+   "line": 889,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: paragraph of a law transcribed in the opinion (Lei 3.571 as altered; Art. 1°-A), not a paragraph of the norm; Sonnet: remove_node (not own); the mark document lacks it, so it is added as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "§ 2° A penalidade de que",
+   "kind": "par",
+   "line": 893,
+   "n": "2",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: paragraph of a law transcribed in the opinion (Lei 3.571 as altered; Art. 1°-A), not a paragraph of the norm; Sonnet: remove_node (not own); the mark document lacks it, so it is added as quoted",
+   "sufixo": "",
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 1°-A",
+   "kind": "art",
+   "line": 1933,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-04989",
+   "op": "set_device",
+   "reason": "Decision of an ADI (Processo 0800920-83.2022.8.22.0000) that quotes laws: lines 1929-1931 say \"o art. 1º-A, incluído pela Lei n. 4989/2021, cujo teor, oportunamente, transcrevo:\"; line 1933 is that transcription, quoted, not own (Sonnet: set_quoted; the rule reader reads it as own too)",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "ba2f24a69dddc96e4b4c2d9e715d526027b37c0ca6e2d1d6f1bb4f3df89978ac",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 99-0",
+   "kind": "art",
+   "line": 772,
+   "n": "9",
+   "norm": "leizilla-raw-ro-casacivil-lei-00452",
+   "op": "set_device",
+   "reason": "`Art. 99-0 Imposto` is \"Art. 9º - O Imposto\" (ordinal and dash read as a suffix `O`); it sits between art. 8 (line 700) and art. 10 (line 794); the rule reader reads 9.",
+   "set": {
+    "n": "9",
+    "sufixo": ""
+   },
+   "text_sha256": "4578468b0d08bcf4c5198bb0f3b769a1584e04ae1751ea9ddb8778763214c8cb",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "49",
+   "kind": "art",
+   "line": 229,
+   "n": "4",
+   "norm": "leizilla-raw-ro-casacivil-lc-00090",
+   "op": "remove_device",
+   "reason": "the marker \"Art.\" (line 228) and its number \"49 -\" (line 229) are one marker split over two lines; the mark document counted it twice (4 at 228 and at 229).",
+   "text_sha256": "94597c93c61e4172cc90d6b9a8866940d60b3cf3d3eb1bc8764d9c137954c920",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "49",
+   "flags": [
+    "suspect_sequence"
+   ],
+   "line": 229,
+   "norm": "leizilla-raw-ro-casacivil-lc-00090",
+   "op": "clear_suspect",
+   "reason": "Suspect settled (Sonnet review residue-review-2026-11 + rule reader + reading): the repeated 4 was the same marker counted twice; with it removed the own chain is 1-5, equal to the rule reader's, and Sonnet (ok) made no article adjustment.",
+   "text_sha256": "94597c93c61e4172cc90d6b9a8866940d60b3cf3d3eb1bc8764d9c137954c920",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "kind": "art",
+   "line": 229,
+   "n": "4",
+   "norm": "leizilla-raw-ro-casacivil-decreto-lei-00054",
+   "op": "remove_device",
+   "reason": "\"citados no\\nArt. 19.\" (lines 224-230) is an in-sentence citation, not article 4 (own art. 4 is at line 190); the mark document counted it.",
+   "text_sha256": "20198fcbd9f5db4257ba4219cf95732ab1a1673c8352856498a67a67a2f9a3fd",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "flags": [
+    "suspect_sequence"
+   ],
+   "line": 229,
+   "norm": "leizilla-raw-ro-casacivil-decreto-lei-00054",
+   "op": "clear_suspect",
+   "reason": "Suspect settled (Sonnet review residue-review-2026-11 + rule reader + reading): the second 4 was a citation; with it removed the own chain is 1-11, equal to the rule reader's, and Sonnet (ok) made no article adjustment.",
+   "text_sha256": "20198fcbd9f5db4257ba4219cf95732ab1a1673c8352856498a67a67a2f9a3fd",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 3º A fiscalização",
+   "kind": "art",
+   "line": 181,
+   "n": "3",
+   "norm": "leizilla-raw-ro-casacivil-lc-01347",
+   "op": "set_device",
+   "reason": "printed \"Art. 3º\" sits between art. 7 (own) and art. 9; 3 is an OCR error for 8 (the chain 7, 8, 9 is the only reading); the rule reader reads 8 and Sonnet (set_number 8, dropped as already the tag) says the same.",
+   "set": {
+    "n": "8"
+   },
+   "text_sha256": "83264f26c23da0588972772be4ca42b3f13b3b59ab1b9c602dabc1548d34cc13",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 3º A fiscalização",
+   "flags": [
+    "suspect_sequence"
+   ],
+   "line": 181,
+   "norm": "leizilla-raw-ro-casacivil-lc-01347",
+   "op": "clear_suspect",
+   "reason": "Suspect settled (Sonnet review residue-review-2026-11 + rule reader + reading): the break 7, 3, 9 was an OCR 8; with 8 the own chain is 1-14, equal to the rule reader's.",
+   "text_sha256": "83264f26c23da0588972772be4ca42b3f13b3b59ab1b9c602dabc1548d34cc13",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Artigo",
+   "kind": "art",
+   "line": 220,
+   "n": "40",
+   "norm": "leizilla-raw-ro-casacivil-lei-00022",
+   "op": "set_device",
+   "reason": "\"Artigo 49 - Esta Lei será regulamentada\" is Artigo 4º (º read as 9); the mark document numbered it 40; the rule reader reads 4 (chain 3, 4, 5); the Sonnet verdict for this norm is unverified (same request as a missed canary), so it is not evidence here.",
+   "set": {
+    "n": "4"
+   },
+   "text_sha256": "232d6acff202a8b558708a72748e160219a7c24f7d98747024cb5816fc5317fa",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Artigo",
+   "kind": "art",
+   "line": 241,
+   "n": "41",
+   "norm": "leizilla-raw-ro-casacivil-lei-00022",
+   "op": "set_device",
+   "reason": "\"Artigo 59 - Revogam-se\" is Artigo 5º; the mark document numbered it 41; the rule reader reads 5.",
+   "set": {
+    "n": "5"
+   },
+   "text_sha256": "232d6acff202a8b558708a72748e160219a7c24f7d98747024cb5816fc5317fa",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Artigo",
+   "flags": [
+    "suspect_number"
+   ],
+   "line": 220,
+   "norm": "leizilla-raw-ro-casacivil-lei-00022",
+   "op": "clear_suspect",
+   "reason": "Suspect settled (Sonnet review residue-review-2026-11 + rule reader + reading): the jump 3, 40, 41 was the OCR ordinal read as a digit; with 4 and 5 the own chain is 1-5, equal to the rule reader's.",
+   "text_sha256": "232d6acff202a8b558708a72748e160219a7c24f7d98747024cb5816fc5317fa",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "kind": "art",
+   "line": 181,
+   "n": "40",
+   "norm": "leizilla-raw-ro-casacivil-lei-00468",
+   "op": "set_device",
+   "reason": "\"Art. 40 - Esta Lei entra em vigor\" is Art. 4º (º read as 0); the mark document numbered it 40; the rule reader reads 4.",
+   "set": {
+    "n": "4"
+   },
+   "text_sha256": "4e5ee4043b655e46d6e568de0fe2a4bcac265c198fd4f92a274b447bf51b7870",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "kind": "art",
+   "line": 190,
+   "n": "41",
+   "norm": "leizilla-raw-ro-casacivil-lei-00468",
+   "op": "set_device",
+   "reason": "\"Art. 59 - Revogam-se\" is Art. 5º; the mark document numbered it 41; the rule reader reads 5.",
+   "set": {
+    "n": "5"
+   },
+   "text_sha256": "4e5ee4043b655e46d6e568de0fe2a4bcac265c198fd4f92a274b447bf51b7870",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "flags": [
+    "suspect_number"
+   ],
+   "line": 181,
+   "norm": "leizilla-raw-ro-casacivil-lei-00468",
+   "op": "clear_suspect",
+   "reason": "Suspect settled (Sonnet review residue-review-2026-11 + rule reader + reading): the jump 3, 40, 41 was the OCR ordinal; with 4 and 5 the own chain is 1-5, equal to the rule reader's.",
+   "text_sha256": "4e5ee4043b655e46d6e568de0fe2a4bcac265c198fd4f92a274b447bf51b7870",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "kind": "art",
+   "line": 341,
+   "n": "39",
+   "norm": "leizilla-raw-ro-casacivil-lei-00089",
+   "op": "set_device",
+   "reason": "\"Art. 39 - Constituem receita\" is Art. 3º (º read as 9) between art. 2 and art. 4; the mark document numbered it 39; the rule reader reads 3.",
+   "set": {
+    "n": "3"
+   },
+   "text_sha256": "965857eed39495bc3654e777373544bd437ccc8762c11c169458b99b4b54e727",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 49-0",
+   "kind": "art",
+   "line": 462,
+   "n": "40",
+   "norm": "leizilla-raw-ro-casacivil-lei-00089",
+   "op": "set_device",
+   "reason": "\"Art. 49-0 Instituto gozará\" is \"Art. 4º - O Instituto\" (ordinal, dash and article read as one token); the mark document numbered it 40; the rule reader reads 4.",
+   "set": {
+    "n": "4"
+   },
+   "text_sha256": "965857eed39495bc3654e777373544bd437ccc8762c11c169458b99b4b54e727",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "flags": [
+    "suspect_number"
+   ],
+   "line": 341,
+   "norm": "leizilla-raw-ro-casacivil-lei-00089",
+   "op": "clear_suspect",
+   "reason": "Suspect settled (Sonnet review residue-review-2026-11 + rule reader + reading): the jumps 2, 39, 40, 5 were the OCR ordinal; with 3 and 4 the own chain is 1-11, equal to the rule reader's.",
+   "text_sha256": "965857eed39495bc3654e777373544bd437ccc8762c11c169458b99b4b54e727",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "kind": "art",
+   "line": 296,
+   "n": "65",
+   "norm": "leizilla-raw-ro-casacivil-lei-00217",
+   "op": "set_device",
+   "reason": "\"Art. 65 - A base de cálculo do imposto\" is Art. 6º (º read as 5); between art. 5 and the next article; the rule reader reads 6.",
+   "set": {
+    "n": "6"
+   },
+   "text_sha256": "f5641ac500c17e6ce410f227fcb3e63e041493309ee11d30b5ae52076271df0d",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "kind": "art",
+   "line": 511,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-00217",
+   "op": "set_device",
+   "reason": "\"Art. 1- - Nas\" sits between art. 6 and art. 8: it is Art. 7º (Sonnet: set_number 7 \"OCR leu 7 como 1\"); the rule reader reads 7.",
+   "set": {
+    "n": "7"
+   },
+   "text_sha256": "f5641ac500c17e6ce410f227fcb3e63e041493309ee11d30b5ae52076271df0d",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "flags": [
+    "suspect_number",
+    "suspect_sequence"
+   ],
+   "line": 511,
+   "norm": "leizilla-raw-ro-casacivil-lei-00217",
+   "op": "clear_suspect",
+   "reason": "Suspect settled (Sonnet review residue-review-2026-11 + rule reader + reading): the breaks 5, 65, 1, 8 were two OCR errors; with 6 and 7 the own chain is 1-26, equal to the rule reader's.",
+   "text_sha256": "f5641ac500c17e6ce410f227fcb3e63e041493309ee11d30b5ae52076271df0d",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "50",
+   "kind": "art",
+   "line": 187,
+   "n": "5",
+   "norm": "leizilla-raw-ro-casacivil-lei-00471",
+   "op": "remove_device",
+   "reason": "\"Art.\" (line 186) and its number \"50 -\" (line 187) are one marker split over two lines; the mark document counted it twice (5 at 186 and at 187).",
+   "text_sha256": "0e75d4ac491d61774258f36465565bc791d80db5f8cf741d59a4b3df1e38a2f9",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "50",
+   "flags": [
+    "suspect_sequence"
+   ],
+   "line": 187,
+   "norm": "leizilla-raw-ro-casacivil-lei-00471",
+   "op": "clear_suspect",
+   "reason": "Suspect settled (Sonnet review residue-review-2026-11 + rule reader + reading): the repeated 5 was the same marker counted twice; with it removed the own chain is 1-6, equal to the rule reader's.",
+   "text_sha256": "0e75d4ac491d61774258f36465565bc791d80db5f8cf741d59a4b3df1e38a2f9",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "3-",
+   "kind": "art",
+   "line": 253,
+   "n": "3",
+   "norm": "leizilla-raw-ro-casacivil-lei-00225",
+   "op": "remove_device",
+   "reason": "\"Art.\" (line 252) and its number \"3- -\" (line 253) are one marker split over two lines; the mark document counted it twice.",
+   "text_sha256": "68d2c1d978777496246587a7d71c75005b14223e5449d55f319c1cd633be9379",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "3-",
+   "flags": [
+    "suspect_sequence"
+   ],
+   "line": 253,
+   "norm": "leizilla-raw-ro-casacivil-lei-00225",
+   "op": "clear_suspect",
+   "reason": "Suspect settled (Sonnet review residue-review-2026-11 + rule reader + reading): the repeated 3 was the same marker counted twice; with it removed the own chain is 1-5, equal to the rule reader's.",
+   "text_sha256": "68d2c1d978777496246587a7d71c75005b14223e5449d55f319c1cd633be9379",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "data",
+   "kind": "art",
+   "line": 223,
+   "n": "6",
+   "norm": "leizilla-raw-ro-casacivil-lei-00551",
+   "op": "remove_device",
+   "reason": "line 223 is \"data de sua publicação\" (the end of art. 5); there is no marker; the mark document placed a 6 there.",
+   "text_sha256": "2bcfa82a36538363a774c2ba56689182983430edcb75f0722db2c39ecb704376",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "kind": "art",
+   "line": 230,
+   "n": "7",
+   "norm": "leizilla-raw-ro-casacivil-lei-00551",
+   "op": "set_device",
+   "reason": "\"Art.\" (line 230) + \"69 - Esta Lei entra em vigor\" (line 231) is Art. 6º (º read as 9); the mark document numbered it 7 and put another 6 on the number line; art. 7 is at line 236.",
+   "set": {
+    "n": "6"
+   },
+   "text_sha256": "2bcfa82a36538363a774c2ba56689182983430edcb75f0722db2c39ecb704376",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "69",
+   "kind": "art",
+   "line": 231,
+   "n": "6",
+   "norm": "leizilla-raw-ro-casacivil-lei-00551",
+   "op": "remove_device",
+   "reason": "the number line of the marker at line 230 (see there): counted twice by the mark document.",
+   "text_sha256": "2bcfa82a36538363a774c2ba56689182983430edcb75f0722db2c39ecb704376",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "flags": [
+    "suspect_sequence"
+   ],
+   "line": 230,
+   "norm": "leizilla-raw-ro-casacivil-lei-00551",
+   "op": "clear_suspect",
+   "reason": "Suspect settled (Sonnet review residue-review-2026-11 + rule reader + reading): with the stray 6 removed and 6 at the marker, the own chain is 1-7, equal to the rule reader's.",
+   "text_sha256": "2bcfa82a36538363a774c2ba56689182983430edcb75f0722db2c39ecb704376",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 1º - Fica criada",
+   "kind": "art",
+   "line": 24,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-00694",
+   "op": "set_device",
+   "reason": "line 16: \"Art. 1º - A Lei nº 349 ... passa a vigorar com as seguinte alteração:\" and line 24 is the quoted new wording of the amended law (Sonnet: set_quoted, no tag on the line in the review because the reader had none); the mark document has it as a second own art. 1.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "71653d339b98cf7fd624bd0d1cb1f3e0d2b27c1ea7dc0eb79aa8c9aca9b10646",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 1º - Fica criada",
+   "flags": [
+    "suspect_sequence"
+   ],
+   "line": 24,
+   "norm": "leizilla-raw-ro-casacivil-lei-00694",
+   "op": "clear_suspect",
+   "reason": "Suspect settled (Sonnet review residue-review-2026-11 + rule reader + reading): the repeated 1 was the quoted article of the amended law; with it quoted the own chain is 1-21, equal to the rule reader's.",
+   "text_sha256": "71653d339b98cf7fd624bd0d1cb1f3e0d2b27c1ea7dc0eb79aa8c9aca9b10646",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "e)",
+   "kind": "ali",
+   "line": 239,
+   "n": "e",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "f)",
+   "kind": "ali",
+   "line": 256,
+   "n": "f",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "kind": "art",
+   "line": 268,
+   "n": "5",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "I",
+   "kind": "inc",
+   "line": 273,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "IV - a",
+   "kind": "inc",
+   "line": 297,
+   "n": "4",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "VI",
+   "kind": "inc",
+   "line": 320,
+   "n": "6",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "VlV[",
+   "kind": "inc",
+   "line": 342,
+   "n": "7",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "VIII",
+   "kind": "inc",
+   "line": 370,
+   "n": "8",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "IX",
+   "kind": "inc",
+   "line": 381,
+   "n": "9",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Parágr",
+   "kind": "par",
+   "line": 403,
+   "n": "unico",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "kind": "art",
+   "line": 425,
+   "n": "6",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "§ 12 -",
+   "kind": "par",
+   "line": 436,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "§ 22",
+   "kind": "par",
+   "line": 458,
+   "n": "2",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "§",
+   "kind": "par",
+   "line": 482,
+   "n": "3",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "kind": "art",
+   "line": 509,
+   "n": "7",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "kind": "art",
+   "line": 580,
+   "n": "11",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "III - ",
+   "kind": "inc",
+   "line": 585,
+   "n": "3",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "IV - d",
+   "kind": "inc",
+   "line": 602,
+   "n": "4",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Parágr",
+   "kind": "par",
+   "line": 620,
+   "n": "unico",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "kind": "art",
+   "line": 645,
+   "n": "12",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "n": "2"
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "kind": "art",
+   "line": 661,
+   "n": "13",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "n": "3"
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art.",
+   "kind": "art",
+   "line": 674,
+   "n": "14",
+   "norm": "leizilla-raw-ro-casacivil-lei-00262",
+   "op": "set_device",
+   "reason": "line 44: \"Art. 1º - Os dispositivos da Lei nº 88 ... abaixo enumerados passam a vigorar com as seguintes alterações:\"; the block opens at line 62 (`\"Art. 22`) and closes at line 642 (`SEMARO\".`); the own articles 2, 3, 4 are lines 645, 661 and 674 (\"Art. 22 - Dentro de 120 dias\", \"Art. 32 - Esta Lei entra em vigor\", \"Art. 42 - Revogam-se\"). The mark document has the block as quoted up to line 229 and as own after it. Sonnet 5.5 (review) left the reader's reading (own) and so did not catch it: read against the text.",
+   "set": {
+    "n": "4"
+   },
+   "text_sha256": "2296dfc60f16225d4c9403a59be4a8418cb889473887b0f7407cfcf526338a58",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 1° Ficam os seguintes",
+   "kind": "art",
+   "line": 265,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-04984",
+   "op": "set_device",
+   "reason": "ADI decision: line 261 \"A norma impugnada dispõe o seguinte:\" introduces the law's text; the article is quoted (the law's own art. 1 is the second copy at line 775); Sonnet: set_quoted; the mark document and the rule reader both read it as own.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "be3fb52b58f6bc898af7316aa8376c6b4c8f4f4a247054fd1ef316201f731897",
+   "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 1°. O caput do artigo 28",
+   "kind": "art",
+   "line": 207,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-01635",
+   "op": "set_device",
+   "reason": "ADI decision: line 205 \"A Lei n° 1403/ 2004 assim dispõe:\" introduces the law's text; the article is quoted; Sonnet: set_quoted; the mark document and the rule reader both read it as own.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "f4553a54f944b7d3c7d68b47042b5ff9d11eb9141d4738433c7ca4b7872c298f",
+   "verified_by": "sonnet-review+eye"
   }
  ],
  "schema_version": 1

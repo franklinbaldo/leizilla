@@ -140,6 +140,44 @@ def test_errata_ops_apply() -> None:
     assert REF_ROWS[3][3] == 0  # the input rows are not mutated
 
 
+def test_clear_suspect_settles_flags_and_brings_the_norm_into_the_gate() -> None:
+    clear = _corr(
+        op="clear_suspect",
+        flags=["suspect_number"],
+        line=4,
+        evidence="II -",
+        kind=None,
+    )
+    clear.pop("kind")
+    rows, applied, stale = rl.apply_corrections(
+        REF_ROWS, [clear], TEXT, SHA, ["suspect_number"]
+    )
+    assert applied == [clear] and not stale and rows == REF_ROWS
+    errata = rl.Errata([clear], "s")
+    flagged = rl.run_board(_ref(["suspect_number"]), reader=_reader(PERFECT))
+    assert flagged.flagged == ["n1"]
+    board = rl.run_board(_ref(["suspect_number"]), errata, reader=_reader(PERFECT))
+    assert board.flagged == [] and board.agree("art") == ["n1"]
+    # a flag it does not clear keeps the norm out
+    partly = rl.run_board(
+        _ref(["suspect_number", "suspect_sequence"]), errata, reader=_reader(PERFECT)
+    )
+    assert partly.flagged == ["n1"]
+
+
+def test_clear_suspect_goes_stale_for_a_flag_the_norm_does_not_carry() -> None:
+    clear = _corr(op="clear_suspect", flags=["suspect_sequence"], evidence="II -")
+    clear.pop("kind")
+    rows, applied, stale = rl.apply_corrections(
+        REF_ROWS, [clear], TEXT, SHA, ["suspect_number"]
+    )
+    assert stale and not applied
+    board = rl.run_board(
+        _ref(["suspect_number"]), rl.Errata([clear], "s"), reader=_reader(PERFECT)
+    )
+    assert board.errata_stale and board.flagged == ["n1"]
+
+
 def test_errata_go_stale() -> None:
     wrong_sha = _corr(op="remove_device", text_sha256="0" * 64)
     wrong_line = _corr(op="remove_device", evidence="not here")

@@ -269,13 +269,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         by_norm[str(c["norm"])].append(c)
     ref_classes: dict[str, list[str]] = {}
     for i, rec in ref.norms.items():
-        if rec.get("flags"):
-            continue
         rows = rec["devices"]
+        applied: list[dict[str, Any]] = []
         if by_norm.get(i) and ref.texts.get(rec["text_sha256"]) is not None:
-            rows, _applied, _stale = rrl.apply_corrections(
-                rows, by_norm[i], ref.texts[rec["text_sha256"]], rec["text_sha256"]
+            rows, applied, _stale = rrl.apply_corrections(
+                rows,
+                by_norm[i],
+                ref.texts[rec["text_sha256"]],
+                rec["text_sha256"],
+                rec.get("flags", []),
             )
+        if rrl.open_flags(rec, applied):
+            continue
         found = [
             c
             for c in reference_classes({"devices": rows})

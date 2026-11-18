@@ -56,7 +56,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 import compare_mark_reader as cmr
 
@@ -75,7 +75,11 @@ READER_MODULES: tuple[str, ...] = (
 SCHEMA_VERSION = 1
 LEVELS = cmr.LEVELS
 AGREE = "agree"
-OPS = ("add_device", "remove_device", "set_device")
+OPS = ("add_device", "remove_device", "set_device", "clear_suspect")
+# ``clear_suspect`` does not touch the rows: it settles the norm's suspect flags with
+# evidence (the reference's own chain was checked against the text), so the norm
+# enters the gate.
+SUSPECT_FLAGS = ("suspect_alteracao", "suspect_sequence", "suspect_number")
 MAX_NOT_COMPARABLE = 0.02
 # Tournament hold-out: a seeded 20% of the reference norms (``split_of``) is the TEST
 # split that candidate rules are never designed or judged on; the gate and the baseline
@@ -333,10 +337,17 @@ def load_errata(path: Optional[Path]) -> Optional[Errata]:
 
 
 def apply_corrections(
-    rows: list[list[Any]], corrections: list[dict[str, Any]], text: str, sha: str
+    rows: list[list[Any]],
+    corrections: list[dict[str, Any]],
+    text: str,
+    sha: str,
+    flags: Sequence[str] = (),
 ) -> tuple[list[list[Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """``(rows, applied, stale)``. A correction applies only when the text sha256
-    matches and the evidence is on the cited line; otherwise it is stale."""
+    matches and the evidence is on the cited line; otherwise it is stale.
+
+    ``clear_suspect`` (``flags``: the suspect flags it settles) leaves the rows alone;
+    it is stale when the norm does not carry a flag it names (``flags``: the norm's)."""
     lines = text.split("\n")
     starts = cmr.line_starts(text)
     rows = [list(r) for r in rows]
@@ -358,6 +369,13 @@ def apply_corrections(
             or str(c.get("evidence", "")) not in lines[line - 1]
         ):
             bad(c, "evidence not on the cited line")
+            continue
+        if c["op"] == "clear_suspect":
+            named = [str(f) for f in c.get("flags", [])]
+            if not named or any(f not in flags for f in named):
+                bad(c, "the norm does not carry the flag it clears")
+                continue
+            applied.append(c)
             continue
         base = starts[line - 1]
         kind = c["kind"]
@@ -406,6 +424,14 @@ def apply_corrections(
 # --------------------------------------------------------------------------
 # Scoreboard
 # --------------------------------------------------------------------------
+
+
+def open_flags(rec: dict[str, Any], applied: list[dict[str, Any]]) -> list[str]:
+    """The suspect flags of a norm record that no applied ``clear_suspect`` settles."""
+    cleared = {
+        str(f) for c in applied if c.get("op") == "clear_suspect" for f in c["flags"]
+    }
+    return [f for f in rec.get("flags", []) if f not in cleared]
 
 
 def devices_from_rows(rows: list[list[Any]], text: str) -> list[dict[str, Any]]:
@@ -500,13 +526,14 @@ def run_board(
             board.not_compared[texto_id] = "text missing or sha256 mismatch"
             continue
         rows = rec["devices"]
+        applied: list[dict[str, Any]] = []
         if by_norm.get(texto_id):
             rows, applied, stale = apply_corrections(
-                rows, by_norm[texto_id], text, rec["text_sha256"]
+                rows, by_norm[texto_id], text, rec["text_sha256"], rec.get("flags", [])
             )
             board.errata_applied += applied
             board.errata_stale += stale
-        if rec.get("flags"):
+        if open_flags(rec, applied):
             board.flagged.append(texto_id)
             continue
         m_devs = devices_from_rows(rows, text)

@@ -103,6 +103,7 @@ _INC_WILD = re.compile(
 _INC_BARE_CAP = re.compile(
     r"(?m)^[ \t]*(?P<tok>[IVXL]{1,6})[ \t](?=[A-ZÀ-Ý][a-zà-ý]{2})"
 )
+_ALINEA_LEFT = re.compile(r"(?m)^[ \t]*[a-z][)\]][ \t]*\Z")
 _ELISION_LINE = re.compile(r"(?m)^[ \t]*[.…]{2,}[ \t]*$")
 _CAPS_HEADING = re.compile(r"[ \t]*[A-ZÀ-Ý][A-ZÀ-Ý ,:.\-/]{7,}[ \t]*(?:\n|\Z)")
 _TITLE_WORD_LEFT = re.compile(r"(?:^|\s)[A-ZÀ-Ý][a-zà-ý]{3,}[ \t]+\Z")
@@ -556,6 +557,8 @@ def _inciso_candidates(text: str) -> list[_Cand]:
         pure = _PURE_ROMAN.match(token) is not None and bool(readings)
         dash = _STRONG_SEP.match(m.group("sep")) is not None
         line_start = _at_line_start(text, m.start())
+        if line_start and _ALINEA_LEFT.search(text[max(0, m.start() - 8) : m.start()]):
+            continue  # "c) 11 - Dia ...": the alínea's own text, a date or a number
         if dash and line_start and token in ("I", "II"):
             # The OCR drops the last stroke of "II" and "III": a line-opening "I —" or
             # "II —" that repeats the marker just before it (no article in between) may
@@ -786,6 +789,22 @@ def _article_reading(text: str, pos: int) -> int | None:
     return readings[0] if readings else None
 
 
+_LATE_CLOSING_TAIL = 32
+
+
+def _late_closing_mark(before: str) -> int | None:
+    """Index of a quote mark in the last few characters of ``before`` when only a
+    short, mark-free run of words follows it; ``None`` otherwise."""
+    low = max(0, len(before) - _LATE_CLOSING_TAIL)
+    for i in range(len(before) - 1, low - 1, -1):
+        if _QUOTE_CHAR.match(before[i]):
+            tail = before[i + 1 :]
+            if re.fullmatch(r"\s*[^\W\d_]+(?:\s+[^\W\d_]+){0,3}\.?", tail):
+                return i
+            return None
+    return None
+
+
 def _resume_after_quote(
     text: str, limit: int, body_end: int, host_number: int
 ) -> int | None:
@@ -798,14 +817,24 @@ def _resume_after_quote(
     """
     for m in ARTICLE_CANDIDATE.finditer(text, limit, body_end):
         before = text[: m.start()].rstrip()
-        if not before or not _QUOTE_CHAR.match(before[-1]):
+        # The closing mark may be followed by the sentence's full stop (``."`` and
+        # ``".`` both occur in the OCR text).
+        at: int | None = len(before) - 1
+        if before.endswith(".") and len(before) > 1 and _QUOTE_CHAR.match(before[-2]):
+            at = len(before) - 2
+        if at is None or at < 0 or not _QUOTE_CHAR.match(before[at]):
+            # OCR often leaves the closing mark at the end of the previous line, a
+            # word or two before the last one ('oficial"' / 'Ajudante de Ordens.').
+            at = _late_closing_mark(before)
+        if at is None:
             continue
-        if not _is_closing(text, len(before) - 1):
+        mark = at
+        if not _is_closing(text, mark):
             continue
         if _article_reading(text, m.start()) != host_number + 1:
             return None
         rest = len(list(ARTICLE_CANDIDATE.finditer(text, m.end(), body_end)))
-        return len(before) if rest <= 2 else None
+        return mark + 1 if rest <= 2 else None
     return None
 
 
@@ -859,7 +888,10 @@ def _extended_close(
 
 
 def find_quoted_blocks(
-    text: str, own_starts: Sequence[int], body_end: int
+    text: str,
+    own_starts: Sequence[int],
+    body_end: int,
+    own_numbers: Sequence[int | None] | None = None,
 ) -> list[tuple[int, int, str, bool]]:
     """Locate text quoted from another norm: ``(start, end, opened_by, closed)``.
 
@@ -933,7 +965,8 @@ def find_quoted_blocks(
                 limit,
                 body_end,
                 own_starts[idx:],
-                _article_reading(text, host_start),
+                (own_numbers[idx - 1] if own_numbers else None)
+                or _article_reading(text, host_start),
             )
             if ext is not None:
                 end, closed = ext, True
@@ -2348,7 +2381,8 @@ def read_hierarchy(text: str) -> HierarchyReport:
         body_end = implicit[1]
     else:
         body_end = find_body_end(text, bounds[-1]) if bounds else len(text)
-    spans = find_quoted_blocks(text, bounds, body_end)
+    numbers = [a["number"] for a in first["articles"] if a["status"] == "own"]
+    spans = find_quoted_blocks(text, bounds, body_end, numbers)
     masked = [(s, e) for s, e, _, _ in spans]
     masked += [h for h in heads if not any(s <= h[0] < e for s, e in masked)]
     masked.sort()
