@@ -136,7 +136,21 @@ referência diferem decidem de que lado está o erro (`scripts/review_to_errata.
   `ids_file=residue-review-2026-11`, `canary_ids_file=residue-review-2026-11-canaries`,
   `shuffle_seed=20261118`, `text_source=textos`, `max_usd=3`, `guard=estimate`; `collect`
   com `manifest_run_id`; se houver truncadas, o reenvio com os mesmos insumos. Depois:
-  `uv run scripts/review_to_errata.py --reviews COLLECT_DIR ...`.
+  `uv run scripts/review_to_errata.py --reviews COLLECT_DIR --out OUT_DIR --textos textos.parquet`
+  (offline; rode no commit da execução: o `git_sha` dos registros, porque as etiquetas de
+  subnível que o modelo viu não são gravadas e são refeitas com o leitor atual; o script
+  avisa quando o leitor mudou).
+- Saída de `review_to_errata.py`, por ponto de discordância leitor x referência e por
+  ajuste: `confirms_reference` (o ajuste leva o leitor à referência: defeito do leitor,
+  agrupado por padrão em `patterns.tsv`, candidato ao torneio), `reference_error_candidate`
+  (o modelo, resposta completa e verificada, não ajustou onde o leitor difere da referência:
+  uma entrada proposta de `mark-reference-errata.json` com `verified_by: "sonnet-review"`,
+  conferida aplicando-a às linhas da referência), `third_opinion` (o ajuste não é nem o do
+  leitor nem o da referência, inclusive onde os dois concordam: decisão humana) e
+  `inconclusive` (`unverified`, `partial` ou ajuste descartado no ponto: o silêncio não vale
+  como concordância). Saídas: `review_errata.tsv`, `patterns.tsv`,
+  `proposed-mark-reference-errata.json` (não aplicado) e `summary.json`. Uma opinião do
+  modelo é indício: cada entrada proposta se lê contra o texto antes de entrar no errata.
 
 ## Reenvio de requisições truncadas
 
