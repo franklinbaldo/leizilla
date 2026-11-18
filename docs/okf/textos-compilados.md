@@ -32,6 +32,9 @@ decretos-leis); 32 têm também o original preservado.
   própria.
 - **Fecho do nível de artigos antes de qualquer mudança**: 40 de 99 (40%). Em 72 normas de
   DESENHO (semente `compiled-seed-1`, 70/30 por norma) 29; em 27 de TESTE (held-out) 11.
+  Depois das regras do torneio (A, S, C1 a C4; [reader-ratchet.md](reader-ratchet.md), "Torneio nos
+  textos compilados"): desenho 67 de 72, **retidas 23 de 27**, nenhuma norma perdeu o fecho em
+  nível algum (medido uma vez, no fim, no scratch da sessão, não preservado).
 - Cada arquivo: norma, sha256, fonte do texto, linhas, fecho e a dica dos candidatos sem
   explicação (`duplicate` em quase todos).
 

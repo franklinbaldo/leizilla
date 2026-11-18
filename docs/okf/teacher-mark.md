@@ -343,8 +343,9 @@ número; taxa de A exato, de B exato e do offset usado, por coluna do marcador n
 ## Modo de âncora `snippet` (`--anchors snippet`, prompt `teacher-mark-v2s`)
 
 O estresse truncou 40/40 (effort medium) e 8/8 (effort low): cada requisição gastou o
-`max_tokens` inteiro raciocinando e não escreveu nada. A hipótese (não verificada) é que o
-modelo gasta o raciocínio **contando colunas** em linhas de 200 a 400 caracteres. Para
+`max_tokens` inteiro raciocinando e não escreveu nada. A hipótese é que o
+modelo gasta o raciocínio **contando colunas** em linhas de 200 a 400 caracteres (a única
+evidência a favor está em "Medições: coluna contra trecho", abaixo). Para
 separar essa causa das demais existe uma opção de modo de âncora:
 
 - `--anchors col+snippet` (padrão, o contrato v2 acima, sem mudança de byte no prompt);
@@ -381,6 +382,44 @@ Sonda de 8 normas do conjunto de estresse (workflow `teacher-batch.yml`):
 O `plan` local dá 8 normas em 2 requisições, estimativa US$ 0,0034, teto US$ 0,0101. Ler:
 se as 2 requisições escreverem marcas (não truncarem), o custo de contar colunas era a
 causa; compare as âncoras usadas e o offset usado contra o leitor por coluna.
+
+### Medições: coluna contra trecho (2026-11-17/18)
+
+Tudo com `claude-haiku-5-5`; os números vêm dos `summary.json`/`score_mark.md` das rodadas e dos
+logs de coleta do `teacher-batch.yml` (custo por rodada: `medicoes-2026-11.md`). Os diretórios de
+coleta ficaram no scratch da sessão (`scratchpad/mark-pilot/out`, `mark-v2-runs/out-v2`,
+`mark-v2-runs/b-labels`, `snippet-probe/dl`), **não preservados**; o que se reproduz do repositório é
+o plano (`--ids-file` + semente) e a conta de custo, não as respostas do modelo.
+
+| rodada | texto | âncoras | normas | marcas respondidas | usadas | descartadas | desfecho |
+|---|---|---|---|---|---|---|---|
+| piloto v1 (run 44183783864) | 60 do piloto, texto como publicado | coluna + trecho | 60 | 1 514 | 1 472 | 42 `conflict` | 57 `ok`, 3 `degraded`; US$ 0,0724 |
+| piloto v2 (run 44191043135) | os mesmos 60 | coluna + trecho | 60 | 1 551 | 1 548 | 3 `conflict` | 58 `ok`, 2 `degraded`; US$ 0,0748 |
+| estresse, effort medium (run 44192207303) | 40 `~reflow` (linhas de 200 a 400) | coluna + trecho | 40 | 0 | 0 | | **40 de 40 truncadas** (15 requisições); US$ 0,0553 |
+| estresse, effort low (run 44195307522) | 8 do mesmo conjunto | coluna + trecho | 8 | 0 | 0 | | **8 de 8 truncadas**; US$ 0,0080 |
+| sonda de trecho (run 44201705985) | as mesmas 8 (`--limit 8` do mesmo arquivo), effort medium | só trecho (`teacher-mark-v2s`) | 8 | 113 | 84 (todas B) | 29 `conflict` | 8 `degraded`, nenhuma truncada; US$ 0,0081 |
+
+- **Precisão da coluna no texto normal.** v1: a coluna `c` coincidiu com a resolução exata do
+  trecho em 1 494 de 1 494 marcas (nenhuma fora do intervalo); v2: 1 545 de 1 546 (0,9994; o erro é
+  um deslocamento de −2 num artigo, e a conferência dos 3-4 primeiros caracteres o pegou). **Nas
+  marcas medidas, 1 493 de 1 494 (v1) e 1 545 de 1 546 (v2) estão nas colunas 0 a 10** (só 1 em 11 a 40): a coluna nunca foi
+  testada no meio de uma linha longa, só no começo de linhas curtas (mediana 36, máximo 128
+  caracteres). Por isso não se conclui nada sobre linhas longas do piloto.
+- **Estresse.** Com linhas de 200 a 400 caracteres a requisição gastou o `max_tokens` inteiro e
+  não escreveu marca nenhuma: 40 de 40 (medium) e 8 de 8 (low); somando, 48 de 48.
+- **Sonda de trecho.** As mesmas 8 normas, sem pedir `c`, responderam todas (2 de 2 requisições,
+  113 marcas, 84 usadas, 29 descartadas como `conflict`, 8 `degraded`). **Esta sonda é a única
+  evidência de que contar colunas é o que quebra as linhas longas**: a diferença entre as duas
+  rodadas é o prompt (`v2` contra `v2s`, que também troca `c` por `o`), o resultado é uma rodada
+  de 8 normas contra uma de 8 e uma de 40, e não houve repetição. É uma indicação forte (nenhuma das
+  48 truncou com coluna, nenhuma das 8 truncou sem), não uma medida controlada.
+- **Os 29 conflitos da sonda não foram investigados.** `degraded` nas 8 normas mostra que o
+  conversor descartou marcas; não sei se é o mesmo defeito do piloto v1 (o `<lei>` fechado no
+  primeiro fecho), um defeito do modo `snippet` com linhas reflowed ou marcas do modelo
+  realmente em conflito. A precisão do offset do modo `snippet` no texto reflowed contra o leitor
+  **não foi medida em dado real** (só na simulação seca, 99,1% das 576 marcas).
+- Não há uma terceira rodada de comparação: a pontuação em escala (referência de 300 e camada
+  inteira) usou `col+snippet` em texto normal e `snippet` nas 10 + 3 normas de linha longa.
 
 ## Conjunto de referência (300 normas, depois 3161) e o placar por nível
 

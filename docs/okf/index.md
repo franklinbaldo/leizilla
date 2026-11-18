@@ -18,6 +18,7 @@ Bundle de conhecimento do Leizilla. Cada arquivo descreve um conceito operaciona
 - [Reader ratchet](reader-ratchet.md) — gate do leitor por regras contra os rótulos do professor; linha de base e procedimento
 - [Teacher batch, modo review](teacher-review.md) — o professor audita a leitura do leitor e devolve só os ajustes; canários, amostra de avaliação, pontuação
 - [Teacher batch, modo mark](teacher-mark.md) — o professor faz a leitura completa e devolve só onde as marcas vão, com duas âncoras (coluna e trecho) por marca; piloto de 60 normas, pontuação
+- [Medições de novembro de 2026](medicoes-2026-11.md) — custo medido da API rodada por rodada (US$ 5,76 em 14 rodadas) e índice das medições que sustentam decisões, com o que ficou só no scratch
 
 ## Formatos
 

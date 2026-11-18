@@ -387,8 +387,10 @@ As unidades "novas" são quase todas vazio-vazio: o que importa é a diferença 
 medidas feitas com o mesmo critério. A linha de base foi refeita com um registro de histórico
 que explica a mudança.
 
-**Rodada 21** (mesmo dia, critério novo; base: as 4 regras abaixo, uma a uma): **4 regras
-promovidas**, todas de remoção de falso dispositivo. Gate de artigo PASS, gate por nível PASS,
+**Rodada 21** (mesmo dia, critério novo): **3 regras promovidas**, todas de remoção de falso
+dispositivo (o código tem quatro condições, porque a regra 2 tem dois sinais, avaliados juntos; a
+mensagem de commit do #392 e uma versão anterior deste texto diziam "4 regras", o corpo do PR e a
+contagem por teste dizem 3, e a lista abaixo tem 3). Gate de artigo PASS, gate por nível PASS,
 nenhuma unidade perdida no treino nem no teste, e o que cada regra tira conferido a olho.
 1. Sinal de parágrafo seguido de `ao/aos` ou `e inciso(s)` em minúscula é citação (`artigo 43,
    § 1º e incisos da Lei Federal`, `Acrescenta § 4º ao artigo 4º`, `"§ 3º" ao art. 1º`):
@@ -409,6 +411,10 @@ nenhuma unidade perdida no treino nem no teste, e o que cada regra tira conferid
    de verdade). +3 unidades de `item` (3 treino, 0 teste); 22 de 22 removidos falsos. Sem a
    guarda do inciso a regra tirava 28 dispositivos, 5 deles certos (precisão 0,82): rejeitada
    nessa forma.
+
+**Total do torneio em 2026-11-18** (regras promovidas): 12 (amostra de 300) + 16 (rodadas 1 a 5,
+escala cheia) + 18 (rodadas 6 a 16) = 46, saturado na rodada 16; mais 1 (rodada 17, artigo único
+implícito, aprovada pelo dono), 3 (rodadas 18 a 20, resíduo do Sonnet) e 3 (rodada 21) = **53**.
 
 Já promovido e **confirmado**: `Assessor IV - CDS-04` (rodada 6: numeral romano depois de
 palavra capitalizada no meio da linha não é inciso; teste novo em `test_hierarchy_sequence.py`).
@@ -439,7 +445,11 @@ Rodada única de `teacher_batch --mode review` com `claude-sonnet-5-5` (effort m
 (as 38 com suspeita, 9 nomeadas, amostras semeadas das classes do resíduo) + 16 canários;
 coleta 44288579553, manifesto 44288243796, custo medido **US$ 0,80** (estimativa 2,03). O modelo
 vê a leitura do **leitor** como etiquetas e só devolve ajustes; `review_to_errata.py` compara
-cada ponto leitor x referência com o que ele fez. Números e leitura a olho:
+cada ponto leitor x referência com o que ele fez. Números e leitura a olho (origem: `out/summary.json` do scratch da rodada, não preservado, que
+classifica os 319 pontos em `confirms_reference` 42, `reference_error_candidate` 244,
+`third_opinion` 15 e `inconclusive` 18; a tabela abaixo subdivide os 244 por tipo de silêncio
+(65 + 113 + 59 = 237; 7 sem classe aqui) e soma 294 pontos, os 25 restantes são os 18 inconclusivos
+e esses 7):
 
 - **Validador.** 123 ajustes válidos e 48 descartados. Dos 48, **45 são o modelo repetindo a
   etiqueta ou escrevendo lixo** ("placeholder", "x", "sem erro", "etiqueta já correta": 29 ``set_number`` /
@@ -496,7 +506,7 @@ uma regra só pela cadeia perde 8 unidades (títulos `CAPÍTULO`/`TÍTULO` + rom
 itens** (`1.` sozinho, títulos de orçamento, teses de ementa): ambíguas, a referência é incoerente
 entre as listas; deixadas.
 
-**Aplicado.** (a) 90 errata novas (133 no total): 36 `add_device` (omissões do conversor lidas
+**Aplicado.** (a) 90 errata novas (133 no total na época; 135 hoje, as 2 de lei-04983 do #393): 36 `add_device` (omissões do conversor lidas
 pelo leitor e aceitas pelo Sonnet, lidas a olho; 15 só em lei-04989), 37 `set_device` (números
 de OCR, citado/próprio em decisões que transcrevem a lei, o bloco citado inteiro de lei-00262),
 6 `remove_device` (marcador contado duas vezes: `Art.` e o número em linhas separadas, ou citação no
@@ -539,6 +549,80 @@ decreto-01004, lc-01164, lei-06284: reiniciar a cadeia na fórmula de promulgaç
 natural); bloco citado sem aspas de fechamento ou com marcas soltas (lei-00262, lei-00452);
 decisões judiciais que transcrevem leis (lei-04989, lei-04984, lei-01635: o tipo de documento é
 a pista); romano/alínea soltos em coluna; lei-01296 (2 -> 6); 27 normas suspeitas.
+
+## Etiquetador aprendido por linha (medido e descartado, 2026-11-18)
+
+Pergunta: um modelo treinado nos rótulos do professor (modo `label`) lê a estrutura melhor que o
+leitor por regras? **Não.** Medição offline, sem API, sobre os rótulos do `main` (2086 normas
+rotuladas): partição estratificada por tipo e grupo (semente 20261118): 1501 normas de treino
+(a fração 1.0), 167 de validação e **418 de teste** (`test_all`; `test_clean` = 402 delas em que
+professor e leitor concordam no nível de artigo). Cada linha vira um vetor esparso
+(n-gramas de 1 a 4 caracteres do começo e do fim da linha mais fichas de forma: tamanho, linha em branco
+antes/depois, aspas, maiúsculas; na variante `word`, palavras) e recebe uma de 11 classes (nível x status). Modelos:
+MLP de janela (±3 linhas) sobre n-gramas de caracteres (`mlp_char`) ou de palavras (`mlp_word`),
+BiGRU sobre todas as linhas (`gru_char`) e BiGRU com saída fatorada (`gruF_char`). O leitor por
+regras é o mesmo que o gate mede, sem treino. Matéria-prima: o diretório
+`.../scratchpad/learned-tagger/` da sessão (`work/report_main.txt`, `report_more.txt`,
+`report_numbers.txt`, `report_lc.txt`, `bis_line_*.json`, `char_results_big.json`), **não
+preservado fora da sessão; não é reproduzível a partir do repositório** (os scripts de treino
+não foram commitados).
+
+F1 por nível em `test_all` (418 normas), dispositivo = (linha, nível, `status` próprio/citado):
+
+| modelo | art | par | inc | ali | todos |
+|---|---|---|---|---|---|
+| leitor por regras | 0,970 | 0,909 | 0,945 | 0,876 | **0,938** |
+| MLP (caracteres) | 0,936 | 0,754 | 0,796 | 0,560 | 0,819 |
+| MLP (palavras) | 0,907 | 0,726 | 0,768 | 0,550 | 0,797 |
+| BiGRU (caracteres) | 0,928 | 0,747 | 0,788 | 0,572 | 0,813 |
+| BiGRU fatorado | 0,932 | 0,804 | 0,834 | 0,367 | 0,835 |
+
+(`item`: leitor 0,486, modelos 0,00 a 0,31.) Sem olhar o `status` (só o nível): leitor 0,959 contra
+0,948 do MLP. Com o número também exigido, o leitor fica em 0,934 e o MLP em 0,779. **Próprio contra
+citado** (F1 `status`, todos os níveis): leitor 0,959 / 0,789; MLP 0,877 / 0,378; BiGRU 0,871 /
+0,158; BiGRU fatorado 0,865 / 0,622. A maior diferença está no citado; a leitura de que isso
+vem de o leitor tratar o bloco por estrutura (a aspa que abre e fecha) e o modelo por vizinhança é
+hipótese, não foi testada. Norma inteira certa em
+todos os dispositivos do nível: leitor art 0,935, par 0,916, inc 0,902; MLP 0,840, 0,811, 0,751.
+Fecho do nível de artigos e correto: leitor 0,900, MLP 0,794, BiGRU 0,794, BiGRU fatorado 0,718.
+
+**O que o MLP acha e o leitor não** (referência: professor `label`): 326 dos 471 dispositivos que o
+leitor perde, mas **também inventa 346** que o professor não tem (o leitor inventa 51). Os formatos mais
+frequentes dos que o leitor perde e o modelo acha (forma da linha, dígitos trocados por 9): `Art. 99.`
+(20), `Art. 999` (19), `Art.` sozinho na linha (18), `Parágrafo ...` (11), `Art. 9o` com `o` no lugar
+de `º` (6), `Art. 9º` (5). As invenções mais frequentes do modelo são linhas que começam por
+número com milhar e travessão (`9.999 —`: 35 `par`, 24 `item`, 12 `inc`, 8 `art`), isto é, tabelas e
+listas, que o leitor por regras recusa de propósito; não li uma amostra delas.
+
+**Híbrido** (cadeia do leitor com um filtro/gate aprendido de candidatos; precisão/revocação de
+`kind+status`, todos os níveis, 418 normas): só o leitor 0,970 / 0,909; `filter` com o MLP 0,974 /
+0,885 (a revocação de alíneas cai de 0,835 para 0,728); `augment` 0,970 / 0,911 (igual); `replace`
+0,974 / 0,882 (alíneas 0,716). O ganho de precisão (+0,004) custa revocação de subnível e não muda
+o fecho do nível de artigos (0,947, correto 0,900, nas três variantes). Não vale a complexidade.
+
+**Bisseção** (um classificador de trecho "contém um início de dispositivo?" e a divisão recursiva
+do trecho, pensada para linhas longas de texto reflowed): em nível de linha, 100 normas,
+τ = 0,2, o classificador agrupado dá F1 0,911 (P 0,912, R 0,910) com **173 chamadas por norma e 9,8
+vezes as linhas de trabalho** (264 831 linhas processadas sobre 26 979); a BiGRU, F1 0,868 (60
+normas, 4,7 vezes). Por número de dispositivos na norma: de 1 a 10, F1 ~0,97; 11 a 50, P 0,98 / R 0,93;
+51 a 200, P 0,69 / R 0,79 (o pior); acima de 200, P 0,97 / R 0,93. Em nível de **caractere**, em texto
+reflowed (linhas de 200 a 400): um passe único dá P 0,963 / R 0,919 / F1 0,940 (2 109 chamadas,
+650 mil caracteres) e a bisseção P 0,968 / **R 0,576** / F1 0,722 (37 259 chamadas, 2,8 milhões de
+caracteres: 17,7 vezes as chamadas e 4,4 vezes os caracteres). Conclusão: a bisseção só acrescenta
+trabalho e perde revocação.
+
+**Curva de aprendizado** (fração do treino: 0,1 / 0,25 / 0,5 / 1,0 = 150 / 375 / 750 / 1501 normas;
+F1 só de nível, todos os níveis): MLP 0,729 / 0,897 / 0,934 / 0,948; BiGRU fatorado 0,000 / 0,570 /
+0,761 / 0,884; o leitor, sem treino, 0,959. Em `kind+status`: MLP 0,657 / 0,792 / 0,820 / 0,819;
+BiGRU fatorado 0,000 / 0,530 / 0,693 / 0,835 (leitor 0,938). A curva do MLP satura em `status`
+em ~750 normas e a do BiGRU ainda sobe, mas os dois ficam abaixo do leitor com todo o treino
+disponível; o F1 do citado sobe com os dados (MLP 0,000 / 0,094 / 0,256 / 0,378; BiGRU fatorado 0,000
+/ 0,008 / 0,374 / 0,622), então mais rótulos talvez fechem parte da distância; não foi medido.
+
+**Conclusão registrada.** Com 1501 normas rotuladas o leitor por regras ganha em todos os níveis
+(0,938 contra 0,835 no melhor modelo), principalmente em citado/próprio; o modelo só tem sentido
+como proposta de candidatos para errata (lido a olho), não como leitor. O resultado vale para esse
+professor e esse corte de rótulos, não é um limite do método.
 
 ## Conjunto de avaliação (held-out)
 
@@ -598,6 +682,12 @@ reticências que inclui artigos de numeração que a cadeia leva como próprios 
 fecha cedo porque a cadeia tomou o "Art. 2°" citado; é o defeito do leitor de blocos citados, não
 específico de compilados) e as normas que não são atos (lei 5036 é cópia de acórdão; lei 5584,
 anexos de tabelas). Ficam abertas, ver "Fica de fora" em textos-compilados.md.
+
+Fecho nas 27 normas retidas (medido uma vez, no fim, sobre o `held_final.json` do scratch, que não
+foi preservado; os números conferem com o DAG): artigos 11 -> 23 de 27, parágrafos 17 -> 22, incisos
+18 -> 19, alíneas 24 -> 26, nenhuma norma deixou de fechar em nível algum. As 72 de desenho: artigos
+29 -> 67, parágrafos 37 -> 54, incisos 45 -> 52, alíneas 59 -> 64. Ver também
+[textos compilados](textos-compilados.md).
 
 Dispositivo `superseded` e toda a sua subárvore saem das contas `own` (`own_articles`, placar, gates):
 o gate compara a visão vigente (`compare_mark_reader.devices` ignora `estado="superado"`).
