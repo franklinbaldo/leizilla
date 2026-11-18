@@ -492,11 +492,27 @@ def test_look_alike_after_the_chain_keeps_the_scope_open() -> None:
     assert not report["closes"]
 
 
-def test_unreadable_marker_that_continues_a_list_keeps_the_scope_open() -> None:
+def test_unreadable_marker_that_continues_a_list_is_read_as_the_next_number() -> None:
+    # Was: left over, keeping the scope open. The sub-level tournament (mark reference)
+    # reads a lone strong marker after "; e" at the chain's tail as the next number.
     text = "Art. 1º Receitas:\nI — taxas;\nII — doações; e\nWI — outras.\nArt. 2º Fim."
     report = read_hierarchy(text)
-    assert _unexplained(report) == ["WI —"]
-    assert not report["closes"]
+    assert _unexplained(report) == []
+    assert _node(report, "art-1-inc-3")["read_by"] == "gap"
+
+
+def test_unreadable_marker_with_a_reading_beyond_the_chain_stays_open() -> None:
+    text = "Art. 1º Receitas:\nI — taxas;\nII — doações; e\nVI — outras.\nArt. 2º Fim."
+    report = read_hierarchy(text)
+    assert "art-1-inc-3" not in _paths(report)
+
+
+def test_restarted_list_is_not_read_as_a_dropped_stroke() -> None:
+    text = (
+        "Art. 1º Compete:\nI - um;\nII - dois.\nI - de novo;\nII - outra vez.\n"
+        "Art. 2º Fim."
+    )
+    assert "art-1-inc-3" not in _paths(read_hierarchy(text))
 
 
 def test_unreadable_line_opener_outside_a_list_is_ignored() -> None:
@@ -1612,3 +1628,92 @@ def test_losing_the_last_marker_never_closes_with_the_article_missing(
     if report["closes"]:
         # Closing is only allowed with every article accounted for, never one short.
         assert numbers == original, (mutation, numbers)
+
+
+# --- sub-level rules from the mark-reference tournament (docs/okf/reader-ratchet.md) --
+
+
+def test_ocr_dropped_stroke_reads_ii_as_iii_when_the_chain_wants_it() -> None:
+    text = (
+        "Art. 1º O patrimônio será constituído por:\n"
+        "I — bens e direitos próprios;\n"
+        "II — bens móveis transferidos;\n"
+        "II — por doações e legados.\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _paths(report) == [
+        "art-1",
+        "art-1-inc-1",
+        "art-1-inc-2",
+        "art-1-inc-3",
+        "art-2",
+    ]
+
+
+def test_paragraph_comma_after_ordinal_is_not_a_citation_at_line_start() -> None:
+    text = (
+        "Art. 1º A Fundação terá sede.\n"
+        "$ 1º, A Fundação aplicará recursos.\n"
+        "§ 2º A Fundação prestará contas.\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    assert "art-1-par-1" in _paths(read_hierarchy(text))
+
+
+def test_apostrophe_does_not_close_a_double_quoted_block() -> None:
+    text = (
+        "Art. 1º O artigo 22 da Lei nº 5 passa a vigorar com a seguinte redação:\n"
+        "\"Art. 22 - O servidor receberá cinco quintos de' 5/5 (cinco quintos).\n"
+        "§ 1º - Entende-se como gratificação a parcela.\n"
+        'Art. 23 - Os demais valores permanecem."\n'
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    quoted = [n for n in report["nodes"] if n["status"] == "quoted" and n["path"]]
+    assert any(n["kind"] == "paragrafo" for n in quoted)
+    assert "art-1-par-1" not in _paths(report)
+
+
+def test_unico_paragraph_ocr_variants() -> None:
+    for word in (
+        "Parágrafo único",
+        "Paragrafo úrico",
+        "Parâgrafo único",
+        "Parágafo único",
+    ):
+        text = f"Art. 1º Fica criado o fundo.\n{word} - Os eventos serão regulados.\n"
+        assert "art-1-par-unico" in _paths(read_hierarchy(text)), word
+
+
+def test_paragraph_glyph_with_hyphen_or_double_letter() -> None:
+    text = (
+        "Art. 1º A matrícula será feita.\n"
+        "S-1º - No ato serão esclarecidas as vantagens.\n"
+        "Ss 2º - A doação será espontânea.\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    paths = _paths(read_hierarchy(text))
+    assert "art-1-par-1" in paths and "art-1-par-2" in paths
+
+
+def test_roman_numeral_without_dash_joins_the_chain() -> None:
+    text = (
+        "Art. 1º A multa será aplicada quando:\n"
+        "I - o equipamento for instalado;\n"
+        "II  o equipamento emitir choque pulsativo;\n"
+        "III - o equipamento for violado.\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    assert "art-1-inc-2" in _paths(read_hierarchy(text))
+
+
+def test_unreadable_last_inciso_in_an_enumeration_takes_the_next_number() -> None:
+    text = (
+        "Art. 1º Compete ao Conselho:\n"
+        "I — deliberar sobre as contas;\n"
+        "II — aprovar o orçamento;\n"
+        "NI — ao Conselho Estadual dos Direitos da Mulher.\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    assert "art-1-inc-3" in _paths(read_hierarchy(text))

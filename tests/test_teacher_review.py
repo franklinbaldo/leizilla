@@ -2186,7 +2186,7 @@ _NODE_TEXT = "\n".join(
         "Art. 1º - Fica criada a coisa, com as seguintes regras:",
         "I - primeiro item da lista de regras;",
         "II - segundo item da lista de regras;",
-        "II - terceiro item que deveria ser III;",
+        "XI - terceiro item que deveria ser III;",
         "Art. 2º - Esta Lei entra em vigor na data de sua publicação.",
     ]
 )

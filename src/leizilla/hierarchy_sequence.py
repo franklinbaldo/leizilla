@@ -26,6 +26,10 @@ Three kinds of reading, recorded per node in ``read_by``: ``literal`` (as printe
 unreadable or contradict the chain, read only because exactly one number was missing
 between two neighbours and exactly one candidate sat there).
 
+A ``gap`` reading also fills the tail of an inciso chain: one lone, strong leftover after
+the last member, opening a line in an enumeration that goes on ("…; e" / "…;") and with
+no reading beyond the chain, is the next number ("NI —" after I and II).
+
 What keeps a scope open, besides a gap in its chain: a marker where a marker sits (line
 start or after sentence punctuation) that joined no chain; a look-alike left beside a
 chain ("11 —" after "II —"); any short line opener that follows "…; e" or "…;", since
@@ -73,7 +77,7 @@ from leizilla.article_sequence import (
 # "5" or "&"; the look-alike glyphs are only trusted at the start of a line.
 _PAR = re.compile(
     r"(?<![A-Za-z0-9$§])"
-    r"(?P<glyph>§|\$|(?:\d{1,2}|[SsqgBfE&£])(?=\s)|S(?=\d{1,2}[º°]))\s{0,3}"
+    r"(?P<glyph>§|\$|(?:\d{1,2}|[SsqgBfE&£]{1,2})(?=[\s-])|S(?=\d{1,2}[º°]))[\s-]{0,3}"
     r"(?P<num>[0-9IlO]{1,3})(?:(?P<ord>\s?\.?[ºo°ªQ^?])|(?![.,]?\d))"
     r"(?:-(?P<suffix>[A-Z])\b)?"
 )
@@ -81,7 +85,7 @@ _PAR = re.compile(
 # its own and can only be read by the chain around it.
 _PAR_WILD = re.compile(r"[§$]\s?[^\W\d_]{1,2}\b(?!\s?[ºo°])")
 _PAR_UNICO = re.compile(
-    r"\bPar[áa]gra[ft]o\s+[ÚúUuOÜü][nm][ijl]?c[oa]\b", re.IGNORECASE
+    r"\bPar[áâàa]g[rt]?a[fgt]o\s+[ÚúUuOÜüÙù][nmr][ijl]?c[oa]\b", re.IGNORECASE
 )
 # Roman numeral (or what OCR makes of one) followed by a separator.
 _INC = re.compile(
@@ -93,6 +97,8 @@ _INC = re.compile(
 _INC_WILD = re.compile(
     r"(?m)^[ \t]*(?P<mark>(?P<tok>[^\W_]{1,4})[ \t]{0,2}[-–—]+)(?P<gap>[ \t]*)\S"
 )
+# A roman numeral of two or more letters opening a line, two spaces and lower-case prose.
+_INC_BARE = re.compile(r"(?m)^[ \t]*(?P<tok>[IVXL]{2,6})[ \t]{2}(?=[a-zà-ý])")
 _ALI = re.compile(r"(?<![\w(])(?P<let>[a-zA-Z06])\s?[)\]}]")
 _ALI_WILD = re.compile(r"(?m)^[ \t]*(?P<tok>[^\s(]{1,2})[ \t]?[)\]}]")
 _ITEM = re.compile(r"(?m)^[ \t]*(?P<num>\d{1,2})(?:\s?[.)]|\s?[-–—])(?=\s)(?!\s*\d)")
@@ -147,6 +153,8 @@ _REF_LEFT_PAR = re.compile(
 _REF_RIGHT_PAR = re.compile(
     r"\s*(?:(?:do|da|dos|das|deste|desta|destes|destas)\b|,|e\s+(?:§|\d))"
 )
+# A comma straight after the paragraph number and a capital: the sentence starts there.
+_COMMA_SEPARATOR = re.compile(r"\s{0,2},[ \t]+[A-ZÀ-Ý]")
 _REF_LEFT_INC = re.compile(
     r"\b(?:incisos?|inc\.|itens?|item|anexos?|tabelas?|quadros?|cap[ií]tulos?"
     r"|t[ií]tulos?|se[cç](?:[aã]o|[oõ]es)|subse[cç][aã]o|livros?|partes?|grupos?"
@@ -451,7 +459,10 @@ def _paragraph_candidates(text: str) -> list[_Cand]:
                 continue
         # "§ 2º do art. 5º" is a citation wherever it sits; a citing word on the left
         # only counts inside a line (a marker follows the previous line's last word).
-        ref = bool(_REF_RIGHT_PAR.match(text, m.end(), m.end() + 12)) or (
+        right = _REF_RIGHT_PAR.match(text, m.end(), m.end() + 12)
+        if right is not None and line_start and _COMMA_SEPARATOR.match(text, m.end()):
+            right = None  # "$ 3º, A escola": the comma is the OCR of the "-" or "."
+        ref = bool(right) or (
             not line_start and bool(_REF_LEFT_PAR.search(_left(text, m.start())))
         )
         out.append(
@@ -487,12 +498,26 @@ def _paragraph_candidates(text: str) -> list[_Cand]:
 
 def _inciso_candidates(text: str) -> list[_Cand]:
     out: list[_Cand] = []
+    last_dash: tuple[tuple[int, ...], int] | None = None
     for m in _INC.finditer(text):
         token = m.group("tok")
         readings = roman_readings(token)
         pure = _PURE_ROMAN.match(token) is not None and bool(readings)
         dash = _STRONG_SEP.match(m.group("sep")) is not None
         line_start = _at_line_start(text, m.start())
+        if dash and line_start and token in ("I", "II"):
+            # The OCR drops the last stroke of "II" and "III": a line-opening "I —" or
+            # "II —" that repeats the marker just before it (no article in between) may
+            # also read one more, when the chain wants it. A restart ("I, II, I, II")
+            # is something else: a lost paragraph marker.
+            if (
+                last_dash is not None
+                and set(last_dash[0]) & set(readings)
+                and ARTICLE_CANDIDATE.search(text, last_dash[1], m.start()) is None
+            ):
+                readings = (*readings, len(token) + 1)
+        if dash and line_start:
+            last_dash = (roman_readings(token), m.end())
         # An OCR look-alike, or a weak separator ("I." may be an initial), is only a
         # candidate where a marker would sit.
         if (not pure or not dash) and not line_start:
@@ -534,6 +559,16 @@ def _inciso_candidates(text: str) -> list[_Cand]:
             )
         )
     taken = {c.start for c in out}
+    for m in _INC_BARE.finditer(text):
+        # "II  o equipamento": the dash lost, two spaces left. Only a chain can use it.
+        if m.start("tok") in taken:
+            continue
+        readings = roman_readings(m.group("tok"))
+        if readings:
+            out.append(
+                _Cand(m.start("tok"), m.end("tok"), readings, literal=readings[0])
+            )
+            taken.add(m.start("tok"))
     for m in _INC_WILD.finditer(text):
         start, end = m.start("tok"), m.end("mark")
         token = m.group("tok")
@@ -760,6 +795,8 @@ def find_quoted_blocks(
         depth = 1
         for q in _QUOTE_CHAR.finditer(text, k + 1, limit):
             j = q.start()
+            if text[j] in "'‘’" and text[k] not in "'‘’":
+                continue  # an apostrophe ("de' 5/5") never closes a double-quoted block
             if _is_closing(text, j):
                 depth -= 1
                 if depth == 0:
@@ -972,7 +1009,11 @@ class _Builder:
         )
         free_skips = _ALI_FREE_SKIPS if kind == "alinea" else frozenset()
         filled = (
-            _fill_single_gaps(cands, chosen, free_skips) if not lenient else frozenset()
+            _fill_single_gaps(
+                cands, chosen, free_skips, self.text if kind == "inciso" else None
+            )
+            if not lenient
+            else frozenset()
         )
         members = [i for i, v in enumerate(chosen) if v is not None]
         values = [v for v in chosen if v is not None]
@@ -1141,7 +1182,10 @@ class _Builder:
 
 
 def _fill_single_gaps(
-    cands: Sequence[_Cand], chosen: list[int | None], free_skips: frozenset[int]
+    cands: Sequence[_Cand],
+    chosen: list[int | None],
+    free_skips: frozenset[int],
+    text: str | None = None,
 ) -> frozenset[int]:
     """Read a lone leftover between k-1 and k+1 as k, whatever its glyphs say.
 
@@ -1165,6 +1209,25 @@ def _fill_single_gaps(
                 continue  # "1 -" between II and IV is a list item, not III
             chosen[between[0]] = absent[0]
             filled.add(between[0])
+    if members and text is not None:
+        # The chain's tail: one lone, strong leftover after the last member ("NI —"
+        # after I and II, in a list that plainly goes on) is the next number.
+        last = chosen[members[-1]]
+        after = [i for i in range(members[-1] + 1, len(cands)) if not cands[i].ref]
+        if (
+            last is not None
+            and len(after) == 1
+            and cands[after[0]].strong
+            and max(cands[after[0]].readings, default=0) <= last
+            and _in_enumeration(text, cands[after[0]].start)
+            and not cands[after[0]].digit
+            and not cands[after[0]].unico
+            and not cands[after[0]].suffix
+        ):
+            chosen[after[0]] = next(
+                k for k in range(last + 1, last + 4) if k not in free_skips
+            )
+            filled.add(after[0])
     return frozenset(filled)
 
 

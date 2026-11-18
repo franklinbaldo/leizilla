@@ -10,7 +10,9 @@
    "leizilla-raw-ro-casacivil-lei-00240",
    "leizilla-raw-ro-casacivil-lei-00380",
    "leizilla-raw-ro-casacivil-lei-00454",
+   "leizilla-raw-ro-casacivil-lei-00499",
    "leizilla-raw-ro-casacivil-lei-00522",
+   "leizilla-raw-ro-casacivil-lei-00693",
    "leizilla-raw-ro-casacivil-lei-00720",
    "leizilla-raw-ro-casacivil-lei-00767",
    "leizilla-raw-ro-casacivil-lei-00841",
@@ -288,6 +290,7 @@
    "leizilla-raw-ro-casacivil-lei-01655",
    "leizilla-raw-ro-casacivil-lei-01656",
    "leizilla-raw-ro-casacivil-lei-01660",
+   "leizilla-raw-ro-casacivil-lei-01669",
    "leizilla-raw-ro-casacivil-lei-01674",
    "leizilla-raw-ro-casacivil-lei-01694",
    "leizilla-raw-ro-casacivil-lei-01702",
@@ -315,6 +318,7 @@
    "leizilla-raw-ro-casacivil-lc-00306",
    "leizilla-raw-ro-casacivil-lc-00311",
    "leizilla-raw-ro-casacivil-lc-00312",
+   "leizilla-raw-ro-casacivil-lc-00313",
    "leizilla-raw-ro-casacivil-lc-00324",
    "leizilla-raw-ro-casacivil-lc-00345",
    "leizilla-raw-ro-casacivil-lc-00364",
@@ -344,20 +348,29 @@
    "leizilla-raw-ro-casacivil-lei-00914",
    "leizilla-raw-ro-casacivil-lei-00981",
    "leizilla-raw-ro-casacivil-lei-01005",
+   "leizilla-raw-ro-casacivil-lei-01113",
+   "leizilla-raw-ro-casacivil-lei-01190",
    "leizilla-raw-ro-casacivil-lei-01212",
    "leizilla-raw-ro-casacivil-lei-01221",
+   "leizilla-raw-ro-casacivil-lei-01309",
+   "leizilla-raw-ro-casacivil-lei-01312",
    "leizilla-raw-ro-casacivil-lei-01319",
    "leizilla-raw-ro-casacivil-lei-01335",
    "leizilla-raw-ro-casacivil-lei-01375",
+   "leizilla-raw-ro-casacivil-lei-01397",
    "leizilla-raw-ro-casacivil-lei-01412",
    "leizilla-raw-ro-casacivil-lei-01438",
    "leizilla-raw-ro-casacivil-lei-01439",
+   "leizilla-raw-ro-casacivil-lei-01460",
    "leizilla-raw-ro-casacivil-lei-01485",
+   "leizilla-raw-ro-casacivil-lei-01517",
    "leizilla-raw-ro-casacivil-lei-01545",
    "leizilla-raw-ro-casacivil-lei-01575",
    "leizilla-raw-ro-casacivil-lei-01617",
    "leizilla-raw-ro-casacivil-lei-01628",
-   "leizilla-raw-ro-casacivil-lei-01655"
+   "leizilla-raw-ro-casacivil-lei-01655",
+   "leizilla-raw-ro-casacivil-lei-01730",
+   "leizilla-raw-ro-casacivil-lei-01733"
   ],
   "item": [
    "leizilla-raw-ro-casacivil-lei-00550",
@@ -378,6 +391,7 @@
    "leizilla-raw-ro-casacivil-lc-00138",
    "leizilla-raw-ro-casacivil-lc-00171",
    "leizilla-raw-ro-casacivil-lc-00184",
+   "leizilla-raw-ro-casacivil-lc-00219",
    "leizilla-raw-ro-casacivil-lc-00252",
    "leizilla-raw-ro-casacivil-lc-00270",
    "leizilla-raw-ro-casacivil-lc-00296",
@@ -397,6 +411,8 @@
    "leizilla-raw-ro-casacivil-lei-00226",
    "leizilla-raw-ro-casacivil-lei-00292",
    "leizilla-raw-ro-casacivil-lei-00298",
+   "leizilla-raw-ro-casacivil-lei-00333",
+   "leizilla-raw-ro-casacivil-lei-00337",
    "leizilla-raw-ro-casacivil-lei-00339",
    "leizilla-raw-ro-casacivil-lei-00353",
    "leizilla-raw-ro-casacivil-lei-00357",
@@ -405,12 +421,15 @@
    "leizilla-raw-ro-casacivil-lei-00383",
    "leizilla-raw-ro-casacivil-lei-00421",
    "leizilla-raw-ro-casacivil-lei-00454",
+   "leizilla-raw-ro-casacivil-lei-00459",
    "leizilla-raw-ro-casacivil-lei-00481",
+   "leizilla-raw-ro-casacivil-lei-00482",
    "leizilla-raw-ro-casacivil-lei-00513",
    "leizilla-raw-ro-casacivil-lei-00541",
    "leizilla-raw-ro-casacivil-lei-00550",
    "leizilla-raw-ro-casacivil-lei-00554",
    "leizilla-raw-ro-casacivil-lei-00593",
+   "leizilla-raw-ro-casacivil-lei-00594",
    "leizilla-raw-ro-casacivil-lei-00598",
    "leizilla-raw-ro-casacivil-lei-00657",
    "leizilla-raw-ro-casacivil-lei-00686",
@@ -425,6 +444,7 @@
    "leizilla-raw-ro-casacivil-lei-00914",
    "leizilla-raw-ro-casacivil-lei-00981",
    "leizilla-raw-ro-casacivil-lei-00993",
+   "leizilla-raw-ro-casacivil-lei-00999",
    "leizilla-raw-ro-casacivil-lei-01005",
    "leizilla-raw-ro-casacivil-lei-01109",
    "leizilla-raw-ro-casacivil-lei-01113",
@@ -453,6 +473,7 @@
    "leizilla-raw-ro-casacivil-lei-01438",
    "leizilla-raw-ro-casacivil-lei-01439",
    "leizilla-raw-ro-casacivil-lei-01455",
+   "leizilla-raw-ro-casacivil-lei-01460",
    "leizilla-raw-ro-casacivil-lei-01478",
    "leizilla-raw-ro-casacivil-lei-01485",
    "leizilla-raw-ro-casacivil-lei-01517",
@@ -460,7 +481,9 @@
    "leizilla-raw-ro-casacivil-lei-01546",
    "leizilla-raw-ro-casacivil-lei-01562",
    "leizilla-raw-ro-casacivil-lei-01563",
+   "leizilla-raw-ro-casacivil-lei-01575",
    "leizilla-raw-ro-casacivil-lei-01598",
+   "leizilla-raw-ro-casacivil-lei-01601",
    "leizilla-raw-ro-casacivil-lei-01606",
    "leizilla-raw-ro-casacivil-lei-01617",
    "leizilla-raw-ro-casacivil-lei-01628",
@@ -471,9 +494,9 @@
    "leizilla-raw-ro-casacivil-lei-01733"
   ]
  },
- "date": "2026-11-17",
- "errata_applied": 0,
- "errata_sha256": "b4ec241e90e1341f699d1676cf2eeb8b909d01c955dca0578d152f0385709393",
+ "date": "2026-11-18",
+ "errata_applied": 13,
+ "errata_sha256": "80a53268874e54a826742b4475a121c2ca31fb50054659024f74d064746e9be2",
  "flagged": [
   "leizilla-raw-ro-casacivil-lei-00149",
   "leizilla-raw-ro-casacivil-lei-00694",
@@ -1044,9 +1067,192 @@
      "units_agree": 105
     }
    }
+  },
+  {
+   "date": "2026-11-17",
+   "entered": [
+    "art leizilla-raw-ro-casacivil-lei-01669",
+    "par leizilla-raw-ro-casacivil-lc-00219",
+    "par leizilla-raw-ro-casacivil-lei-00333",
+    "par leizilla-raw-ro-casacivil-lei-00337",
+    "par leizilla-raw-ro-casacivil-lei-00459",
+    "par leizilla-raw-ro-casacivil-lei-00482",
+    "par leizilla-raw-ro-casacivil-lei-00594",
+    "par leizilla-raw-ro-casacivil-lei-00999",
+    "par leizilla-raw-ro-casacivil-lei-01460",
+    "par leizilla-raw-ro-casacivil-lei-01575",
+    "par leizilla-raw-ro-casacivil-lei-01601",
+    "inc leizilla-raw-ro-casacivil-lc-00313",
+    "inc leizilla-raw-ro-casacivil-lei-01113",
+    "inc leizilla-raw-ro-casacivil-lei-01190",
+    "inc leizilla-raw-ro-casacivil-lei-01309",
+    "inc leizilla-raw-ro-casacivil-lei-01312",
+    "inc leizilla-raw-ro-casacivil-lei-01397",
+    "inc leizilla-raw-ro-casacivil-lei-01460",
+    "inc leizilla-raw-ro-casacivil-lei-01517",
+    "inc leizilla-raw-ro-casacivil-lei-01730",
+    "inc leizilla-raw-ro-casacivil-lei-01733",
+    "ali leizilla-raw-ro-casacivil-lei-00499",
+    "ali leizilla-raw-ro-casacivil-lei-00693"
+   ],
+   "forced": false,
+   "left": [],
+   "reader_commit": "b7d98be0b76af643c688ab21910fa53a1fdfec5b",
+   "reason": "rules c01 c02 c05 c06 c07 c08 c09d + errata E1 E2: sub-level tournament round 1",
+   "table": {
+    "ali": {
+     "agree": 151,
+     "number_differs": 1,
+     "reader_extra": 8,
+     "reader_misses": 5,
+     "units": 35,
+     "units_agree": 24
+    },
+    "art": {
+     "agree": 1503,
+     "number_differs": 9,
+     "reader_extra": 1,
+     "reader_misses": 24,
+     "status_differs": 4,
+     "units": 294,
+     "units_agree": 275
+    },
+    "inc": {
+     "agree": 729,
+     "number_differs": 5,
+     "reader_extra": 13,
+     "reader_misses": 31,
+     "status_differs": 9,
+     "units": 95,
+     "units_agree": 67
+    },
+    "item": {
+     "agree": 37,
+     "kind_differs": 2,
+     "reader_extra": 9,
+     "reader_misses": 42,
+     "units": 10,
+     "units_agree": 2
+    },
+    "par": {
+     "agree": 439,
+     "number_differs": 1,
+     "reader_extra": 6,
+     "reader_misses": 25,
+     "status_differs": 2,
+     "units": 138,
+     "units_agree": 115
+    }
+   }
+  },
+  {
+   "date": "2026-11-18",
+   "entered": [],
+   "forced": false,
+   "left": [],
+   "reader_commit": "b7d98be0b76af643c688ab21910fa53a1fdfec5b",
+   "reason": "sub-level tournament round 1: c01 c02 c05 c06 c07 c08 c09d + errata E1 E2",
+   "table": {
+    "ali": {
+     "agree": 151,
+     "number_differs": 1,
+     "reader_extra": 8,
+     "reader_misses": 5,
+     "units": 35,
+     "units_agree": 24
+    },
+    "art": {
+     "agree": 1503,
+     "number_differs": 9,
+     "reader_extra": 1,
+     "reader_misses": 24,
+     "status_differs": 4,
+     "units": 294,
+     "units_agree": 275
+    },
+    "inc": {
+     "agree": 731,
+     "number_differs": 3,
+     "reader_extra": 13,
+     "reader_misses": 31,
+     "status_differs": 9,
+     "units": 95,
+     "units_agree": 67
+    },
+    "item": {
+     "agree": 37,
+     "kind_differs": 2,
+     "reader_extra": 9,
+     "reader_misses": 42,
+     "units": 10,
+     "units_agree": 2
+    },
+    "par": {
+     "agree": 439,
+     "number_differs": 1,
+     "reader_extra": 6,
+     "reader_misses": 25,
+     "status_differs": 2,
+     "units": 138,
+     "units_agree": 115
+    }
+   }
+  },
+  {
+   "date": "2026-11-18",
+   "entered": [],
+   "forced": false,
+   "left": [],
+   "reader_commit": "b7d98be0b76af643c688ab21910fa53a1fdfec5b",
+   "reason": "sub-level tournament round 1: c01 c02 c05 c06 c07 c08 c09d + errata E1 E2",
+   "table": {
+    "ali": {
+     "agree": 151,
+     "number_differs": 1,
+     "reader_extra": 8,
+     "reader_misses": 5,
+     "units": 35,
+     "units_agree": 24
+    },
+    "art": {
+     "agree": 1503,
+     "number_differs": 9,
+     "reader_extra": 1,
+     "reader_misses": 24,
+     "status_differs": 4,
+     "units": 294,
+     "units_agree": 275
+    },
+    "inc": {
+     "agree": 731,
+     "number_differs": 3,
+     "reader_extra": 13,
+     "reader_misses": 31,
+     "status_differs": 9,
+     "units": 95,
+     "units_agree": 67
+    },
+    "item": {
+     "agree": 37,
+     "kind_differs": 2,
+     "reader_extra": 9,
+     "reader_misses": 42,
+     "units": 10,
+     "units_agree": 2
+    },
+    "par": {
+     "agree": 439,
+     "number_differs": 1,
+     "reader_extra": 6,
+     "reader_misses": 25,
+     "status_differs": 2,
+     "units": 138,
+     "units_agree": 115
+    }
+   }
   }
  ],
- "reader_commit": "7487c81ead3589e45a853c1a685f8b8d7b520b08",
+ "reader_commit": "b7d98be0b76af643c688ab21910fa53a1fdfec5b",
  "reader_last_change": "01f19f03d51eb0ed683633cd0ad6d0fea7ef842e",
  "reference": {
   "batch_ids": [
@@ -1065,30 +1271,30 @@
  "schema_version": 1,
  "table": {
   "ali": {
-   "agree": 143,
+   "agree": 151,
    "number_differs": 1,
-   "reader_extra": 16,
+   "reader_extra": 8,
    "reader_misses": 5,
    "units": 35,
-   "units_agree": 22
+   "units_agree": 24
   },
   "art": {
-   "agree": 1502,
+   "agree": 1503,
    "number_differs": 9,
-   "reader_extra": 2,
+   "reader_extra": 1,
    "reader_misses": 24,
    "status_differs": 4,
    "units": 294,
-   "units_agree": 274
+   "units_agree": 275
   },
   "inc": {
-   "agree": 715,
-   "number_differs": 5,
+   "agree": 731,
+   "number_differs": 3,
    "reader_extra": 13,
-   "reader_misses": 45,
+   "reader_misses": 31,
    "status_differs": 9,
    "units": 95,
-   "units_agree": 57
+   "units_agree": 67
   },
   "item": {
    "agree": 37,
@@ -1099,13 +1305,13 @@
    "units_agree": 2
   },
   "par": {
-   "agree": 418,
+   "agree": 439,
    "number_differs": 1,
    "reader_extra": 6,
-   "reader_misses": 33,
-   "status_differs": 15,
+   "reader_misses": 25,
+   "status_differs": 2,
    "units": 138,
-   "units_agree": 105
+   "units_agree": 115
   }
  }
 }
