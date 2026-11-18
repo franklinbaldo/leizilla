@@ -341,3 +341,27 @@ outros workflows, a ração da conta é o que se esgota.
    10 descoberta + 45 colheita (`HARVEST_MAX_SECONDS` 2700) + 25 encerramento = 85 min
    (`timeout-minutes: 85`, prazo `85 * 60`); 4 x 85 = 340 min < 360 min entre disparos.
    Custo: a colheita por tipo cai de 75 para 45 min.
+
+## Adendo 2026-11-18 — ordem da fila por rendição e a rendição no `index.csv`
+
+**Medido** (catálogo publicado de 2026-11-18, `index.csv` dos itens de range e logs do
+`discover-harvest`): leis e LCs com só o arquivo original listado estavam 49% preservadas;
+só compilada, 30%; só revogado, 29%; "outra", 13% (exemplo: LC 68/1992, só `LC68 -
+COMPILADA.pdf`). Não é filtro: arquivos com sufixo são enfileirados, buscados e aceitos pelo
+IA (cerca de 120 já capturados, todos depois de 2026-11-15, com `%20` na `source`). O
+original das décadas antigas tinha 87-100% por causa da varredura por nome canônico
+(`L{n}.pdf`) anterior à descoberta pela lista anual; dentro da mesma década a diferença some
+ou inverte. A fila não tinha preferência por rendição, e a colheita faz ~100-270 capturas
+por execução.
+
+1. *Prioridade por norma* (`storage.get_pending_resources`), depois do degrau de justiça
+   (nunca tentado primeiro, #297) e antes do rodízio por bucket: 0 = a norma não lista
+   original; 1 = a norma tem rendição compilada (o original que a acompanha também); 2 =
+   outras rendições não originais; 3 = originais. O agregado por norma olha todos os status.
+   O rodízio por bucket, o limite por host, o lote e o derive não mudam.
+2. *Rendição gravada.* `discovered_resources.rendicao` (derivada do nome do arquivo, preenchida
+   também em bancos antigos do cache) e a coluna `rendicao` do `index.csv`, que o lote passa
+   a gravar para as não originais; vazia continua sendo o original, para a recaptura dos
+   mesmos bytes seguir sendo no-op. `year_index_rendicao` passou para `leizilla.rendicao`:
+   `L{n}_compressed.pdf` (257 dos 466 "outra") é o original recomprimido, e `- COMP.pdf` é
+   compilada.

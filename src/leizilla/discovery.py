@@ -14,6 +14,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Callable
 
 from leizilla import config as _config
+from leizilla.rendicao import (  # noqa: F401 (re-exportados: API histórica de discovery)
+    RENDICAO_COMPILADA,
+    RENDICAO_ORIGINAL,
+    RENDICAO_OUTRA,
+    RENDICAO_RETIFICADO,
+    RENDICAO_REVOGADO,
+    year_index_rendicao,
+)
 from leizilla.storage import DuckDBStorage
 
 logger = logging.getLogger(__name__)
@@ -840,39 +848,6 @@ _YEAR_INDEX_PAGE_YEAR = re.compile(
     r"""id=['"][^'"]*lblAno['"][^>]*>\s*(\d{4})\s*<""", re.IGNORECASE
 )
 _YEAR_INDEX_RATE_LIMIT_S = 1.0
-
-# Rótulos de rendição derivados do sufixo do nome do arquivo na lista oficial
-# ("L6500 - COMPILADA.pdf", "D31884 - REVOGADO.pdf", "DEC31990 - RETIFICADO.pdf").
-RENDICAO_ORIGINAL = "original"
-RENDICAO_COMPILADA = "compilada"
-RENDICAO_REVOGADO = "revogado"
-RENDICAO_RETIFICADO = "retificado"
-RENDICAO_OUTRA = "outra"
-_FILE_STEM_IDENTITY = re.compile(r"^[A-Za-z]+\s*\d[\d.]*[A-Za-z]?(?![A-Za-z])")
-
-
-def year_index_rendicao(filename: str) -> str:
-    """Rendição de um arquivo da lista anual, pelo sufixo do nome.
-
-    ``L6572.pdf`` → ``original``; ``L6500 - COMPILADA.pdf`` / ``DL9A -
-    COMPILADO_merged.pdf`` → ``compilada``; ``… - REVOGADO|REVOGADA`` →
-    ``revogado``; ``… - RETIFICADO`` → ``retificado``. Qualquer outro sufixo não
-    vazio ("SEM EFEITO") → ``outra``: o arquivo é listado, só não classificado.
-    """
-    stem = urllib.parse.unquote(filename).rsplit("/", 1)[-1]
-    if "." in stem:
-        stem = stem.rsplit(".", 1)[0]
-    rest = _FILE_STEM_IDENTITY.sub("", stem.strip(), count=1)
-    rest = re.sub(r"[\s_\-]+", " ", rest).strip().upper()
-    if not rest:
-        return RENDICAO_ORIGINAL
-    if "COMPIL" in rest or "CONSOLID" in rest:
-        return RENDICAO_COMPILADA
-    if "REVOG" in rest:
-        return RENDICAO_REVOGADO
-    if "RETIF" in rest:
-        return RENDICAO_RETIFICADO
-    return RENDICAO_OUTRA
 
 
 def _visible_text(fragment: str) -> str:

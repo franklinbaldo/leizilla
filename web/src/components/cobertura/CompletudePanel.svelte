@@ -79,7 +79,7 @@
           ></progress>
         {/if}
         <p class="resumo">
-          {fmtPct(t.pct_preservadas)} preservadas · {fmtCount(t.com_texto)} com texto ·
+          {fmtPct(t.pct_preservadas)} preservadas · {fmtCount(t.com_texto)} com texto do IA ·
           {fmtCount(t.estruturadas)} estruturadas ·
           <strong>{fmtCount(t.faltantes)} faltando</strong>
         </p>

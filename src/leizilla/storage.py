@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 import duckdb
 
 from leizilla import config
+from leizilla.rendicao import RENDICAO_ORIGINAL, rendicao_para_fila
 
 
 class DuckDBStorage:
@@ -71,11 +72,44 @@ class DuckDBStorage:
         conn.execute(
             "ALTER TABLE discovered_resources ADD COLUMN IF NOT EXISTS motivo VARCHAR"
         )
+        # Rendição do arquivo (original|compilada|revogado|retificado|outra), derivada
+        # do nome — a fila de colheita a usa como prioridade (get_pending_resources).
+        conn.execute(
+            "ALTER TABLE discovered_resources ADD COLUMN IF NOT EXISTS rendicao VARCHAR"
+        )
+        self._backfill_rendicao(conn)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_resources_status ON discovered_resources(status)"
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_resources_ente ON discovered_resources(ente)"
+        )
+
+    @staticmethod
+    def _backfill_rendicao(conn: duckdb.DuckDBPyConnection) -> None:
+        """Preenche ``rendicao`` das linhas de bancos antigos (cache do workflow).
+
+        Só as poucas linhas não originais são atualizadas uma a uma; o resto (a
+        imensa maioria) recebe ``original`` num único UPDATE.
+        """
+        missing = [
+            row[0]
+            for row in conn.execute(
+                "SELECT url FROM discovered_resources WHERE rendicao IS NULL"
+            ).fetchall()
+        ]
+        if not missing:
+            return
+        for url in missing:
+            rendicao = rendicao_para_fila(url)
+            if rendicao != RENDICAO_ORIGINAL:
+                conn.execute(
+                    "UPDATE discovered_resources SET rendicao = ? WHERE url = ?",
+                    [rendicao, url],
+                )
+        conn.execute(
+            "UPDATE discovered_resources SET rendicao = ? WHERE rendicao IS NULL",
+            [RENDICAO_ORIGINAL],
         )
 
     @staticmethod
@@ -95,6 +129,11 @@ class DuckDBStorage:
 
     def insert_resource(self, resource_data: Dict[str, Any]) -> None:
         conn = self.connect()
+        if "rendicao" not in resource_data and resource_data.get("url"):
+            resource_data = {
+                **resource_data,
+                "rendicao": rendicao_para_fila(str(resource_data["url"])),
+            }
         columns = ", ".join(resource_data.keys())
         placeholders = ", ".join(["?" for _ in resource_data])
         conn.execute(
@@ -109,13 +148,13 @@ class DuckDBStorage:
         tipo: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         conn = self.connect()
-        conditions = ["status = 'pending'"]
+        conditions = ["k.status = 'pending'"]
         params: list = []
         if ente:
-            conditions.append("ente = ?")
+            conditions.append("k.ente = ?")
             params.append(ente)
         if tipo:
-            conditions.append("tipo_documento = ?")
+            conditions.append("k.tipo_documento = ?")
             params.append(tipo)
         where = " AND ".join(conditions)
         params.append(limit)
@@ -141,18 +180,40 @@ class DuckDBStorage:
         # de cada bucket em rodízio, do bucket mais alto ao mais baixo, em vez de
         # esgotar um item (e estourar a ração por item do IA) antes de abrir o
         # próximo. Chave sem número fica sem bucket e vai por último.
+        # Prioridade por norma (degrau ``_prio``), logo após o degrau de justiça e
+        # antes do rodízio por bucket: o que a colheita ainda não tem e é mais
+        # consultado vai primeiro, sem mudar o ritmo por host nem o lote do IA.
+        #   0 — a norma não lista arquivo original (só compilada/revogado/outra):
+        #       sem esta captura a norma inteira some do acervo (ex.: LC 68/1992);
+        #   1 — a norma tem uma rendição compilada (situação ``tem-compilada``): é a
+        #       versão viva, com as alterações, e o original que a acompanha;
+        #   2 — demais rendições não originais (revogado, retificado, outra);
+        #   3 — originais.
+        # O agregado por norma olha **todos** os status: um original já preservado
+        # não rebaixa a compilada que ainda falta. O ``_rn`` do rodízio é por degrau.
         results = conn.execute(
-            "WITH p AS (SELECT *, "
-            "TRY_CAST(NULLIF(regexp_extract(chave, '(\\d+)$', 1), '') AS BIGINT) "
-            "AS _num FROM discovered_resources WHERE " + where + "), "
+            "WITH n AS (SELECT ente, fonte, tipo_documento, chave, "
+            "bool_or(rendicao = 'original') AS _has_orig, "
+            "bool_or(rendicao = 'compilada') AS _has_comp "
+            "FROM discovered_resources WHERE chave IS NOT NULL GROUP BY ALL), "
+            "p AS (SELECT k.*, "
+            "TRY_CAST(NULLIF(regexp_extract(k.chave, '(\\d+)$', 1), '') AS BIGINT) "
+            "AS _num, CASE WHEN NOT coalesce(n._has_orig, true) THEN 0 "
+            "WHEN coalesce(n._has_comp, false) THEN 1 "
+            "WHEN coalesce(k.rendicao, 'original') <> 'original' THEN 2 "
+            "ELSE 3 END AS _prio "
+            "FROM discovered_resources k LEFT JOIN n "
+            "ON k.ente = n.ente AND k.fonte = n.fonte "
+            "AND k.tipo_documento IS NOT DISTINCT FROM n.tipo_documento "
+            "AND k.chave = n.chave WHERE " + where + "), "
             "b AS (SELECT *, CASE WHEN _num > 0 THEN (_num - 1) // 1000 "
             "WHEN _num IS NOT NULL THEN 0 END AS _bucket FROM p), "
             "r AS (SELECT *, row_number() OVER (PARTITION BY ente, fonte, "
-            "tipo_documento, _bucket, (ultima_tentativa IS NULL) "
+            "tipo_documento, _bucket, (ultima_tentativa IS NULL), _prio "
             "ORDER BY _num DESC NULLS LAST, url ASC) AS _rn FROM b) "
-            "SELECT * EXCLUDE (_num, _bucket, _rn) FROM r "
+            "SELECT * EXCLUDE (_num, _bucket, _rn, _prio) FROM r "
             "ORDER BY ultima_tentativa ASC NULLS FIRST, "
-            "CASE WHEN _num IS NULL THEN 1 ELSE 0 END, _rn ASC, "
+            "CASE WHEN _num IS NULL THEN 1 ELSE 0 END, _prio ASC, _rn ASC, "
             "_bucket DESC NULLS LAST, _num DESC NULLS LAST, url ASC LIMIT ?",
             params,
         ).fetchall()
