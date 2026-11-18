@@ -264,16 +264,26 @@ def main(argv: Optional[list[str]] = None) -> int:
             classes[texto_id] = found
         if not any(o["defects"] for o in outcomes):
             agree_all.add(texto_id)
-    ref_classes = {
-        i: c
-        for i, rec in ref.norms.items()
-        if not rec.get("flags") and (c := reference_classes(rec))
-    }
-    # dup_copy only counts when the reader still disagrees somewhere in the norm
-    ref_classes = {
-        i: [c for c in cs if c != "dup_copy" or i in classes or i in NAMED_FULL]
-        for i, cs in ref_classes.items()
-    }
+    by_norm: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    for c in errata.corrections if errata else []:
+        by_norm[str(c["norm"])].append(c)
+    ref_classes: dict[str, list[str]] = {}
+    for i, rec in ref.norms.items():
+        if rec.get("flags"):
+            continue
+        rows = rec["devices"]
+        if by_norm.get(i) and ref.texts.get(rec["text_sha256"]) is not None:
+            rows, _applied, _stale = rrl.apply_corrections(
+                rows, by_norm[i], ref.texts[rec["text_sha256"]], rec["text_sha256"]
+            )
+        found = [
+            c
+            for c in reference_classes({"devices": rows})
+            # dup_copy only counts when the reader still disagrees somewhere
+            if c != "dup_copy" or i in classes or i in NAMED_FULL
+        ]
+        if found:
+            ref_classes[i] = found
     flagged = set(board.flagged)
 
     usable: dict[str, int] = {}

@@ -4,11 +4,11 @@
 # 79 norms; by reason {'art_extra_quoted': 4, 'art_status': 2, 'dup_copy': 1, 'flagged': 38, 'implicit_single': 4, 'inc_extra_own': 6, 'inc_extra_quoted': 6, 'inc_miss_bare': 5, 'item_extra': 4, 'named': 9}.
 # Dropped when wanted: none.
 leizilla-raw-ro-casacivil-decreto-00010
-leizilla-raw-ro-casacivil-decreto-00100
 leizilla-raw-ro-casacivil-decreto-01001
 leizilla-raw-ro-casacivil-decreto-01004
 leizilla-raw-ro-casacivil-decreto-01011
 leizilla-raw-ro-casacivil-decreto-01027
+leizilla-raw-ro-casacivil-decreto-01032
 leizilla-raw-ro-casacivil-decreto-10050
 leizilla-raw-ro-casacivil-decreto-29000
 leizilla-raw-ro-casacivil-decreto-lei-00047
