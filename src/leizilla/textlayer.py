@@ -763,6 +763,10 @@ def collect_sem_texto(
                 "sha256_fonte": capture["sha256"],
                 "capturado_em": capture.get("captured_at") or "",
                 "rendicao": capture_rendicao(capture),
+                # formato que o IA atribuiu ao PDF no metadata do item: "Text PDF"
+                # (camada de texto embutida) ou "Image Container PDF" (imagem).
+                # Já vem na listagem do item: custa nada saber antes de baixar.
+                "pdf_formato": str(files[pdf_name].get("format") or ""),
             }
         )
     return out

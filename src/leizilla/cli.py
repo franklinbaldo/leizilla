@@ -1442,7 +1442,11 @@ def cmd_reocr(
             echo(
                 f"Fila sem-texto: {stats.sem_texto_enumeradas} PDFs preservados sem "
                 f"texto · {stats.sem_texto_ja_tentadas} já tentados · "
-                f"{stats.sem_texto_na_fila} na fila (mais recentes primeiro; "
+                f"{stats.sem_texto_na_fila} na fila (compiladas "
+                f"{sum(1 for r in sem_queue if r.get('rendicao') == 'compilada')} · "
+                f"camada de texto "
+                f"{sum(1 for r in sem_queue if reocr._faixa_leitura(r) == 1)} · "
+                f"demais, mais recentes primeiro; "
                 f"{sum(1 for r in sem_queue if r['texto_id'] in years)} com ano)"
             )
         if shard_spec is not None:

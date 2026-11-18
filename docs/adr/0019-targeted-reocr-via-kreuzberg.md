@@ -192,3 +192,27 @@ to the queue, because the source may have fixed the file. The list never marks a
 closing and is not an acceptance path: the gate of decision 3 is unchanged. The same entry
 feeds the `textos.defeito_fonte` column (ADR-0015, addendum 2026-11-18), shown on the text
 page. A malformed list aborts `reocr` and `build-textos` instead of being ignored.
+
+## Addendum 2026-11-18 (2) — `sem-texto` order: compiled and text-layer PDFs first; free reads
+
+The harvest now preserves compiled renditions first, but the `sem-texto` queue was newest-first
+by year, so a compiled act of 1992 (LC 68, the civil servants' statute) would have waited
+behind ~970 newer files (about four runs of 400). Compiled PDFs are born digital: `pdftotext`
+reads them in hundredths of a second, without Kreuzberg.
+
+- **Order.** Three bands, each ordered as before (year descending, number descending, tipo,
+  `texto_id`): (0) the `compilada` rendition, any year; (1) the other PDFs the IA classified
+  as `Text PDF` (embedded text layer), known before downloading because the item metadata
+  already listed for the enumeration carries `format` per file (`pdf_formato` on the
+  candidate; `Image Container PDF` = scan); (2) the rest (OCR). A candidate without the
+  format falls in band 2, the old order.
+- **Free reads.** `limit` counts the attempts that cost (OCR, rejections, divergences). Rows
+  whose engine is `pdftotext` do not spend it, up to `LEITURA_LIVRE_FATOR` (3) times the
+  `limit` in total per `sem-texto` run (per shard: the shard is a hash of `texto_id`, so each
+  shard walks its own bands in the same order and the cap applies per shard). A text-layer
+  read that fails the gate falls to OCR and does cost. The unused share still flows to
+  `nao-fecha`, counting only the paid attempts.
+
+Measured on the published layer (2026-11-18): 1,052 candidates in the queue, of which 191
+`compilada` and 502 in bands 0+1 (191 compiled + 311 other `Text PDF`): the born-digital
+backlog drains in one run of 4 shards x 100 (cap 300 per shard) instead of five.

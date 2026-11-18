@@ -64,6 +64,12 @@ _PDF_TIMEOUT_S = 120
 #: girada/ilegível em 26 a 41. 150 separa os dois grupos com folga para os lados.
 MIN_CHARS_POR_PAGINA = 150
 FILAS = (FILA_SEM_TEXTO, FILA_NAO_FECHA)
+#: Formato que o IA dá a um PDF com camada de texto embutida (metadata do item).
+FORMATO_TEXT_PDF = "Text PDF"
+#: Teto de tentativas de uma execução da fila ``sem-texto`` como múltiplo do ``limit``:
+#: o ``limit`` conta só o que custa OCR; as leituras ``pdftotext`` (centésimos de
+#: segundo, sem o extra ``reocr``) não gastam cota, até este teto no total.
+LEITURA_LIVRE_FATOR = 3
 #: Parcela da ``--limit`` reservada à fila ``sem-texto`` (o restante, à ``nao-fecha``).
 SEM_TEXTO_PARTE = (2, 3)
 
@@ -327,6 +333,15 @@ def in_shard(queue: list[dict[str, Any]], shard: Optional[tuple[int, int]]) -> l
     return [q for q in queue if shard_of(str(q["texto_id"]), n) == i]
 
 
+def _faixa_leitura(row: Mapping[str, Any]) -> int:
+    """Faixa da fila ``sem-texto``: 0 compilada, 1 PDF com camada de texto, 2 o resto."""
+    if row.get("rendicao") == textlayer.RENDICAO_COMPILADA:
+        return 0
+    if row.get("pdf_formato") == FORMATO_TEXT_PDF:
+        return 1
+    return 2
+
+
 def select_sem_texto(
     candidates: list[dict[str, Any]],
     attempts: list[dict[str, Any]],
@@ -336,13 +351,19 @@ def select_sem_texto(
     years: Optional[dict[str, int]] = None,
     stats: Optional[ReocrStats] = None,
 ) -> list[dict[str, Any]]:
-    """Fila ``sem-texto``: PDFs preservados sem texto, mais recentes primeiro.
+    """Fila ``sem-texto``: PDFs preservados sem texto, o barato e o vigente primeiro.
 
     ``candidates`` vem de ``textlayer.collect_sem_texto`` (já sem as normas com
     texto no IA ou em ``textos``). Sai quem já foi tentado com o mesmo PDF e
     motor (mesma regra da outra fila). Ordem: ano da norma decrescente, conforme
     o livro-razão publicado (``years``; sem ano, no fim), depois número
     decrescente, tipo e ``texto_id`` — determinística. Cada item ganha ``_fila``.
+
+    Antes da ordem por ano há três faixas (``_faixa_leitura``): (0) a rendição
+    **compilada**, de qualquer ano (o texto vigente; nascida digital, ``pdftotext``
+    a lê de graça); (1) os demais PDFs que o IA classificou como "Text PDF" (camada de
+    texto embutida: também ``pdftotext``); (2) o resto (imagem: OCR), mais recentes
+    primeiro como antes.
     """
     stats = stats or ReocrStats()
     years = years or {}
@@ -357,9 +378,10 @@ def select_sem_texto(
             continue
         queue.append({**row, "_fila": FILA_SEM_TEXTO})
 
-    def order(r: dict[str, Any]) -> tuple[bool, int, int, str, str]:
+    def order(r: dict[str, Any]) -> tuple[int, bool, int, int, str, str]:
         ano = years.get(str(r["texto_id"]))
         return (
+            _faixa_leitura(r),
             ano is None,
             -(ano or 0),
             -int(r.get("numero") or 0),
@@ -567,6 +589,13 @@ def _base_row(
     return row
 
 
+def _cost(rows: list[dict[str, Any]], free_limit: Optional[int]) -> int:
+    """Tentativas que gastam o ``limit``: todas, ou só as não-``pdftotext`` com ``free_limit``."""
+    if free_limit is None:
+        return len(rows)
+    return sum(1 for r in rows if r.get("engine") != PDF_TEXT_ENGINE)
+
+
 def run_reocr(
     queue: list[dict[str, Any]],
     *,
@@ -578,8 +607,14 @@ def run_reocr(
     ocr: Optional[OcrFn] = None,
     text_layer: Optional[TextLayerFn] = None,
     kreuzberg_version: Optional[str] = None,
+    free_limit: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     """Tenta o re-OCR de cada norma da fila; devolve uma linha por tentativa.
+
+    ``limit`` conta as tentativas que custam (OCR, rejeições, divergências). Com
+    ``free_limit``, as linhas ``pdftotext`` (leitura da camada de texto, sem OCR) não
+    gastam o ``limit`` e a execução para quando houver ``limit`` pagas ou
+    ``limit + free_limit`` no total. Sem ``free_limit``, tudo conta.
 
     Na fila ``sem-texto`` um PDF com camada de texto embutida (``text_layer``, por
     padrão `pdf_text_layer`) é lido sem OCR: se o texto passa no portão, a linha
@@ -596,9 +631,13 @@ def run_reocr(
     out: list[dict[str, Any]] = []
     first = True
     for item in queue:
-        if limit is not None and len(out) >= limit:
+        if limit is not None and _cost(out, free_limit) >= limit:
             stats.truncated = True
             break
+        if free_limit is not None and limit is not None:
+            if len(out) >= limit + free_limit:
+                stats.truncated = True
+                break
         if not first:
             time.sleep(max(sleep_s, MIN_SLEEP_S))
         first = False
@@ -700,14 +739,18 @@ def run_queues(
 
     A divisão do ``limit`` é a de ``split_limit``. Falha de download não consome
     cota (a norma volta à fila); o que a ``sem-texto`` não usou — fila curta ou
-    falhas — passa para a ``nao-fecha``.
+    falhas — passa para a ``nao-fecha``. As leituras ``pdftotext`` da ``sem-texto``
+    não gastam a cota (``LEITURA_LIVRE_FATOR``: até 3× o ``limit`` no total).
     """
     take_sem, take_nao = split_limit(limit, len(sem_texto), len(nao_fecha))
     out: list[dict[str, Any]] = []
     if take_sem:
-        out = run_reocr(sem_texto, stats=stats, limit=take_sem, **kwargs)
+        free = take_sem * (LEITURA_LIVRE_FATOR - 1) if limit is not None else None
+        out = run_reocr(
+            sem_texto, stats=stats, limit=take_sem, free_limit=free, **kwargs
+        )
     if limit is not None:
-        take_nao = min(len(nao_fecha), max(take_nao, limit - len(out)))
+        take_nao = min(len(nao_fecha), max(take_nao, limit - _cost(out, 1)))
     if take_nao and nao_fecha:
         if out:
             time.sleep(max(kwargs.get("sleep_s", MIN_SLEEP_S), MIN_SLEEP_S))

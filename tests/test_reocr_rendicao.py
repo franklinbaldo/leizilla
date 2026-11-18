@@ -294,3 +294,117 @@ def test_pdf_text_layer_reads_a_real_text_pdf_and_none_for_garbage() -> None:
     got = reocr.pdf_text_layer(_tiny_pdf("Art. 1o Fica criado o fundo"))
     assert got is not None and "Fica criado o fundo" in got.text and got.pages == 1
     assert reocr.pdf_text_layer(b"not a pdf") is None
+
+
+# --- ordem da fila: compiladas e camada de texto primeiro; leitura livre -----------
+
+
+def _c(n: int, **extra: Any) -> dict[str, Any]:
+    return {
+        "texto_id": _tid(n),
+        "ente": "ro",
+        "fonte": "casacivil",
+        "tipo": "lei",
+        "numero": n,
+        "ia_item": ITEM,
+        "pdf_url": f"https://archive.org/download/x/lei-{n:05d}_a2a2a2a2.pdf",
+        "sha256_fonte": hashlib.sha256(f"pdf{n}".encode()).hexdigest(),
+        **extra,
+    }
+
+
+def test_sem_texto_queue_puts_compiled_then_text_pdfs_before_the_rest() -> None:
+    cands = [
+        _c(
+            9, rendicao="original", pdf_formato="Image Container PDF"
+        ),  # recente, imagem
+        _c(8, rendicao="original", pdf_formato="Text PDF"),
+        _c(1, rendicao="compilada", pdf_formato="Text PDF"),  # antiga, mas compilada
+        _c(7, rendicao="compilada", pdf_formato="Text PDF"),
+        _c(6, rendicao="original"),  # sem formato conhecido: vai com o resto
+    ]
+    years = {_tid(9): 2024, _tid(8): 2010, _tid(1): 1992, _tid(7): 2001, _tid(6): 2023}
+    queue = reocr.select_sem_texto(cands, [], kreuzberg_version="4.10", years=years)
+    assert [q["numero"] for q in queue] == [7, 1, 8, 9, 6]  # 0: 7,1 · 1: 8 · 2: 9,6
+
+
+def test_collect_sem_texto_records_the_ia_pdf_format() -> None:
+    def fetch(url: str) -> Optional[bytes]:
+        if "/metadata/" not in url:
+            return None
+        files = json.loads(_files())["files"]
+        for f in files:
+            f["format"] = "Text PDF" if "c1c1" in f["name"] else "Image Container PDF"
+        return json.dumps({"files": files}).encode()
+
+    found = textlayer.collect_sem_texto(
+        "ro", "casacivil", stats=textlayer.BuildStats(), com_texto=set(), fetch=fetch
+    )
+    formats = {f["texto_id"]: f["pdf_formato"] for f in found}
+    assert formats[_tid(23)] == "Text PDF"
+    assert formats[_tid(24)] == "Image Container PDF"
+
+
+def test_pdftotext_reads_do_not_spend_the_limit_up_to_the_cap() -> None:
+    born = {n: f"%PDF-born-{n}".encode() for n in range(1, 7)}
+    items = [
+        {
+            **_c(n),
+            "sha256_fonte": hashlib.sha256(born[n]).hexdigest(),
+            "_fila": "sem-texto",
+        }
+        for n in born
+    ]
+    by_url = {it["pdf_url"]: born[it["numero"]] for it in items}
+    layer = reocr.OcrOutcome(text=TEXT, pages=1, kreuzberg_version="24.08.0")
+
+    def run(free: Optional[int]) -> list[dict[str, Any]]:
+        return reocr.run_reocr(
+            items,
+            stats=reocr.ReocrStats(),
+            limit=2,
+            free_limit=free,
+            sleep_s=0,
+            fetch=lambda url: by_url[url],
+            ocr=_ocr_must_not_run,
+            text_layer=lambda b: layer,
+            kreuzberg_version="ausente",
+        )
+
+    assert len(run(None)) == 2  # sem teto livre: tudo conta
+    assert len(run(4)) == 6  # 2 + 4 livres
+    assert len(run(3)) == 5  # o teto total é limit + free_limit
+
+
+def test_run_queues_gives_pdftotext_reads_a_3x_cap_and_keeps_the_ocr_limit() -> None:
+    born = {n: f"%PDF-born-{n}".encode() for n in range(1, 9)}
+    scanned = {n: f"%PDF-scan-{n}".encode() for n in range(20, 26)}
+    pdfs = {**born, **scanned}
+    sem = [
+        {
+            **_c(n),
+            "sha256_fonte": hashlib.sha256(pdfs[n]).hexdigest(),
+            "_fila": "sem-texto",
+        }
+        for n in pdfs
+    ]
+    by_url = {it["pdf_url"]: pdfs[it["numero"]] for it in sem}
+    layer = reocr.OcrOutcome(text=TEXT, pages=1, kreuzberg_version="24.08.0")
+    ocr_text = reocr.OcrOutcome(text=TEXT * 4, pages=1, kreuzberg_version="4.10")
+    rows = reocr.run_queues(
+        sem,
+        [],
+        stats=reocr.ReocrStats(),
+        limit=3,
+        sleep_s=0,
+        fetch=lambda url: by_url[url],
+        ocr=lambda b, m: ocr_text,
+        text_layer=lambda b: layer if b.startswith(b"%PDF-born") else None,
+        kreuzberg_version="4.10",
+    )
+    engines = [r["engine"] for r in rows]
+    # sem fila nao-fecha, a sem-texto fica com o limit inteiro (3): 8 leituras livres,
+    # depois 1 OCR (a única paga que cabe no teto de 3x3 = 9 linhas)
+    assert engines.count(reocr.PDF_TEXT_ENGINE) == 8
+    assert engines.count(reocr.ENGINE) == 1
+    assert len(rows) == 9
