@@ -22,7 +22,7 @@ Bundle de conhecimento do Leizilla. Cada arquivo descreve um conceito operaciona
 
 ## Formatos
 
-- [Textos compilados](textos-compilados.md) — o gênero da versão compilada da Casa Civil (redação superada impressa antes da nova, notas oficiais), o corpus local de 99 compilados, versões de um dispositivo como `estado="superado"`; aguarda o ADR-0020
+- [Textos compilados](textos-compilados.md) — o gênero da versão compilada da Casa Civil (redação superada impressa antes da nova, notas oficiais), o corpus local de 99 compilados, versões de um dispositivo como `estado="superado"`; decisão no ADR-0020 (aceito)
 - [Documento marcado](documento-marcado.md) — segunda camada XML (v0): o texto preservado com tags inseridas; invariante do strip, elementos, convenções de span, prova no corpus
 
 ## Pipeline

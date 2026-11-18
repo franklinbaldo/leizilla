@@ -58,8 +58,8 @@ STRUCTURAL: frozenset[str] = frozenset((*ORG, *DEVICES))
 ESTADOS: frozenset[str] = frozenset(("vetado", "ausente", "superado"))
 # ``estado="superado"``: an older printed version of a device in a compiled act (the
 # Casa Civil prints the superseded wording, then the new one with "(Redação dada pela
-# Lei ..."). Same ``n`` as the current device, which carries no ``estado``. Proposal
-# pending ADR-0020; docs/okf/textos-compilados.md.
+# Lei ..."). Same ``n`` as the current device, which carries no ``estado``. ADR-0020
+# (accepted 2026-11-18); docs/okf/textos-compilados.md.
 # ``<ref rel=...>``: the parenthetical official note of a compiled act, as printed.
 RELS: frozenset[str] = frozenset(
     ("redacao", "acrescimo", "revogacao", "veto", "vide", "outra")

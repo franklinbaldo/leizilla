@@ -81,7 +81,7 @@ página depois do corpo).
   mesmo elemento (`n` igual) com `estado="superado"`, e também os dispositivos dentro dela; a
   vigente não leva `estado`. A nota oficial é `<ref rel="redacao|acrescimo|revogacao|veto|vide|outra">`
   em volta do parêntese impresso (texto intocado; só quando ele fica inteiro dentro de um
-  dispositivo). Proposta que aguarda o ADR-0020: [textos-compilados.md](textos-compilados.md).
+  dispositivo). Decisão: [ADR-0020](../adr/0020-estrutura-como-anotacao-sobre-o-texto-preservado.md) (aceito); detalhe em [textos-compilados.md](textos-compilados.md).
 - **O caminho não é escrito**: `art-5-par-2-inc-3` (token map, SCHEMA.md §4.2) deriva do
   aninhamento e de `n`. `to_rows` o devolve (visão tabular "dispositivos").
 - **`alteracao`**: envolve um bloco transcrito de OUTRA norma. Os dispositivos dentro dele
