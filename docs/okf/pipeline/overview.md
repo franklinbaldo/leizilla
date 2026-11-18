@@ -39,6 +39,27 @@ discover → scrape → [OCR assíncrono no IA] → parse → consolidate → re
 | `parse-release.yml` | Segunda 06:00 | parse-all + consolidate + release-dataset |
 | `claude-routine.yml` | Seg/Qui 10:00 | manutenção LLM |
 
+## Guarda do operador: a cota do Internet Archive é uma só
+
+Todos os workflows que gravam no IA usam a **mesma chave de acesso**, e o IA limita as
+tarefas enfileiradas por chave (`accesskey_tasks_queued`), por item (`bucket_tasks_queued`)
+e no total (`total_tasks_queued`). `discover-harvest.yml` (a cada 6 h), `text-layer-release.yml`,
+os releases de catálogo/completude, `reocr.yml` (06:27 e 18:41 UTC) e `parse-release.yml`
+disputam a mesma ração.
+
+- **Não dispare colheitas extras (`workflow_dispatch` de `discover-harvest.yml`) entre as
+  agendadas** (02/08/14/20 UTC) se um release de camada de texto, catálogo ou reocr rodou nas
+  últimas horas. Em 2026-11-18 uma colheita extra de `decreto` (run 44300475999) encontrou a
+  ração da conta cheia e preservou 0 de 330 arquivos baixados.
+- Antes de baixar da fonte, a colheita **sonda** o IA (`GET s3.us.archive.org/?check_limit=1`,
+  somente leitura). Conta acima da ração: a colheita termina **verde**, "adiado", sem baixar
+  nada, sem issue; o próximo agendamento refaz. Item acima da ração: só os recursos dele ficam
+  para depois.
+- O que foi baixado e não subiu fica em `data/spool/` (cache `harvest-spool-<tipo>--`) e é
+  usado, revalidado, na próxima colheita sem tocar de novo a fonte.
+- Para ver a cota agora, sem credencial secreta:
+  `curl 'https://s3.us.archive.org/?check_limit=1&accesskey=<IA_ACCESS_KEY>'` (`over_limit` 0 = pode).
+
 # Citations
 
 [1] [manifests/ro.json](/src/leizilla/manifests/ro.json)
