@@ -1,0 +1,20 @@
+# residue-review-2026-11-canaries
+# Canary sources for residue-review-2026-11: norms the reader reads in full agreement with the reference at every level,
+# closing, one review part with a feasible canary kind, 30-250 non-blank lines, none of them in the review set; seed 20261118.
+# 16 norms.
+leizilla-raw-ro-casacivil-decreto-10215
+leizilla-raw-ro-casacivil-decreto-10221
+leizilla-raw-ro-casacivil-decreto-32116
+leizilla-raw-ro-casacivil-lc-00217
+leizilla-raw-ro-casacivil-lc-01337
+leizilla-raw-ro-casacivil-lc-01343
+leizilla-raw-ro-casacivil-lei-00095
+leizilla-raw-ro-casacivil-lei-00441
+leizilla-raw-ro-casacivil-lei-00541
+leizilla-raw-ro-casacivil-lei-00659
+leizilla-raw-ro-casacivil-lei-01234
+leizilla-raw-ro-casacivil-lei-01563
+leizilla-raw-ro-casacivil-lei-01583
+leizilla-raw-ro-casacivil-lei-06152
+leizilla-raw-ro-casacivil-lei-06417
+leizilla-raw-ro-casacivil-lei-06421

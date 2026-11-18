@@ -1,0 +1,6 @@
+# mark-full-giants-longlines-2026-11
+# Giant norms (more than 8 parts) with a line above 200 characters (224, 213 and 231; p95 69, 57 and 51): anchors=snippet, as mark-full-longlines-2026-11.
+# 3 norms.
+leizilla-raw-ro-casacivil-lc-00039
+leizilla-raw-ro-casacivil-lei-01440
+leizilla-raw-ro-casacivil-lei-06327

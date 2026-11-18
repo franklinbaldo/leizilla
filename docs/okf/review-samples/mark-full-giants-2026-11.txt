@@ -1,0 +1,55 @@
+# mark-full-giants-2026-11
+# The norms left out of mark-full-2026-11-a/b for needing more than 8 parts under mark-mode chunking (first section of mark-full-excluded-2026-11.tsv),
+# minus the 4 annex norms (mark-full-giants-annex-2026-11, more than 40 parts) and the 3 with a line above 200 characters (mark-full-giants-longlines-2026-11,
+# anchors=snippet, the convention of mark-full-longlines-2026-11). None of them is in the reference. Mark mode, Haiku, anchors col+snippet.
+# 50 norms.
+leizilla-raw-ro-casacivil-decreto-10237
+leizilla-raw-ro-casacivil-decreto-32247
+leizilla-raw-ro-casacivil-decreto-lei-00002
+leizilla-raw-ro-casacivil-decreto-lei-00004
+leizilla-raw-ro-casacivil-decreto-lei-00006
+leizilla-raw-ro-casacivil-decreto-lei-00008
+leizilla-raw-ro-casacivil-decreto-lei-00009
+leizilla-raw-ro-casacivil-decreto-lei-00036
+leizilla-raw-ro-casacivil-decreto-lei-00040
+leizilla-raw-ro-casacivil-lc-00001
+leizilla-raw-ro-casacivil-lc-00042
+leizilla-raw-ro-casacivil-lc-00086
+leizilla-raw-ro-casacivil-lc-00089
+leizilla-raw-ro-casacivil-lc-00096
+leizilla-raw-ro-casacivil-lc-00097
+leizilla-raw-ro-casacivil-lc-01024
+leizilla-raw-ro-casacivil-lc-01079
+leizilla-raw-ro-casacivil-lc-01132
+leizilla-raw-ro-casacivil-lc-01163
+leizilla-raw-ro-casacivil-lc-01182
+leizilla-raw-ro-casacivil-lc-01213
+leizilla-raw-ro-casacivil-lc-01254
+leizilla-raw-ro-casacivil-lc-01260
+leizilla-raw-ro-casacivil-lei-00007
+leizilla-raw-ro-casacivil-lei-00137
+leizilla-raw-ro-casacivil-lei-00159
+leizilla-raw-ro-casacivil-lei-00277
+leizilla-raw-ro-casacivil-lei-00300
+leizilla-raw-ro-casacivil-lei-00305
+leizilla-raw-ro-casacivil-lei-00381
+leizilla-raw-ro-casacivil-lei-00401
+leizilla-raw-ro-casacivil-lei-00415
+leizilla-raw-ro-casacivil-lei-00431
+leizilla-raw-ro-casacivil-lei-00444
+leizilla-raw-ro-casacivil-lei-00446
+leizilla-raw-ro-casacivil-lei-00451
+leizilla-raw-ro-casacivil-lei-00453
+leizilla-raw-ro-casacivil-lei-00508
+leizilla-raw-ro-casacivil-lei-00528
+leizilla-raw-ro-casacivil-lei-00605
+leizilla-raw-ro-casacivil-lei-00617
+leizilla-raw-ro-casacivil-lei-00958
+leizilla-raw-ro-casacivil-lei-01066
+leizilla-raw-ro-casacivil-lei-01081
+leizilla-raw-ro-casacivil-lei-01197
+leizilla-raw-ro-casacivil-lei-01459
+leizilla-raw-ro-casacivil-lei-01489
+leizilla-raw-ro-casacivil-lei-01550
+leizilla-raw-ro-casacivil-lei-01584
+leizilla-raw-ro-casacivil-lei-06413

@@ -2233,3 +2233,105 @@ def test_alinea_letter_printed_twice_at_a_line_start() -> None:
     )
     report = read_hierarchy(text)
     assert _numbers(report, "alinea") == ["1", "2", "3", "4"]
+
+
+# --------------------------------------------------------------------------
+# Implicit single article: a one-provision act with no article marker
+# --------------------------------------------------------------------------
+
+_DECREE_HEAD = (
+    "GOVERNO DO ESTADO DE RONDÔNIA\n\nGOVERNADORIA\n\nDECRETO Nº 101 DE 30 DE "
+    "MARÇO DE 1982.\n\nO GOVERNADOR DO ESTADO DE RONDÔNIA, no uso de suas "
+    "atribuições legais,\n\n"
+)
+_PROVISION = (
+    "Conceder afastamento ao servidor JOSÉ PEREIRA DA SILVA, Técnico em "
+    "Administração, para se deslocar até a cidade de Recife-PE, de 17 a 21 de abril."
+)
+_FECHO = "\n\nPorto Velho, em 30 de março de 1982.\n\nJORGE TEIXEIRA\n\nGovernador\n"
+
+
+def _implicit(report: HierarchyReport) -> list[dict]:
+    return [n for n in report["nodes"] if n["read_by"] == "implicit-single"]
+
+
+def test_implicit_single_article_after_the_enacting_formula() -> None:
+    text = _DECREE_HEAD + "RESOLVE:\n\n" + _PROVISION + _FECHO
+    report = read_hierarchy(text)
+    (art,) = _implicit(report)
+    assert (art["kind"], art["number"], art["status"], art["raw"]) == (
+        "artigo",
+        1,
+        "own",
+        "",
+    )
+    assert text[art["start"] : art["end"]] == _PROVISION
+    assert art["path"] == "art-1"
+    assert article_closes(report)
+    assert report["body_end"] == art["end"]
+
+
+def test_implicit_single_article_from_a_garbled_formula_line() -> None:
+    for garbled in ("RES OB VE", "RB SuO E VB:", "RA BES ON aV E:"):
+        text = _DECREE_HEAD + garbled + "\n\n" + _PROVISION + _FECHO
+        assert len(_implicit(read_hierarchy(text))) == 1, garbled
+
+
+def test_implicit_single_article_inline_formula_and_signature_fecho() -> None:
+    text = (
+        "DECRETO Nº 1016\n\nO GOVERNADOR DO ESTADO, usando das atribuições que lhe "
+        "confere a Lei, RESOLVE\n\n" + _PROVISION + "\n\nJorge\n\nGovernador\n"
+    )
+    report = read_hierarchy(text)
+    (art,) = _implicit(report)
+    assert text[art["start"] : art["end"]].endswith("de 17 a 21 de abril.")
+    assert article_closes(report)
+
+
+def test_implicit_single_article_needs_every_guard() -> None:
+    body = _DECREE_HEAD + "RESOLVE:\n\n"
+    no_fecho = body + _PROVISION + "\n"
+    with_article = body + _PROVISION + "\n\nArt. 2º Esta Lei entra em vigor." + _FECHO
+    numbered = (
+        body + "1º - Colocar a servidora ANA à disposição.\n2º - Colocar JOSÉ." + _FECHO
+    )
+    second_article = (
+        body + _PROVISION + "\n\nRevogam-se as disposições em contrário." + _FECHO
+    )
+    amending = (
+        body + _PROVISION + " Nova redação: dar ao texto a seguinte redação." + _FECHO
+    )
+    short = body + "Nomear JOSÉ." + _FECHO
+    no_formula = _DECREE_HEAD + _PROVISION + _FECHO
+    title_only = (
+        "DECRETO\n\nO GOVERNADOR DO ESTADO DE RONDÔNIA, no uso de suas atribuições, "
+        "\n\nDECRETO\n\n" + _PROVISION + _FECHO
+    )
+    for name, text in {
+        "no fecho": no_fecho,
+        "an article marker exists": with_article,
+        "numbered provisions": numbered,
+        "a second article (revogação)": second_article,
+        "amending wording": amending,
+        "too short": short,
+        "no enacting formula": no_formula,
+        "DECRETO is the title, not the formula": title_only,
+    }.items():
+        report = read_hierarchy(text)
+        assert not _implicit(report), name
+        assert not article_closes(report), name
+
+
+def test_implicit_single_article_marked_document_and_anchors() -> None:
+    from leizilla import marcacao
+    from leizilla.textlayer import article_anchors
+
+    text = _DECREE_HEAD + "RESOLVE:\n\n" + _PROVISION + _FECHO
+    report = read_hierarchy(text)
+    xml = marcacao.build(text, marcacao.from_hierarchy(text, report, tipo="decreto"))
+    assert '<art n="1" lido-por="implicit-single">Conceder afastamento' in xml
+    assert marcacao.verify(xml, text) == []
+    anchors, closes, last = article_anchors(text)
+    assert closes and last == 1
+    start = text.index("Conceder")
+    assert anchors == [{"n": 1, "sufixo": None, "ini": start, "fim": start + 8}]

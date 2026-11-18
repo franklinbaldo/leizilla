@@ -1907,7 +1907,7 @@ def cmd_completeness(
     for t in payload["tipos"]:
         echo(
             f"  {t['rotulo']}: {show(t['preservadas'])} de {show(t['listadas'])} "
-            f"preservadas · {show(t['com_texto'])} com texto · "
+            f"preservadas · {show(t['com_texto'])} com texto do IA · "
             f"{show(t['legiveis'])} legíveis · {show(t['estruturadas'])} "
             f"estruturadas · {show(t['faltantes'])} faltantes "
             f"(índice lido em {t['anos_lidos']}/{t['anos']} anos)"

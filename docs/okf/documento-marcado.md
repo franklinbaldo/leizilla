@@ -65,6 +65,13 @@ página depois do corpo).
   texto e o elemento diz `n="4"`. `sufixo` é a letra do artigo "5º-A".
 - **`<m>`**: ausente quando o marcador não era legível (número deduzido). O elemento sem
   `<m>` começa onde o leitor diz que o dispositivo começa.
+- **Artigo sem marcador impresso.** Um ato de uma só disposição cujo corpo não tem nenhum
+  `Art.` ("RESOLVE: Conceder afastamento ao servidor ...") ganha **um** `<art n="1"
+  lido-por="implicit-single">` sem `<m>`: o artigo não foi perdido pelo OCR, nunca teve
+  marcador. Ele começa na primeira frase depois da fórmula e vai até o fecho (regra e guardas
+  em [reader-ratchet.md](reader-ratchet.md), rodada 17); o texto continua intocado. Quem
+  consome o documento não deve esperar `<m>` em todo `art` próprio, nem que `n="1"` tenha
+  um "Art. 1º" no texto.
 - **Evidência** (opcional): `lido-por` é o `read_by` do leitor (`literal`, `confusion`,
   `gap`); `corrigido="true"` quando o número interpretado difere do literal.
 - **Ausência declarada**: elemento vazio `<art n="4" estado="ausente"/>` (largura zero) ou

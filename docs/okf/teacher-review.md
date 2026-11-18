@@ -109,6 +109,49 @@ Três correções, sem mudar o que o `review` mede:
    289 requisições (39 normas partidas, antes 22), estimativa US$ 0,32, teto US$ 1,20
    depois.
 
+## Revisão do resíduo com Sonnet (`residue-review-2026-11`)
+
+Onde o leitor e a referência do modo `mark` ainda discordam, o modo `review` com um modelo
+mais forte é o árbitro: ele vê a leitura do **leitor** (HEAD) como etiquetas e devolve só
+ajustes; o que ele ajusta contra a referência e o que não ajusta onde o leitor e a
+referência diferem decidem de que lado está o erro (`scripts/review_to_errata.py`).
+
+- Seleção: `scripts/select_residue_review.py` (determinístico, semente 20261118, no máximo
+  6 partes de revisão por norma, texto da camada atual com o mesmo sha256 da referência):
+  `docs/okf/review-samples/residue-review-2026-11.txt` (79 normas: as 38 com suspeita na
+  referência; `lc-01174`, `lei-01296`, `lei-04989`; `lei-00262/00432/00452`, `lc-01211`,
+  `lei-00131`, `decreto-01004`; e uma amostra semeada de cada classe do resíduo do torneio
+  que ainda tem unidades fora de `agree` no HEAD: incisos próprios a mais e tabelas 6,
+  incisos citados a mais 6, romano sozinho na linha não lido 5, itens a mais 4, artigos
+  citados a mais 4, estado de artigo 2, artigo único implícito 4, cópia repetida 1).
+- Canários: `residue-review-2026-11-canaries.txt` (16 fontes: normas em que o leitor
+  concorda com a referência em todo nível, fecham, 1 parte, 30 a 250 linhas, com ao menos
+  um tipo de canário viável, fora da seleção). Medem se o Sonnet presta atenção (~17% das
+  95 normas do plano) e marcam `unverified` os `ok` da requisição quando um canário passa.
+- Plano local (texto = camada publicada `-latest` de 2026-11-18, `claude-sonnet-5-5`):
+  95 normas (79 + 16 canários), 88 requisições (27 normas partidas), estimativa **US$ 2,03**,
+  teto US$ 7,45. A estimativa é a mesma em `low` e `medium` (a tabela de pensamento só dá
+  o piso de 2 070 tokens por requisição), então fica `medium`.
+- Rodar: `step=submit`, `mode=review`, `model=claude-sonnet-5-5`, `effort=medium`,
+  `ids_file=residue-review-2026-11`, `canary_ids_file=residue-review-2026-11-canaries`,
+  `shuffle_seed=20261118`, `text_source=textos`, `max_usd=3`, `guard=estimate`; `collect`
+  com `manifest_run_id`; se houver truncadas, o reenvio com os mesmos insumos. Depois:
+  `uv run scripts/review_to_errata.py --reviews COLLECT_DIR --out OUT_DIR --textos textos.parquet`
+  (offline; rode no commit da execução: o `git_sha` dos registros, porque as etiquetas de
+  subnível que o modelo viu não são gravadas e são refeitas com o leitor atual; o script
+  avisa quando o leitor mudou).
+- Saída de `review_to_errata.py`, por ponto de discordância leitor x referência e por
+  ajuste: `confirms_reference` (o ajuste leva o leitor à referência: defeito do leitor,
+  agrupado por padrão em `patterns.tsv`, candidato ao torneio), `reference_error_candidate`
+  (o modelo, resposta completa e verificada, não ajustou onde o leitor difere da referência:
+  uma entrada proposta de `mark-reference-errata.json` com `verified_by: "sonnet-review"`,
+  conferida aplicando-a às linhas da referência), `third_opinion` (o ajuste não é nem o do
+  leitor nem o da referência, inclusive onde os dois concordam: decisão humana) e
+  `inconclusive` (`unverified`, `partial` ou ajuste descartado no ponto: o silêncio não vale
+  como concordância). Saídas: `review_errata.tsv`, `patterns.tsv`,
+  `proposed-mark-reference-errata.json` (não aplicado) e `summary.json`. Uma opinião do
+  modelo é indício: cada entrada proposta se lê contra o texto antes de entrar no errata.
+
 ## Reenvio de requisições truncadas
 
 `submit --mode review --retry-truncated PATH` (no workflow: `manifest_run_id` do

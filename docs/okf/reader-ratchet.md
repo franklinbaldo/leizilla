@@ -304,6 +304,49 @@ treino em quase toda regra; ganhou nas regras `s lo -` (+6), `Parágrafo 1º -` 
 `:` (+1), romano sem traço (+2), salto de parágrafo e inciso em bloco citado (+2 e +2) e `£)` (+2);
 as outras regras ganharam só no treino.
 
+**Rodada 17: artigo único implícito** (`hierarchy_sequence.implicit_single_article`, feita
+por decisão do dono). Um ato de uma só disposição que não traz marcador `Art.` (decretos de
+pessoal de 1982-83: "O GOVERNADOR ..., no uso de suas atribuições legais, RESOLVE: Conceder
+afastamento ao servidor ...") não tinha artigo próprio lido. A regra lê **um** artigo próprio,
+n=1, sem marcador (`read_by="implicit-single"`, `raw` vazio, como o artigo recuperado de uma
+frase de encerramento), da primeira frase depois da fórmula (`RESOLVE`/`DECRETA`, ou a linha
+solta de letras que o OCR deixou no lugar dela depois da vírgula do preâmbulo: `RES OB VE`,
+`RA BES ON aV E:`) até o fecho. Só vale quando **todas** estas guardas passam: nenhum marcador
+de artigo no texto inteiro (próprio ou citado, legível ou borrado: `ARTICLE_CANDIDATE` e
+`_ART_WILD`); fórmula depois de um preâmbulo (`governador`/`atribui...`); fecho que existe
+(`Porto Velho, <dia>`, `Palácio do Governo`, `Brasília, <dia>` ou linha `Governador`); trecho
+de 40 a 12 000 caracteres que começa por letra; sem "nova redação"/`(NR)`; nenhuma linha que
+abra como disposição numerada (`1º -`, `29 -`, ou um travessão); nenhuma frase de
+vigência/revogação (seria um segundo artigo de marcador perdido). Linhas curtas de resíduo
+(nome do signatário, rabiscos do OCR) no fim do trecho ficam fora do artigo. Um ato de vários
+artigos com todos os marcadores destruídos **não** fecha por esta regra: `decreto-01019` e
+`decreto-01007` (itens `1º -`, `29 -`) e `decreto-01000` (a frase "Revogam-se as disposições
+em contrário" depois da disposição) continuam abertos; `decreto-01001` não tem fecho; seis
+decretos sem fórmula (`01010`, `01011`, `01012`, `01015`, `01032`, `01002`: "concede
+afastamento ..." direto depois do preâmbulo) ficam abertos de propósito.
+
+Resultado (camada `-latest` de 2026-11-18, 3616 normas): **8 normas** mudam, todas de "não
+fecha, 0 artigos" para "fecha, 1 artigo" (`artigos_fecham` e `artigos_total` da camada
+publicada): `decreto-00100`, `00101`, `00102`, `00103`, `01016`, `01017`, `01018`, `01031`. Lidas
+uma a uma contra o texto: 8 de 8 são decretos de uma só disposição (designar, conceder
+afastamento, remover, colocar à disposição, promover), precisão a olho 8/8; nenhuma outra
+norma da camada muda de `closes` nem de artigos. Gate por nível: passa, **nenhuma unidade
+perdida no treino nem no teste**; as 6 normas em que a referência (modo `mark`) já deduzia o
+artigo (`x: true`) ganham a unidade `art` (treino +4 / teste +2) e `decreto-00100` e
+`decreto-01018`, em que o modelo não deduziu, entram como `reader_extra` até duas errata
+`add_device` da referência (lidas no texto, mesma forma dos artigos de bloco que o conversor
+omitiu), que as levam a `agree`: art 3002 -> 3010 de 3115 unidades (nível `art` 3113 -> 3115
+unidades; par/inc/ali/item sem mudança). Dispositivos novos: 8, 6 certos contra a referência
+original e 8 de 8 depois das errata. Gate de artigo (rótulos do modo `label`): o professor
+(`teacher-labels-v1`) rotula só marcadores impressos e não deu artigo a 6 destas 8 normas
+(as outras 2 não estão nos 2086 rotulados), então elas viriam como `disagree_closed` e
+reprovariam o gate; 6 errata `add_own_article` em `teacher-label-errata.json` (mesmo caso das 3
+anteriores: a linha abre o artigo e o professor só tem o marcador) as levam a `agree_closed`
+(1930 -> 1936, `disagree_closed` 1 -> 1). `marcar` emite `<art n="1"
+lido-por="implicit-single">` sem `<m>` e `marcar-verificar` confirma strip, sha256 e gramática;
+as âncoras do `textos` usam a regra do artigo de largura zero (`ini` na frase, `fim` cobre a
+primeira palavra).
+
 **Erros sistemáticos da referência.** Nenhuma classe de erro do conversor apareceu em
 número que pedisse reconstruir a referência: as 41 errata (13 + 5 + 23) são pontuais
 (13 `add_device`: dispositivo que o modelo deixou de marcar; 5 `set_device`: status

@@ -1,0 +1,8 @@
+# mark-full-giants-annex-2026-11
+# The four giant norms with more than 40 parts: the body (articles, fecho) ends in the first 1.5% to 5% of the text and the rest is annex tables
+# (budget / PPA / process lists, no article markers, 5% to 41% digits). Marking the tables is of little value; not planned for a run. Needs a body-only mark (not implemented).
+# 4 norms.
+leizilla-raw-ro-casacivil-decreto-29991
+leizilla-raw-ro-casacivil-lei-00254
+leizilla-raw-ro-casacivil-lei-01297
+leizilla-raw-ro-casacivil-lei-01306
