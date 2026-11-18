@@ -985,6 +985,21 @@ _IA_UPLOAD_MIN_INTERVAL_S = 2.0  # espaçamento mínimo entre uploads bem-sucedi
 _IA_UPLOAD_MAX_ATTEMPTS = 5
 _IA_UPLOAD_BASE_DELAY_S = 2.0
 _IA_UPLOAD_MAX_DELAY_S = 60.0
+# Trava curta de bucket do IA: um PUT anterior (inclusive um que deu timeout do nosso
+# lado) ainda segura o item no servidor e a tentativa seguinte é recusada com
+# "We encountered an internal error. Please try again. - Failed to get necessary short
+# term bucket lock for <item>, please try again" (run 44404993744, 2026-11-18). A mesma
+# frase genérica ("We encountered an internal error. Please try again.") é o 500 do S3
+# do IA. É transitório, mas o jitter de 2 s não basta: a trava solta em dezenas de
+# segundos, então o recuo é 30/60/120 s (``_IA_LOCK_DELAYS_S``), dentro do mesmo
+# orçamento de tentativas e do ``timeout_s`` da chamada. Throttle (``*_tasks_queued``,
+# "reduce your request rate") e recusa de conteúdo têm classes próprias e não entram.
+_IA_LOCK_RETRYABLE_RE = re.compile(
+    r"short term bucket lock"
+    r"|we encountered an internal error\.? please try again",
+    re.IGNORECASE,
+)
+_IA_LOCK_DELAYS_S: tuple[float, ...] = (30.0, 60.0, 120.0)
 _IA_RATE_LIMIT_KEY = "https://archive.org/"  # host fixo p/ make_rate_limiter (ADR-0008)
 
 
@@ -1326,6 +1341,13 @@ class InternetArchivePublisher:
         chamador adia o item (escopo item) ou encerra a colheita (escopo conta). Um
         ``reduce your request rate`` sem marcador de fila mantém os recuos.
 
+        Trava curta de bucket ("Failed to get necessary short term bucket lock", ou o
+        "We encountered an internal error. Please try again." genérico): transitória,
+        com recuo de 30/60/120 s (``_IA_LOCK_DELAYS_S``) no mesmo orçamento de
+        tentativas. Repetir é idempotente: o mesmo PUT da mesma chave sobrescreve (o
+        flush da colheita ainda usa ``--checksum``). Throttle e recusa de conteúdo
+        não entram.
+
         ``timeout_s`` é o orçamento TOTAL desta chamada (todas as tentativas, os recuos
         e a CLI ``ia`` com suas próprias esperas): o subprocess recebe o que resta como
         ``timeout`` (a CLI é morta ao estourar) e um recuo que não cabe no que resta não
@@ -1352,6 +1374,7 @@ class InternetArchivePublisher:
         env = _ia_subprocess_env(self.access_key, self.secret_key)
         cfg_path = env.get("IA_CONFIG_FILE") if env else None
         short_attempt = 0
+        lock_attempt = 0
         try:
             while True:
                 run_kw: Dict[str, Any] = {}
@@ -1386,13 +1409,23 @@ class InternetArchivePublisher:
                     if fail_fast_queue and is_ia_queue_full(stderr):
                         raise
                     short_attempt += 1
-                    if (
-                        short_attempt >= max_attempts
-                        or _IA_PDF_REJECTED_RE.search(stderr)
-                        or not _RETRYABLE_IA_ERROR_RE.search(stderr)
+                    if short_attempt >= max_attempts or _IA_PDF_REJECTED_RE.search(
+                        stderr
                     ):
                         raise
-                    delay = min(max_delay, base_delay * (2 ** (short_attempt - 1)))
+                    is_lock = (
+                        _IA_LOCK_RETRYABLE_RE.search(stderr) is not None
+                        and classify_ia_throttle(stderr) is None
+                    )
+                    if not is_lock and not _RETRYABLE_IA_ERROR_RE.search(stderr):
+                        raise
+                    if is_lock:
+                        delay = _IA_LOCK_DELAYS_S[
+                            min(lock_attempt, len(_IA_LOCK_DELAYS_S) - 1)
+                        ]
+                        lock_attempt += 1
+                    else:
+                        delay = min(max_delay, base_delay * (2 ** (short_attempt - 1)))
                     delay += random.uniform(0, delay * 0.25)  # jitter
                     logger.warning(
                         "ia upload: erro transiente (tentativa %d/%d), retry em %.1fs: %s",
