@@ -487,7 +487,7 @@ dispositivo; onde falta, o silêncio não prova nada.
 Estadual dos Juizados Especiais", seguido de 49-B...; leitor e referência certos; o `4A` do
 professor do modo label estava errado; Sonnet `ok`). `lei-01296`: o texto salta do 2 para
 "Art. 6º Esta Lei entra em vigor" (depois de um "4" solto de rodapé); Sonnet lê 3 (erro de OCR),
-leitor e referência leem 6; ficou **em aberto**, a leitura impressa é o 6. `lei-04989`: é um
+leitor e referência leem 6; ficou **em aberto**, a leitura impressa é o 6. Resolvido depois (2026-11-18): as 3 páginas do PDF preservado mostram que o arquivo oficial salta do art. 2º para o 6º (nenhuma imagem tem os arts. 3º a 5º): defeito da fonte, registrado em `defeitos-da-fonte.json`; a norma não fecha e não volta à fila do re-OCR. `lei-04989`: é um
 acórdão de ADI (PJe) que transcreve leis; os artigos próprios são só os 4 do fim (linhas 2177
 a 2229); todo o resto é citado: Sonnet certo em 9 de 9 ajustes (3 deles contra leitor **e**
 referência), mais 15 dispositivos citados que a referência omitiu e o leitor lê certo.
@@ -548,7 +548,7 @@ em aberto.
 decreto-01004, lc-01164, lei-06284: reiniciar a cadeia na fórmula de promulgação é o candidato
 natural); bloco citado sem aspas de fechamento ou com marcas soltas (lei-00262, lei-00452);
 decisões judiciais que transcrevem leis (lei-04989, lei-04984, lei-01635: o tipo de documento é
-a pista); romano/alínea soltos em coluna; lei-01296 (2 -> 6); 27 normas suspeitas.
+a pista); romano/alínea soltos em coluna; lei-01296 (2 -> 6: defeito do arquivo oficial, ver `defeitos-da-fonte.json`); 27 normas suspeitas.
 
 ## Etiquetador aprendido por linha (medido e descartado, 2026-11-18)
 

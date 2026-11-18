@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Optional, Union
 
 from leizilla import publisher
+from leizilla.defeitos import defeito_de
 from leizilla.hierarchy_sequence import (
     article_closes,
     article_closure,
@@ -94,6 +95,7 @@ TEXTOS_SCHEMA: dict[str, str] = {
     "artigos_ultimo": "INTEGER",
     "ancoras": "VARCHAR",
     "trecho": "VARCHAR",
+    "defeito_fonte": "VARCHAR",
     "texto": "VARCHAR",
 }
 
@@ -931,6 +933,22 @@ def apply_reocr_overlay(
     return applied
 
 
+def annotate_row(
+    row: dict[str, Any],
+    *,
+    defeitos: Optional[Mapping[str, Mapping[str, Any]]] = None,
+) -> dict[str, Any]:
+    """Colunas que não vêm do texto nem do IA, recalculadas a cada construção.
+
+    ``defeito_fonte``: a nota de ``docs/okf/defeitos-da-fonte.json`` quando a lista
+    registra um defeito do arquivo oficial **para estes mesmos bytes** (``sha256_fonte``);
+    senão ``None``. Sempre sobrescreve o valor de uma linha reaproveitada.
+    """
+    entry = defeito_de(row, defeitos)
+    row["defeito_fonte"] = str(entry["nota"]) if entry is not None else None
+    return row
+
+
 def build_textos(
     ente: str,
     fontes: list[str],
@@ -940,6 +958,7 @@ def build_textos(
     previous: Optional[dict[str, dict[str, Any]]] = None,
     fetch: Optional[Fetcher] = None,
     reocr: Optional[dict[str, dict[str, Any]]] = None,
+    defeitos: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> tuple[list[dict[str, Any]], BuildStats]:
     """Constrói as linhas de ``textos`` de um ente (todas as fontes pedidas).
 
@@ -968,6 +987,8 @@ def build_textos(
         )
     if reocr:
         stats.reocr_aplicados = apply_reocr_overlay(rows, reocr)
+    for row in rows:
+        annotate_row(row, defeitos=defeitos)
     rows.sort(key=lambda r: str(r["texto_id"]))
     return rows, stats
 

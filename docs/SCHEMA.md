@@ -522,6 +522,7 @@ Contrato em código: `leizilla.textlayer.TEXTOS_SCHEMA`.
 | `artigos_total`, `artigos_ultimo` | INTEGER | derivados: artigos próprios lidos (`read_hierarchy`) e maior número |
 | `ancoras` | VARCHAR | derivado: JSON `[{"n", "sufixo", "ini", "fim"}]`, offsets em code points Unicode sobre `texto` |
 | `trecho` | VARCHAR | derivado: prefixo de `texto` com espaços colapsados (até 280 caracteres), para listagens |
+| `defeito_fonte` | VARCHAR | nota curta quando `docs/okf/defeitos-da-fonte.json` registra que o arquivo oficial **desta captura** (`sha256_fonte`) tem um defeito que o OCR não resolve (uma folha faltando, numeração com lacuna); NULL na imensa maioria das normas e em releases anteriores à coluna. Não altera `artigos_fecham`: a norma continua não fechando |
 | `texto` | VARCHAR | **verbatim**: o `_djvu.txt` decodificado em UTF-8, sem limpeza nem correção |
 
 Regras:

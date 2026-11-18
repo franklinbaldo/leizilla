@@ -197,6 +197,14 @@ a preferência por rendição vale entre todos os arquivos da identidade (como j
 recente"). Tipos sem `_djvu.txt` da compilada ainda (derive pendente) mostram o original e
 listam a compilada em `outras_rendicoes` com `texto_url` nulo.
 
+Defeito do arquivo oficial (2026-11-18): coluna `defeito_fonte` (VARCHAR, anulável). Uma norma
+pode não fechar porque o **arquivo da fonte** está incompleto (a lei ordinária 1296/2003 salta do
+art. 2º para o 6º: nenhuma das 3 páginas escaneadas tem os arts. 3º a 5º). `docs/okf/defeitos-da-fonte.json`
+(`leizilla.defeitos`) lista essas normas com motivo e evidência, **atreladas ao `sha256_fonte`
+inspecionado**; `build-textos` copia a nota da entrada para a coluna e a página de texto a mostra.
+A coluna não mexe em `artigos_fecham` (a norma segue sem fechar) e uma captura nova com outro hash
+perde a nota. A mesma lista tira a norma da fila `nao-fecha` do re-OCR (ADR-0019, adendo).
+
 Medida do leitor sobre textos compilados (2026-11-18, camada `…t061620z` + `pdftotext` nos PDFs
 sem texto no IA ainda): ver o nó `reader-compiled-texts` do DAG. Em resumo, o nível dos artigos
 fecha em metade dos compilados lidos pelo IA (15 de 30), contra 96,6% dos demais; a causa

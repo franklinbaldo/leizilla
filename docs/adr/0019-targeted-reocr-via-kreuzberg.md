@@ -173,3 +173,22 @@ norm) can give those norms a searchable text now.
   shard start (the same walk `build-textos` does), without touching the government site.
 - Residual risk: a PDF the IA never derives (rejected content, rotation) stays on our OCR
   with the `texto-trivial` bar as the only quality check.
+
+## Addendum 2026-11-18 — source defects leave the `nao-fecha` queue
+
+A norm can fail to close because the **official file** is incomplete, not because of the OCR.
+Lei ordinária 1296/2003 (RO) is the case: the preserved PDF has 3 scanned pages, page 1 ends
+at Art. 2, page 2 is a blank verso with the publication stamp, page 3 starts at "Art. 6º Esta
+Lei entra em vigor" and carries the signature; no page image has the text of arts. 3 to 5
+(a missing sheet, or a numbering gap in the law itself). The OCR reads exactly what the images
+show, so re-OCR cannot gain anything, and the norm would return to the queue at each engine
+version bump.
+
+`docs/okf/defeitos-da-fonte.json` (loaded by `leizilla.defeitos`) lists such norms with the
+reason, the evidence and who checked, each bound to the **sha256 of the inspected capture**.
+`select_queue` skips a row whose `texto_id` and `sha256_fonte` both match an entry (counted in
+`ReocrStats.defeitos_da_fonte` and printed by `reocr`); a new capture with other bytes returns
+to the queue, because the source may have fixed the file. The list never marks a norm as
+closing and is not an acceptance path: the gate of decision 3 is unchanged. The same entry
+feeds the `textos.defeito_fonte` column (ADR-0015, addendum 2026-11-18), shown on the text
+page. A malformed list aborts `reocr` and `build-textos` instead of being ignored.

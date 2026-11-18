@@ -1,0 +1,15 @@
+{
+  "defeitos": [
+    {
+      "data": "2026-11-18",
+      "evidencia": "Lei ordinária 1296/2003 (RO), captura preservada com sha256_fonte 7d46ebb7e564fb3aae6f3e665f1da3e6cdfe04e678c2e8225dd25f457d500065 (item leizilla_ro_casacivil_lei_1001-2000, lei-01296_f114e5df.pdf). O PDF tem 3 páginas escaneadas: a página 1 termina no Art. 2º, com uma rubrica no pé; a página 2 é um verso em branco com o carimbo 'Publicado no Diário Oficial nº 5383, do dia 29/12/03'; a página 3 é uma folha de papel timbrado que começa em 'Art. 6º Esta Lei entra em vigor na data de sua publicação' e traz a assinatura. Nenhuma das imagens tem o texto dos artigos 3º a 5º. O texto do IA (tesseract) lê 1º, 2º e 6º, o mesmo que as imagens.",
+      "motivo": "O arquivo oficial salta do Art. 2º para o Art. 6º: o mais provável é que uma folha (arts. 3º a 5º) falte no arquivo da Casa Civil; a alternativa é uma lacuna de numeração na própria lei. Não é erro de OCR, então o re-OCR não tem o que ganhar. A sequência de artigos não fecha e continua sem fechar.",
+      "nota": "O arquivo oficial preservado desta lei salta do art. 2º para o art. 6º: nenhuma das 3 páginas escaneadas traz o texto dos arts. 3º a 5º (provavelmente falta uma folha no arquivo da fonte, ou a numeração tem uma lacuna). Não é erro de reconhecimento de texto. A sequência de artigos por isso não fecha.",
+      "sha256_fonte": "7d46ebb7e564fb3aae6f3e665f1da3e6cdfe04e678c2e8225dd25f457d500065",
+      "texto_id": "leizilla-raw-ro-casacivil-lei-01296",
+      "tipo": "arquivo-incompleto",
+      "verificado_por": "leitura das imagens das 3 páginas do PDF preservado (sessão de 2026-11-18)"
+    }
+  ],
+  "schema_version": 1
+}

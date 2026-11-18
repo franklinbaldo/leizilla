@@ -658,6 +658,8 @@ export interface TextoRow {
   artigos_ultimo: number;
   ancoras: string | null;
   trecho: string | null;
+  /** Nota quando o arquivo oficial desta captura tem defeito registrado; ausente antes de 2026-11-18. */
+  defeito_fonte?: string | null;
   texto: string;
 }
 

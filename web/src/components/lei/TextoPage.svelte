@@ -148,6 +148,11 @@
           trechos anotados ou tachados (redações dadas, revogações).
         </p>
       {/if}
+      {#if row.defeito_fonte}
+        <p class="defeito-fonte" data-testid="defeito-fonte">
+          <strong>Nota sobre o arquivo oficial:</strong> {row.defeito_fonte}
+        </p>
+      {/if}
       {#if ocrProprio}
         <p>
           Este texto foi feito pelo OCR do próprio Leizilla, porque o Internet Archive

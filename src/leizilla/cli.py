@@ -1064,6 +1064,14 @@ def cmd_build_textos(
         else:
             echo(f"Re-OCR indisponível ({reocr_path}) — sem sobreposição.")
 
+    from leizilla import defeitos as defeitos_mod
+
+    try:
+        defeitos_fonte = defeitos_mod.load_defeitos()
+    except ValueError as e:
+        echo(f"{e} — abortando.")
+        raise typer.Exit(1)
+
     echo(f"Construindo textos: ente={ente} fontes={','.join(fonte_list)}...")
     rows, stats = textlayer.build_textos(
         ente,
@@ -1072,6 +1080,7 @@ def cmd_build_textos(
         limit=limit,
         previous=prev_rows,
         reocr=accepted,
+        defeitos=defeitos_fonte,
     )
     echo(
         f"  {stats.itens} itens · {stats.identidades} identidades · "
@@ -1384,16 +1393,25 @@ def cmd_reocr(
 
         nao_queue: list[dict[str, Any]] = []
         if want_nao:
+            from leizilla import defeitos as defeitos_mod
+
+            try:
+                defeitos_fonte = defeitos_mod.load_defeitos()
+            except ValueError as e:
+                echo(f"{e} — abortando.")
+                raise typer.Exit(1)
             nao_queue = reocr.select_queue(
                 text_rows,
                 attempts,
                 kreuzberg_version=kz_version,
                 max_pages=max_pages,
                 stats=stats,
+                defeitos=defeitos_fonte,
             )
             echo(
                 f"Fila nao-fecha: {stats.examinadas} normas com texto · "
                 f"{stats.nao_fecham} não fecham · {stats.ja_tentadas} já tentadas · "
+                f"{stats.defeitos_da_fonte} com defeito registrado do arquivo oficial · "
                 f"{stats.na_fila} na fila "
                 f"({stats.fila_com_artigos} com artigos lidos primeiro · "
                 f"{stats.fila_sem_artigos} sem artigos)"
