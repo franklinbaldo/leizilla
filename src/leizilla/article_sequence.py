@@ -184,6 +184,7 @@ def best_chain(
     gap_cap: float | None = None,
     capped: Sequence[bool] | None = None,
     suffix_repeats: bool = False,
+    max_jump: int | None = None,
 ) -> list[int | None]:
     """Pick one reading per candidate (or None) forming the best increasing chain.
 
@@ -225,7 +226,11 @@ def best_chain(
                         ):
                             continue  # "Art. 4-A" is not read ahead of the "Art. 4" after it
                         jump = _GAP_PENALTY * skipped(u, v)
-                        if gap_cap is not None and (capped is None or capped[i]):
+                        if (
+                            gap_cap is not None
+                            and (capped is None or capped[i])
+                            and (max_jump is None or v - u - 1 <= max_jump)
+                        ):
                             jump = min(jump, gap_cap)
                         cand = s + 1.0 - jump
                     elif v == u and suffixed[i]:

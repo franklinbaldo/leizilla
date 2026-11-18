@@ -275,6 +275,13 @@ Rodada 11: 1 regra promovida e 1 errata. `£)` é a alínea `f` (glifo de OCR): 
 parágrafo/inciso/alínea:" como sinal de bloco citado (sem efeito). Errata `set_device` em
 `lei-06520`: `Art. 4ºA concessão` é o artigo 4º e a frase "A concessão", não o sufixo `A`.
 
+Rodada 12: 1 regra promovida e 1 errata. Alíneas de bloco citado podem pular até duas letras
+(`a)`, `d)`, `e)`): treino +2, teste 0, 3 de 3 (sem limite, 3 de 7 errados). Rejeitadas: preencher
+um marcador isolado no fim da cadeia também para alíneas e parágrafos (0,67 / 0 unidades), `.-`
+como separador de inciso (0 unidades), item seguido de título em maiúsculas (0 unidades, perde
+3 dispositivos certos), `(` antes de `Art.` como citação (reprova o gate de artigo). Errata
+`set_device` em `decreto-10227`: o terceiro marcador (`II —` depois de `H —`) é III pela cadeia.
+
 **Erros sistemáticos da referência.** Nenhuma classe de erro do conversor apareceu em
 número que pedisse reconstruir a referência: as 18 errata (13 + 5) são pontuais
 (13 `add_device`: dispositivo que o modelo deixou de marcar; 5 `set_device`: status

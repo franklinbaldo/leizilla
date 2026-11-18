@@ -2198,3 +2198,17 @@ def test_pound_sign_is_the_alinea_letter_f() -> None:
     )
     report = read_hierarchy(text)
     assert _numbers(report, "alinea") == ["4", "5", "6", "7"]
+
+
+def test_quoted_block_alineas_may_skip_up_to_two_letters() -> None:
+    text = (
+        "Art. 1º O artigo 5º passa a vigorar com a seguinte redação:\n\n"
+        "“Art. 5º Compete ao Conselho:\n\n"
+        "I - fiscalizar:\n\n"
+        "a) as contas;\n\n"
+        "d) os contratos;\n\n"
+        "e) os convênios.”\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "alinea", "quoted") == ["1", "4", "5"]

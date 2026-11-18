@@ -527,6 +527,20 @@
    },
    "text_sha256": "93a25980874bd40be53f648204e994dd6af33527579c5a4465ebdfcaddb9965e",
    "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "II — transportar pescado",
+   "kind": "inc",
+   "line": 514,
+   "norm": "leizilla-raw-ro-casacivil-decreto-10227",
+   "op": "set_device",
+   "reason": "The list runs I (line 501), 'H' (II, line 510), 'II' (line 514), IV (line 518), V (line 522): the third marker lost its last stroke in the OCR and is III by the sequence; the mark document numbers it 2, a duplicate of line 510.",
+   "set": {
+    "n": "3"
+   },
+   "text_sha256": "b85afe716f08a0f961336ebb29ad8cfef06fbdbf2b4e59f7fd641b190dc6cd9d",
+   "verified_by": "leitura do texto"
   }
  ],
  "schema_version": 1

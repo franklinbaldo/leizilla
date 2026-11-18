@@ -1096,7 +1096,7 @@ class _Builder:
         three runs of their own, not a chain with gaps.
         """
         skips = _ALI_FREE_SKIPS if kind == "alinea" else frozenset()
-        gap_cap = 0.5 if lenient and kind in ("paragrafo", "inciso") else None
+        gap_cap = 0.5 if lenient and kind in ("paragrafo", "inciso", "alinea") else None
         suffixed = [c.suffix is not None for c in cands]
         # Only a real paragraph sign opening a line may jump over numbers.
         capped = [
@@ -1115,6 +1115,7 @@ class _Builder:
                 free_skips=skips,
                 gap_cap=gap_cap,
                 capped=capped,
+                max_jump=2 if kind == "alinea" else None,
             )
         cuts = [0]
         for i in range(1, len(cands)):
@@ -1132,6 +1133,7 @@ class _Builder:
                     free_skips=skips,
                     gap_cap=gap_cap,
                     capped=capped[a:b],
+                    max_jump=2 if kind == "alinea" else None,
                 )
             )
         return chosen
