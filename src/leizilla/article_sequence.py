@@ -96,7 +96,7 @@ class ArticleRead(TypedDict):
     raw: str
     number: int | None
     suffix: str | None
-    status: str  # own | quoted | reference | unexplained
+    status: str  # own | quoted | reference | unexplained | superseded
     corrected: bool  # the chosen reading differs from the literal one
 
 

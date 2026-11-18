@@ -2477,3 +2477,106 @@ def test_capitalised_item_rows_under_an_inciso_stay_items() -> None:
         "Art. 4º Esta Lei entra em vigor.\n"
     )
     assert _numbers(read_hierarchy(text), "item") == ["1", "2"]
+
+
+# --- compiled acts: versions of a device -------------------------------------------
+COMPILED_ACT = (
+    "LEI N. 10, DE 1 DE JANEIRO DE 2000.\n"
+    "Alterações:\n"
+    "Alterada pela Lei n. 20, de 2/2/2005.\n"
+    "Dispõe sobre o fundo.\n"
+    "O GOVERNADOR DO ESTADO:\n"
+    "Faço saber que a Assembleia decreta e eu sanciono a seguinte Lei:\n"
+    "Art. 1º Fica criado o fundo, com 10 membros.\n"
+    "Art. 1º Fica criado o fundo, com 12 membros. (Redação dada pela Lei n. 20, de "
+    "2/2/2005)\n"
+    "§ 1º O mandato é de dois anos.\n"
+    "§ 2º A presidência é rotativa.\n"
+    "§ 1º O mandato é de três anos. (Redação dada pela Lei n. 20, de 2/2/2005)\n"
+    "§ 2º A presidência é anual. (Redação dada pela Lei n. 20, de 2/2/2005)\n"
+    "Art. 2º O prazo é de 30 dias.\n"
+    "Art. 2º O prazo é de 60 dias. (Redação dada pela Lei n. 30, de 3/3/2010)\n"
+    "Art. 3º Esta Lei entra em vigor na data de sua publicação.\n"
+)
+
+
+def _versions(report: HierarchyReport, kind: str) -> list[tuple[int | None, int]]:
+    return [
+        (n["number"], n["start"])
+        for n in report["nodes"]
+        if n["kind"] == kind and n["status"] == "superseded"
+    ]
+
+
+def test_a_compiled_act_prints_the_superseded_wording_first() -> None:
+    report = read_hierarchy(COMPILED_ACT)
+    assert report["levels"]["artigo"]["closes"]
+    assert [n["number"] for n in report["nodes"] if n["kind"] == "artigo"] == [
+        1,
+        1,
+        2,
+        2,
+        3,
+    ]
+    own = [
+        n["number"]
+        for n in report["nodes"]
+        if n["kind"] == "artigo" and n["status"] == "own"
+    ]
+    assert own == [1, 2, 3]  # each article once: the sequence is 1..3
+    # the superseded printings are the earlier ones, not quoted text of another norm
+    assert [COMPILED_ACT.count("\n", 0, s) for _, s in _versions(report, "artigo")] == [
+        6,
+        12,
+    ]
+    assert not [n for n in report["nodes"] if n["status"] == "quoted"]
+
+
+def test_a_block_of_paragraphs_printed_twice_is_versions_not_duplicates() -> None:
+    report = read_hierarchy(COMPILED_ACT)
+    assert report["levels"]["paragrafo"]["closes"]
+    own = [
+        (n["number"], COMPILED_ACT.count("\n", 0, n["start"]))
+        for n in report["nodes"]
+        if n["kind"] == "paragrafo" and n["status"] == "own"
+    ]
+    assert own == [(1, 10), (2, 11)]  # the last printing of each is the current one
+    assert [n for n, _ in _versions(report, "paragrafo")] == [1, 2]
+    assert not [x for x in report["leftovers"] if x["status"] == "unexplained"]
+
+
+def test_a_duplicate_without_an_amendment_note_stays_a_duplicate() -> None:
+    text = COMPILED_ACT.replace(
+        " (Redação dada pela Lei n. 30, de 3/3/2010)", ""
+    ).replace(" (Redação dada pela Lei n. 20, de 2/2/2005)", "")
+    report = read_hierarchy(text)
+    assert not report["levels"]["artigo"]["closes"]
+    assert not _versions(report, "artigo")
+    assert _unexplained(report)
+
+
+def test_the_note_of_a_later_annex_is_not_a_cue() -> None:
+    text = (
+        "Art. 1º Um.\nArt. 2º Dois.\nArt. 2º Tres.\n"
+        "Palácio, 1 de janeiro de 2000.\nANEXO\n(Redação dada pela Lei n. 5)\n"
+    )
+    assert not _versions(read_hierarchy(text), "artigo")
+
+
+def test_the_marked_document_of_a_compiled_act_keeps_every_printing() -> None:
+    from leizilla import marcacao
+
+    xml = marcacao.marcar(COMPILED_ACT)
+    assert marcacao.verify(xml, COMPILED_ACT) == []
+    assert marcacao.strip(xml) == COMPILED_ACT
+    rows = marcacao.to_rows(xml)
+    superseded = [r for r in rows if r["estado"] == "superado"]
+    assert [(r["kind"], r["n"]) for r in superseded] == [
+        ("art", "1"),
+        ("par", "1"),
+        ("par", "2"),
+        ("art", "2"),
+    ]
+    current = [r["path"] for r in rows if r["estado"] != "superado"]
+    assert current == ["art-1", "art-1-par-1", "art-1-par-2", "art-2", "art-3"]
+    assert xml.count('<ref rel="redacao">') == 4

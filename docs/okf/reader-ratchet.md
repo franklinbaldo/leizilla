@@ -563,6 +563,29 @@ Um conjunto de rótulos separado, com `label_set` diferente de `main`
   então os dois conjuntos não se sobrepõem. O nome do conjunto fica no manifesto,
   no `summary.json`, em cada cabeçalho de norma e no identificador do item do IA.
 
+## Torneio nos textos compilados (2026-11-18)
+
+Os gates acima só têm normas originais: nenhuma das 3213 da referência é compilada (por sha256).
+Para as regras de [textos compilados](textos-compilados.md) o torneio juntou ao critério de sempre
+(cada regra sozinha; gate de artigos PASS; gate por nível PASS sem unidade perdida em treino e
+teste) um **corpus de compilados** de 99 normas (62 leis, 29 LCs, 5 decretos, 3 decretos-leis; texto
+por `pdftotext` do PDF preservado), dividido por norma, com semente, em 70/30: **72 de desenho** e
+**27 retidas** (não lidas durante o desenho; só o fecho numérico foi medido, no fim). Critérios
+sobre o corpus de desenho: normas que ganham o fecho >= 1, nenhuma perde, precisão a olho >= 0,90
+no que a regra lê de novo.
+
+Rodada 1 (promovidas A e S; fecho do nível de artigos em 72 normas de desenho, 29 antes):
+
+| Regra | Gate de artigos | Gate por nível | Desenho (artigos fecham) | Perde | Precisão a olho |
+|---|---|---|---|---|---|
+| A: artigo impresso mais de uma vez em linhas seguidas, uma impressão posterior com nota de alteração no texto próprio ("Redação dada", "Alteração dada", "alterado pela", "renumerado", "mantido o texto"): a última é o artigo próprio, as anteriores são `superseded` | PASS | PASS depois de uma errata (a referência marcou a primeira de três impressões da lei 4983, art. 3º, a superada) | 29 -> 62 | 0 | ~150 grupos lidos, sem erro (um falso positivo achado e corrigido: o texto próprio do último artigo ia até o fim do arquivo e pegava a nota de um anexo) |
+| S: o mesmo nos níveis abaixo, também em blocos não adjacentes (§ 1º e § 2º impressos de novo): um marcador que sobra, lê como um número já impresso no escopo e traz a nota, é a impressão nova; as anteriores são `superseded`; vale só se as impressões próprias seguem em ordem crescente | PASS | PASS | parágrafos 37 -> 54 normas fecham, incisos 45 -> 52, alíneas 59 -> 64 | 0 | 74 versões de nível baixo, sem erro na amostra |
+
+Dispositivo `superseded` e toda a sua subárvore saem das contas `own` (`own_articles`, placar, gates):
+o gate compara a visão vigente (`compare_mark_reader.devices` ignora `estado="superado"`).
+No `textos` publicado (3616 linhas) o fecho de artigos passou de 3481 para 3499, nenhuma
+norma deixou de fechar.
+
 ## Limites
 
 - Uma norma que deixa de ser comparada conta como saída de `agree_closed`. É a

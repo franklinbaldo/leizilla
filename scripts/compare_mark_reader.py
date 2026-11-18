@@ -83,11 +83,15 @@ def line_starts(text: str) -> list[int]:
 
 def devices(xml: str, text: str) -> list[dict[str, Any]]:
     """The devices of a marked document (``art par inc ali item``), with the line of
-    the marker (or of the start when there is no marker)."""
+    the marker (or of the start when there is no marker).
+
+    Older printed versions of a compiled act (``estado="superado"``, the device and
+    everything inside it) are not devices of the norm's current text: the comparison
+    sees the current view only, as it saw one printing before versions existed."""
     starts = line_starts(text)
     out: list[dict[str, Any]] = []
     for row in marcacao.to_rows(xml):
-        if row["kind"] not in LEVELS:
+        if row["kind"] not in LEVELS or row.get("estado") == "superado":
             continue
         at = row["start"]
         out.append(

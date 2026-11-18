@@ -1845,6 +1845,31 @@
    },
    "text_sha256": "f4553a54f944b7d3c7d68b47042b5ff9d11eb9141d4738433c7ca4b7872c298f",
    "verified_by": "sonnet-review+eye"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 3° Para usufruir",
+   "kind": "art",
+   "line": 51,
+   "n": "3",
+   "norm": "leizilla-raw-ro-casacivil-lei-04983",
+   "op": "remove_device",
+   "reason": "Lines 51, 57 and 63 print Art. 3 three times (compiled act): the first two are the superseded wordings, the third carries '(Redação dada pela Lei 5.399, de 18/7/2022)' and is the current one; the mark document took the first (superseded) printing as the article.",
+   "text_sha256": "fde6fcf4b4e974120419d0752c3586c6b03310d42f2af8a656fef8929d184a36",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 3°",
+   "kind": "art",
+   "line": 63,
+   "n": "3",
+   "norm": "leizilla-raw-ro-casacivil-lei-04983",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "Lines 51, 57 and 63 print Art. 3 three times (compiled act): the first two are the superseded wordings, the third carries '(Redação dada pela Lei 5.399, de 18/7/2022)' and is the current one; the mark document took the first (superseded) printing as the article.",
+   "text_sha256": "fde6fcf4b4e974120419d0752c3586c6b03310d42f2af8a656fef8929d184a36",
+   "verified_by": "leitura do texto"
   }
  ],
  "schema_version": 1
