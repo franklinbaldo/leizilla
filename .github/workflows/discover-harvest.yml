@@ -126,6 +126,17 @@ jobs:
           restore-keys: |
             discover-db-${{ inputs.tipo }}--
 
+      - name: Restore harvest spool (captures downloaded but not yet uploaded)
+        # Bytes que uma colheita encerrada cedo (ração da conta no IA) já tinha baixado
+        # da fonte do governo; a próxima colheita os sobe sem baixar de novo (cada
+        # arquivo é revalidado: %PDF e sha256). ADR-0016, adendo 2026-11-18 (2).
+        uses: actions/cache/restore@v4
+        with:
+          path: data/spool
+          key: harvest-spool-${{ inputs.tipo }}--${{ github.run_id }}
+          restore-keys: |
+            harvest-spool-${{ inputs.tipo }}--
+
       - name: Discover — ${{ inputs.tipo }}
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
@@ -158,6 +169,16 @@ jobs:
         with:
           path: data/leizilla.duckdb
           key: discover-db-${{ inputs.tipo }}--${{ github.run_id }}
+
+      - name: Save harvest spool
+        # Mesmo se a colheita falhar. Teto: 200 arquivos / 100 MiB / 7 dias
+        # (HARVEST_SPOOL_*); o índice é regravado a cada colheita, então a reserva
+        # vazia também substitui a anterior.
+        if: ${{ always() && hashFiles('data/spool/index.json') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: data/spool
+          key: harvest-spool-${{ inputs.tipo }}--${{ github.run_id }}
 
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}
@@ -233,6 +254,17 @@ jobs:
           restore-keys: |
             discover-db-${{ matrix.tipo }}--
 
+      - name: Restore harvest spool (captures downloaded but not yet uploaded)
+        # Bytes que uma colheita encerrada cedo (ração da conta no IA) já tinha baixado
+        # da fonte do governo; a próxima colheita os sobe sem baixar de novo (cada
+        # arquivo é revalidado: %PDF e sha256). ADR-0016, adendo 2026-11-18 (2).
+        uses: actions/cache/restore@v4
+        with:
+          path: data/spool
+          key: harvest-spool-${{ matrix.tipo }}--${{ github.run_id }}
+          restore-keys: |
+            harvest-spool-${{ matrix.tipo }}--
+
       - name: Discover — ${{ matrix.tipo }}
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
@@ -274,6 +306,16 @@ jobs:
         with:
           path: data/leizilla.duckdb
           key: discover-db-${{ matrix.tipo }}--${{ github.run_id }}
+
+      - name: Save harvest spool
+        # Mesmo se a colheita falhar. Teto: 200 arquivos / 100 MiB / 7 dias
+        # (HARVEST_SPOOL_*); o índice é regravado a cada colheita, então a reserva
+        # vazia também substitui a anterior.
+        if: ${{ always() && hashFiles('data/spool/index.json') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: data/spool
+          key: harvest-spool-${{ matrix.tipo }}--${{ github.run_id }}
 
       - name: Notify on failure
         if: ${{ failure() || cancelled() }}
