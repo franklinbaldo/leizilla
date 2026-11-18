@@ -229,6 +229,16 @@ incisos, blocos citados sem aspas nem `(NR)`, `Art. T` de primeiro artigo citado
 50% dos casos), "Art. 22" por 2º em bloco citado (19% dos casos), cópias repetidas do mesmo
 texto, marcadores perdidos que o modelo infere.
 
+Rodada 6 (continuação, mesma escala): 4 regras promovidas (`s lo -` com `s` minúsculo como
+`§`: treino +9 / teste +6, 18 de 18 dispositivos novos certos; `Parágrafo 1º -` por extenso
+no início de linha: +2 / +1; sinal de parágrafo seguido de `.` ou `:` e glifo duplo `S$`:
++2 / +1; algarismo romano depois de palavra capitalizada no meio da linha, `Assessor IV -
+CDS-04`, não é inciso: +1 / 0) e 16 errata `add_device` (dispositivos que o conversor
+omitiu e o leitor lê, com a evidência citada: 6 de lista própria, 10 de bloco citado).
+Rejeitadas: numeral romano sozinho na linha antes de prosa minúscula (precisão 2/3), `a)`
+sozinho como detrito (perde 5 unidades), lista de itens que começa depois de 1 (precisão
+0,58, 0 unidades), glifo parecido e número na mesma linha (0 unidades, perde 1).
+
 **Erros sistemáticos da referência.** Nenhuma classe de erro do conversor apareceu em
 número que pedisse reconstruir a referência: as 18 errata (13 + 5) são pontuais
 (13 `add_device`: dispositivo que o modelo deixou de marcar; 5 `set_device`: status

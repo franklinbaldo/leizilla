@@ -77,7 +77,8 @@ from leizilla.article_sequence import (
 # "5" or "&"; the look-alike glyphs are only trusted at the start of a line.
 _PAR = re.compile(
     r"(?<![A-Za-z0-9$§])"
-    r"(?P<glyph>§|\$|(?:\d{1,2}|[SsqgBfE&£]{1,2})(?=[\s-])|[S84](?=\d{1,2}[º°]))[\s-]{0,3}"
+    r"(?P<glyph>§|\$|Par[áâãa]{1,2}grafo(?=[ \t]+[0-9IlO])|(?:\d{1,2}|[SsqgBfE&£]{1,2})(?=[\s-])|[S84](?=\d{1,2}[º°])|[Ssg]\$(?=[\s-]))"
+    r"(?:[\s-]{0,3}|(?<=[§$])[.:][ \t]?)"
     r"(?P<num>[0-9IlO]{1,3})(?:(?P<ord>\s?\.?[ºo°ªQ^?])|(?![.,]?\d))"
     r"(?:-(?P<suffix>[A-Z])\b(?![ \t]+[a-zà-ý]))?"
 )
@@ -98,6 +99,7 @@ _INC_WILD = re.compile(
     r"(?m)^[ \t]*(?P<mark>(?P<tok>[^\W_]{1,4})[ \t]{0,2}[-–—]+)(?P<gap>[ \t]*)\S"
 )
 # A roman numeral of two or more letters opening a line, two spaces and lower-case prose.
+_TITLE_WORD_LEFT = re.compile(r"(?:^|\s)[A-ZÀ-Ý][a-zà-ý]{3,}[ \t]+\Z")
 _INC_BARE = re.compile(
     r"(?m)^[ \t]*(?P<tok>[IVXL]{1,6})(?:[ \t]{2}|[ \t]"
     r"(?!(?:e|ou|a|o|as|os|de|do|da|dos|das|deste|desta|destes|destas|ao|aos|à|às)\b))"
@@ -473,11 +475,19 @@ def _paragraph_candidates(text: str) -> list[_Cand]:
             readings = readings[:1]
         sign = glyph in "§$"
         line_start = _at_line_start(text, m.start())
+        if glyph[0] == "P":
+            # "Parágrafo 1º - Serão nomeados": the word spelled out, at a line start.
+            if not line_start:
+                continue
+            sign = True
         if not sign:
             # A look-alike glyph ("S", "8", "94", "q") needs the line start and an
             # ordinal sign; the classic ones also pass with an ordinal read as a digit.
             ordinal = m.group("ord") or ""
             classic = glyph in "S8495&" and (has_ord or len(readings) > 1)
+            # "s lo -", "s 2o -" for "§ 1º": the lower-case glyph needs its ordinal
+            # sign and the number on its own line.
+            classic = classic or (glyph == "s" and has_ord and "\n" not in m.group(0))
             if not line_start or not (classic or ordinal[-1:] in ("º", "°")):
                 continue
         # "§ 2º do art. 5º" is a citation wherever it sits; a citing word on the left
@@ -552,6 +562,10 @@ def _inciso_candidates(text: str) -> list[_Cand]:
             continue  # "I-A", "V-se": only a line start makes a glued dash a marker
         if not line_start and token in ("C", "L"):
             continue  # "C -" / "L -" inside a sentence is an enumeration letter
+        if not line_start and _TITLE_WORD_LEFT.search(
+            text[max(0, m.start() - 24) : m.start()]
+        ):
+            continue  # "Assessor IV - CDS-04": a grade named after a capitalised word
         out.append(
             _Cand(
                 m.start(),

@@ -2040,3 +2040,56 @@ def test_misspelled_paragrafo_unico_with_i_for_r() -> None:
     text = "Art. 1º Texto.\nParágiafo único - Todas as unidades dispõem de espaço.\n"
     report = read_hierarchy(text)
     assert _paths(report) == ["art-1", "art-1-par-unico"]
+
+
+def test_lower_case_s_with_ordinal_sign_is_a_paragraph_sign() -> None:
+    text = (
+        "Art. 1º Fica autorizado o Poder Executivo.\n\n"
+        "s lo - Terá preferência o servidor que neles residir.\n\n"
+        "s 2o - Feita a avaliação do imóvel.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _paths(report)[:3] == ["art-1", "art-1-par-1", "art-1-par-2"]
+
+
+def test_lower_case_s_before_a_clock_time_is_no_paragraph_sign() -> None:
+    text = (
+        "Art. 1º A biblioteca funciona das 8:00 horas às\n\n"
+        "s\n22:00 horas, ininterruptamente.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "paragrafo") == []
+
+
+def test_paragraph_spelled_out_with_a_number_opening_a_line() -> None:
+    text = (
+        "Art. 1º Os cargos são os seguintes.\n\n"
+        "Parágrafo 1º - Serão nomeados pelo Presidente.\n\n"
+        "Parágrafo 2º - Serão nomeados pelo Tribunal.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _paths(report)[:3] == ["art-1", "art-1-par-1", "art-1-par-2"]
+
+
+def test_paragraph_sign_followed_by_a_period_or_a_colon() -> None:
+    text = (
+        "Art. 1º O orçamento do Estado.\n\n"
+        "§. 1º - O orçamento consignará dotação.\n\n"
+        "$:2º - As provas serão realizadas.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _paths(report)[:3] == ["art-1", "art-1-par-1", "art-1-par-2"]
+
+
+def test_roman_numeral_after_a_capitalised_word_is_a_grade_not_an_inciso() -> None:
+    text = (
+        "Art. 1º Ficam criados cargos de Assessor IV - CDS-04, 25 cargos de Assessor "
+        "V - CDS-05.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "inciso") == []
