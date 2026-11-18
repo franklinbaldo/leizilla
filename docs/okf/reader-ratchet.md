@@ -133,7 +133,7 @@ não são reescritos.
 
 O gate acima só cobre o nível `art`, contra o professor do modo `label`. Abaixo do artigo
 o leitor tem defeitos conhecidos e a referência é o **documento marcado do modo `mark`**
-([teacher-mark.md](teacher-mark.md)) de 3161 normas: as 300 de
+([teacher-mark.md](teacher-mark.md)) de 3213 normas (3161 até 2026-11-18, mais as 52 "gigantes" de `teacher-mark.md`): as 300 de
 `review-samples/mark-reference-2026-11.txt` mais as duas partes (A: coleta
 `44228356004`, B: coleta `44227337585`) da camada de texto inteira. A referência pode ter erros: a catraca só
 trava o que **já concorda**; o que discorda fica de fora até ser resolvido, e uma regra
