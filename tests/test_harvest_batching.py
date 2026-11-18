@@ -2071,8 +2071,12 @@ def test_cli_exit_code_on_an_account_throttle() -> None:
         partial.output
     )
     nothing = run(success=0)
-    assert nothing.exit_code == 1  # nothing preserved: the job must not look green
-    assert "nenhuma captura preservada" in nothing.output
+    # Account ration with nothing preserved: postponed, not broken (2026-11-18 (2)).
+    assert nothing.exit_code == 0
+    assert "adiado: cota da conta no Internet Archive; 4 capturas devolvidas" in (
+        nothing.output
+    )
+    assert "nenhuma captura preservada" not in nothing.output
 
 
 def test_run_ia_upload_deadline_bounds_the_subprocess_and_the_backoff(

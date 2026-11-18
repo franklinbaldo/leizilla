@@ -18,12 +18,15 @@ ADR-0005/0010).
 import csv
 import hashlib
 import io
+import json
 import re
 import urllib.error
 import urllib.request
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Mapping, Optional
+from typing import Any, Mapping, Optional
+from urllib.parse import urlencode
 
 from leizilla.entes import list_slugs
 
@@ -108,6 +111,103 @@ def is_ia_queue_full(text: Optional[str]) -> bool:
     rate`` sem marcador é limite de taxa comum e mantém os recuos curtos.
     """
     return _IA_TASKS_QUEUED_RE.search(text or "") is not None
+
+
+# --- Sonda de capacidade do IA (somente leitura) ---------------------------------------
+# ``GET https://s3.us.archive.org/?check_limit=1&accesskey=<chave>&bucket=<item>`` é o
+# mesmo ponto que a biblioteca ``internetarchive`` consulta (``ArchiveSession.
+# s3_is_overloaded``) quando um upload falha. Não grava nada e não usa a chave secreta.
+# Resposta medida em 2026-11-18 (sem credencial, item real):
+#   {"accesskey": "...", "bucket": "...", "over_limit": 0, "detail": {
+#      "accesskey_ration": 499, "accesskey_tasks_queued": 0, "bucket_limit": 999,
+#      "bucket_ration": 149, "bucket_tasks_queued": 150, "limit_reason": "",
+#      "rationing_engaged": 0, "rationing_level": 9999,
+#      "total_global_limit": 11999, "total_tasks_queued": 9770}}
+# ``over_limit`` é o veredito (a biblioteca também só o usa): ``bucket_tasks_queued``
+# (150) pode passar de ``bucket_ration`` (149) com ``over_limit`` 0.
+IA_S3_CHECK_LIMIT_URL = "https://s3.us.archive.org/"
+IA_CAPACITY_TIMEOUT_S = 12.0
+
+
+@dataclass(frozen=True)
+class IaCapacity:
+    """Resposta da sonda: o IA aceita uploads agora? ``scope`` só quando recusa."""
+
+    over_limit: bool
+    scope: Optional[str] = None  # "account" | "item" (só se over_limit)
+    reason: str = ""
+    detail: dict[str, Any] = field(default_factory=dict)
+
+
+def _num(value: Any) -> Optional[float]:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_ia_capacity(payload: Any) -> Optional[IaCapacity]:
+    """Interpreta o JSON de ``check_limit``; ``None`` se não for o formato conhecido.
+
+    Escopo, quando ``over_limit`` != 0: primeiro ``detail.limit_reason`` pela mesma
+    ``classify_ia_throttle`` da recusa de upload; senão, qual contador passou da
+    ração (conta/global antes de item); senão ``"account"`` (lado conservador).
+    """
+    if not isinstance(payload, dict) or "over_limit" not in payload:
+        return None
+    over = payload.get("over_limit")
+    if isinstance(over, bool):
+        is_over = over
+    else:
+        n = _num(over)
+        if n is None:
+            return None
+        is_over = n != 0
+    raw_detail = payload.get("detail")
+    detail: dict[str, Any] = raw_detail if isinstance(raw_detail, dict) else {}
+    if not is_over:
+        return IaCapacity(False, None, "", detail)
+    reason = str(detail.get("limit_reason") or "")
+    scope = classify_ia_throttle(reason)
+    if scope is None:
+
+        def exceeded(queued: str, limit: str) -> bool:
+            q, lim = _num(detail.get(queued)), _num(detail.get(limit))
+            return q is not None and lim is not None and q >= lim
+
+        if exceeded("accesskey_tasks_queued", "accesskey_ration") or exceeded(
+            "total_tasks_queued", "total_global_limit"
+        ):
+            scope = "account"
+        elif exceeded("bucket_tasks_queued", "bucket_ration"):
+            scope = "item"
+        else:
+            scope = "account"
+    return IaCapacity(True, scope, reason, detail)
+
+
+def probe_ia_capacity(
+    access_key: Optional[str],
+    bucket: Optional[str] = None,
+    timeout: float = IA_CAPACITY_TIMEOUT_S,
+) -> Optional[IaCapacity]:
+    """Pergunta ao IA se a conta (e o item, se dado) aceita uploads agora.
+
+    Fail-open: sem chave, erro de rede/HTTP, JSON inválido ou formato desconhecido
+    devolvem ``None`` (= "não sei", e a colheita segue como antes da sonda).
+    """
+    if not access_key:
+        return None
+    params = {"check_limit": "1", "accesskey": access_key}
+    if bucket:
+        params["bucket"] = bucket
+    url = f"{IA_S3_CHECK_LIMIT_URL}?{urlencode(params)}"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310
+            payload = json.loads(resp.read().decode("utf-8"))
+    except (OSError, ValueError):  # URLError/HTTPError/timeout são OSError
+        return None
+    return parse_ia_capacity(payload)
 
 
 def compute_hash(data: bytes) -> str:

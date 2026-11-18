@@ -40,3 +40,16 @@ def _offline_wayback_background_save(monkeypatch: pytest.MonkeyPatch) -> Iterato
         lambda url, access_key, secret_key, timeout: None,
     )
     yield
+
+
+@pytest.fixture(autouse=True)
+def _offline_ia_capacity_probe(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Keep the harvest's IA ``check_limit`` probe off the network in every test.
+
+    ``InternetArchivePublisher.check_ia_capacity`` asks s3.us.archive.org before the
+    harvest fetches anything (ADR-0016, 2026-11-18). Here the probe answers "unknown"
+    (``None`` = fail-open, the harvest proceeds). Tests of the probe itself mock
+    ``urllib.request.urlopen`` and call ``leizilla.ia_utils.probe_ia_capacity``.
+    """
+    monkeypatch.setattr("leizilla.publisher.probe_ia_capacity", lambda *a, **k: None)
+    yield

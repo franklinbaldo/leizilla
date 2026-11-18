@@ -27,10 +27,12 @@ from leizilla.ia_utils import (
     INDEX_COLUMNS,
     INDEX_FILENAME,
     PROVENANCE_COLUMNS,
+    IaCapacity,
     classify_ia_throttle,
     compute_hash,
     download_url,
     is_ia_queue_full,
+    probe_ia_capacity,
     list_identities,
     merge_index_row,
     parse_identity,
@@ -1820,6 +1822,13 @@ class InternetArchivePublisher:
                 fail_fast_queue=True,
                 timeout_s=timeout_s,
             )
+
+    def check_ia_capacity(self, item_id: Optional[str] = None) -> Optional[IaCapacity]:
+        """Sonda somente leitura: a conta (e o item) aceitam uploads agora?
+
+        ``None`` = a sonda falhou (fail-open: quem chama segue como se não houvesse).
+        """
+        return probe_ia_capacity(self.access_key, item_id)
 
     def request_derive(self, item_id: str, timeout_s: Optional[float] = None) -> bool:
         """Pede ao IA **um** derive do item (OCR dos PDFs novos). ``True`` se aceito.
