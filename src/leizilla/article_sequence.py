@@ -54,7 +54,8 @@ ARTICLE_CANDIDATE = re.compile(
     r"(?:\s*[.,:;»«„“”\"'^™_]{0,3}\s*|-\s?(?=[0-9IlO]))(?P<num>[0-9IlO]{1,4})"
     r"(?P<ord>\s?[ºo°ªQ^?])?"
     r"(?:(?:-|[ \t]?-[ \t]?(?=A\.))(?P<suffix>[A-Z])"
-    r"(?=[.:\-–—]|[ \t]*[\-–—]|[ \t]*(?:\n|\Z)|(?<=[ºo°ª]-A)[ \t]+(?=[A-ZÀ-Ý])))?"
+    r"(?=[.:\-–—]|[ \t]*[\-–—]|[ \t]*(?:\n|\Z)|(?<=[ºo°ª]-A)[ \t]+(?=[A-ZÀ-Ý])"
+    r"|(?<=[0-9]-A)[ \t]+(?=À|Ao\b|Aos\b)))?"
 )
 _OCR_DIGITS = str.maketrans({"I": "1", "l": "1", "O": "0"})
 # Digits the ordinal indicator is misread as when glued to the number ("4º" -> "42").
@@ -96,7 +97,7 @@ class ArticleRead(TypedDict):
     raw: str
     number: int | None
     suffix: str | None
-    status: str  # own | quoted | reference | unexplained
+    status: str  # own | quoted | reference | unexplained | superseded
     corrected: bool  # the chosen reading differs from the literal one
 
 

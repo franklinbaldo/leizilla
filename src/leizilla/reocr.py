@@ -44,6 +44,10 @@ from leizilla.textlayer import FILA_NAO_FECHA, FILA_SEM_TEXTO, read_closure
 logger = logging.getLogger(__name__)
 
 ENGINE = "paddleocr"
+#: Motor de uma tentativa da fila ``sem-texto`` que leu a camada de texto embutida do PDF
+#: (``pdftotext``, poppler) em vez de rasterizar e rodar OCR. A tentativa só é gravada com
+#: esse motor se o texto passou no portão; senão o PDF segue para o OCR e a linha é a do OCR.
+PDF_TEXT_ENGINE = "pdftotext"
 #: Modelos que o Kreuzberg 4.10 baixa para o backend PaddleOCR (ONNX): detecção
 #: ``v2/det/mobile``, classificador ``v2/cls`` e reconhecimento ``rec/latin``.
 ENGINE_VERSION = "onnx-v2 det-mobile+cls+rec-latin"
@@ -122,6 +126,8 @@ class OcrOutcome:
 
 
 OcrFn = Callable[[bytes, int], OcrOutcome]
+#: Camada de texto embutida do PDF (sem OCR): ``None`` se não há ou se a ferramenta falha.
+TextLayerFn = Callable[[bytes], Optional[OcrOutcome]]
 
 
 @dataclass
@@ -234,9 +240,10 @@ def _already_done(
     kreuzberg_version: str,
     max_pages: int,
 ) -> bool:
-    prev = done.get(
-        (str(row.get("sha256_fonte") or ""), ENGINE, ENGINE_VERSION, kreuzberg_version)
-    )
+    sha = str(row.get("sha256_fonte") or "")
+    if any(k[0] == sha and k[1] == PDF_TEXT_ENGINE for k in done):
+        return True  # a camada de texto do PDF já foi lida e aceita
+    prev = done.get((sha, ENGINE, ENGINE_VERSION, kreuzberg_version))
     if prev is None:
         return False
     # Rejeitado por tamanho só deixa de valer se agora o limite o comporta.
@@ -460,6 +467,44 @@ def ocr_pdf(pdf_bytes: bytes, max_pages: int = DEFAULT_MAX_PAGES) -> OcrOutcome:
         )
 
 
+def pdf_text_layer(pdf_bytes: bytes) -> Optional[OcrOutcome]:
+    """Camada de texto embutida do PDF (``pdftotext``, poppler), sem rasterizar.
+
+    Um PDF nascido digital (os "Text PDF" do IA, a maioria das versões compiladas da
+    Casa Civil) já traz o texto: lê-lo é instantâneo, não exige o extra ``reocr`` e é
+    melhor que o OCR de uma imagem do mesmo texto. Modo simples (sem ``-layout``: o
+    layout enche o texto de corridas de espaços de coluna). ``None`` se o poppler falha
+    ou falta; o chamador então cai no OCR. O portão (`judge_sem_texto`) decide se o
+    texto serve: um PDF escaneado devolve quase nada.
+    """
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf_path = Path(tmp) / "in.pdf"
+            pdf_path.write_bytes(pdf_bytes)
+            pages = pdf_page_count(pdf_path)
+            text = subprocess.run(
+                [_require("pdftotext"), "-q", str(pdf_path), "-"],
+                capture_output=True,
+                check=True,
+                timeout=_PDF_TIMEOUT_S,
+            ).stdout.decode("utf-8", errors="replace")
+    except (RuntimeError, OSError, subprocess.SubprocessError):
+        return None
+    return OcrOutcome(text=text, pages=pages, kreuzberg_version=_poppler_version())
+
+
+def _poppler_version() -> str:
+    """Versão do poppler (``pdftotext -v`` escreve no stderr), ``'desconhecida'`` se falha."""
+    try:
+        out = subprocess.run(
+            [_require("pdftotext"), "-v"], capture_output=True, text=True, timeout=30
+        ).stderr
+    except (RuntimeError, OSError, subprocess.SubprocessError):
+        return "desconhecida"
+    m = re.search(r"version\s+(\S+)", out)
+    return m.group(1) if m else "desconhecida"
+
+
 def installed_kreuzberg_version() -> str:
     """Versão do Kreuzberg instalado (``'ausente'`` sem o extra ``reocr``)."""
     from importlib import metadata
@@ -522,9 +567,14 @@ def run_reocr(
     sleep_s: float = MIN_SLEEP_S,
     fetch: Optional[Fetcher] = None,
     ocr: Optional[OcrFn] = None,
+    text_layer: Optional[TextLayerFn] = None,
     kreuzberg_version: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Tenta o re-OCR de cada norma da fila; devolve uma linha por tentativa.
+
+    Na fila ``sem-texto`` um PDF com camada de texto embutida (``text_layer``, por
+    padrão `pdf_text_layer`) é lido sem OCR: se o texto passa no portão, a linha
+    leva o motor ``pdftotext``; senão o PDF segue para o OCR.
 
     Sequencial e educado com o IA: um download por vez, ``sleep_s`` (>= 1 s) entre
     eles. Falha de download não vira tentativa (é transitória: a norma volta à fila
@@ -532,6 +582,7 @@ def run_reocr(
     """
     fetch = fetch or textlayer.http_get
     ocr = ocr or ocr_pdf
+    text_layer = text_layer or pdf_text_layer
     kz_version = kreuzberg_version or installed_kreuzberg_version()
     out: list[dict[str, Any]] = []
     first = True
@@ -562,17 +613,34 @@ def run_reocr(
         if sha_pdf != item.get("sha256_fonte"):
             row.update(motivo=PDF_DIVERGE)
         else:
-            try:
-                outcome = ocr(pdf, max_pages)
-            except TooManyPages as e:
-                stats.grandes += 1
-                row.update(motivo=EXCEDE_PAGINAS, paginas=e.pages)
-            except Exception:  # noqa: BLE001 — bulkhead por norma; logado abaixo
-                logger.exception("re-OCR falhou em %s", tid)
-                row.update(motivo=OCR_FALHOU)
+            layer = text_layer(pdf) if fila == FILA_SEM_TEXTO else None
+            if layer is not None and judge_sem_texto(layer.text, layer.pages)["aceito"]:
+                row.update(
+                    engine=PDF_TEXT_ENGINE,
+                    engine_version=layer.kreuzberg_version,
+                    parametros="pdftotext -q (sem -layout); camada de texto embutida",
+                )
+                outcome = layer
+                kz_row = ""
+                failure: Optional[BaseException] = None
             else:
+                kz_row = None
+                failure = None
+                try:
+                    outcome = ocr(pdf, max_pages)
+                except TooManyPages as e:
+                    stats.grandes += 1
+                    row.update(motivo=EXCEDE_PAGINAS, paginas=e.pages)
+                    failure = e
+                except Exception as e:  # noqa: BLE001 — bulkhead por norma; logado abaixo
+                    logger.exception("re-OCR falhou em %s", tid)
+                    row.update(motivo=OCR_FALHOU)
+                    failure = e
+            if failure is None:
                 row.update(paginas=outcome.pages)
-                row["kreuzberg_version"] = outcome.kreuzberg_version
+                row["kreuzberg_version"] = (
+                    kz_row if kz_row is not None else outcome.kreuzberg_version
+                )
                 new_text = outcome.text
                 if not new_text.strip():
                     row.update(motivo=OCR_VAZIO)
@@ -653,7 +721,11 @@ def enumerate_sem_texto(
     falhas)``: com falhas a lista pode estar incompleta (a fila segue assim mesmo;
     o que faltar entra numa próxima execução).
     """
-    com_texto = {str(r["texto_id"]) for r in textos_rows if r.get("texto")}
+    com_texto = {
+        str(r["texto_id"]): str(r.get("sha256_fonte") or "")
+        for r in textos_rows
+        if r.get("texto")
+    }
     stats = textlayer.BuildStats()
     out: list[dict[str, Any]] = []
     for fonte in fontes:

@@ -563,6 +563,47 @@ Um conjunto de rótulos separado, com `label_set` diferente de `main`
   então os dois conjuntos não se sobrepõem. O nome do conjunto fica no manifesto,
   no `summary.json`, em cada cabeçalho de norma e no identificador do item do IA.
 
+## Torneio nos textos compilados (2026-11-18)
+
+Os gates acima só têm normas originais: nenhuma das 3213 da referência é compilada (por sha256).
+Para as regras de [textos compilados](textos-compilados.md) o torneio juntou ao critério de sempre
+(cada regra sozinha; gate de artigos PASS; gate por nível PASS sem unidade perdida em treino e
+teste) um **corpus de compilados** de 99 normas (62 leis, 29 LCs, 5 decretos, 3 decretos-leis; texto
+por `pdftotext` do PDF preservado), dividido por norma, com semente, em 70/30: **72 de desenho** e
+**27 retidas** (não lidas durante o desenho; só o fecho numérico foi medido, no fim). Critérios
+sobre o corpus de desenho: normas que ganham o fecho >= 1, nenhuma perde, precisão a olho >= 0,90
+no que a regra lê de novo.
+
+Rodada 1 (promovidas A e S; fecho do nível de artigos em 72 normas de desenho, 29 antes):
+
+| Regra | Gate de artigos | Gate por nível | Desenho (artigos fecham) | Perde | Precisão a olho |
+|---|---|---|---|---|---|
+| A: artigo impresso mais de uma vez em linhas seguidas, uma impressão posterior com nota de alteração no texto próprio ("Redação dada", "Alteração dada", "alterado pela", "renumerado", "mantido o texto"): a última é o artigo próprio, as anteriores são `superseded` | PASS | PASS depois de uma errata (a referência marcou a primeira de três impressões da lei 4983, art. 3º, a superada) | 29 -> 62 | 0 | ~150 grupos lidos, sem erro (um falso positivo achado e corrigido: o texto próprio do último artigo ia até o fim do arquivo e pegava a nota de um anexo) |
+| S: o mesmo nos níveis abaixo, também em blocos não adjacentes (§ 1º e § 2º impressos de novo): um marcador que sobra, lê como um número já impresso no escopo e traz a nota, é a impressão nova; as anteriores são `superseded`; vale só se as impressões próprias seguem em ordem crescente | PASS | PASS | parágrafos 37 -> 54 normas fecham, incisos 45 -> 52, alíneas 59 -> 64 | 0 | 74 versões de nível baixo, sem erro na amostra |
+
+Rodada 2 (cada regra sozinha sobre a rodada 1; desenho 62 -> 67 de 72; textos publicados 3499 -> 3500):
+
+| Regra | Gate de artigos | Gate por nível | Desenho (artigos fecham) | Perde | Precisão a olho |
+|---|---|---|---|---|---|
+| C1: a nota de alteração pode estar nos incisos/parágrafos de baixo (o caput ficou como era; lc 827, art. 108) | PASS | PASS | +1 (lc 827) | 0 | 1 de 1 |
+| C2: marcador dobrado "Art. Art. 2°" não esconde a primeira impressão (lei 5734) | PASS | PASS | +1 (lei 5734) | 0 | 1 de 1 (nenhuma mudança nos 3616 textos publicados) |
+| C3: sufixo "Art. 114-A À Superintendência" (`-A` + `À`/`Ao`/`Aos`, sem ordinal) | PASS | PASS | +1 (lc 965) | 0 | 1 de 1 no publicado inteiro (a regex só pega esse caso em 3616 textos) |
+| C4: ato alterador anexado depois da assinatura de um ato com cabeçalho "Alterações:" ("Faço saber que ..." + "Art. 1°" de novo): os artigos ali não são artigos não lidos | PASS | PASS | +2 (leis 5832, 6324) | 0 | 3 de 3 (sem o guarda do cabeçalho, 6 mudanças em originais, 3 delas em OCR embaralhado: rejeitada essa versão) |
+
+Rodada 3 (sem promoção; critério de saturação do torneio: duas rodadas sem promoção, a rodada 3 é a
+primeira): detritos de cabeçalho/rodapé de página entre o caput e o parágrafo (não há caso no
+corpus de desenho; o do decreto 29987 está entre as normas retidas e não foi lido), "Parágrafo
+único" antigo como versão do § 1º (o caso do desenho já cai na regra S), bloco citado com
+reticências que inclui artigos de numeração que a cadeia leva como próprios (lei 5076: o bloco
+fecha cedo porque a cadeia tomou o "Art. 2°" citado; é o defeito do leitor de blocos citados, não
+específico de compilados) e as normas que não são atos (lei 5036 é cópia de acórdão; lei 5584,
+anexos de tabelas). Ficam abertas, ver "Fica de fora" em textos-compilados.md.
+
+Dispositivo `superseded` e toda a sua subárvore saem das contas `own` (`own_articles`, placar, gates):
+o gate compara a visão vigente (`compare_mark_reader.devices` ignora `estado="superado"`).
+No `textos` publicado (3616 linhas) o fecho de artigos passou de 3481 para 3499, nenhuma
+norma deixou de fechar.
+
 ## Limites
 
 - Uma norma que deixa de ser comparada conta como saída de `agree_closed`. É a

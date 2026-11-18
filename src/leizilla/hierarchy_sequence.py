@@ -278,6 +278,18 @@ _BODY_END = re.compile(
 _ART_HEAD = re.compile(r"\s{0,2}(?:Art|AH|Arl|Aft)\b")
 _MARGIN = 3  # stray characters tolerated before a marker at the start of a line
 _SUB_LEVELS = ("paragrafo", "inciso", "alinea", "item")
+#: Node statuses that sit in the norm's own text (a superseded version is printed in the
+#: compiled act, it is not quoted from another norm).
+_PLACED = ("own", "superseded")
+# What a compiled act (the Casa Civil's "versão compilada") prints after the NEW wording
+# of a device: "(Redação dada pela Lei n. 1.591, de 31/03/2006)". The superseded wording
+# is printed again just before it, without the note. Docs: docs/okf/textos-compilados.md.
+_VERSION_CUE = re.compile(
+    r"\([^()]{0,200}?(?:reda[cç][aã]o\s+(?:dada|anterior)|nova\s+reda[cç][aã]o"
+    r"|altera[cç][aã]o\s+dada|\balterad[oa]\s+pel[oa]|\brenumerad[oa]"
+    r"|mantido\s+o\s+texto)",
+    re.IGNORECASE,
+)
 _LEVELS = ("artigo", *_SUB_LEVELS)
 _TOKEN = {
     "artigo": "art",
@@ -303,7 +315,9 @@ class Node(TypedDict):
     end: int  # end of the whole subtree
     parent: int | None
     children: list[int]
-    status: str  # own | quoted
+    status: (
+        str  # own | quoted | superseded (an older printed version, see `_VERSION_CUE`)
+    )
     corrected: bool  # the chosen reading differs from the literal one
     # How the number was read: "literal" (as printed), "confusion" (a known OCR
     # look-alike, chosen by the chain), "gap" (unreadable or contradictory glyphs, read
@@ -1181,6 +1195,25 @@ class _Builder:
             scope["closes"] = False
         self.scopes = [s for s in self.scopes if s["count"] or s["unexplained"]]
 
+    def own_text_end(self, from_level: int, start: int, limit: int) -> int:
+        """End of a device's own text: its first deeper marker, else ``limit``.
+
+        ``from_level`` indexes `_SUB_LEVELS`: the levels below the device. The annotation
+        of an amended device ("(Redação dada pela Lei ...)") closes its own text, so the
+        version cue is searched only in ``[start, own_text_end)``.
+        """
+        end = limit
+        for kind in _SUB_LEVELS[from_level:]:
+            starts = self.starts[kind]
+            k = bisect_right(starts, start)
+            while k < len(starts) and starts[k] < end:
+                c = self.cands[kind][k]
+                if c.strong and not c.ref:
+                    end = starts[k]
+                    break
+                k += 1
+        return end
+
     def _slice(self, kind: str, lo: int, hi: int, lenient: bool) -> list[_Cand]:
         starts = self.starts[kind]
         cands = self.cands[kind][bisect_left(starts, lo) : bisect_left(starts, hi)]
@@ -1310,6 +1343,7 @@ class _Builder:
         ):
             # Markers without a separator only complete a chain that has a real one.
             chosen = [None if cands[i].bare else v for i, v in enumerate(chosen)]
+        superseded = {} if lenient else self._versions(level, cands, chosen, hi)
         members = [i for i, v in enumerate(chosen) if v is not None]
         values = [v for v in chosen if v is not None]
         keep = bool(members)
@@ -1327,11 +1361,12 @@ class _Builder:
         if not keep:
             chosen = [None] * len(cands)
             members, values = [], []
+            superseded = {}
 
         status = "quoted" if lenient else "own"
         pending: list[Leftover] = []
         for i, c in enumerate(cands):
-            if chosen[i] is not None:
+            if chosen[i] is not None or i in superseded:
                 continue
             if c.ref:
                 left = "reference"
@@ -1380,11 +1415,13 @@ class _Builder:
         if not members:
             self.descend(lo, hi, parent, level + 1, lenient)
             return
-        self.descend(lo, cands[members[0]].start, parent, level + 1, lenient)
-        for pos, i in enumerate(members):
+        placed = sorted([*members, *superseded])
+        self.descend(lo, cands[placed[0]].start, parent, level + 1, lenient)
+        for pos, i in enumerate(placed):
             c = cands[i]
-            value = chosen[i]
-            end = cands[members[pos + 1]].start if pos + 1 < len(members) else hi
+            old_version = i in superseded
+            value = superseded[i] if old_version else chosen[i]
+            end = cands[placed[pos + 1]].start if pos + 1 < len(placed) else hi
             node = self.add_node(
                 kind,
                 c.start,
@@ -1393,12 +1430,67 @@ class _Builder:
                 value,
                 c.suffix,
                 parent,
-                status,
+                "superseded" if old_version else status,
                 corrected=value != c.literal,
                 unico=c.unico,
                 gap=i in filled,
             )
             self.descend(c.end, end, node, level + 1, lenient)
+
+    def _versions(
+        self, level: int, cands: Sequence[_Cand], chosen: list[int | None], hi: int
+    ) -> dict[int, int]:
+        """Older printed versions of a device in a compiled act, by position.
+
+        The compiled act prints a device again, under the same number, when its wording
+        changed: the old printing, then the new one with the amendment note in its own
+        text ("(Redação dada pela Lei ..."). The chain keeps the first printing and
+        leaves the others over as duplicates. A leftover marker that reads as a number
+        already printed in this scope and carries the note is the new printing: it takes
+        the chain's place and every earlier printing of that number is superseded
+        (returned with its number). Printings need not be adjacent: "§ 1º, § 2º" may
+        be printed again as a block. The change stands only if the own printings then
+        read as one increasing sequence; otherwise nothing changes.
+        """
+        out: dict[int, int] = {}
+        trial = list(chosen)
+        printed: dict[tuple[int, str | None], list[int]] = {}
+        for i, c in enumerate(cands):
+            v = chosen[i]
+            if v is not None:
+                printed.setdefault((v, c.suffix), []).append(i)
+                continue
+            if c.ref or not c.strong:
+                continue
+            for r in c.readings:
+                key = (r, c.suffix)
+                if key not in printed:
+                    continue
+                limit = cands[i + 1].start if i + 1 < len(cands) else hi
+                own_end = self.own_text_end(level + 1, c.start, limit)
+                if not _VERSION_CUE.search(self.text, c.start, own_end):
+                    continue
+                for k in printed[key]:
+                    trial[k] = None
+                    out[k] = r
+                trial[i] = r
+                printed[key] = [i]
+                break
+        if not out:
+            return {}
+        last: tuple[int, int] | None = None
+        for i, c in enumerate(cands):
+            v = trial[i]
+            if v is None:
+                continue
+            here = (v, 1 if c.suffix else 0)
+            if last is not None and not (
+                here[0] > last[0] or (here[0] == last[0] and c.suffix)
+            ):
+                return {}
+            last = here
+        chosen[:] = trial
+        return {k: v for k, v in out.items() if trial[k] is None}
 
     def _arabic_lists(
         self, cands: Sequence[_Cand], lo: int, hi: int, lenient: bool
@@ -1477,7 +1569,7 @@ class _Builder:
                     n
                     for n in level
                     if self.nodes[n]["start"] <= pos < self.nodes[n]["end"]
-                    and self.nodes[n]["status"] == "own"
+                    and self.nodes[n]["status"] in _PLACED
                 ),
                 None,
             )
@@ -1977,6 +2069,36 @@ def _quote_under_amending_host(text: str, articles: list[ArticleRead]) -> None:
                 art["status"] = "quoted"
 
 
+_COMPILED_HEADER = re.compile(r"(?m)^[ \t]*Altera[cç][oõ]es:[ \t]*$", re.IGNORECASE)
+_APPENDED_ACT = re.compile(
+    r"Faço\s+saber\s+que|\bDECRETA\s*:|\bDECRETAM?\s*:\s*\n", re.IGNORECASE
+)
+
+
+def _appended_acts(text: str, articles: list[ArticleRead], body_end: int) -> None:
+    """Article markers of an act appended after the norm's own body.
+
+    A compiled act may carry, after the signature, the full text of the amending acts:
+    a new enacting formula ("Faço saber que ...") and "Art. 1°" again. Those articles
+    are another act's, not unread articles of this one.
+    """
+    if not _COMPILED_HEADER.search(text, 0, 2500):
+        return
+    start = next(
+        (m.start() for m in _APPENDED_ACT.finditer(text, body_end)),
+        None,
+    )
+    if start is None:
+        return
+    for art in articles:
+        if (
+            art["status"] == "unexplained"
+            and art["start"] > start
+            and _opens_line(text, art["start"])
+        ):
+            art["status"] = "quoted"
+
+
 def _cited_in_annex(text: str, articles: list[ArticleRead], body_end: int) -> None:
     """A marker inside a line of an annex heading or table, after the body's end.
 
@@ -2032,6 +2154,73 @@ def _quote_before_duplicate(
         dup["status"], dup["number"], dup["corrected"] = "own", number, False
     out.sort()
     return out
+
+
+_DOUBLED_ART = re.compile(r"[ \t]*(?:Art|Artigo)\.?[ \t]*\Z", re.IGNORECASE)
+
+
+def _opens_marker(text: str, pos: int) -> bool:
+    """True when ``pos`` opens its line, or follows a lone "Art." that did (a doubled
+    marker: "Art. Art. 1°")."""
+    before = text[text.rfind("\n", 0, pos) + 1 : pos]
+    if not before.strip():
+        return True
+    return _DOUBLED_ART.fullmatch(before) is not None
+
+
+def _version_articles(text: str, articles: list[ArticleRead]) -> None:
+    """Older printed versions of an article in a compiled act.
+
+    The compiled act prints the superseded wording of an article and then the new one,
+    with "(Redação dada pela Lei ...)" after the new. The chain takes the first printing
+    and leaves the others as duplicates. Consecutive printings of the same number and
+    suffix, each opening a line, one of the later ones carrying the amendment note in
+    its own text, are versions of one article: the last printing is the own article,
+    the earlier ones become ``superseded``. Nothing else changes (never a plain
+    duplicate: the note is the cue).
+    """
+    seq = sorted(
+        (a for a in articles if a["status"] in ("own", "unexplained")),
+        key=lambda a: a["start"],
+    )
+    keyed: list[tuple[ArticleRead, int | None, str | None]] = []
+    for a in seq:
+        n = a["number"] if a["status"] == "own" else _article_reading(text, a["start"])
+        keyed.append((a, n, _article_marker_end(text, a["start"], a["end"])[1]))
+    i = 0
+    while i < len(keyed):
+        a, n, suffix = keyed[i]
+        if a["status"] != "own" or n is None or not _opens_marker(text, a["start"]):
+            i += 1
+            continue
+        j = i + 1
+        while (
+            j < len(keyed)
+            and keyed[j][0]["status"] == "unexplained"
+            and keyed[j][1] == n
+            and keyed[j][2] == suffix
+            and _opens_marker(text, keyed[j][0]["start"])
+        ):
+            j += 1
+        if j - i >= 2:
+            for k in range(i + 1, j):
+                start = keyed[k][0]["start"]
+                limit = (
+                    keyed[k + 1][0]["start"]
+                    if k + 1 < len(keyed)
+                    else find_body_end(text, start)
+                )
+                # The note is on the article or, when the compiler left the caput as it
+                # was, on the amended incisos and paragraphs below it.
+                if _VERSION_CUE.search(text, start, limit):
+                    for m in range(i, j - 1):
+                        keyed[m][0]["status"] = "superseded"
+                        keyed[m][0]["number"] = n
+                    last = keyed[j - 1][0]
+                    last["status"], last["number"] = "own", n
+                    last["corrected"] = n != _article_reading(text, last["start"])
+                    break
+        i = j
 
 
 def _before_enacting(articles: list[ArticleRead]) -> None:
@@ -2095,7 +2284,7 @@ _GARBLED_ART = re.compile(r"[AÁ][rR][tTlI]?[eEaAoO]?|Aft|Arl|Ait|Alt|Apt")
 def _covered(nodes: Sequence[Node], pos: int) -> bool:
     """True when an own marker of the reader starts at or spans ``pos``."""
     return any(
-        n["status"] == "own" and n["start"] <= pos < n["start"] + len(n["raw"])
+        n["status"] in _PLACED and n["start"] <= pos < n["start"] + len(n["raw"])
         for n in nodes
     )
 
@@ -2103,7 +2292,7 @@ def _covered(nodes: Sequence[Node], pos: int) -> bool:
 def _ends_marker(text: str, nodes: Sequence[Node], pos: int) -> bool:
     """True when an own marker ends just before ``pos``, with only spacing between."""
     for node in nodes:
-        if node["status"] != "own":
+        if node["status"] not in _PLACED:
             continue
         end = node["start"] + len(node["raw"])
         if end > pos or pos - end > 6:
@@ -2462,9 +2651,11 @@ def read_hierarchy(text: str) -> HierarchyReport:
             }
         )
 
+    _version_articles(text, all_articles)
     _quote_under_amending_host(text, all_articles)
     _quote_caput_citations(text, all_articles)
     _cited_in_annex(text, all_articles, body_end)
+    _appended_acts(text, all_articles, body_end)
     _before_enacting(all_articles)
     spans = _quote_before_duplicate(text, all_articles, spans)
     masked = sorted(
@@ -2525,8 +2716,11 @@ def read_hierarchy(text: str) -> HierarchyReport:
     if own and implicit is None:
         body_end = max(find_body_end(text, own[-1]["start"]), own[-1]["end"])
     roots: list[int] = []
-    for pos, art in enumerate(own):
-        end = own[pos + 1]["start"] if pos + 1 < len(own) else body_end
+    placed = sorted(
+        (a for a in all_articles if a["status"] in _PLACED), key=lambda a: a["start"]
+    )
+    for pos, art in enumerate(placed):
+        end = placed[pos + 1]["start"] if pos + 1 < len(placed) else body_end
         marker_end, suffix = _article_marker_end(text, art["start"], art["end"])
         node = builder.add_node(
             "artigo",
@@ -2536,7 +2730,7 @@ def read_hierarchy(text: str) -> HierarchyReport:
             art["number"],
             suffix,
             None,
-            "own",
+            art["status"],
             art["corrected"],
             gap=art["start"] in gap_articles,
             implicit=implicit is not None and art["start"] == implicit[0],
@@ -2544,7 +2738,7 @@ def read_hierarchy(text: str) -> HierarchyReport:
         roots.append(node)
         builder.descend(marker_end, end, node, 0, False)
     for art in all_articles:
-        if art["status"] not in ("own", "quoted"):
+        if art["status"] not in ("own", "quoted", "superseded"):
             builder.leftovers.append(
                 {
                     "kind": "artigo",
@@ -2579,6 +2773,13 @@ def read_hierarchy(text: str) -> HierarchyReport:
         )
 
     nodes = builder.nodes
+    for node_ in nodes:  # parents come first: a superseded device's subtree is too
+        if (
+            node_["parent"] is not None
+            and nodes[node_["parent"]]["status"] == "superseded"
+            and node_["status"] == "own"
+        ):
+            node_["status"] = "superseded"
     for node_ in nodes:
         first_child = min(
             (nodes[c]["start"] for c in node_["children"]), default=node_["end"]

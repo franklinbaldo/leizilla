@@ -34,7 +34,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, Callable, Iterator, Mapping, Optional, Union
 
 from leizilla import publisher
 from leizilla.hierarchy_sequence import (
@@ -337,6 +337,14 @@ TEXT_LAYER_CONVERSION = "pdf-to-hocr (camada de texto do PDF, sem OCR)"
 #: continua apontando para o ``_djvu.txt`` original.
 REOCR_MOTOR = "kreuzberg+paddleocr (re-OCR direcionado, ADR-0019)"
 
+#: Valor de ``ocr_motor`` quando o texto da linha é a camada de texto embutida do PDF,
+#: extraída por nós (``pdftotext``, poppler) porque o IA ainda não derivou o
+#: ``_djvu.txt`` (fila ``sem-texto``). Não há OCR: um PDF nascido digital é lido sem
+#: rasterizar.
+PDF_TEXT_MOTOR = "pdftotext (camada de texto do PDF, sem OCR, fila sem-texto)"
+#: Os dois valores de ``ocr_motor`` de um texto próprio (não do ``_djvu.txt`` do IA).
+OWN_MOTORS = frozenset((REOCR_MOTOR, PDF_TEXT_MOTOR))
+
 #: Filas do re-OCR (ADR-0019): ``nao-fecha`` (há texto do IA que o leitor não fecha)
 #: e ``sem-texto`` (PDF preservado sem texto do IA). Linhas de ``reocr.parquet``
 #: anteriores à coluna ``fila`` são ``nao-fecha``.
@@ -523,7 +531,7 @@ def collect_fonte(
                 ente, fonte, tipo, numero, item_id, candidates, files, (reocr or {})
             )
             if own is not None and (
-                kept is None or kept.get("ocr_motor") == REOCR_MOTOR
+                kept is None or kept.get("ocr_motor") in OWN_MOTORS
             ):
                 # Fila ``sem-texto`` (ADR-0019): o IA ainda não tem o texto, o
                 # nosso OCR tem. Se o que se manteria é um texto do IA do release
@@ -538,6 +546,18 @@ def collect_fonte(
                 stats.mantidos += 1
             continue
         capture, texto_name = chosen
+        # A rendição de leitura (a compilada) pode não ter texto do IA e ter um texto
+        # próprio aceito (fila ``sem-texto``) enquanto outra rendição já tem o do IA:
+        # vale o da rendição de leitura.
+        own = _own_row(
+            ente, fonte, tipo, numero, item_id, candidates, files, (reocr or {})
+        )
+        if own is not None and _reading_rank(str(own["rendicao"])) < _reading_rank(
+            capture_rendicao(capture)
+        ):
+            rows.append(own)
+            stats.reocr_sem_texto += 1
+            continue
         stats.com_texto += 1
         entry = files[texto_name]
         sha1_ia = str(entry.get("sha1") or "") or None
@@ -649,49 +669,94 @@ def _own_row(
     return row
 
 
+def _reading_capture_without_text(
+    tid: str,
+    candidates: list[dict[str, str]],
+    files: dict[str, dict[str, Any]],
+    com_texto: Union[set[str], Mapping[str, str]],
+) -> Optional[dict[str, str]]:
+    """A captura de leitura da norma quando ela é melhor que o texto que já existe.
+
+    A captura de leitura é a primeira em ``order_for_reading`` cujo PDF está no item
+    (a compilada, quando há). Ela precisa de texto próprio se a norma não tem texto
+    nenhum, **ou** se o texto que existe (``_djvu.txt`` de outra captura, ou a linha
+    de ``textos``) é de uma rendição pior: uma compilada sem texto não fica de fora
+    só porque o original já tem. ``com_texto`` pode ser um conjunto de ``texto_id``
+    (rendição desconhecida: a norma sai) ou um mapa ``texto_id`` → ``sha256_fonte`` da
+    linha publicada (a rendição é a da captura com esse sha256).
+    """
+    preferred = next(
+        (
+            c
+            for c in order_for_reading(candidates)
+            if c.get("sha256") and _pdf_name(c, files) is not None
+        ),
+        None,
+    )
+    if preferred is None:
+        return None
+    have: list[int] = []
+    first = _first_with_text(candidates, files)
+    if first is not None:
+        have.append(_reading_rank(capture_rendicao(first[0])))
+    if tid in com_texto:
+        if isinstance(com_texto, Mapping):
+            # a rendição do texto publicado vem do arquivo de origem (sha256_fonte),
+            # não da coluna ``rendicao``, que linhas antigas não têm
+            origin = _capture_by_sha(candidates, com_texto[tid])
+            have.append(
+                _reading_rank(capture_rendicao(origin) if origin else RENDICAO_ORIGINAL)
+            )
+        else:
+            have.append(0)  # rendição desconhecida: nunca melhor que a publicada
+    if not have:
+        return preferred
+    return preferred if _reading_rank(capture_rendicao(preferred)) < min(have) else None
+
+
 def collect_sem_texto(
     ente: str,
     fonte: str,
     *,
     stats: BuildStats,
-    com_texto: set[str],
+    com_texto: Union[set[str], Mapping[str, str]],
     fetch: Optional[Fetcher] = None,
 ) -> list[dict[str, Any]]:
-    """PDFs preservados sem texto do IA e fora de ``textos`` (fila ``sem-texto``).
+    """PDFs de leitura sem texto do IA e sem linha de ``textos`` melhor (fila ``sem-texto``).
 
-    Mesma enumeração de ``collect_fonte``. Uma norma entra se **nenhuma** captura
-    tem ``_djvu.txt`` no item agora e seu ``texto_id`` não está em ``com_texto``
-    (os ``texto_id`` com texto no ``textos`` publicado — o texto "mantido" de um
-    derive em refação conta). A captura escolhida é a mais recente cujo PDF está
-    no item. Cada item: identidade, ``ia_item``, ``pdf_url``, ``sha256_fonte``,
-    ``capturado_em``, ``rendicao``.
+    Mesma enumeração de ``collect_fonte``. Uma norma entra se a captura de leitura
+    (``order_for_reading``: a compilada antes do original) não tem texto e **nada
+    de uma rendição igual ou melhor** a cobre: nem um ``_djvu.txt`` no item, nem a
+    linha de ``textos`` (``com_texto``, ``texto_id`` → rendição da linha). Uma norma
+    cujo original tem texto e cuja compilada não tem entra, para a compilada. A
+    captura escolhida é a de leitura. Cada item: identidade, ``ia_item``,
+    ``pdf_url``, ``sha256_fonte``, ``capturado_em``, ``rendicao``.
     """
     out: list[dict[str, Any]] = []
     for item_id, tipo, numero, candidates, files in _iter_identidades(
         ente, fonte, stats=stats, fetch=fetch
     ):
         tid = texto_id(ente, fonte, tipo, numero)
-        if tid in com_texto or _first_with_text(candidates, files) is not None:
+        capture = _reading_capture_without_text(tid, candidates, files, com_texto)
+        if capture is None:
             continue
-        for capture in order_for_reading(candidates):
-            pdf_name = _pdf_name(capture, files)
-            if pdf_name is None or not capture.get("sha256"):
-                continue
-            out.append(
-                {
-                    "texto_id": tid,
-                    "ente": ente.lower(),
-                    "fonte": fonte.lower(),
-                    "tipo": tipo,
-                    "numero": numero,
-                    "ia_item": item_id,
-                    "pdf_url": download_url(item_id, pdf_name),
-                    "sha256_fonte": capture["sha256"],
-                    "capturado_em": capture.get("captured_at") or "",
-                    "rendicao": capture_rendicao(capture),
-                }
-            )
-            break
+        pdf_name = _pdf_name(capture, files)
+        if pdf_name is None:
+            continue
+        out.append(
+            {
+                "texto_id": tid,
+                "ente": ente.lower(),
+                "fonte": fonte.lower(),
+                "tipo": tipo,
+                "numero": numero,
+                "ia_item": item_id,
+                "pdf_url": download_url(item_id, pdf_name),
+                "sha256_fonte": capture["sha256"],
+                "capturado_em": capture.get("captured_at") or "",
+                "rendicao": capture_rendicao(capture),
+            }
+        )
     return out
 
 
@@ -815,8 +880,8 @@ def _set_own_text(row: dict[str, Any], hit: dict[str, Any]) -> None:
     text = str(hit["texto"])
     anchors, closes, last = article_anchors(text)
     row.update(
-        ocr_motor=REOCR_MOTOR,
-        ocr_modulo_versao=hit.get("kreuzberg_version"),
+        ocr_motor=PDF_TEXT_MOTOR if hit.get("engine") == "pdftotext" else REOCR_MOTOR,
+        ocr_modulo_versao=hit.get("kreuzberg_version") or hit.get("engine_version"),
         ocr_parametros=hit.get("parametros"),
         ocr_derivado_em=hit.get("tentado_em"),
         sha1_texto_ia=None,
@@ -853,7 +918,7 @@ def apply_reocr_overlay(
         hit = accepted.get(str(row["texto_id"]))
         if hit is None or hit.get("sha256_fonte") != row.get("sha256_fonte"):
             continue
-        if row.get("ocr_motor") == REOCR_MOTOR and (
+        if row.get("ocr_motor") in OWN_MOTORS and (
             row.get("sha256_texto") == hit.get("sha256_texto")
         ):
             continue  # já é este texto (linha criada de ``sem-texto``)

@@ -55,7 +55,15 @@ INLINE: tuple[str, ...] = ("ruido", "ref", "nota")
 KINDS: frozenset[str] = frozenset(("lei", "alteracao", *ORG, *DEVICES, *PARTS, *INLINE))
 STRUCTURAL: frozenset[str] = frozenset((*ORG, *DEVICES))
 # Elements that may carry a marker (``<m>``) and the evidence attributes.
-ESTADOS: frozenset[str] = frozenset(("vetado", "ausente"))
+ESTADOS: frozenset[str] = frozenset(("vetado", "ausente", "superado"))
+# ``estado="superado"``: an older printed version of a device in a compiled act (the
+# Casa Civil prints the superseded wording, then the new one with "(Redação dada pela
+# Lei ..."). Same ``n`` as the current device, which carries no ``estado``. Proposal
+# pending ADR-0020; docs/okf/textos-compilados.md.
+# ``<ref rel=...>``: the parenthetical official note of a compiled act, as printed.
+RELS: frozenset[str] = frozenset(
+    ("redacao", "acrescimo", "revogacao", "veto", "vide", "outra")
+)
 
 _ORG_RANK = {k: i for i, k in enumerate(ORG)}
 
@@ -507,6 +515,9 @@ def _element_problems(el: ET.Element, problems: list[str], here: str) -> None:
             problems.append(f'{here}: sufixo="{suffix}" inválido')
         if attrs.get("corrigido", "true") != "true":
             problems.append(f"{here}: corrigido só vale true")
+    rel = attrs.get("rel")
+    if rel is not None and (kind != "ref" or rel not in RELS):
+        problems.append(f'{here}: rel="{rel}" inválido em <{kind}>')
     estado = attrs.get("estado")
     if estado is not None and estado not in ESTADOS:
         problems.append(f'{here}: estado="{estado}" inválido')
@@ -706,12 +717,87 @@ def _number_attr(node: Node) -> str | None:
     return str(number)
 
 
+# The official notes of a compiled act: a parenthetical that opens with the vocabulary of
+# the Casa Civil's annotations ("(Redação dada pela Lei n. 1.591, de 31/03/2006)",
+# "(Revogado pela ...)", "(Acrescido pela ...)", "(NR)"), never a citation in prose.
+_NOTE = re.compile(
+    r"\(\s*(?:"
+    r"Reda[cç][aã]o|Nova\s+reda[cç][aã]o|Altera[cç][aã]o|Nomenclatura|Primitiv|"
+    r"Renumerad|NR\b|AC\b|Revogad|Suprimid|Acrescid|Inclu[ií]d|Vide\b|Vetad|"
+    r"Republicad|Declarad|Com\s+efeitos|Mat[eé]ria\s+vetada|Dispositivo\s+vetado|"
+    r"(?:Inciso|Al[ií]nea|Item|Dispositivo|Artigo|Par[aá]grafo(?:\s+[uú]nico)?)\s+"
+    r"(?:acrescid|inclu[ií]d|vetad|revogad|alterad|suprimid)"
+    r")[^()]{0,300}\)",
+    re.IGNORECASE,
+)
+_REL_WORDS = (
+    ("veto", re.compile(r"vetad|mantido\s+o\s+texto", re.IGNORECASE)),
+    ("revogacao", re.compile(r"^\(\s*(?:Revogad|Suprimid)", re.IGNORECASE)),
+    (
+        "acrescimo",
+        re.compile(
+            r"^\(\s*(?:Acrescid|Inclu|AC\b|\w+\s+(?:\w+\s+)?(?:acrescid|inclu))",
+            re.IGNORECASE,
+        ),
+    ),
+    ("vide", re.compile(r"^\(\s*Vide", re.IGNORECASE)),
+    (
+        "redacao",
+        re.compile(
+            r"^\(\s*(?:Reda|Nova|Altera|Nomenclatura|Primitiv|Renumerad|NR\b)",
+            re.IGNORECASE,
+        ),
+    ),
+)
+
+
+def official_notes(text: str) -> list[tuple[int, int, str]]:
+    """``(start, end, rel)`` of every official note of a compiled act, in text order.
+
+    ``rel`` is one of `RELS`: ``redacao`` (wording given, "(NR)", renumbering),
+    ``acrescimo``, ``revogacao`` (revoked or suppressed), ``veto``, ``vide`` or
+    ``outra``. The span is the whole parenthetical, as printed.
+    """
+    out: list[tuple[int, int, str]] = []
+    for m in _NOTE.finditer(text):
+        rel = next((r for r, rx in _REL_WORDS if rx.search(m.group(0))), "outra")
+        out.append((m.start(), m.end(), rel))
+    return out
+
+
+def _add_notes(marks: list[Mark], text: str) -> list[Mark]:
+    """``marks`` plus a ``ref`` for each official note that nests cleanly, else as given.
+
+    A note is kept when every mark it touches contains it entirely (it sits inside one
+    device's text, or in the lei, never straddling two devices or a quoted block edge).
+    """
+    notes = official_notes(text)
+    if not notes:
+        return marks
+    extra: list[Mark] = []
+    for start, end, rel in notes:
+        if any(
+            m.start < end and start < m.end and not (m.start <= start and end <= m.end)
+            for m in marks
+        ):
+            continue
+        extra.append(Mark("ref", start, end, {"rel": rel}))
+    if not extra:
+        return marks
+    try:
+        _nest([*marks, *extra], len(text))
+    except MarcacaoError:
+        return marks
+    return sorted([*marks, *extra], key=lambda m: (m.start, -m.end))
+
+
 def from_hierarchy_ex(
     text: str,
     report: HierarchyReport,
     *,
     tipo: str | None = None,
     numero: int | str | None = None,
+    notes: bool = True,
 ) -> Adaptation:
     """Marks for one norm from `read_hierarchy`'s report.
 
@@ -727,7 +813,11 @@ def from_hierarchy_ex(
       with its devices (they are quoted by construction) and reported in ``dropped``;
     - one ``lei`` spans from the first non-blank character to the end of the body (the
       last own device); nothing is emitted for a text with no own article;
-    - evidence: ``lido-por`` (the reader's ``read_by``, own devices), ``corrigido``.
+    - evidence: ``lido-por`` (the reader's ``read_by``, own devices), ``corrigido``;
+    - an older printed version of a device in a compiled act (reader status
+      ``superseded``) is a device like any other with ``estado="superado"``;
+    - with ``notes`` the official notes of a compiled act ("(Redação dada pela Lei
+      ...)", "(NR)") become ``<ref rel=...>`` when they nest cleanly (`_add_notes`).
     """
     nodes = report["nodes"]
     own_art = [n for n in nodes if n["kind"] == "artigo" and n["status"] == "own"]
@@ -755,7 +845,7 @@ def from_hierarchy_ex(
                 depth_of(node["id"]),
             )
             continue
-        if kind not in _KIND or node["status"] not in ("own", "quoted"):
+        if kind not in _KIND or node["status"] not in ("own", "quoted", "superseded"):
             continue
         attrs: dict[str, str] = {}
         n = _number_attr(node)
@@ -763,8 +853,10 @@ def from_hierarchy_ex(
             attrs["n"] = n
         if node["suffix"]:
             attrs["sufixo"] = node["suffix"]
-        if node["status"] == "own":
+        if node["status"] in ("own", "superseded"):
             attrs["lido-por"] = node["read_by"]
+        if node["status"] == "superseded":
+            attrs["estado"] = "superado"
         if node["corrected"]:
             attrs["corrigido"] = "true"
         marker: tuple[int, int] | None = None
@@ -831,6 +923,8 @@ def from_hierarchy_ex(
                 alive.pop(i, None)
             continue
         break
+    if notes:
+        marks = _add_notes(marks, text)
     return Adaptation(marks, dropped, bad)
 
 
