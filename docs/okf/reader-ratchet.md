@@ -204,13 +204,36 @@ normas), passa o gate por nível, ganha pelo menos uma unidade (norma, nível) p
 não perde nenhuma e, nos dispositivos que passa a ler, acerta pelo menos 90% contra a
 referência (um dispositivo que só troca de número conta contra o que lia antes). Uma regra
 que falha é tentada uma vez com guarda mais estreita. Uma rodada é um lote de candidatas; o
-torneio para quando duas rodadas seguidas não promovem nada. A medida fora da amostra é a
-concordância do leitor com o professor do modo `label` nas normas rotuladas que **não**
-estão nas 300 (`compare_mark_reader.teacher_set` por nível, próprio e citado): ela vem
-antes e depois de cada regra. Quando uma regra acerta e a referência erra, a saída é uma
-errata da referência, não a rejeição da regra. Rodada de 2026-11-18: 12 regras promovidas
-(7 na primeira rodada, 5 depois; as candidatas e o motivo de cada rejeição ficam no relatório
-da sessão) e 13 errata da referência; parou depois de duas rodadas sem promoção (candidatas que sobram dependem do texto da norma).
+torneio para quando duas rodadas seguidas não promovem nada. Quando uma regra acerta e a
+referência erra, a saída é uma errata da referência, não a rejeição da regra.
+
+**Divisão de teste.** Com a referência em escala total (3161 normas), 20% das normas
+(`split_of`, semente `SPLIT_SEED`: 636 normas) são o conjunto de **teste**: as candidatas
+são projetadas e julgadas só nos outros 80% (`train`; as listas de defeitos, os exemplos e
+a leitura "a olho" do dispositivo novo vêm só dele). O gate e a linha de base cobrem 100%,
+então uma candidata que perde uma unidade do teste é rejeitada sem ler o motivo. O teste
+mede o resultado: `check --splits` imprime as três tabelas.
+
+Rodadas de 2026-11-18 em escala total (rodada anterior, nas 300 normas: 12 regras e 13
+errata): **16 regras promovidas em 5 rodadas** (8, 3, 2, 1 e 2) e 5 errata novas.
+Resultado em unidades (norma, nível) que concordam, antes -> depois: art 2961 -> 2995 de
+3113, par 1509 -> 1534 de 1676, inc 721 -> 747 de 970, ali 228 -> 232 de 312, item 13 -> 13
+de 58; no teste: art 598 -> 602, par 296 -> 298, inc 151 -> 153, ali 48 -> 49, item 4 -> 4.
+Rejeitadas (e porquê): sufixo colado à ordinal para toda letra (perde unidades onde o
+artigo "Art. 1°-C" já é próprio), "m" sozinho como III (perde uma unidade do teste),
+reinício de inciso em bloco citado (precisão 3/9), troca do artigo duplicado que fecha a
+norma (0 unidades), `ao/aos` como citação de parágrafo (0), `T = ...` como fórmula (0),
+5/6 como sinal ordinal em artigo (perde unidades), troca por aspas de fechamento (falha o
+gate de artigo). O que não cede a regras (ver o relatório): tabelas e anexos lidos como
+incisos, blocos citados sem aspas nem `(NR)`, `Art. T` de primeiro artigo citado (1 ou 7:
+50% dos casos), "Art. 22" por 2º em bloco citado (19% dos casos), cópias repetidas do mesmo
+texto, marcadores perdidos que o modelo infere.
+
+**Erros sistemáticos da referência.** Nenhuma classe de erro do conversor apareceu em
+número que pedisse reconstruir a referência: as 18 errata (13 + 5) são pontuais
+(13 `add_device`: dispositivo que o modelo deixou de marcar; 5 `set_device`: status
+citado/próprio ou sufixo de parágrafo). As suspeitas do conversor (`suspect_*`, 38 normas) continuam
+fora do gate.
 
 ## Conjunto de avaliação (held-out)
 

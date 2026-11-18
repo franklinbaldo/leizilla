@@ -105,6 +105,7 @@
    "leizilla-raw-ro-casacivil-lc-01293",
    "leizilla-raw-ro-casacivil-lc-01307",
    "leizilla-raw-ro-casacivil-lc-01313",
+   "leizilla-raw-ro-casacivil-lc-01323",
    "leizilla-raw-ro-casacivil-lc-01326",
    "leizilla-raw-ro-casacivil-lc-01331",
    "leizilla-raw-ro-casacivil-lc-01333",
@@ -984,6 +985,7 @@
    "leizilla-raw-ro-casacivil-lc-00201",
    "leizilla-raw-ro-casacivil-lc-00202",
    "leizilla-raw-ro-casacivil-lc-00203",
+   "leizilla-raw-ro-casacivil-lc-00204",
    "leizilla-raw-ro-casacivil-lc-00205",
    "leizilla-raw-ro-casacivil-lc-00206",
    "leizilla-raw-ro-casacivil-lc-00207",
@@ -1011,6 +1013,7 @@
    "leizilla-raw-ro-casacivil-lc-00240",
    "leizilla-raw-ro-casacivil-lc-00241",
    "leizilla-raw-ro-casacivil-lc-00242",
+   "leizilla-raw-ro-casacivil-lc-00243",
    "leizilla-raw-ro-casacivil-lc-00244",
    "leizilla-raw-ro-casacivil-lc-00246",
    "leizilla-raw-ro-casacivil-lc-00247",
@@ -1126,6 +1129,7 @@
    "leizilla-raw-ro-casacivil-lc-01073",
    "leizilla-raw-ro-casacivil-lc-01074",
    "leizilla-raw-ro-casacivil-lc-01075",
+   "leizilla-raw-ro-casacivil-lc-01078",
    "leizilla-raw-ro-casacivil-lc-01080",
    "leizilla-raw-ro-casacivil-lc-01081",
    "leizilla-raw-ro-casacivil-lc-01083",
@@ -1173,6 +1177,7 @@
    "leizilla-raw-ro-casacivil-lc-01161",
    "leizilla-raw-ro-casacivil-lc-01162",
    "leizilla-raw-ro-casacivil-lc-01165",
+   "leizilla-raw-ro-casacivil-lc-01167",
    "leizilla-raw-ro-casacivil-lc-01168",
    "leizilla-raw-ro-casacivil-lc-01169",
    "leizilla-raw-ro-casacivil-lc-01170",
@@ -1204,6 +1209,7 @@
    "leizilla-raw-ro-casacivil-lc-01202",
    "leizilla-raw-ro-casacivil-lc-01203",
    "leizilla-raw-ro-casacivil-lc-01205",
+   "leizilla-raw-ro-casacivil-lc-01206",
    "leizilla-raw-ro-casacivil-lc-01207",
    "leizilla-raw-ro-casacivil-lc-01208",
    "leizilla-raw-ro-casacivil-lc-01210",
@@ -1226,6 +1232,7 @@
    "leizilla-raw-ro-casacivil-lc-01242",
    "leizilla-raw-ro-casacivil-lc-01244",
    "leizilla-raw-ro-casacivil-lc-01245",
+   "leizilla-raw-ro-casacivil-lc-01246",
    "leizilla-raw-ro-casacivil-lc-01247",
    "leizilla-raw-ro-casacivil-lc-01248",
    "leizilla-raw-ro-casacivil-lc-01249",
@@ -1265,6 +1272,7 @@
    "leizilla-raw-ro-casacivil-lc-01288",
    "leizilla-raw-ro-casacivil-lc-01290",
    "leizilla-raw-ro-casacivil-lc-01291",
+   "leizilla-raw-ro-casacivil-lc-01292",
    "leizilla-raw-ro-casacivil-lc-01293",
    "leizilla-raw-ro-casacivil-lc-01294",
    "leizilla-raw-ro-casacivil-lc-01295",
@@ -1289,8 +1297,10 @@
    "leizilla-raw-ro-casacivil-lc-01317",
    "leizilla-raw-ro-casacivil-lc-01318",
    "leizilla-raw-ro-casacivil-lc-01319",
+   "leizilla-raw-ro-casacivil-lc-01320",
    "leizilla-raw-ro-casacivil-lc-01321",
    "leizilla-raw-ro-casacivil-lc-01322",
+   "leizilla-raw-ro-casacivil-lc-01323",
    "leizilla-raw-ro-casacivil-lc-01325",
    "leizilla-raw-ro-casacivil-lc-01326",
    "leizilla-raw-ro-casacivil-lc-01327",
@@ -1405,6 +1415,7 @@
    "leizilla-raw-ro-casacivil-lei-00128",
    "leizilla-raw-ro-casacivil-lei-00130",
    "leizilla-raw-ro-casacivil-lei-00133",
+   "leizilla-raw-ro-casacivil-lei-00139",
    "leizilla-raw-ro-casacivil-lei-00140",
    "leizilla-raw-ro-casacivil-lei-00141",
    "leizilla-raw-ro-casacivil-lei-00142",
@@ -1455,6 +1466,7 @@
    "leizilla-raw-ro-casacivil-lei-00200",
    "leizilla-raw-ro-casacivil-lei-00201",
    "leizilla-raw-ro-casacivil-lei-00202",
+   "leizilla-raw-ro-casacivil-lei-00204",
    "leizilla-raw-ro-casacivil-lei-00205",
    "leizilla-raw-ro-casacivil-lei-00206",
    "leizilla-raw-ro-casacivil-lei-00207",
@@ -3493,6 +3505,7 @@
    "leizilla-raw-ro-casacivil-lc-01287",
    "leizilla-raw-ro-casacivil-lc-01288",
    "leizilla-raw-ro-casacivil-lc-01291",
+   "leizilla-raw-ro-casacivil-lc-01292",
    "leizilla-raw-ro-casacivil-lc-01297",
    "leizilla-raw-ro-casacivil-lc-01300",
    "leizilla-raw-ro-casacivil-lc-01301",
@@ -3507,7 +3520,9 @@
    "leizilla-raw-ro-casacivil-lc-01316",
    "leizilla-raw-ro-casacivil-lc-01317",
    "leizilla-raw-ro-casacivil-lc-01318",
+   "leizilla-raw-ro-casacivil-lc-01320",
    "leizilla-raw-ro-casacivil-lc-01322",
+   "leizilla-raw-ro-casacivil-lc-01323",
    "leizilla-raw-ro-casacivil-lc-01326",
    "leizilla-raw-ro-casacivil-lc-01328",
    "leizilla-raw-ro-casacivil-lc-01329",
@@ -4422,6 +4437,7 @@
    "leizilla-raw-ro-casacivil-lc-01200",
    "leizilla-raw-ro-casacivil-lc-01203",
    "leizilla-raw-ro-casacivil-lc-01204",
+   "leizilla-raw-ro-casacivil-lc-01206",
    "leizilla-raw-ro-casacivil-lc-01207",
    "leizilla-raw-ro-casacivil-lc-01208",
    "leizilla-raw-ro-casacivil-lc-01210",
@@ -4435,6 +4451,7 @@
    "leizilla-raw-ro-casacivil-lc-01231",
    "leizilla-raw-ro-casacivil-lc-01242",
    "leizilla-raw-ro-casacivil-lc-01244",
+   "leizilla-raw-ro-casacivil-lc-01246",
    "leizilla-raw-ro-casacivil-lc-01247",
    "leizilla-raw-ro-casacivil-lc-01248",
    "leizilla-raw-ro-casacivil-lc-01249",
@@ -4461,6 +4478,7 @@
    "leizilla-raw-ro-casacivil-lc-01288",
    "leizilla-raw-ro-casacivil-lc-01289",
    "leizilla-raw-ro-casacivil-lc-01291",
+   "leizilla-raw-ro-casacivil-lc-01292",
    "leizilla-raw-ro-casacivil-lc-01293",
    "leizilla-raw-ro-casacivil-lc-01294",
    "leizilla-raw-ro-casacivil-lc-01295",
@@ -4485,6 +4503,7 @@
    "leizilla-raw-ro-casacivil-lc-01320",
    "leizilla-raw-ro-casacivil-lc-01321",
    "leizilla-raw-ro-casacivil-lc-01322",
+   "leizilla-raw-ro-casacivil-lc-01323",
    "leizilla-raw-ro-casacivil-lc-01326",
    "leizilla-raw-ro-casacivil-lc-01328",
    "leizilla-raw-ro-casacivil-lc-01330",
@@ -4811,6 +4830,7 @@
    "leizilla-raw-ro-casacivil-lei-00903",
    "leizilla-raw-ro-casacivil-lei-00904",
    "leizilla-raw-ro-casacivil-lei-00914",
+   "leizilla-raw-ro-casacivil-lei-00915",
    "leizilla-raw-ro-casacivil-lei-00917",
    "leizilla-raw-ro-casacivil-lei-00919",
    "leizilla-raw-ro-casacivil-lei-00921",
@@ -5513,8 +5533,8 @@
   ]
  },
  "date": "2026-11-18",
- "errata_applied": 17,
- "errata_sha256": "82ea614ccaa9fccf481fcfcddc2444cfb1e09a3b3f3bc4836c02d52b1789eff2",
+ "errata_applied": 18,
+ "errata_sha256": "4221b3f007b2655ae738d33fffa88919e70e35e15663785e486247eb997a6e14",
  "flagged": [
   "leizilla-raw-ro-casacivil-decreto-10050",
   "leizilla-raw-ro-casacivil-decreto-29000",
@@ -6594,10 +6614,88 @@
      "units_agree": 1529
     }
    }
+  },
+  {
+   "date": "2026-11-18",
+   "entered": [
+    "art leizilla-raw-ro-casacivil-lc-00204",
+    "art leizilla-raw-ro-casacivil-lc-00243",
+    "art leizilla-raw-ro-casacivil-lc-01078",
+    "art leizilla-raw-ro-casacivil-lc-01167",
+    "art leizilla-raw-ro-casacivil-lc-01206",
+    "art leizilla-raw-ro-casacivil-lc-01246",
+    "art leizilla-raw-ro-casacivil-lc-01292",
+    "art leizilla-raw-ro-casacivil-lc-01320",
+    "art leizilla-raw-ro-casacivil-lc-01323",
+    "art leizilla-raw-ro-casacivil-lei-00139",
+    "art leizilla-raw-ro-casacivil-lei-00204",
+    "par leizilla-raw-ro-casacivil-lc-01206",
+    "par leizilla-raw-ro-casacivil-lc-01246",
+    "par leizilla-raw-ro-casacivil-lc-01292",
+    "par leizilla-raw-ro-casacivil-lc-01323",
+    "par leizilla-raw-ro-casacivil-lei-00915",
+    "inc leizilla-raw-ro-casacivil-lc-01292",
+    "inc leizilla-raw-ro-casacivil-lc-01320",
+    "inc leizilla-raw-ro-casacivil-lc-01323",
+    "ali leizilla-raw-ro-casacivil-lc-01323"
+   ],
+   "entered_count": 20,
+   "forced": false,
+   "left": [],
+   "left_count": 0,
+   "reader_commit": "29e87992aea47198805506af3eab90c9d360a3a6",
+   "reason": "tournament rounds 4-5: quoted duplicate across (NR), quoted-block mid-line citations, Parágiafo; 1 more erratum",
+   "table": {
+    "ali": {
+     "agree": 2158,
+     "kind_differs": 1,
+     "number_differs": 9,
+     "reader_extra": 45,
+     "reader_misses": 160,
+     "status_differs": 43,
+     "units": 312,
+     "units_agree": 232
+    },
+    "art": {
+     "agree": 16348,
+     "number_differs": 33,
+     "reader_extra": 44,
+     "reader_misses": 162,
+     "status_differs": 53,
+     "units": 3113,
+     "units_agree": 2995
+    },
+    "inc": {
+     "agree": 10676,
+     "number_differs": 34,
+     "reader_extra": 188,
+     "reader_misses": 447,
+     "status_differs": 74,
+     "units": 970,
+     "units_agree": 747
+    },
+    "item": {
+     "agree": 289,
+     "kind_differs": 4,
+     "reader_extra": 26,
+     "reader_misses": 113,
+     "units": 58,
+     "units_agree": 13
+    },
+    "par": {
+     "agree": 5618,
+     "number_differs": 5,
+     "reader_extra": 32,
+     "reader_misses": 160,
+     "status_differs": 56,
+     "units": 1676,
+     "units_agree": 1534
+    }
+   }
   }
  ],
- "reader_commit": "58677e8f8b2df316933d74db6ae9445654b5f856",
- "reader_last_change": "58677e8f8b2df316933d74db6ae9445654b5f856",
+ "reader_commit": "29e87992aea47198805506af3eab90c9d360a3a6",
+ "reader_last_change": "29e87992aea47198805506af3eab90c9d360a3a6",
  "reference": {
   "batch_ids": [
    "msgbatch_013t25UFTPJ8mH2YkVQAVPy1"
@@ -6670,32 +6768,32 @@
  "schema_version": 1,
  "table": {
   "ali": {
-   "agree": 2154,
+   "agree": 2158,
    "kind_differs": 1,
    "number_differs": 9,
    "reader_extra": 45,
    "reader_misses": 160,
-   "status_differs": 47,
+   "status_differs": 43,
    "units": 312,
-   "units_agree": 231
+   "units_agree": 232
   },
   "art": {
-   "agree": 16326,
-   "number_differs": 37,
-   "reader_extra": 72,
-   "reader_misses": 177,
-   "status_differs": 60,
+   "agree": 16348,
+   "number_differs": 33,
+   "reader_extra": 44,
+   "reader_misses": 162,
+   "status_differs": 53,
    "units": 3113,
-   "units_agree": 2984
+   "units_agree": 2995
   },
   "inc": {
-   "agree": 10663,
+   "agree": 10676,
    "number_differs": 34,
-   "reader_extra": 191,
-   "reader_misses": 450,
-   "status_differs": 83,
+   "reader_extra": 188,
+   "reader_misses": 447,
+   "status_differs": 74,
    "units": 970,
-   "units_agree": 744
+   "units_agree": 747
   },
   "item": {
    "agree": 289,
@@ -6706,13 +6804,13 @@
    "units_agree": 13
   },
   "par": {
-   "agree": 5602,
+   "agree": 5618,
    "number_differs": 5,
    "reader_extra": 32,
-   "reader_misses": 167,
-   "status_differs": 65,
+   "reader_misses": 160,
+   "status_differs": 56,
    "units": 1676,
-   "units_agree": 1529
+   "units_agree": 1534
   }
  }
 }

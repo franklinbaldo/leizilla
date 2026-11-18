@@ -85,7 +85,7 @@ _PAR = re.compile(
 # its own and can only be read by the chain around it.
 _PAR_WILD = re.compile(r"[§$]\s?[^\W\d_]{1,2}\b(?!\s?[ºo°])")
 _PAR_UNICO = re.compile(
-    r"\bPar[áâàa]g[rt]?a[fgt]o\s+[ÚúUuOÜüÙù][nmr][ijl]?c[oa]\b", re.IGNORECASE
+    r"\bPar[áâàa]g[rti]?a[fgt]o\s+[ÚúUuOÜüÙù][nmr][ijl]?c[oa]\b", re.IGNORECASE
 )
 # Roman numeral (or what OCR makes of one) followed by a separator.
 _INC = re.compile(
@@ -1225,6 +1225,13 @@ class _Builder:
             m
             for m in ARTICLE_CANDIDATE.finditer(self.text, start, end)
             if article_readings(m.group("num"), m.group("ord") is not None)
+            # a citation inside the quoted text ("do Art. 11 da Lei Federal") is no
+            # article of the quoted norm
+            and not (
+                m.start() > start
+                and not _opens_line(self.text, m.start())
+                and is_reference(self.text, m.start())
+            )
         ]
         if not arts:
             self.descend(start, end, block, 0, True)
@@ -1766,6 +1773,46 @@ def _cited_in_annex(text: str, articles: list[ArticleRead], body_end: int) -> No
             art["status"] = "quoted"
 
 
+def _quote_before_duplicate(
+    text: str,
+    articles: list[ArticleRead],
+    spans: list[tuple[int, int, str, bool]],
+) -> list[tuple[int, int, str, bool]]:
+    """An own article that repeats the number of the next one, with a quote's end between.
+
+    "Art. 3° A celebração..." (quoted, its marks lost) took the chain's 3 and the real
+    "Art. 3° Acresce..." that follows the "(NR)" is left over as a duplicate. When the
+    last own article before the unexplained duplicate has the same number and a
+    "(NR)" or a closing mark sits between the two, the first one is quoted (its block
+    runs to the closing) and the duplicate is the norm's own.
+    """
+    out = list(spans)
+    for dup in [a for a in articles if a["status"] == "unexplained"]:
+        number = _article_reading(text, dup["start"])
+        if number is None or not _opens_line(text, dup["start"]):
+            continue
+        before = [
+            a for a in articles if a["status"] == "own" and a["start"] < dup["start"]
+        ]
+        if not before or before[-1]["number"] != number or before[-1]["suffix"]:
+            continue
+        x = before[-1]
+        nr = [m for m in _NR.finditer(text, x["end"], dup["start"])]
+        if not nr:
+            continue
+        end = nr[-1].end()
+        for k, (s_, e_, by, _closed) in enumerate(out):
+            if s_ < x["start"] < e_ + 1 and e_ <= x["start"] + 1:
+                out[k] = (s_, end, by, True)
+                break
+        else:
+            out.append((x["start"], end, "unopened", True))
+        x["status"] = "quoted"
+        dup["status"], dup["number"], dup["corrected"] = "own", number, False
+    out.sort()
+    return out
+
+
 def _before_enacting(articles: list[ArticleRead]) -> None:
     """A marker the chain left over before the norm's first own article.
 
@@ -2085,6 +2132,18 @@ def read_hierarchy(text: str) -> HierarchyReport:
     _quote_caput_citations(text, all_articles)
     _cited_in_annex(text, all_articles, body_end)
     _before_enacting(all_articles)
+    spans = _quote_before_duplicate(text, all_articles, spans)
+    masked = sorted(
+        [(s_, e_) for s_, e_, _, _ in spans]
+        + [h for h in heads if not any(s_ <= h[0] < e_ for s_, e_, _, _ in spans)]
+    )
+    merged = []
+    for s_, e_ in masked:
+        if merged and s_ < merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e_))
+        else:
+            merged.append((s_, e_))
+    builder.masked = merged
     orphans, ambiguous = _orphan_closings(text, all_articles, masked, body_end)
     detected = list(orphans)
     if ambiguous:

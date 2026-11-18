@@ -1996,3 +1996,47 @@ def test_quoted_article_inserted_with_a_letter_suffix_reads_the_letter() -> None
     # without a quoted block the same marker stays a plain separator + word
     own = "Art. 1º Texto.\nArt. 2º A Comissão decide.\nArt. 3º Fim.\n"
     assert _numbers(read_hierarchy(own), "artigo") == ["1", "2", "3"]
+
+
+def test_article_repeating_the_next_ones_number_across_an_nr_is_quoted() -> None:
+    text = (
+        "Art. 1º A Lei nº 5 passa a vigorar com as alterações:\n\n"
+        "“Art. 2º Texto citado de outra norma.\n\n"
+        "Art. 3º A celebração do Termo será feita por escrito.\n\n"
+        "§ 1º Primeiro paragrafo citado.\n\n"
+        ".. (NR)\n\n"
+        "Art. 3º Esta Lei Complementar acresce dispositivos à Lei nº 5.\n\n"
+        "Art. 4º Esta Lei Complementar entra em vigor na data de sua publicação.\n"
+    )
+    report = read_hierarchy(text)
+    own_arts = [
+        (n["number"], text[n["start"] : n["start"] + 20])
+        for n in report["nodes"]
+        if n["kind"] == "artigo" and n["status"] == "own"
+    ]
+    assert [n for n, _ in own_arts] == [1, 2, 3, 4] or [n for n, _ in own_arts] == [
+        1,
+        3,
+        4,
+    ]
+    assert any(t.startswith("Art. 3º Esta Lei") for n, t in own_arts)
+    assert _numbers(report, "paragrafo", "quoted") == ["1"]
+    assert _numbers(report, "paragrafo") == []
+
+
+def test_quoted_block_skips_mid_line_citations_of_articles() -> None:
+    text = (
+        "Art. 1º A Lei nº 5 passa a vigorar com as alterações:\n\n"
+        "“Art. 15 - A pontuação segue o disposto no parágrafo único do Art. 11 da Lei "
+        "Federal nº 8.666.\n\n"
+        "Art. 16 - Fim do bloco.”\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "artigo", "quoted") == ["15", "16"]
+
+
+def test_misspelled_paragrafo_unico_with_i_for_r() -> None:
+    text = "Art. 1º Texto.\nParágiafo único - Todas as unidades dispõem de espaço.\n"
+    report = read_hierarchy(text)
+    assert _paths(report) == ["art-1", "art-1-par-unico"]

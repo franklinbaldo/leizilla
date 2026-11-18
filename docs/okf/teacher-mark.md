@@ -382,7 +382,7 @@ O `plan` local dá 8 normas em 2 requisições, estimativa US$ 0,0034, teto US$ 
 se as 2 requisições escreverem marcas (não truncarem), o custo de contar colunas era a
 causa; compare as âncoras usadas e o offset usado contra o leitor por coluna.
 
-## Conjunto de referência (300 normas) e o placar por nível
+## Conjunto de referência (300 normas, depois 3161) e o placar por nível
 
 `docs/okf/review-samples/mark-reference-2026-11.txt`: 300 normas, semente 20261119,
 montadas por `scripts/select_mark_reference.py` (determinístico) do conjunto rotulado pelo
