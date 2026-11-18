@@ -270,6 +270,11 @@ O artigo de fecho com ordinal impresso claro mantém o número quando a cadeia e
 (`Art. 6º Esta Lei entra em vigor` depois de `Art. 2º`): treino +1, teste 0; a norma
 `lei-01296` deixa de fechar, correto, porque os artigos 3 a 5 não estão no texto.
 
+Rodada 11: 1 regra promovida e 1 errata. `£)` é a alínea `f` (glifo de OCR): treino +2, teste
++2, 5 de 5 no treino (3 de 4 no teste). Rejeitadas: `9)` como alínea `g` (0 unidades), "seguinte
+parágrafo/inciso/alínea:" como sinal de bloco citado (sem efeito). Errata `set_device` em
+`lei-06520`: `Art. 4ºA concessão` é o artigo 4º e a frase "A concessão", não o sufixo `A`.
+
 **Erros sistemáticos da referência.** Nenhuma classe de erro do conversor apareceu em
 número que pedisse reconstruir a referência: as 18 errata (13 + 5) são pontuais
 (13 `add_device`: dispositivo que o modelo deixou de marcar; 5 `set_device`: status

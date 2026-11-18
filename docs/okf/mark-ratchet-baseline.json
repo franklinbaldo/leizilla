@@ -50,6 +50,7 @@
    "leizilla-raw-ro-casacivil-decreto-32233",
    "leizilla-raw-ro-casacivil-decreto-lei-00019",
    "leizilla-raw-ro-casacivil-decreto-lei-00029",
+   "leizilla-raw-ro-casacivil-decreto-lei-00030",
    "leizilla-raw-ro-casacivil-decreto-lei-00034",
    "leizilla-raw-ro-casacivil-decreto-lei-00035",
    "leizilla-raw-ro-casacivil-decreto-lei-00042",
@@ -156,11 +157,14 @@
    "leizilla-raw-ro-casacivil-lei-00499",
    "leizilla-raw-ro-casacivil-lei-00518",
    "leizilla-raw-ro-casacivil-lei-00522",
+   "leizilla-raw-ro-casacivil-lei-00525",
+   "leizilla-raw-ro-casacivil-lei-00537",
    "leizilla-raw-ro-casacivil-lei-00538",
    "leizilla-raw-ro-casacivil-lei-00542",
    "leizilla-raw-ro-casacivil-lei-00559",
    "leizilla-raw-ro-casacivil-lei-00575",
    "leizilla-raw-ro-casacivil-lei-00583",
+   "leizilla-raw-ro-casacivil-lei-00591",
    "leizilla-raw-ro-casacivil-lei-00592",
    "leizilla-raw-ro-casacivil-lei-00602",
    "leizilla-raw-ro-casacivil-lei-00613",
@@ -3191,6 +3195,7 @@
    "leizilla-raw-ro-casacivil-lei-06516",
    "leizilla-raw-ro-casacivil-lei-06517",
    "leizilla-raw-ro-casacivil-lei-06519",
+   "leizilla-raw-ro-casacivil-lei-06520",
    "leizilla-raw-ro-casacivil-lei-06521",
    "leizilla-raw-ro-casacivil-lei-06522",
    "leizilla-raw-ro-casacivil-lei-06523",
@@ -5617,8 +5622,8 @@
   ]
  },
  "date": "2026-11-18",
- "errata_applied": 39,
- "errata_sha256": "241665fc6672e199af0cbf5122fda6522e3fd0d9905fe0684a5aa7a25d6a42c0",
+ "errata_applied": 40,
+ "errata_sha256": "c5e77a57e496266a927a60c17094510738d9e1e535c2be0a84ef8a222c7cc51e",
  "flagged": [
   "leizilla-raw-ro-casacivil-decreto-10050",
   "leizilla-raw-ro-casacivil-decreto-29000",
@@ -7150,10 +7155,73 @@
      "units_agree": 1571
     }
    }
+  },
+  {
+   "date": "2026-11-18",
+   "entered": [
+    "art leizilla-raw-ro-casacivil-lei-06520",
+    "ali leizilla-raw-ro-casacivil-decreto-lei-00030",
+    "ali leizilla-raw-ro-casacivil-lei-00525",
+    "ali leizilla-raw-ro-casacivil-lei-00537",
+    "ali leizilla-raw-ro-casacivil-lei-00591"
+   ],
+   "entered_count": 5,
+   "forced": false,
+   "left": [],
+   "left_count": 0,
+   "reader_commit": "5799be5e5b4976f8e84c69526a5024b1a6894ce2",
+   "reason": null,
+   "table": {
+    "ali": {
+     "agree": 2175,
+     "kind_differs": 1,
+     "number_differs": 9,
+     "reader_extra": 43,
+     "reader_misses": 147,
+     "status_differs": 41,
+     "units": 312,
+     "units_agree": 241
+    },
+    "art": {
+     "agree": 16362,
+     "number_differs": 28,
+     "reader_extra": 39,
+     "reader_misses": 158,
+     "status_differs": 50,
+     "units": 3113,
+     "units_agree": 3002
+    },
+    "inc": {
+     "agree": 10770,
+     "number_differs": 34,
+     "reader_extra": 160,
+     "reader_misses": 372,
+     "status_differs": 68,
+     "units": 967,
+     "units_agree": 783
+    },
+    "item": {
+     "agree": 289,
+     "kind_differs": 7,
+     "reader_extra": 26,
+     "reader_misses": 110,
+     "units": 58,
+     "units_agree": 13
+    },
+    "par": {
+     "agree": 5688,
+     "number_differs": 5,
+     "reader_extra": 30,
+     "reader_misses": 94,
+     "status_differs": 54,
+     "units": 1676,
+     "units_agree": 1571
+    }
+   }
   }
  ],
- "reader_commit": "14142d99aee95112caa7bf20fbb5303ca73d621f",
- "reader_last_change": "14142d99aee95112caa7bf20fbb5303ca73d621f",
+ "reader_commit": "5799be5e5b4976f8e84c69526a5024b1a6894ce2",
+ "reader_last_change": "5799be5e5b4976f8e84c69526a5024b1a6894ce2",
  "reference": {
   "batch_ids": [
    "msgbatch_013t25UFTPJ8mH2YkVQAVPy1"
@@ -7226,23 +7294,23 @@
  "schema_version": 1,
  "table": {
   "ali": {
-   "agree": 2167,
+   "agree": 2175,
    "kind_differs": 1,
-   "number_differs": 8,
+   "number_differs": 9,
    "reader_extra": 43,
-   "reader_misses": 156,
+   "reader_misses": 147,
    "status_differs": 41,
    "units": 312,
-   "units_agree": 237
+   "units_agree": 241
   },
   "art": {
-   "agree": 16361,
-   "number_differs": 29,
+   "agree": 16362,
+   "number_differs": 28,
    "reader_extra": 39,
    "reader_misses": 158,
    "status_differs": 50,
    "units": 3113,
-   "units_agree": 3001
+   "units_agree": 3002
   },
   "inc": {
    "agree": 10770,

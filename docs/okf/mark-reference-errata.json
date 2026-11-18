@@ -512,6 +512,21 @@
    "reason": "'§ 2º -' opens a line right after § 1º of the same article (line 75), a page break in between, and states the destination of the Fundação's goods; it is the norm's own paragraph and the mark document has none here.",
    "text_sha256": "3d415b1358d6a6fd49d319138c59f3491b00711cfa70d2e3cdd45d916e41fbfe",
    "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. 4ºA concessão do benefício",
+   "kind": "art",
+   "line": 87,
+   "n": "4",
+   "norm": "leizilla-raw-ro-casacivil-lei-06520",
+   "op": "set_device",
+   "reason": "'Art. 4º' followed by the caput 'A concessão do benefício poderá ocorrer:' (the 'A' is the article that opens the sentence, not a suffix): lines 81 and 87 number the articles 3º and 4º in sequence and the mark document gives it the suffix A.",
+   "set": {
+    "sufixo": ""
+   },
+   "text_sha256": "93a25980874bd40be53f648204e994dd6af33527579c5a4465ebdfcaddb9965e",
+   "verified_by": "leitura do texto"
   }
  ],
  "schema_version": 1

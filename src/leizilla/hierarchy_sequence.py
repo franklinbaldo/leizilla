@@ -111,7 +111,7 @@ _INC_BARE = re.compile(
     r"(?!(?:e|ou|a|o|as|os|de|do|da|dos|das|deste|desta|destes|destas|ao|aos|à|às)\b))"
     r"(?=[a-zà-ý])"
 )
-_ALI = re.compile(r"(?<![\w(])(?P<let>[a-zA-Z06])\s?[)\]}]")
+_ALI = re.compile(r"(?<![\w(])(?P<let>[a-zA-Z06£])\s?[)\]}]")
 _K_BEFORE = re.compile(r"(?m)^[ \t]*k[ \t]?\)")
 _ALI_ONE = re.compile(r"(?m)^[ \t]*(?P<tok>[1|])[ \t]?\)")
 _ALI_WILD = re.compile(r"(?m)^[ \t]*(?P<tok>[^\s(]{1,2})[ \t]?[)\]}]")
@@ -160,6 +160,7 @@ _ALI_GLYPHS: dict[str, str] = {
     "b": "bh",
     "h": "hb",
     "6": "b",
+    "£": "f",
     "g": "gq",
     "q": "qg",
 }

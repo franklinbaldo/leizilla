@@ -2187,3 +2187,14 @@ def test_closing_article_keeps_its_printed_number_when_articles_are_missing() ->
     report = read_hierarchy(text)
     assert _numbers(report, "artigo") == ["1", "2", "6"]
     assert not article_closes(report)
+
+
+def test_pound_sign_is_the_alinea_letter_f() -> None:
+    text = (
+        "Art. 1º Fica vedado:\n\n"
+        "d) vender bens;\n\ne) alienar imóveis.\n\nGOVERNADORIA\n\n£) ceder veículos;\n\n"
+        "g) doar valores.\n\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    assert _numbers(report, "alinea") == ["4", "5", "6", "7"]
