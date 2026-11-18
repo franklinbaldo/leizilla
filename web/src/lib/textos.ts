@@ -194,3 +194,27 @@ const ROTULO_RENDICAO: Record<string, string> = {
 export function rotuloRendicao(rendicao: string | null | undefined): string {
   return ROTULO_RENDICAO[(rendicao ?? '').trim().toLowerCase() || 'original'] ?? 'outra versão do arquivo';
 }
+
+/**
+ * Página pública de conferência de documentos do SEI de Rondônia. O leitor digita o
+ * código verificador e o CRC e resolve o captcha; o Leizilla não preenche nem automatiza.
+ */
+export const SEI_CONFERENCIA_URL =
+  'https://sei.sistemas.ro.gov.br/sei/controlador_externo.php?acao=documento_conferir&id_orgao_acesso_externo=0';
+
+export interface SeiProveniencia {
+  verificador: string;
+  crc: string;
+  url: string;
+}
+
+/** Os códigos do rodapé do SEI da norma, só quando verificador e CRC existem juntos. */
+export function seiProveniencia(row: {
+  sei_verificador?: string | null;
+  sei_crc?: string | null;
+}): SeiProveniencia | null {
+  const verificador = (row.sei_verificador ?? '').trim();
+  const crc = (row.sei_crc ?? '').trim();
+  if (!verificador || !crc) return null;
+  return { verificador, crc, url: SEI_CONFERENCIA_URL };
+}

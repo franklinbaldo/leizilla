@@ -1,6 +1,6 @@
 # RFC-0008: HTML original do SEI para leis e decretos assinados no SEI
 
-**Status**: proposto — para decisão do proprietário; nada aqui é implementado além do item (i)
+**Status**: proposto — para decisão do proprietário; a opção (i) foi aprovada e implementada em 2026-11-18 (colunas `sei_*` de `textos`, ADR-0015, adendo 2026-11-18); o resto segue proposto
 **Data**: 2026-11-18
 **Relacionados**: ADR-0001, ADR-0008, ADR-0009, ADR-0010, ADR-0011, `docs/okf/textos-compilados.md`, `docs/okf/documento-marcado.md`, RFC-0007; DAG `sei-original-html`
 

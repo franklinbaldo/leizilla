@@ -523,6 +523,9 @@ Contrato em código: `leizilla.textlayer.TEXTOS_SCHEMA`.
 | `ancoras` | VARCHAR | derivado: JSON `[{"n", "sufixo", "ini", "fim"}]`, offsets em code points Unicode sobre `texto` |
 | `trecho` | VARCHAR | derivado: prefixo de `texto` com espaços colapsados (até 280 caracteres), para listagens |
 | `defeito_fonte` | VARCHAR | nota curta quando `docs/okf/defeitos-da-fonte.json` registra que o arquivo oficial **desta captura** (`sha256_fonte`) tem um defeito que o OCR não resolve (uma folha faltando, numeração com lacuna); NULL na imensa maioria das normas e em releases anteriores à coluna. Não altera `artigos_fecham`: a norma continua não fechando |
+| `sei_verificador`, `sei_crc` | VARCHAR | código verificador e CRC impressos no rodapé do SEI **da própria norma** (assinada no SEI, ~2018 em diante); só se preenchem os dois juntos, lidos do rodapé que termina em "Caso responda esta Lei/Decreto/Lei Complementar, indicar expressamente o Processo" (um ofício, despacho ou requerimento SEI impresso dentro do PDF não vale). `^[0-9]{6,10}$` e `^[0-9A-F]{8}$`; NULL nas demais normas e em releases anteriores às colunas |
+| `sei_numero`, `sei_processo` | VARCHAR | `SEI nº` e número do processo (`NNNN.NNNNNN/AAAA-DD`) do mesmo rodapé; só com `sei_verificador`. `sei_numero` é sempre igual a `sei_verificador` (se divergem no OCR, a linha inteira fica sem `sei_*`); `sei_processo` pode ser NULL com o rodapé lido |
+| `sei_assinantes` | VARCHAR | JSON `[{"nome","cargo","data","hora"}]` com **todas** as assinaturas eletrônicas do rodapé, na ordem impressa; NULL quando a lista não é garantida (OCR quebrou uma data ou deixou um nome ilegível). Nomes de agentes públicos em exercício, como assinam o ato (ADR-0009) |
 | `texto` | VARCHAR | **verbatim**: o `_djvu.txt` decodificado em UTF-8, sem limpeza nem correção |
 
 Regras:

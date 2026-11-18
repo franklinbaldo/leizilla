@@ -660,6 +660,13 @@ export interface TextoRow {
   trecho: string | null;
   /** Nota quando o arquivo oficial desta captura tem defeito registrado; ausente antes de 2026-11-18. */
   defeito_fonte?: string | null;
+  /** Identificadores do SEI do rodapé da própria norma (ADR-0015, adendo 2026-11-18); ausentes antes disso. */
+  sei_verificador?: string | null;
+  sei_crc?: string | null;
+  sei_numero?: string | null;
+  sei_processo?: string | null;
+  /** JSON `[{nome, cargo, data, hora}]` ou null. */
+  sei_assinantes?: string | null;
   texto: string;
 }
 
