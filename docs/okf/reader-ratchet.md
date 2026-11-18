@@ -133,24 +133,49 @@ não são reescritos.
 
 O gate acima só cobre o nível `art`, contra o professor do modo `label`. Abaixo do artigo
 o leitor tem defeitos conhecidos e a referência é o **documento marcado do modo `mark`**
-([teacher-mark.md](teacher-mark.md)) das 300 normas de
-`review-samples/mark-reference-2026-11.txt`. A referência pode ter erros: a catraca só
+([teacher-mark.md](teacher-mark.md)) de 3161 normas: as 300 de
+`review-samples/mark-reference-2026-11.txt` mais as duas partes (A: coleta
+`44228356004`, B: coleta `44227337585`) da camada de texto inteira. A referência pode ter erros: a catraca só
 trava o que **já concorda**; o que discorda fica de fora até ser resolvido, e uma regra
 que discorda da referência e está certa vira uma errata, não uma rejeição.
 
-`scripts/reader_ratchet_levels.py` (job `levels` de `reader-ratchet.yml`, ~2 s, sem rede):
+`scripts/reader_ratchet_levels.py` (job `levels` de `reader-ratchet.yml`, ~10 s depois de
+ter o `textos.parquet`):
 
 ```bash
+# textos.parquet = a revisão FIXADA em reference.json (source.textos_revision)
+curl -sSL -o textos.parquet \
+  https://archive.org/download/leizilla-textos-ro-v0-20261118t003626z/textos.parquet
+uv run scripts/reader_ratchet_levels.py check --textos textos.parquet [--splits]
+uv run scripts/reader_ratchet_levels.py update --textos textos.parquet [--force --reason "texto"]
+# raro: acrescenta normas de uma ou mais coletas mark à referência
+uv run scripts/reader_ratchet_levels.py build-reference --run COLLECT_DIR [--run ...] \
+    --textos textos.parquet --textos-revision ITEM_ID
+# sem --textos: só as 300 normas com texto no repositório (caminho rápido, testes)
 uv run scripts/reader_ratchet_levels.py check
-uv run scripts/reader_ratchet_levels.py update [--force --reason "texto"]
-uv run scripts/reader_ratchet_levels.py build-reference --run COLLECT_DIR   # raro
 ```
 
-- **Referência** (`docs/okf/mark-reference/`, ~470 KB): `reference.json` (por norma, as
-  linhas `[tipo, número, sufixo, citado, offset]` do documento marcado, a variante usada
+- **Textos fora do repositório.** `reference.json` guarda só as linhas dos dispositivos e o
+  `text_sha256` de cada norma. O texto vem do `textos.parquet` da revisão fixada no
+  cabeçalho (`source.textos_revision`; o ponteiro `-latest` anda, a revisão não): o
+  `check` recalcula o sha256 de cada `texto` e casa por ele. Norma sem texto ou com sha256
+  diferente é **não comparável**: aparece na contagem e **não** falha o gate (as unidades
+  dela não contam como perdidas); mais de 2% da referência não comparável
+  (`--max-not-comparable`) falha. Sem `--textos`, só as 300 normas de `texts.json.gz` são
+  checadas e a contagem não é imposta. `update` exige `--textos` e recusa se houver norma
+  não comparável (senão ela sairia da linha de base), salvo `--force --reason`.
+- **Cache no CI.** O job baixa a revisão fixada uma vez e a guarda com `actions/cache`
+  pela chave `reader-ratchet-textos-<revisão>`.
+- **Divisão de teste.** `--splits` imprime também as tabelas dos 80% `train` e dos 20%
+  `test` (`split_of`: sha256 de `semente:texto_id`, semente `SPLIT_SEED`). O gate e a linha
+  de base cobrem 100%; o torneio de regras só projeta e julga regras no `train` e usa o
+  `test` para medir fora da amostra.
+
+- **Referência** (`docs/okf/mark-reference/`, `reference.json` 1,7 MB + `texts.json.gz`
+  317 KB): `reference.json` (por norma, as linhas `[tipo, número, sufixo, citado, offset]` do documento marcado, a variante usada
   --- a reparada quando o conversor fez uma ---, as suspeitas que sobram e o sha256 do
-  texto) e `texts.json.gz` (`sha256 -> texto`, os textos do próprio manifesto da coleta
-  `44200532103`; legislação pública). Os documentos XML completos estão só no artifact
+  texto) e `texts.json.gz` (`sha256 -> texto` das 300 normas originais, do manifesto da coleta
+  `44200532103`; legislação pública; caminho rápido offline dos testes). Os documentos XML completos estão só no artifact
   `teacher-batch-labels` dessa coleta (expira em 90 dias); as linhas bastam para o gate.
 - **Unidade** = (norma, nível). `agree` quando os dispositivos do leitor no nível (próprios e
   citados) pareiam um a um com os da referência, com mesmo número, sufixo e estado

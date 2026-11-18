@@ -11,9 +11,16 @@ The reference is committed, compact, under ``docs/okf/mark-reference/``:
 - ``reference.json``: per norm (``texto_id``), the device rows of the marked document
   (``[kind, n, sufixo, quoted, offset]`` for ``art par inc ali item``), the sha256 of
   the text they index, the suspect flags that remain on the document and which variant
-  (``as-is`` / ``repaired``) was taken;
-- ``texts.json.gz``: ``text_sha256 -> text`` of those 300 norms (public legislation,
-  ~280 KB compressed), so the gate runs offline and fast.
+  (``as-is`` / ``repaired``) was taken; the header pins the published ``textos.parquet``
+  revision the texts come from;
+- ``texts.json.gz``: ``text_sha256 -> text`` of the original 300 norms (public
+  legislation, ~280 KB compressed): the offline fast path (unit tests, no download).
+
+The texts of the other norms are NOT in the repository: ``check --textos PATH`` loads
+them by sha256 from a local ``textos.parquet`` (the pinned revision; the workflow
+downloads and caches it). A norm whose text is missing or whose sha256 differs is "not
+comparable" and does not fail the gate; more than ``--max-not-comparable`` (default 2%)
+of the reference does. Without ``--textos`` only the offline 300 are checked.
 
 Unit = (norm, level). The unit is ``agree`` when the reader's devices at that level
 (own and quoted together) pair one-to-one with the reference's with the same number,
@@ -27,9 +34,10 @@ entered ``agree``. Reference errata (``docs/okf/mark-reference-errata.json``) co
 a mistake of the reference with evidence and the text sha256, like
 ``teacher-label-errata.json``.
 
-    uv run scripts/reader_ratchet_levels.py check
-    uv run scripts/reader_ratchet_levels.py update [--force --reason TEXT]
-    uv run scripts/reader_ratchet_levels.py build-reference --run COLLECT_DIR
+    uv run scripts/reader_ratchet_levels.py check [--textos PATH]
+    uv run scripts/reader_ratchet_levels.py update [--textos PATH] [--force --reason TEXT]
+    uv run scripts/reader_ratchet_levels.py build-reference --run COLLECT_DIR [--run ...]
+        [--textos PATH --textos-revision ID]
 
 Exit codes: 0 pass (or written), 1 check failed or update refused, 2 usage/data error.
 """
@@ -48,7 +56,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import compare_mark_reader as cmr
 
@@ -68,6 +76,13 @@ SCHEMA_VERSION = 1
 LEVELS = cmr.LEVELS
 AGREE = "agree"
 OPS = ("add_device", "remove_device", "set_device")
+MAX_NOT_COMPARABLE = 0.02
+# Tournament hold-out: a seeded 20% of the reference norms (``split_of``) is the TEST
+# split that candidate rules are never designed or judged on; the gate and the baseline
+# still cover 100% of the reference.
+HISTORY_LIST_MAX = 200
+SPLIT_SEED = "leizilla-mark-tournament-2026-11-18"
+SPLIT_TEST_PERCENT = 20
 
 
 class RatchetError(Exception):
@@ -82,6 +97,16 @@ def sha256_file(path: Path) -> Optional[str]:
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 
 
+def split_of(texto_id: str) -> str:
+    """``test`` for a seeded 20% of the norms, else ``train`` (stable, text-free)."""
+    digest = hashlib.sha256(f"{SPLIT_SEED}:{texto_id}".encode("utf-8")).digest()
+    return (
+        "test"
+        if int.from_bytes(digest[:4], "big") % 100 < SPLIT_TEST_PERCENT
+        else "train"
+    )
+
+
 # --------------------------------------------------------------------------
 # Reference
 # --------------------------------------------------------------------------
@@ -91,7 +116,7 @@ def sha256_file(path: Path) -> Optional[str]:
 class Reference:
     meta: dict[str, Any]
     norms: dict[str, dict[str, Any]]  # texto_id -> record
-    texts: dict[str, str]  # text_sha256 -> text
+    texts: dict[str, str]  # text_sha256 -> text (the committed offline subset)
     sha256: Optional[str]
 
 
@@ -110,6 +135,36 @@ def load_reference(directory: Path) -> Reference:
         texts=texts,
         sha256=sha256_file(ref_path),
     )
+
+
+def read_textos_parquet(path: Path, shas: set[str]) -> dict[str, str]:
+    """``sha256 -> text`` for the rows of a published ``textos.parquet`` whose text has
+    one of ``shas``. The sha256 is recomputed from the text, never trusted from the
+    column."""
+    import duckdb
+
+    con = duckdb.connect()
+    try:
+        rows = con.execute(
+            "SELECT texto FROM read_parquet(?) WHERE texto IS NOT NULL", [str(path)]
+        ).fetchall()
+    finally:
+        con.close()
+    out: dict[str, str] = {}
+    for (text,) in rows:
+        sha = sha256_text(text)
+        if sha in shas:
+            out[sha] = text
+    return out
+
+
+def with_textos(ref: Reference, textos: Optional[Path]) -> Reference:
+    """The reference with the committed texts plus those found in ``textos`` by sha256."""
+    if textos is None:
+        return ref
+    wanted = {r["text_sha256"] for r in ref.norms.values()} - set(ref.texts)
+    found = read_textos_parquet(textos, wanted)
+    return Reference(ref.meta, ref.norms, {**ref.texts, **found}, ref.sha256)
 
 
 def write_reference(
@@ -140,63 +195,115 @@ def write_reference(
     (directory / "texts.json.gz").write_bytes(gzip.compress(payload, 9, mtime=0))
 
 
+def norm_record(
+    rec: dict[str, Any], xml: str, text: str, variant: str, suspects: list[Any]
+) -> dict[str, Any]:
+    flags = sorted({str(s["type"]) for s in suspects if s["type"] in cmr.SUSPECT_TYPES})
+    rows = [
+        [
+            r["kind"],
+            str(r["n"]),
+            r.get("sufixo") or "",
+            1 if r["quoted"] else 0,
+            r["start"],
+        ]
+        for r in marcacao.to_rows(xml)
+        if r["kind"] in LEVELS
+    ]
+    return {
+        "item": rec["item"],
+        "uuid5": rec["uuid5"],
+        "tipo": rec.get("tipo"),
+        "numero": rec.get("numero"),
+        "text_sha256": sha256_text(text),
+        "variant": variant,
+        "flags": flags,
+        "devices": rows,
+    }
+
+
 def cmd_build_reference(args: argparse.Namespace) -> int:
+    """Add the norms of one or more mark collect dirs to the reference. Norms already
+    in the reference keep their record (and the offline texts stay); new norms enter
+    without text. ``--textos`` verifies every new sha256 against the published layer."""
     import score_mark
 
-    run: Path = args.run
-    docs = score_mark.load_documents(run)
-    fixed = score_mark.load_documents(run, "marked-repaired")
-    records = {str(r["texto_id"]): r for r in score_mark.load_records(run)}
-    summary = json.loads((run / "summary.json").read_text(encoding="utf-8"))
-    norms: dict[str, dict[str, Any]] = {}
-    texts: dict[str, str] = {}
-    for texto_id, (xml, text) in sorted(docs.items()):
-        rec = records[texto_id]
-        if rec.get("reflow"):
-            continue
-        variant, suspects = "as-is", rec.get("suspects", [])
-        if texto_id in fixed:
-            xml, text = fixed[texto_id]
-            variant, suspects = "repaired", rec.get("repaired_suspects", [])
-        flags = sorted(
-            {str(s["type"]) for s in suspects if s["type"] in cmr.SUSPECT_TYPES}
+    existing: Optional[Reference] = None
+    try:
+        existing = load_reference(args.reference)
+    except RatchetError:
+        pass
+    norms: dict[str, dict[str, Any]] = dict(existing.norms) if existing else {}
+    texts: dict[str, str] = dict(existing.texts) if existing else {}
+    meta: dict[str, Any] = dict(existing.meta) if existing else {}
+    added: dict[str, dict[str, Any]] = {}
+    runs_meta: list[dict[str, Any]] = list(meta.get("runs", []))
+    dropped: collections.Counter[str] = collections.Counter()
+    reflow = 0
+    for run in args.run:
+        docs = score_mark.load_documents(run)
+        fixed = score_mark.load_documents(run, "marked-repaired")
+        records = {str(r["texto_id"]): r for r in score_mark.load_records(run)}
+        summary = json.loads((run / "summary.json").read_text(encoding="utf-8"))
+        dropped.update(summary.get("dropped_by_reason", {}))
+        runs_meta.append(
+            {
+                "batch_ids": summary.get("batch_ids", []),
+                "model": summary.get("model"),
+                "prompt_version": summary.get("prompt_version"),
+                "collected_git_sha": summary.get("collected_git_sha"),
+                "norms": summary.get("norms_total"),
+                "states": summary.get("states"),
+                "marks_answered": summary.get("marks_answered"),
+                "marks_used": summary.get("marks_used"),
+                "dropped_by_reason": summary.get("dropped_by_reason"),
+            }
         )
-        rows = [
-            [
-                r["kind"],
-                str(r["n"]),
-                r.get("sufixo") or "",
-                1 if r["quoted"] else 0,
-                r["start"],
-            ]
-            for r in marcacao.to_rows(xml)
-            if r["kind"] in LEVELS
-        ]
-        sha = sha256_text(text)
-        texts[sha] = text
-        norms[texto_id] = {
-            "item": rec["item"],
-            "uuid5": rec["uuid5"],
-            "tipo": rec.get("tipo"),
-            "numero": rec.get("numero"),
-            "text_sha256": sha,
-            "variant": variant,
-            "flags": flags,
-            "devices": rows,
+        for texto_id, (xml, text) in sorted(docs.items()):
+            if texto_id in norms:
+                continue
+            rec = records[texto_id]
+            if rec.get("reflow"):
+                reflow += 1
+                continue
+            variant, suspects = "as-is", rec.get("suspects", [])
+            if texto_id in fixed:
+                xml, text = fixed[texto_id]
+                variant, suspects = "repaired", rec.get("repaired_suspects", [])
+            added[texto_id] = norm_record(rec, xml, text, variant, suspects)
+    norms.update(added)
+    if args.textos:
+        shas = {r["text_sha256"] for r in added.values()}
+        found = read_textos_parquet(args.textos, shas)
+        missing = sorted(t for t, r in added.items() if r["text_sha256"] not in found)
+        print(
+            f"textos check: {len(added) - len(missing)}/{len(added)} new norms found "
+            f"in {args.textos.name} by sha256; {len(missing)} not found"
+        )
+        for t in missing[:10]:
+            print(f"  not in the layer: {t}")
+    meta.update(
+        {
+            "kind": "mark-mode documents",
+            "norms": len(norms),
+            "variant_policy": "repaired where the converter made a variant, else as-is",
+            "row": "[kind, n, sufixo, quoted, offset]",
+            "ids_file": "docs/okf/review-samples/mark-reference-2026-11.txt",
+            "texts_in_repo": "texts.json.gz holds only the original 300 norms",
+            "textos_revision": args.textos_revision or meta.get("textos_revision"),
+            "textos_url": (
+                f"https://archive.org/download/{args.textos_revision}/textos.parquet"
+                if args.textos_revision
+                else meta.get("textos_url")
+            ),
+            "runs": runs_meta,
         }
-    meta = {
-        "kind": "mark-mode documents",
-        "batch_ids": summary.get("batch_ids", []),
-        "model": summary.get("model"),
-        "prompt_version": summary.get("prompt_version"),
-        "collected_git_sha": summary.get("collected_git_sha"),
-        "norms": len(norms),
-        "variant_policy": "repaired where the converter made a variant, else as-is",
-        "row": "[kind, n, sufixo, quoted, offset]",
-        "ids_file": "docs/okf/review-samples/mark-reference-2026-11.txt",
-    }
+    )
     write_reference(args.reference, meta, norms, texts)
-    print(f"reference written: {args.reference} ({len(norms)} norms)")
+    print(
+        f"reference written: {args.reference} ({len(norms)} norms, "
+        f"{len(added)} added, {reflow} reflow skipped); dropped marks {dict(dropped)}"
+    )
     return 0
 
 
@@ -346,6 +453,8 @@ class Board:
     errata_sha256: Optional[str] = None
     reference_sha256: Optional[str] = None
     reader_outcomes: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    reference_norms: int = 0
+    textos_given: bool = True
 
     def agree(self, level: str) -> list[str]:
         return sorted(n for n, g in self.groups[level].items() if g == AGREE)
@@ -355,7 +464,8 @@ def run_board(
     ref: Reference,
     errata: Optional[Errata] = None,
     reader: Any = None,
-    keep_outcomes: bool = False,
+    keep_outcomes: bool = True,
+    only: Optional[set[str]] = None,
 ) -> Board:
     """Score the reader against the reference. ``reader(text, tipo, numero)`` returns
     the reader's devices (default: the live ``read_hierarchy`` pipeline)."""
@@ -366,6 +476,7 @@ def run_board(
         errata_sha256=errata.sha256 if errata else None,
         errata_total=len(errata.corrections) if errata else 0,
         reference_sha256=ref.sha256,
+        reference_norms=len(ref.norms),
     )
     by_norm: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     for c in errata.corrections if errata else []:
@@ -382,6 +493,8 @@ def run_board(
                 }
             )
     for texto_id, rec in sorted(ref.norms.items()):
+        if only is not None and texto_id not in only:
+            continue
         text = ref.texts.get(rec["text_sha256"])
         if text is None or sha256_text(text) != rec["text_sha256"]:
             board.not_compared[texto_id] = "text missing or sha256 mismatch"
@@ -441,16 +554,33 @@ def load_baseline(path: Path) -> Optional[dict[str, Any]]:
     return data
 
 
-def table(board: Board) -> dict[str, dict[str, int]]:
-    """Per level: units (norms), units_agree, and the device outcomes."""
+def table(
+    board: Board, subset: Optional[Callable[[str], bool]] = None
+) -> dict[str, dict[str, int]]:
+    """Per level: units (norms), units_agree, and the device outcomes. ``subset`` keeps
+    only the norms it accepts (a split)."""
     out: dict[str, dict[str, int]] = {}
     for lv in LEVELS:
-        groups = board.groups[lv]
+        groups = {
+            n: g for n, g in board.groups[lv].items() if subset is None or subset(n)
+        }
         row = {
             "units": len(groups),
             "units_agree": sum(1 for g in groups.values() if g == AGREE),
         }
-        row.update({k: int(v) for k, v in sorted(board.devices[lv].items())})
+        if subset is None:
+            counts = board.devices[lv]
+        else:
+            counts = collections.Counter()
+            for norm, outcomes in board.reader_outcomes.items():
+                if not subset(norm):
+                    continue
+                for o in outcomes:
+                    if o["level"] != lv:
+                        continue
+                    for d in o["defects"] or ["agree"]:
+                        counts[d] += 1
+        row.update({k: int(v) for k, v in sorted(counts.items())})
         out[lv] = row
     return out
 
@@ -460,61 +590,109 @@ class Verdict:
     lost: list[tuple[str, str, str]]  # (level, norm, state now)
     entered: list[tuple[str, str]]
     stale: list[dict[str, Any]]
+    not_comparable: int = 0
+    not_comparable_max: int = 0  # allowed count; -1 = not enforced (offline subset)
+
+    @property
+    def too_many_not_comparable(self) -> bool:
+        return self.not_comparable_max >= 0 and (
+            self.not_comparable > self.not_comparable_max
+        )
 
     @property
     def failed(self) -> bool:
-        return bool(self.lost or self.stale)
+        return bool(self.lost or self.stale or self.too_many_not_comparable)
 
 
-def evaluate(baseline: Optional[dict[str, Any]], board: Board) -> Verdict:
+def evaluate(
+    baseline: Optional[dict[str, Any]],
+    board: Board,
+    max_not_comparable: float = MAX_NOT_COMPARABLE,
+) -> Verdict:
+    """A norm that cannot be compared (text missing or sha256 differs) is reported but
+    does not lose its units; too many of them (``max_not_comparable`` of the reference)
+    fail the gate. Without ``--textos`` (offline subset) the count is not enforced."""
     lost: list[tuple[str, str, str]] = []
     entered: list[tuple[str, str]] = []
     for lv in LEVELS:
         before = set(((baseline or {}).get("agree") or {}).get(lv, []))
         now = set(board.agree(lv))
         for norm in sorted(before - now):
-            state = board.groups[lv].get(norm) or board.not_compared.get(
-                norm, "not compared" if norm not in board.flagged else "flagged"
+            if norm in board.not_compared:
+                continue
+            state = board.groups[lv].get(norm) or (
+                "flagged" if norm in board.flagged else "level gone"
             )
             lost.append((lv, norm, state))
         entered += [(lv, n) for n in sorted(now - before)]
-    return Verdict(lost, entered, list(board.errata_stale))
+    allowed = (
+        int(max_not_comparable * board.reference_norms) if board.textos_given else -1
+    )
+    return Verdict(
+        lost, entered, list(board.errata_stale), len(board.not_compared), allowed
+    )
 
 
-def render_text(
-    baseline: Optional[dict[str, Any]], board: Board, verdict: Verdict
-) -> str:
-    now = table(board)
-    before = (baseline or {}).get("table", {})
+def render_table(
+    now: dict[str, dict[str, int]], before: Optional[dict[str, dict[str, int]]] = None
+) -> list[str]:
     head = f"{'level':<6}{'units':>6}{'agree.before':>13}{'agree.now':>10}"
     head += f"{'dev agree':>11}{'misses':>8}{'extra':>7}{'number':>8}{'status':>8}{'kind':>6}"
     lines = [head]
     for lv in LEVELS:
         r = now[lv]
-        b = before.get(lv, {}).get("units_agree", 0)
+        b = (before or {}).get(lv, {}).get("units_agree", 0)
         lines.append(
             f"{lv:<6}{r['units']:>6}{b:>13}{r['units_agree']:>10}"
             f"{r.get('agree', 0):>11}{r.get('reader_misses', 0):>8}"
             f"{r.get('reader_extra', 0):>7}{r.get('number_differs', 0):>8}"
             f"{r.get('status_differs', 0):>8}{r.get('kind_differs', 0):>6}"
         )
+    return lines
+
+
+def render_text(
+    baseline: Optional[dict[str, Any]],
+    board: Board,
+    verdict: Verdict,
+    splits: bool = False,
+) -> str:
+    now = table(board)
+    lines = render_table(now, (baseline or {}).get("table", {}))
     lines.append(
         f"norms: {len(board.groups['art'])} with articles, flagged (outside the gate): "
-        f"{len(board.flagged)}, not compared: {len(board.not_compared)}"
+        f"{len(board.flagged)}, not comparable: {len(board.not_compared)} of "
+        f"{board.reference_norms}"
+        + (
+            f" (allowed {verdict.not_comparable_max})"
+            if verdict.not_comparable_max >= 0
+            else " (offline subset: no --textos, count not enforced)"
+        )
     )
     lines.append(
         f"errata: {len(board.errata_applied)} applied, {len(board.errata_stale)} stale, "
         f"of {board.errata_total}"
     )
+    if splits:
+        for name in ("train", "test"):
+            lines.append(f"-- split {name} ({SPLIT_TEST_PERCENT}% test, seeded)")
+            lines += render_table(table(board, lambda n, k=name: split_of(n) == k))
     for lv, norm, state in verdict.lost:
         lines.append(f"FAIL agree lost: {lv} {norm} -> {state}")
     for e in verdict.stale:
         lines.append(
             f"FAIL stale errata: {e['norm']} {e['op']} line {e['line']}: {e['reason']}"
         )
+    if verdict.too_many_not_comparable:
+        lines.append(
+            f"FAIL not comparable: {verdict.not_comparable} > "
+            f"{verdict.not_comparable_max} (text missing or sha256 differs)"
+        )
     if not verdict.failed:
         lines.append(f"newly agree: {len(verdict.entered)}")
-        lines += [f"  + {lv} {norm}" for lv, norm in verdict.entered]
+        lines += [f"  + {lv} {norm}" for lv, norm in verdict.entered[:50]]
+        if len(verdict.entered) > 50:
+            lines.append(f"  ... and {len(verdict.entered) - 50} more")
     lines.append("PASS" if not verdict.failed else "FAIL")
     return "\n".join(lines)
 
@@ -528,8 +706,14 @@ def write_step_summary(text: str) -> None:
 
 def _prepare(args: argparse.Namespace) -> tuple[Reference, Optional[Errata], Board]:
     ref = load_reference(args.reference)
+    given = args.textos is not None
+    if given and not args.textos.is_file():
+        raise RatchetError(f"--textos {args.textos}: no such file")
+    ref = with_textos(ref, args.textos)
     errata = None if args.no_errata else load_errata(args.errata)
-    return ref, errata, run_board(ref, errata)
+    board = run_board(ref, errata)
+    board.textos_given = given
+    return ref, errata, board
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -541,8 +725,8 @@ def cmd_check(args: argparse.Namespace) -> int:
         print("note: reference.json differs from the baseline's (not like-for-like)")
     if baseline.get("errata_sha256") != board.errata_sha256:
         print("note: errata file differs from the baseline's")
-    verdict = evaluate(baseline, board)
-    text = render_text(baseline, board, verdict)
+    verdict = evaluate(baseline, board, args.max_not_comparable)
+    text = render_text(baseline, board, verdict, splits=args.splits)
     print(text)
     write_step_summary(text)
     return 1 if verdict.failed else 0
@@ -553,7 +737,16 @@ def cmd_update(args: argparse.Namespace) -> int:
         raise RatchetError("--force requires --reason")
     previous = load_baseline(args.baseline)
     ref, errata, board = _prepare(args)
-    verdict = evaluate(previous, board)
+    verdict = evaluate(previous, board, args.max_not_comparable)
+    if not board.textos_given:
+        raise RatchetError("update needs --textos (the full reference, not the subset)")
+    if board.not_compared and not args.force:
+        print(render_text(previous, board, verdict))
+        print(
+            f"update refused: {len(board.not_compared)} norms not comparable would "
+            "drop out of the baseline; fix the texts or rerun with --force --reason"
+        )
+        return 1
     if board.errata_stale:
         print(render_text(previous, board, verdict))
         print("update refused: stale reference errata (--force does not apply)")
@@ -569,8 +762,10 @@ def cmd_update(args: argparse.Namespace) -> int:
         "forced": bool(args.force),
         "reason": args.reason or ("initial baseline" if previous is None else None),
         "table": table(board),
-        "entered": [f"{lv} {n}" for lv, n in verdict.entered],
-        "left": [f"{lv} {n}" for lv, n, _ in verdict.lost],
+        "entered_count": len(verdict.entered),
+        "left_count": len(verdict.lost),
+        "entered": [f"{lv} {n}" for lv, n in verdict.entered[:HISTORY_LIST_MAX]],
+        "left": [f"{lv} {n}" for lv, n, _ in verdict.lost[:HISTORY_LIST_MAX]],
     }
     new = {
         "schema_version": SCHEMA_VERSION,
@@ -603,11 +798,26 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name)
         p.add_argument("--reference", type=Path, default=DEFAULT_REFERENCE)
         if name == "build-reference":
-            p.add_argument("--run", type=Path, required=True, help="collect dir")
+            p.add_argument(
+                "--run", type=Path, action="append", required=True, help="collect dir"
+            )
+            p.add_argument("--textos", type=Path, default=None)
+            p.add_argument("--textos-revision", default=None)
             continue
         p.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
         p.add_argument("--errata", type=Path, default=DEFAULT_ERRATA)
         p.add_argument("--no-errata", action="store_true")
+        p.add_argument(
+            "--textos",
+            type=Path,
+            default=None,
+            help="published textos.parquet (pinned revision); texts are matched by "
+            "sha256. Without it only the 300 offline texts are checked",
+        )
+        p.add_argument("--max-not-comparable", type=float, default=MAX_NOT_COMPARABLE)
+        p.add_argument(
+            "--splits", action="store_true", help="also print the train/test tables"
+        )
         if name == "update":
             p.add_argument("--force", action="store_true")
             p.add_argument("--reason", default=None)
