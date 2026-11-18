@@ -452,10 +452,11 @@ Por onde: 10x `par` não achado no começo da linha, 6x `inc` não achado, 3x `i
 dispositivo e um parágrafo sem marcador legível). Os números têm pouco sinal (137 `par`, 114 `inc`, 18 `ali`): as
 300 normas são para isso.
 
-### Esboço: catraca por nível (não implementada)
+### Esboço: catraca por nível (implementada: ver `reader-ratchet.md`, "Gate por nível")
 
-Hoje `reader-ratchet.yml` só cobre o nível `art`, contra o professor do modo `label`. O
-placar por nível usaria a referência abaixo, no mesmo molde:
+O esboço original (o gate real difere: referência commitada em forma compacta, unidade
+(norma, nível), errata da referência em `docs/okf/mark-reference-errata.json`; a linha de
+base é `docs/okf/mark-ratchet-baseline.json`). Esboço:
 
 - **Referência**: os documentos do modo `mark` das 300 normas de
   `mark-reference-2026-11`, depois que uma **amostra** (por exemplo 60, todas as com

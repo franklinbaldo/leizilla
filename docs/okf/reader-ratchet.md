@@ -172,6 +172,21 @@ uv run scripts/reader_ratchet_levels.py build-reference --run COLLECT_DIR   # ra
   stale e o `check` falha. Só depois de ler o texto e ver que a referência errou; nunca
   para fazer uma regra passar.
 
+### Torneio de regras no subnível
+
+Cada mudança candidata ao leitor é julgada **sozinha**: passa o gate de artigo (2086
+normas), passa o gate por nível, ganha pelo menos uma unidade (norma, nível) para `agree`,
+não perde nenhuma e, nos dispositivos que passa a ler, acerta pelo menos 90% contra a
+referência (um dispositivo que só troca de número conta contra o que lia antes). Uma regra
+que falha é tentada uma vez com guarda mais estreita. Uma rodada é um lote de candidatas; o
+torneio para quando duas rodadas seguidas não promovem nada. A medida fora da amostra é a
+concordância do leitor com o professor do modo `label` nas normas rotuladas que **não**
+estão nas 300 (`compare_mark_reader.teacher_set` por nível, próprio e citado): ela vem
+antes e depois de cada regra. Quando uma regra acerta e a referência erra, a saída é uma
+errata da referência, não a rejeição da regra. Rodada de 2026-11-18: 8 regras promovidas
+na primeira rodada, mais 6 depois (placar completo no relatório da sessão); parou depois
+de duas rodadas sem promoção (candidatas que sobram dependem do texto da norma).
+
 ## Conjunto de avaliação (held-out)
 
 Um conjunto de rótulos separado, com `label_set` diferente de `main`

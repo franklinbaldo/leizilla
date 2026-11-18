@@ -1717,3 +1717,88 @@ def test_unreadable_last_inciso_in_an_enumeration_takes_the_next_number() -> Non
         "Art. 2º Esta Lei entra em vigor.\n"
     )
     assert "art-1-inc-3" in _paths(read_hierarchy(text))
+
+
+def test_lone_quoted_paragraph_with_a_glued_ordinal_digit_reads_the_small_number() -> (
+    None
+):
+    text = (
+        "Art. 1º O artigo 3º da Lei nº 5 passa a vigorar com a seguinte redação:\n"
+        '"Art. 3º - Os servidores terão direito.\n'
+        "§ 29 - Os valores serão pagos.\n"
+        'Art. 4º - Esta Lei vigora."\n'
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    pars = [n for n in report["nodes"] if n["kind"] == "paragrafo"]
+    assert [n["number"] for n in pars] == [2]
+
+
+def test_quoted_articles_with_glued_ordinals_read_the_climbing_run() -> None:
+    text = (
+        "Art. 1º O Decreto-Lei passa a vigorar com os seguintes artigos:\n"
+        '"ART. 39 — Em garantia ao financiamento, o Estado cederá parcelas.\n'
+        'ART. 49 — Este Decreto-Lei entra em vigor."\n'
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    quoted = sorted(
+        n["number"]
+        for n in report["nodes"]
+        if n["kind"] == "artigo" and n["status"] == "quoted"
+    )
+    assert quoted == [3, 4]
+
+
+def test_quoted_article_10_before_article_2_reads_as_1() -> None:
+    text = (
+        "Art. 1º Os artigos passam a vigorar com a seguinte redação:\n"
+        '"Art. 10 — VETADO.\n'
+        'Art. 2º - A presente gratificação será paga."\n'
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    quoted = sorted(
+        n["number"]
+        for n in report["nodes"]
+        if n["kind"] == "artigo" and n["status"] == "quoted"
+    )
+    assert quoted == [1, 2]
+
+
+def test_roman_numeral_one_read_from_l_dot_opens_an_item_list_not_an_inciso() -> None:
+    text = (
+        "Art. 1º Os valores serão:\n"
+        "b) indústrias de pescado:\n"
+        "l. até 200 Kg/dia - até 100 UFIR;\n"
+        "2. de 201 a 500 Kg/dia - até 400 UFIR;\n"
+        "3. acima de 500 Kg/dia - até 1000 UFIR.\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    report = read_hierarchy(text)
+    kinds = [(n["kind"], n["number"]) for n in report["nodes"] if n["kind"] != "artigo"]
+    assert ("item", 1) in kinds and ("item", 3) in kinds
+    assert not any(k == "inciso" for k, _ in kinds)
+
+
+def test_stray_apostrophe_between_inciso_token_and_dash() -> None:
+    text = (
+        "Art. 1º Constam do cadastro:\n"
+        "I — o nome;\n"
+        "II — o endereço;\n"
+        "III — o número;\n"
+        "IV '— nº 127.537 CAERD;\n"
+        "V — outras.\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    assert "art-1-inc-4" in _paths(read_hierarchy(text))
+
+
+def test_enumeration_cue_tolerates_a_stray_bar_before_the_marker() -> None:
+    text = (
+        "Art. 1º Para o curso é preciso:\n"
+        "I - ter dois anos de serviço;\n"
+        "| K - ter cinco anos de serviço.\n"
+        "Art. 2º Esta Lei entra em vigor.\n"
+    )
+    assert "art-1-inc-2" in _paths(read_hierarchy(text))

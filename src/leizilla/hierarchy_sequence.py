@@ -89,7 +89,7 @@ _PAR_UNICO = re.compile(
 )
 # Roman numeral (or what OCR makes of one) followed by a separator.
 _INC = re.compile(
-    r"(?<![\w.])(?P<tok>[IVXLCHUTJNYKMl1|!ivxnt\]\[]{1,8})\s{0,2}"
+    r"(?<![\w.])(?P<tok>[IVXLCHUTJNYKMl1|!ivxnt\]\[]{1,8})\s{0,2}['’]?"
     r"(?P<sep>[-–—~=_]{1,2}|[.):])"
 )
 # Any short token before a dash at the start of a line ("Vm -", "NI —", "VÊ -"): no
@@ -103,6 +103,8 @@ _ALI = re.compile(r"(?<![\w(])(?P<let>[a-zA-Z06])\s?[)\]}]")
 _ALI_WILD = re.compile(r"(?m)^[ \t]*(?P<tok>[^\s(]{1,2})[ \t]?[)\]}]")
 _ITEM = re.compile(r"(?m)^[ \t]*(?P<num>\d{1,2})(?:\s?[.)]|\s?[-–—])(?=\s)(?!\s*\d)")
 
+_ITEM_ONE = re.compile(r"(?m)^[ \t]*(?P<num>[lI|])\.(?=\s)")
+_ITEM_TWO = re.compile(r"(?m)^[ \t]*2\.(?=\s)")
 _PROSE = re.compile(r"[ \t]+[^\W\d_]{2}")
 _PURE_ROMAN = re.compile(r"[IVXLC]+\Z")
 _HAS_ROMAN_CAPITAL = re.compile(r"[IVXLCH]")
@@ -228,7 +230,7 @@ _ART_LONE = re.compile(
     r"[ \t]*(?!\S*[^\W\d_]{3})\S{1,8}[ \t]*$"
 )
 _FINAL_CLAUSE = re.compile(r"vigo|revog", re.IGNORECASE)
-_ENUM_LEFT = re.compile(r";\s*(?:(?:e|ou)\s*)?$")
+_ENUM_LEFT = re.compile(r";\s*(?:(?:e|ou)\s*)?(?:[|!\[]\s*)?$")
 _LEAD = re.compile(r"\s*[.\-–—:]{0,2}\s*")
 _WORDING = re.compile(r"reda[cç][aã]o|redigid", re.IGNORECASE)
 _BARE_HEAD = re.compile(r"(?:Art|AH|Arl|Aft|§|\$\s?\d|Par[áa]grafo)")
@@ -554,7 +556,7 @@ def _inciso_candidates(text: str) -> list[_Cand]:
                 ),
                 literal=readings[0] if pure else None,
                 ref=bool(_REF_LEFT_INC.search(_left(text, m.start(), 20))),
-                digit=token.isdigit(),
+                digit=token.isdigit() or (m.group("sep") == "." and token in "l|I"),
                 tail=dash and line_start and bool(readings),
             )
         )
@@ -618,6 +620,11 @@ def _alinea_candidates(text: str) -> list[_Cand]:
 
 def _item_candidates(text: str) -> list[_Cand]:
     out: list[_Cand] = []
+    for m in _ITEM_ONE.finditer(text):
+        # "l. até 200" / "|. até 2000" for "1.": the next item "2." follows within a
+        # few lines, or there is no chain to read it in.
+        if _ITEM_TWO.search(text, m.end(), m.end() + 400):
+            out.append(_Cand(m.start("num"), m.end(), (1,), strong=False, digit=True))
     for m in _ITEM.finditer(text):
         start = m.start("num")
         out.append(
@@ -630,6 +637,7 @@ def _item_candidates(text: str) -> list[_Cand]:
                 digit=True,
             )
         )
+    out.sort(key=lambda c: c.start)
     return out
 
 
@@ -1007,6 +1015,15 @@ class _Builder:
             anchored=not lenient,
             free_skips=_ALI_FREE_SKIPS if kind == "alinea" else frozenset(),
         )
+        if lenient and kind == "paragrafo":
+            # "§ 29" for "§ 2º" with no chain around it: paragraph numbers rarely pass 9.
+            for i, v in enumerate(chosen):
+                if v is None or v < 10:
+                    continue
+                around = [w for j, w in enumerate(chosen) if w is not None and j != i]
+                small = [r for r in cands[i].readings if r < 10]
+                if small and not any(abs(w - v) <= 1 for w in around):
+                    chosen[i] = small[0]
         free_skips = _ALI_FREE_SKIPS if kind == "alinea" else frozenset()
         filled = (
             _fill_single_gaps(
@@ -1142,9 +1159,10 @@ class _Builder:
             self.descend(start, end, block, 0, True)
             return block
         self.descend(start, arts[0].start(), block, 0, True)
+        numbers = _quoted_article_numbers(arts)
         for pos, m in enumerate(arts):
             art_end = arts[pos + 1].start() if pos + 1 < len(arts) else end
-            number = article_readings(m.group("num"), m.group("ord") is not None)[0]
+            number = numbers[pos]
             marker_end, suffix = _article_marker_end(self.text, m.start(), m.end())
             node = self.add_node(
                 "artigo",
@@ -1179,6 +1197,27 @@ class _Builder:
             found = hit
             level = self.nodes[hit]["children"]
         return found
+
+
+def _quoted_article_numbers(arts: Sequence[re.Match[str]]) -> list[int]:
+    """The numbers of the articles of a quoted block: the printed ones, except when an
+    article of two digits has its ordinal read as a digit ("ART. 39", "ART. 49" for 3º
+    and 4º; "Art. 10" before "Art. 2º"): the run that climbs with the one-digit readings
+    replaces the run that does not climb as printed."""
+    readings = [
+        article_readings(m.group("num"), m.group("ord") is not None) for m in arts
+    ]
+    literal = [r[0] for r in readings]
+    if len(arts) >= 2:
+        alt = [
+            next((x for x in r if x < 10), v) if v >= 10 else v
+            for r, v in zip(readings, literal)
+        ]
+        climbs = all(b - a in (1, 2) for a, b in zip(alt, alt[1:]))
+        literal_climbs = all(b - a in (1, 2) for a, b in zip(literal, literal[1:]))
+        if climbs and not literal_climbs:
+            return alt
+    return literal
 
 
 def _fill_single_gaps(
