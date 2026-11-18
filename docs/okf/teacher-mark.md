@@ -444,6 +444,24 @@ máximo, p95, mediana) estão em `docs/okf/review-samples/mark-full-excluded-202
 Rodar com `guard=estimate`, `max_usd=2` em cada metade e `0.05`
 nas linhas longas: a trava recusa só se a estimativa passar disso.
 
+### As 57 normas com mais de 8 partes
+
+Em três listas (`docs/okf/review-samples/`), todas fora da referência e da camada já marcada:
+`mark-full-giants-2026-11` (50 normas, 756 requisições, máx. 36 partes; `claude-haiku-5-5`,
+effort medium: estimativa US$ 0,81, teto US$ 3,62; `anchors=col+snippet`),
+`mark-full-giants-longlines-2026-11` (3 normas com uma linha acima de 200 caracteres, 224/213/231,
+`anchors=snippet`: 61 requisições, estimativa US$ 0,07, teto US$ 0,30) e
+`mark-full-giants-annex-2026-11` (4 normas com mais de 40 partes: `decreto-29991` 122,
+`lei-01297` 89, `lei-00254` 70, `lei-01306` 51; 332 requisições, estimativa US$ 0,33, teto
+US$ 1,62). Nas quatro o corpo (artigos e fecho, `read_hierarchy` `body_end`) termina nos
+primeiros 1,5% a 5% do texto e o resto é anexo de tabelas (orçamento, PPA, listas de
+processos, sem marcador `Art.`, até 41% dos caracteres são dígitos): marcar as tabelas vale
+pouco. Cortar o corpo exigiria um modo de marca "só o corpo" (o documento marcado precisa do
+texto inteiro); não está implementado, então as quatro **não** entram em nenhuma rodada. As
+outras 53 passam pelo plano abaixo (`shuffle_seed=20261119`, `text_source=textos`):
+`mark-full-giants-2026-11` com `max_usd=1.5`, `guard=estimate`; `mark-full-giants-longlines-2026-11`
+com `anchors=snippet`, `max_usd=0.15`, `guard=estimate`.
+
 `scripts/compare_mark_reader.py` (offline) compara, **por nível** (`art par inc ali item`,
 próprio e citado), o leitor por regras com os documentos do modo `mark` de uma coleta, via
 `marcacao.to_rows` dos dois (o documento do modo `mark` é a referência; no subnível ele é
