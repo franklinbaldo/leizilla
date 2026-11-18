@@ -7,6 +7,7 @@ Decisões load-bearing — coluna **Status** indica se é `aprovada` ou `superse
 Companion docs:
 - `IMPLEMENTATION.md` (raiz) — status geral e log de decisões cronológico.
 - `docs/schemas/leizilla-v0.1.xsd` — schema XML formal.
+- `docs/schemas/leizilla-doc-v0.xsd` — gramática do documento marcado (primeira camada, §4.8; ADR-0020).
 - `tests/fixtures/leizilla_xml/` — fixtures cobrindo todos os cenários.
 
 ---
@@ -26,6 +27,8 @@ Tudo o que não cabe nessa frase **não pertence ao XML**:
 - **Bloco organizacional** (livro/capítulo/seção) não é categoria separada — é um dispositivo cujo `path` começa com token organizacional. Token map define semântica.
 - **Qualidade de parse não é caso de modelagem.** OCR ruim, LLM falhou parcialmente, etc. são **processo**, não conteúdo. Política: lei mal-parseada **não tem parsed item** (fica só como raw IA item público com OCR); lei parcialmente parseada carrega o texto cru no próprio `<texto>` do dispositivo afetado — sem flag, sem atributo, sem path mágico. Audit por embeddings (§0.5) e `confianca_parse_global` em `parsed_meta.json` são as fontes de verdade pra qualidade. Esse é o mesmo princípio aplicado a `revisao-pendente`: o sistema que produz o texto não é o sistema que sabe se errou.
 - **Texto é texto.** Não há distinção entre "texto normativo" e "nome de capítulo". Capítulo tem texto — o nome dele.
+
+**Duas camadas (ADR-0020).** Esta frase descreve a **segunda** camada: a norma no tempo (XML v0.1, tabela `versoes`). A **primeira** camada é o **documento marcado**: o texto preservado de uma norma com tags inseridas, sem reescrever nada, de onde se lê onde cada parte está e quem a leu (§4.8). A tabela de dispositivos é derivada dele; o v0.1 e `versoes` passam a ser alimentados por ele e não mudam de forma.
 
 ### 0.2 Vigência herda; proveniência é declarada quando importa
 
@@ -433,6 +436,8 @@ Agrupadas por origem (lei / dispositivo / versão). Toda metadata de lei e dispo
 | `tem_divergencia` | BOOLEAN | NO | true se alguma fonte tem `diverge=true` |
 | `hash_texto` | VARCHAR | YES | sha256 |
 | `quality` | VARCHAR | YES | NULL (parse OK) / `low` / `medium` / `high` / `raw` (OCR ruim) |
+
+> **Decidido, não implementado (ADR-0020).** Redações vindas das versões impressas de textos compilados entrarão aqui como uma linha por redação (`alterado_por` da nota oficial, fonte compilada); o `inicio_tipo` e o `em` dessas linhas ainda não estão decididos. Ver §4.8 e a folha `printed-versions-feed-versoes` do DAG.
 
 ### 3.2 Padrões de query
 
@@ -909,6 +914,22 @@ Onde a sinalização de qualidade vive:
 
 Esse é o mesmo princípio que eliminou `revisao-pendente` no XML (§0.5): o sistema que produz o texto não é o sistema que sabe se errou. Audit por embeddings dispara reprocessamento automaticamente.
 
+### 4.8 Documento marcado — a primeira camada (ADR-0020)
+
+Contrato operacional completo em [`docs/okf/documento-marcado.md`](okf/documento-marcado.md); gramática em `docs/schemas/leizilla-doc-v0.xsd`; código em `src/leizilla/marcacao.py` (`build`, `strip`, `verify`, `to_rows`; CLI `leizilla marcar` / `marcar-verificar`). O documento é gerado sob demanda a partir do texto preservado; não há tabela publicada dele.
+
+**O que é.** O texto de uma norma (`textos.texto`, §3.5) com tags **inseridas**: dispositivos (`art`, `par`, `inc`, `ali`, `item`), blocos organizacionais, partes (`epigrafe`, `ementa`, `preambulo`, `fecho`, `assinatura`, `anexo`), `alteracao`, `ref`, `ruido`, o marcador impresso em `<m>` e `<nota>` (o único conteúdo nosso). **Invariante do strip:** remover as tags e o conteúdo dos elementos de anotação devolve o texto, caractere por caractere; o `sha256-texto` da raiz é o sha256 do texto e `texto-id` (opcional) é o `texto_id` da linha de `textos`. `marcacao.verify` confere as duas coisas e `leizilla marcar` não emite documento que falhe. Nada de reescrever, copiar, normalizar, reordenar ou corrigir texto; um texto novo (re-OCR, outra rendição) muda o sha256 e o documento se regenera.
+
+**Número interpretado e impresso.** `n` é a interpretação (`n="4"` para "Art. 42" impresso entre o 3º e o 5º; `n="49" sufixo="A"` para "Art. 49-A"; `n="unico"`); o marcador como impresso fica no texto, dentro de `<m>`. `lido-por` (`literal`, `confusion`, `gap`, `implicit-single`) e `corrigido="true"` registram a evidência de quem leu; se `lido-por` fica em produção é pergunta em aberto.
+
+**Tabela derivada de dispositivos.** `marcacao.to_rows` devolve uma linha por dispositivo e bloco organizacional, em ordem de documento; nunca é editada à mão. Colunas: `path`, `kind`, `n`, `sufixo`, `parent_path`, `ordem`, `start`, `text_start`, `text_end`, `end` (deslocamentos em code points do texto), `quoted`, `read_by`, `corrected`, `estado`, `marker`. O `path` (`art-5-par-2-inc-3`) deriva do aninhamento e de `n` pelo token map (§4.2); dentro de `<alteracao>` o escopo recomeça e `quoted` é derivado da posição (não existe atributo próprio/citado).
+
+**Versões impressas de um compilado.** Na versão compilada da Casa Civil, a redação superada vem impressa antes da nova. A impressão anterior é o mesmo elemento (`n` igual) com `estado="superado"` (e os dispositivos dentro dela); a vigente não leva `estado`. A nota oficial "(Redação dada pela Lei …)" é `<ref rel="redacao|acrescimo|revogacao|veto|vide|outra">` em volta do parêntese impresso e permanece no strip. A visão "só o texto vigente" é `estado != 'superado'`. "A vigente é a última impressa" é uma convenção do gênero observada nos 99 compilados do corpus, não uma garantia.
+
+**Relação com o v0.1 e `versoes`.** São camadas distintas: o marcado diz onde as partes estão no texto preservado; o v0.1 diz o que a norma foi ao longo do tempo. Hoje a conversão do marcado para o v0.1 não existe; o v0.1 continua vindo do parse por LLM (§1.3).
+
+**Decidido, não implementado (ADR-0020, Decisão 3).** As versões impressas dos textos compilados passam a alimentar o histórico de redações (`versoes`): cada impressão superada vira uma redação do mesmo dispositivo e a vigente é a última impressa; `alterado_por` vem da nota oficial, o que exige resolver `ref@alvo` (hoje vazio) até a norma alteradora; `versoes` deve carregar a origem compilada (consolidação da Casa Civil, não nossa) como fonte da redação. **Não decidido:** o `inicio_tipo` dessas linhas e a data `em` de cada redação (§3.1). Folha do DAG: `printed-versions-feed-versoes` em `docs/okf/project-dag.md`. Também em aberto no XSD do marcado: se o atributo `versao` da raiz sobe de 0 para 1 e se `alvo` de `ref` ganha regra de forma.
+
 ---
 
 ## 5. Naming completo — regex formal
@@ -1156,6 +1177,14 @@ XSD não consegue expressar tudo. `scripts/check_schema_consistency.py` (M0.2) v
 - **Catálogo de fontes federais** (Câmara, Senado, Planalto, DOU) — modelo acomoda, vocabulário concreto quando atacarmos `ente=federal`.
 - **Catálogo de fontes municipais** — 5.570 estruturas distintas; modelo escala, curadoria é desafio próprio.
 - **Auditoria por embeddings** detalhada em plano separado (M3+).
+
+### 8.5 ADR-0020 — estrutura como anotação sobre o texto preservado (aceito 2026-11-18)
+
+- ✅ **O documento marcado é a primeira camada** (§4.8); a tabela de dispositivos é derivada dele; o v0.1 e `versoes` são a segunda camada e não mudam de forma.
+- ✅ **Número interpretado (`n`) separado do impresso** (`<m>`); evidência em `lido-por` / `corrigido`.
+- ✅ **Versões impressas de um dispositivo** em compilados: `estado="superado"` + `<ref rel>`; a vigente é a última impressa (convenção, não garantia).
+- 🟡 **Decidido, não implementado:** versões impressas dos compilados alimentam `versoes`; resolução de `ref@alvo`; `inicio_tipo` e data `em` de cada redação (em aberto). Folha `printed-versions-feed-versoes` do DAG.
+- ❓ **Em aberto:** `lido-por` em produção ou só diagnóstico; `versao` da raiz do marcado 0 → 1; regra de forma para `ref@alvo`; item pontuado ("2.1"); override por norma da convenção "a última impressão é a vigente". Lista completa no ADR-0020.
 
 ---
 

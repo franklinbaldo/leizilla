@@ -42,6 +42,10 @@ O pedido seria dirigido ao órgão gestor do SEI de Rondônia, que **não foi de
 4. **(iv) Pedido institucional** ao gestor do SEI-RO, se a rota pública exigir captcha ou não cobrir os atos. Precisa do proprietário: identificar o gestor e assinar o pedido.
 5. **(v) DOE como fallback** nascido digital (`diof.ro.gov.br`), na frente `ro-diario-oficial-preservation`.
 
+Nota de medida: 1105 de 3640 é o que o extrator encontra nos textos; 1074 de 3616 é o que ficou gravado em `textos` depois da guarda (medidas diferentes, de universos de linhas diferentes).
+
+**Decisões do proprietário, 2026-11-18**: o acesso ao HTML do SEI mora no `ies` (issue aberta lá, a pedido); o proprietário mesmo levantará a limitação do `ies` ao host de produção para leituras públicas sem autenticação.
+
 Primeira fatia de um dia: rodar `extract_sei_ids` sobre as 3640 linhas, publicar as colunas de proveniência na próxima versão de `textos.parquet` e abrir a issue do `ies`.
 
 ## Riscos

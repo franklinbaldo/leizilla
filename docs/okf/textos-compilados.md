@@ -1,7 +1,7 @@
 ---
 type: Avaliacao
 title: Textos compilados da Casa Civil — o gênero, o corpus e a posição no modelo de dados
-description: Como a Casa Civil/RO compila uma norma (redação superada impressa antes da nova, notas oficiais entre parênteses), o corpus local de 99 compilados, a escolha de extração de texto, e a proposta de modelo (versões de um dispositivo, estado "superado", notas como ref) que aguarda o ADR-0020.
+description: Como a Casa Civil/RO compila uma norma (redação superada impressa antes da nova, notas oficiais entre parênteses), o corpus local de 99 compilados, a escolha de extração de texto, e o modelo (versões de um dispositivo, estado "superado", notas como ref) aceito no ADR-0020.
 tags: [compilada, leitor, documento-marcado, versoes, corpus, adr-0020]
 timestamp: 2026-11-18T00:00:00Z
 ---
@@ -79,7 +79,7 @@ decretos-leis); 32 têm também o original preservado.
     ("Faço saber …", "Art. 1° …" de novo): outro ato, não versão. Tabelas e anexos orçamentários
     são colunas de células sem estrutura de artigo.
 
-## Posição no modelo de dados (proposta; decisão no ADR-0020)
+## Posição no modelo de dados (decisão: [ADR-0020](../adr/0020-estrutura-como-anotacao-sobre-o-texto-preservado.md), aceito em 2026-11-18)
 
 **Em um texto compilado, várias versões impressas do mesmo dispositivo são VERSÕES de um
 dispositivo**, não duplicatas e não texto citado. Representação mínima e reversível, sem
@@ -105,14 +105,13 @@ reescrever nada:
   "renumerado", "mantido o texto"). Acrescido/revogado sozinho não basta: não há texto anterior.
 - **Ainda não coberto**: ver "O que fica de fora" no fim deste documento.
 
-**Precisa do ADR-0020**: (a) o valor `superado` e o atributo `rel` entram em
-`leizilla-doc-v0.xsd` (alteração da gramática pública do documento marcado); (b) o modelo de
+**Decidido no [ADR-0020](../adr/0020-estrutura-como-anotacao-sobre-o-texto-preservado.md)**: (a) o valor `superado` e o atributo `rel` constam em
+`leizilla-doc-v0.xsd` (gramática pública do documento marcado); (b) o modelo de
 vigência de `SCHEMA.md` (versões no tempo por `<versao>`) e as "versões impressas" de um
 compilado são coisas diferentes: aqui são camadas de redação de um **mesmo documento**, e a
-decisão é se entram em `versoes` (uma linha por redação, com a lei alteradora como fonte) ou se
-ficam só na camada de leitura; (c) a **vigente é a última impressa** é uma convenção do gênero
+decisão (2026-11-18) é que entram em `versoes` (uma linha por redação, com a lei alteradora como fonte; ainda não implementado, o `inicio_tipo` e a data de cada redação em aberto); (c) a **vigente é a última impressa** é uma convenção do gênero
 da Casa Civil, a confirmar com o próprio documento oficial (a nota "(Redação dada …)" é do
-dispositivo que ela qualifica). Nada em `docs/SCHEMA.md` ou nos ADRs foi alterado.
+dispositivo que ela qualifica). O contrato está em `docs/SCHEMA.md` §4.8.
 
 ## Fila `sem-texto` e a rendição de leitura
 

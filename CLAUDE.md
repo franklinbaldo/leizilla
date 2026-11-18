@@ -177,6 +177,14 @@ data/                # local DuckDB + artifacts (gitignored)
   discarded) and promoted by reconciliation. Capture is decided by context, not by
   reading the document.
 
+- **ADR-0020 — structure as annotation over the preserved text.** The *marked document*
+  (`marcacao.py`, `docs/okf/documento-marcado.md`) is the first layer: the preserved text with
+  tags inserted, never rewritten (strip invariant + sha256 on the root). The dispositivo table
+  is derived from it (`to_rows`); XML v0.1 / `versoes` stay as the second layer (the norm over
+  time). Interpreted number (`n`) is separate from the printed marker (`<m>`); superseded
+  printings of a compiled text are `estado="superado"`. Decided, not implemented: printed
+  versions of compiled texts feed `versoes`.
+
 The codebase is **fail-open by design**: Wayback save failures, missing
 robots.txt, and IA query errors return empty/None rather than aborting batch jobs.
 
