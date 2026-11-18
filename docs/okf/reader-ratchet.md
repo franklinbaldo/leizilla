@@ -183,9 +183,9 @@ torneio para quando duas rodadas seguidas não promovem nada. A medida fora da a
 concordância do leitor com o professor do modo `label` nas normas rotuladas que **não**
 estão nas 300 (`compare_mark_reader.teacher_set` por nível, próprio e citado): ela vem
 antes e depois de cada regra. Quando uma regra acerta e a referência erra, a saída é uma
-errata da referência, não a rejeição da regra. Rodada de 2026-11-18: 8 regras promovidas
-na primeira rodada, mais 6 depois (placar completo no relatório da sessão); parou depois
-de duas rodadas sem promoção (candidatas que sobram dependem do texto da norma).
+errata da referência, não a rejeição da regra. Rodada de 2026-11-18: 12 regras promovidas
+(7 na primeira rodada, 5 depois; as candidatas e o motivo de cada rejeição ficam no relatório
+da sessão) e 13 errata da referência; parou depois de duas rodadas sem promoção (candidatas que sobram dependem do texto da norma).
 
 ## Conjunto de avaliação (held-out)
 
