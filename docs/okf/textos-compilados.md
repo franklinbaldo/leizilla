@@ -100,9 +100,7 @@ reescrever nada:
   sufixo) **dentro do mesmo escopo**, cada uma abrindo linha, e pelo menos uma impressão **posterior**
   com nota de alteração no texto próprio ("Redação dada", "Alteração dada", "alterado pela",
   "renumerado", "mantido o texto"). Acrescido/revogado sozinho não basta: não há texto anterior.
-- **Ainda não coberto**: o parágrafo único antigo e o § 1º novo ("Primitivo parágrafo único
-  alterado") só são lidos como versões quando a nota está na impressão posterior; a nota dos
-  dispositivos filhos não promove o artigo (lc 827, art. 108) ; atos anexados depois do fecho.
+- **Ainda não coberto**: ver "O que fica de fora" no fim deste documento.
 
 **Precisa do ADR-0020**: (a) o valor `superado` e o atributo `rel` entram em
 `leizilla-doc-v0.xsd` (alteração da gramática pública do documento marcado); (b) o modelo de
@@ -115,10 +113,32 @@ dispositivo que ela qualifica). Nada em `docs/SCHEMA.md` ou nos ADRs foi alterad
 
 ## Fila `sem-texto` e a rendição de leitura
 
-A fila `sem-texto` do re-OCR (ADR-0019) olha a norma: se **qualquer** captura tem texto do IA, a
-norma sai da fila. Com a camada preferindo a compilada, uma norma cuja compilada ainda não tem
-texto (derivação pendente, ou PDF escaneado) tem o original com texto e **nunca entra**. A fila agora
-considera a captura de leitura (`order_for_reading`): se a preferida não tem texto, entra,
-mesmo que outra rendição tenha. Para PDFs nascidos digitais a fila tenta antes a camada de texto
-embutida (`pdftotext`, do poppler que o re-OCR já exige) e só rasteriza e roda OCR se ela não
-passa nas mesmas portas determinísticas (`judge_sem_texto`: 150 caracteres úteis por página).
+A fila `sem-texto` do re-OCR (ADR-0019) olhava a norma: se **qualquer** captura tinha texto do IA,
+a norma saía da fila. Com a camada preferindo a compilada, uma norma cuja compilada ainda não tem
+texto (derivação pendente, ou PDF escaneado) tem o original com texto e **nunca entrava**. Agora a
+fila considera a captura de leitura (`order_for_reading`, a primeira com PDF no item): entra se
+essa captura não tem texto e nada de uma rendição igual ou melhor a cobre (nem `_djvu.txt` no
+item, nem a linha publicada, cuja rendição vem do `sha256_fonte`: as linhas antigas não têm a
+coluna `rendicao`). Na montagem de `textos` o texto próprio aceito da rendição de leitura vence o
+`_djvu.txt` de uma rendição pior.
+
+Para PDFs com camada de texto embutida (os "Text PDF" do IA) a fila lê o texto com `pdftotext`
+(poppler, o mesmo que o re-OCR já exige; nenhuma dependência nova) antes de rasterizar: se passa
+no portão de sempre (150 caracteres úteis por página) a linha tem `engine = pdftotext` e
+`ocr_motor = pdftotext (camada de texto do PDF, sem OCR, ...)`; se não (escaneado), o PDF segue
+para o Kreuzberg+PaddleOCR e a linha é a do OCR. Uma tentativa `pdftotext` aceita impede outra do
+mesmo PDF.
+
+Medido em 2026-11-18 sobre o acervo do IA e o `textos` publicado (06:16Z): a fila tinha 1292
+normas (PDFs preservados sem texto nenhum); com a regra tem 1300 (8 a mais: 4 compiladas cujo
+original tem texto e 4 de outras rendições melhores que a que tem texto). Das 1300, 83 são a
+captura compilada, e 503 têm PDF "Text PDF" no IA (`pdftotext`, sem OCR) contra 797 "Image
+Container PDF" (OCR).
+
+## O que fica de fora
+
+Atos alteradores anexados em arquivos que não têm o cabeçalho "Alterações:"; blocos citados com
+reticências cuja cadeia levou um artigo citado como próprio (lei 5076); cópias de acórdão e anexos
+orçamentários dentro do "compilado" (leis 5036 e 5584); o artigo renumerado cujo número colide
+com o do dispositivo antigo (decreto-lei 9, art. 140); notas de dispositivos filhos que não
+promovem o artigo quando o caput também foi reimpresso sem nota nenhuma.
