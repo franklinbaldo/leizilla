@@ -32,6 +32,72 @@
       "reason": "OCR lost the marker of Art. 5º: the line opens the article 'Revogam-se as disposições em contrário' and the teacher labelled it only as revogação.",
       "text_sha256": "bcddbca1c36c58f71a67aec5c2e9c5c37f798206cd2f74ceebe4a601082e11da",
       "verified_by": "leitura do texto"
+    },
+    {
+      "date": "2026-11-18",
+      "evidence": "Designar a servidora ROSALBA MAIA",
+      "line": 17,
+      "norm": "leizilla_ro_casacivil_decreto_0001-1000/8672dfab",
+      "number": "1",
+      "op": "add_own_article",
+      "reason": "One-provision act with no article marker: the enacting formula (RESOLVE) is followed by a single dispositive sentence and the fecho; the line opens that provision, which the reader now reads as the one own article. The teacher (prompt teacher-labels-v1) labels printed markers only and gave the line no article.",
+      "text_sha256": "68a499fffcff28cfe7deee0add26acb13be068c838c1dcf44547d5dc8aa5c40c",
+      "verified_by": "leitura do texto"
+    },
+    {
+      "date": "2026-11-18",
+      "evidence": "Conceder afastamento ao servidor",
+      "line": 22,
+      "norm": "leizilla_ro_casacivil_decreto_0001-1000/ef300a89",
+      "number": "1",
+      "op": "add_own_article",
+      "reason": "One-provision act with no article marker: the enacting formula (RESOLVE) is followed by a single dispositive sentence and the fecho; the line opens that provision, which the reader now reads as the one own article. The teacher (prompt teacher-labels-v1) labels printed markers only and gave the line no article.",
+      "text_sha256": "38cc1bc6b3130190492c2c55f051bd58167ed692977054249475c4eb1fad1987",
+      "verified_by": "leitura do texto"
+    },
+    {
+      "date": "2026-11-18",
+      "evidence": "Designar a servidora ÂNGELA MARIA",
+      "line": 22,
+      "norm": "leizilla_ro_casacivil_decreto_0001-1000/58b96fc9",
+      "number": "1",
+      "op": "add_own_article",
+      "reason": "One-provision act with no article marker: the enacting formula (RESOLVE) is followed by a single dispositive sentence and the fecho; the line opens that provision, which the reader now reads as the one own article. The teacher (prompt teacher-labels-v1) labels printed markers only and gave the line no article.",
+      "text_sha256": "1b5cc0306b349331b1eb7c45002540bb73e4c4be628ad6554c9579d8b36a7141",
+      "verified_by": "leitura do texto"
+    },
+    {
+      "date": "2026-11-18",
+      "evidence": "Conceder afastamento ao servidor Á",
+      "line": 22,
+      "norm": "leizilla_ro_casacivil_decreto_1001-2000/1d731de1",
+      "number": "1",
+      "op": "add_own_article",
+      "reason": "One-provision act with no article marker: the enacting formula (RESOLVE) is followed by a single dispositive sentence and the fecho; the line opens that provision, which the reader now reads as the one own article. The teacher (prompt teacher-labels-v1) labels printed markers only and gave the line no article.",
+      "text_sha256": "be24506998599ae2f9f79f5e8c1bc579da3fccb5437155502acacafb97bf7b1c",
+      "verified_by": "leitura do texto"
+    },
+    {
+      "date": "2026-11-18",
+      "evidence": "Conceder afastamento ao servidor J",
+      "line": 17,
+      "norm": "leizilla_ro_casacivil_decreto_1001-2000/56067c9b",
+      "number": "1",
+      "op": "add_own_article",
+      "reason": "One-provision act with no article marker: the enacting formula (RESOLVE) is followed by a single dispositive sentence and the fecho; the line opens that provision, which the reader now reads as the one own article. The teacher (prompt teacher-labels-v1) labels printed markers only and gave the line no article.",
+      "text_sha256": "3e13a159ac952c7f8138a63e7bd4b5dabe9450d646d0d0e943e59cb3b13fcc2b",
+      "verified_by": "leitura do texto"
+    },
+    {
+      "date": "2026-11-18",
+      "evidence": "Colocar a disposição da Câmara dos",
+      "line": 17,
+      "norm": "leizilla_ro_casacivil_decreto_1001-2000/61b30baa",
+      "number": "1",
+      "op": "add_own_article",
+      "reason": "One-provision act with no article marker: the enacting formula (RESOLVE) is followed by a single dispositive sentence and the fecho; the line opens that provision, which the reader now reads as the one own article. The teacher (prompt teacher-labels-v1) labels printed markers only and gave the line no article.",
+      "text_sha256": "9f9df746b7f9379c0ab8edc7aa26d5253ba1a95269d050cdefc77d589cfb612f",
+      "verified_by": "leitura do texto"
     }
   ],
   "schema_version": 1

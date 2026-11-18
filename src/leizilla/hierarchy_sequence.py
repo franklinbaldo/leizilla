@@ -298,7 +298,9 @@ class Node(TypedDict):
     corrected: bool  # the chosen reading differs from the literal one
     # How the number was read: "literal" (as printed), "confusion" (a known OCR
     # look-alike, chosen by the chain), "gap" (unreadable or contradictory glyphs, read
-    # only because exactly one number was missing around it) or "quoted".
+    # only because exactly one number was missing around it), "implicit-single" (the one
+    # article of an act with no article marker at all, `implicit_single_article`) or
+    # "quoted".
     read_by: str
 
 
@@ -1027,6 +1029,7 @@ class _Builder:
         corrected: bool,
         unico: bool = False,
         gap: bool = False,
+        implicit: bool = False,
     ) -> int:
         text = self.text
         # The node's own text starts after the marker and its separator ("Art. 2º - A
@@ -1062,6 +1065,8 @@ class _Builder:
             "corrected": corrected,
             "read_by": "quoted"
             if status == "quoted"
+            else "implicit-single"
+            if implicit
             else "gap"
             if gap
             else "confusion"
@@ -2227,6 +2232,102 @@ def _stray_closing_article(text: str, cand: re.Match[str]) -> bool:
     return _FINAL_SENTENCE.search(text, cand.end(), cand.end() + 90) is not None
 
 
+# The one-article act with no article marker: "O GOVERNADOR ..., no uso de suas
+# atribuições legais, RESOLVE: Conceder afastamento ao servidor ...". Read as ONE own
+# article n=1 without a marker (`read_by="implicit-single"`, empty `raw`) only when the
+# norm has no article marker at all, an enacting formula, one dispositive passage and a
+# fecho (date line or signature) after it. See docs/okf/reader-ratchet.md.
+_IMPLICIT_FORMULA = re.compile(r"\b(?:RESOLVEM?|DECRETAM?)\b", re.IGNORECASE)
+_IMPLICIT_PREAMBLE = re.compile(r"governador|atribui[cç]", re.IGNORECASE)
+# The formula as OCR garbles it ("RES OB VE:", "RB SuO E VB", "RA BES ON aV E:"): a
+# short line of letters standing alone right after the comma that ends the preamble.
+_IMPLICIT_GARBLED = re.compile(
+    r"(?:atribui\S*|compet\S*)[^\n.:;]{0,160},[ \t]*\n(?:[ \t]*\n)*"
+    r"(?P<word>[ \t]*[^\W\d_][^\W\d_ \t]{0,3}(?:[ \t]+[^\W\d_]{1,4}){0,4}[ \t]*[:.]?)"
+    r"[ \t]*\n",
+    re.IGNORECASE,
+)
+_IMPLICIT_NOT_FORMULA = frozenset({"DECRETO", "DECRETOS", "RESOLVER", "DECRETAR"})
+_IMPLICIT_FECHO = re.compile(
+    r"(?:^|\s)(?:Porto\s+Velho\W{0,6}(?:RO\W{0,4})?(?:em\s+)?\d"
+    r"|Pal[áa]cio\s+do\s+Governo|Bras[ií]lia\W{0,3}\s*\d)"
+    r"|(?m:^[ \t\W]{0,4}Governador\b)"
+)
+# A line that opens with a number and a dash ("1º - Colocar", "29 - Excluir") or with a
+# dash: several provisions, not one.
+_IMPLICIT_PROVISION = re.compile(r"(?m)^[ \t]*(?:\d{1,2}\s?[ºo°9]?\s*)?[-–—][ \t]*\S")
+IMPLICIT_MIN_CHARS = 40
+IMPLICIT_MAX_CHARS = 12000
+
+
+def _implicit_formula_ends(text: str) -> list[int]:
+    ends: set[int] = set()
+    for m in _IMPLICIT_FORMULA.finditer(text):
+        if _IMPLICIT_PREAMBLE.search(text, max(0, m.start() - 400), m.start()):
+            ends.add(m.end())
+    for m in _IMPLICIT_GARBLED.finditer(text):
+        word = re.sub(r"[\s:.]", "", m.group("word"))
+        if 4 <= len(word) <= 12 and word.upper() not in _IMPLICIT_NOT_FORMULA:
+            ends.add(m.end("word"))
+    return sorted(ends)
+
+
+def _implicit_trim(text: str, start: int, end: int) -> int:
+    """``end`` moved back over trailing space and over the short debris lines that sit
+    between the provision and the signature (a signer's name, OCR scraps): lines of at
+    most four tokens that do not end a sentence. Never past ``IMPLICIT_MIN_CHARS``."""
+    while True:
+        while end > start and text[end - 1].isspace():
+            end -= 1
+        cut = text.rfind("\n", start, end) + 1
+        line = text[max(cut, start) : end]
+        if (
+            cut <= start
+            or len(line.split()) > 4
+            or line.rstrip().endswith((".", ";"))
+            or cut - start < IMPLICIT_MIN_CHARS
+        ):
+            return end
+        end = cut
+
+
+def implicit_single_article(text: str) -> tuple[int, int] | None:
+    """``(start, end)`` of the one dispositive passage of an act that has no article.
+
+    Applies only when the text has no article marker anywhere (own or quoted, readable
+    or garbled), and an enacting formula is followed by a passage that reads as one
+    provision: 40 to 12000 characters up to the fecho (a "Porto Velho, ..." date line,
+    "Palácio do Governo" or a "Governador" signature line, which must exist), starting
+    with a letter, quoting no wording for another norm ("nova redação", "(NR)"), with
+    no line that opens as a numbered provision ("1º - ...") and no vigência/revogação
+    sentence (that would be a second article whose marker was lost). ``None`` otherwise: a multi-article act with every marker
+    destroyed must stay open.
+    """
+    if ARTICLE_CANDIDATE.search(text) or _ART_WILD.search(text):
+        return None
+    for formula_end in _implicit_formula_ends(text):
+        head = re.compile(r"[ \t]*[:,;.\-–—]?\s*").match(text, formula_end)
+        start = head.end() if head else formula_end
+        fecho = _IMPLICIT_FECHO.search(text, start)
+        if fecho is None:
+            continue
+        end = _implicit_trim(text, start, fecho.start())
+        span = text[start:end]
+        if not IMPLICIT_MIN_CHARS <= len(span) <= IMPLICIT_MAX_CHARS:
+            continue
+        if not re.match(r"[^\W\d_]", span):
+            continue
+        if (
+            _WORDING.search(span)
+            or _NR.search(span)
+            or _IMPLICIT_PROVISION.search(span)
+            or _FINAL_SENTENCE.search(span)
+        ):
+            continue
+        return start, end
+    return None
+
+
 def read_hierarchy(text: str) -> HierarchyReport:
     """Read the nested structure of one norm, resolving OCR ambiguity by sequence."""
     builder = _Builder(text)
@@ -2242,7 +2343,11 @@ def read_hierarchy(text: str) -> HierarchyReport:
     ]
     first = read_articles(text, heads)
     bounds = [a["start"] for a in first["articles"] if a["status"] == "own"]
-    body_end = find_body_end(text, bounds[-1]) if bounds else len(text)
+    implicit = None if first["articles"] else implicit_single_article(text)
+    if implicit is not None:
+        body_end = implicit[1]
+    else:
+        body_end = find_body_end(text, bounds[-1]) if bounds else len(text)
     spans = find_quoted_blocks(text, bounds, body_end)
     masked = [(s, e) for s, e, _, _ in spans]
     masked += [h for h in heads if not any(s <= h[0] < e for s, e in masked)]
@@ -2258,6 +2363,18 @@ def read_hierarchy(text: str) -> HierarchyReport:
             merged.append((s_, e_))
     builder.masked = merged
     all_articles, gap_articles = _fill_article_gaps(text, second["articles"], masked)
+    if implicit is not None and not all_articles:
+        all_articles.append(
+            {
+                "start": implicit[0],
+                "end": implicit[0],
+                "raw": "",
+                "number": 1,
+                "suffix": None,
+                "status": "own",
+                "corrected": False,
+            }
+        )
 
     _quote_under_amending_host(text, all_articles)
     _quote_caput_citations(text, all_articles)
@@ -2319,7 +2436,7 @@ def read_hierarchy(text: str) -> HierarchyReport:
     final_clause = bool(own) and bool(
         _FINAL_CLAUSE.search(text, own[-1]["start"], body_end)
     )
-    if own:
+    if own and implicit is None:
         body_end = max(find_body_end(text, own[-1]["start"]), own[-1]["end"])
     roots: list[int] = []
     for pos, art in enumerate(own):
@@ -2336,6 +2453,7 @@ def read_hierarchy(text: str) -> HierarchyReport:
             "own",
             art["corrected"],
             gap=art["start"] in gap_articles,
+            implicit=implicit is not None and art["start"] == implicit[0],
         )
         roots.append(node)
         builder.descend(marker_end, end, node, 0, False)

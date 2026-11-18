@@ -248,6 +248,10 @@
   ],
   "art": [
    "leizilla-raw-ro-casacivil-decreto-00001",
+   "leizilla-raw-ro-casacivil-decreto-00100",
+   "leizilla-raw-ro-casacivil-decreto-00101",
+   "leizilla-raw-ro-casacivil-decreto-00102",
+   "leizilla-raw-ro-casacivil-decreto-00103",
    "leizilla-raw-ro-casacivil-decreto-01003",
    "leizilla-raw-ro-casacivil-decreto-01005",
    "leizilla-raw-ro-casacivil-decreto-01006",
@@ -255,6 +259,9 @@
    "leizilla-raw-ro-casacivil-decreto-01009",
    "leizilla-raw-ro-casacivil-decreto-01013",
    "leizilla-raw-ro-casacivil-decreto-01014",
+   "leizilla-raw-ro-casacivil-decreto-01016",
+   "leizilla-raw-ro-casacivil-decreto-01017",
+   "leizilla-raw-ro-casacivil-decreto-01018",
    "leizilla-raw-ro-casacivil-decreto-01021",
    "leizilla-raw-ro-casacivil-decreto-01022",
    "leizilla-raw-ro-casacivil-decreto-01023",
@@ -263,6 +270,7 @@
    "leizilla-raw-ro-casacivil-decreto-01027",
    "leizilla-raw-ro-casacivil-decreto-01028",
    "leizilla-raw-ro-casacivil-decreto-01029",
+   "leizilla-raw-ro-casacivil-decreto-01031",
    "leizilla-raw-ro-casacivil-decreto-06814",
    "leizilla-raw-ro-casacivil-decreto-07701",
    "leizilla-raw-ro-casacivil-decreto-08756",
@@ -5628,8 +5636,8 @@
   ]
  },
  "date": "2026-11-18",
- "errata_applied": 41,
- "errata_sha256": "9f788385df7d2395f941e8d0c35d782d0c07494d19ffcc5341ac77b90a2a93ce",
+ "errata_applied": 43,
+ "errata_sha256": "4d178c02f2ac09e513e3c3105667a8c636dae5d5f47e0bc7fd6ed76663091ed5",
  "flagged": [
   "leizilla-raw-ro-casacivil-decreto-10050",
   "leizilla-raw-ro-casacivil-decreto-29000",
@@ -7404,10 +7412,76 @@
      "units_agree": 1571
     }
    }
+  },
+  {
+   "date": "2026-11-18",
+   "entered": [
+    "art leizilla-raw-ro-casacivil-decreto-00100",
+    "art leizilla-raw-ro-casacivil-decreto-00101",
+    "art leizilla-raw-ro-casacivil-decreto-00102",
+    "art leizilla-raw-ro-casacivil-decreto-00103",
+    "art leizilla-raw-ro-casacivil-decreto-01016",
+    "art leizilla-raw-ro-casacivil-decreto-01017",
+    "art leizilla-raw-ro-casacivil-decreto-01018",
+    "art leizilla-raw-ro-casacivil-decreto-01031"
+   ],
+   "entered_count": 8,
+   "forced": false,
+   "left": [],
+   "left_count": 0,
+   "reader_commit": "33ad1f36ec18a75dad1c190b8518b8c8efb74372",
+   "reason": null,
+   "table": {
+    "ali": {
+     "agree": 2179,
+     "kind_differs": 1,
+     "number_differs": 9,
+     "reader_extra": 43,
+     "reader_misses": 143,
+     "status_differs": 41,
+     "units": 312,
+     "units_agree": 244
+    },
+    "art": {
+     "agree": 16370,
+     "number_differs": 28,
+     "reader_extra": 39,
+     "reader_misses": 152,
+     "status_differs": 50,
+     "units": 3115,
+     "units_agree": 3010
+    },
+    "inc": {
+     "agree": 10775,
+     "number_differs": 33,
+     "reader_extra": 160,
+     "reader_misses": 368,
+     "status_differs": 68,
+     "units": 967,
+     "units_agree": 786
+    },
+    "item": {
+     "agree": 289,
+     "kind_differs": 7,
+     "reader_extra": 26,
+     "reader_misses": 110,
+     "units": 58,
+     "units_agree": 13
+    },
+    "par": {
+     "agree": 5688,
+     "number_differs": 5,
+     "reader_extra": 30,
+     "reader_misses": 94,
+     "status_differs": 54,
+     "units": 1676,
+     "units_agree": 1571
+    }
+   }
   }
  ],
- "reader_commit": "ae09d924ffcb1dfbb4b8bffda9749c2558d96151",
- "reader_last_change": "ae09d924ffcb1dfbb4b8bffda9749c2558d96151",
+ "reader_commit": "33ad1f36ec18a75dad1c190b8518b8c8efb74372",
+ "reader_last_change": "65d662068a76e908ec29b5c27d0736881ceb5b4e",
  "reference": {
   "batch_ids": [
    "msgbatch_013t25UFTPJ8mH2YkVQAVPy1"
@@ -7490,13 +7564,13 @@
    "units_agree": 244
   },
   "art": {
-   "agree": 16362,
+   "agree": 16370,
    "number_differs": 28,
    "reader_extra": 39,
-   "reader_misses": 158,
+   "reader_misses": 152,
    "status_differs": 50,
-   "units": 3113,
-   "units_agree": 3002
+   "units": 3115,
+   "units_agree": 3010
   },
   "inc": {
    "agree": 10775,

@@ -541,6 +541,34 @@
    },
    "text_sha256": "b85afe716f08a0f961336ebb29ad8cfef06fbdbf2b4e59f7fd641b190dc6cd9d",
    "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Designar a servidora ROSALBA M",
+   "kind": "art",
+   "line": 17,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-decreto-00100",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "One-provision decree with no article marker: the enacting formula (RESOLVE) is followed by a single dispositive sentence and the fecho; the line opens that provision, the one own article (n=1, no printed marker). The mark document has no article here although it infers one in 6 acts of the same shape (decreto-00101, 00102, 00103, 01016, 01017, 01031).",
+   "sufixo": "",
+   "text_sha256": "68a499fffcff28cfe7deee0add26acb13be068c838c1dcf44547d5dc8aa5c40c",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Colocar a disposição da Câmara",
+   "kind": "art",
+   "line": 17,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-decreto-01018",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "One-provision decree with no article marker: the enacting formula (RESOLVE) is followed by a single dispositive sentence and the fecho; the line opens that provision, the one own article (n=1, no printed marker). The mark document has no article here although it infers one in 6 acts of the same shape (decreto-00101, 00102, 00103, 01016, 01017, 01031).",
+   "sufixo": "",
+   "text_sha256": "9f9df746b7f9379c0ab8edc7aa26d5253ba1a95269d050cdefc77d589cfb612f",
+   "verified_by": "leitura do texto"
   }
  ],
  "schema_version": 1

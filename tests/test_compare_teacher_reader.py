@@ -502,7 +502,7 @@ def test_load_errata_rejects_unknown_op_and_fields(tmp_path: Path) -> None:
 
 def test_repo_errata_file_is_canonical_and_loads() -> None:
     errata = cmp.load_errata(cmp.DEFAULT_ERRATA)
-    assert len(errata.corrections) == 3
+    assert len(errata.corrections) == 9
     text = cmp.DEFAULT_ERRATA.read_text(encoding="utf-8")
     data = json.loads(text)
     assert text == json.dumps(data, sort_keys=True, indent=2, ensure_ascii=False) + "\n"

@@ -23,7 +23,10 @@
     "leizilla_ro_casacivil_decreto-lei_0001-1000/da58f841",
     "leizilla_ro_casacivil_decreto-lei_0001-1000/f0beb8d3",
     "leizilla_ro_casacivil_decreto_0001-1000/2783b58e",
+    "leizilla_ro_casacivil_decreto_0001-1000/58b96fc9",
+    "leizilla_ro_casacivil_decreto_0001-1000/8672dfab",
     "leizilla_ro_casacivil_decreto_0001-1000/df90ea45",
+    "leizilla_ro_casacivil_decreto_0001-1000/ef300a89",
     "leizilla_ro_casacivil_decreto_10001-11000/003be67b",
     "leizilla_ro_casacivil_decreto_10001-11000/00d53871",
     "leizilla_ro_casacivil_decreto_10001-11000/01fd6811",
@@ -288,10 +291,13 @@
     "leizilla_ro_casacivil_decreto_10001-11000/fca435a3",
     "leizilla_ro_casacivil_decreto_10001-11000/fd7c983c",
     "leizilla_ro_casacivil_decreto_1001-2000/1a950385",
+    "leizilla_ro_casacivil_decreto_1001-2000/1d731de1",
     "leizilla_ro_casacivil_decreto_1001-2000/2dc805ea",
     "leizilla_ro_casacivil_decreto_1001-2000/4d090cdf",
     "leizilla_ro_casacivil_decreto_1001-2000/4d9f2fcc",
     "leizilla_ro_casacivil_decreto_1001-2000/5382328a",
+    "leizilla_ro_casacivil_decreto_1001-2000/56067c9b",
+    "leizilla_ro_casacivil_decreto_1001-2000/61b30baa",
     "leizilla_ro_casacivil_decreto_1001-2000/7cb29c25",
     "leizilla_ro_casacivil_decreto_1001-2000/911008be",
     "leizilla_ro_casacivil_decreto_1001-2000/9ef814b0",
@@ -1932,11 +1938,11 @@
     "leizilla_ro_casacivil_lei_1001-2000/ffccf04f"
   ],
   "counts": {
-    "agree_closed": 1930,
-    "agree_open": 48,
+    "agree_closed": 1936,
+    "agree_open": 43,
     "disagree_closed": 1,
     "disagree_open": 92,
-    "teacher_inconsistent": 15
+    "teacher_inconsistent": 14
   },
   "date": "2026-11-18",
   "disagree_closed": [
@@ -2324,21 +2330,47 @@
       "left_disagree_closed": [],
       "reader_commit": "29e87992aea47198805506af3eab90c9d360a3a6",
       "reason": null
+    },
+    {
+      "counts": {
+        "agree_closed": 1936,
+        "agree_open": 43,
+        "disagree_closed": 1,
+        "disagree_open": 92,
+        "teacher_inconsistent": 14
+      },
+      "date": "2026-11-18",
+      "entered_agree_closed": [
+        "leizilla_ro_casacivil_decreto_0001-1000/58b96fc9",
+        "leizilla_ro_casacivil_decreto_0001-1000/8672dfab",
+        "leizilla_ro_casacivil_decreto_0001-1000/ef300a89",
+        "leizilla_ro_casacivil_decreto_1001-2000/1d731de1",
+        "leizilla_ro_casacivil_decreto_1001-2000/56067c9b",
+        "leizilla_ro_casacivil_decreto_1001-2000/61b30baa"
+      ],
+      "entered_disagree_closed": [],
+      "errata_applied": 9,
+      "errata_sha256": "7c7f9451b4612f4e8e7b5aa9d3f94e02df95210788420e6217b030654feb5ee5",
+      "forced": false,
+      "left_agree_closed": [],
+      "left_disagree_closed": [],
+      "reader_commit": "33ad1f36ec18a75dad1c190b8518b8c8efb74372",
+      "reason": null
     }
   ],
   "labels": {
     "batch_ids": [
       "msgbatch_01VYBeV9AWA7A2QeNaYfJZAC"
     ],
-    "errata_applied": 3,
-    "errata_sha256": "86e22e7ee61ffaea46964d61bb2d8a348947d71386acd0eb09676aaed1cb0ac4",
+    "errata_applied": 9,
+    "errata_sha256": "7c7f9451b4612f4e8e7b5aa9d3f94e02df95210788420e6217b030654feb5ee5",
     "identifier": "msgbatch_01VYBeV9AWA7A2QeNaYfJZAC",
     "model": "claude-haiku-5-5",
     "norms": 2086,
     "prompt_version": "teacher-labels-v1",
     "source": "teacher-batch-labels artifact of run 43937274430 (expires 2027-02-14T19:14:38Z)"
   },
-  "reader_commit": "29e87992aea47198805506af3eab90c9d360a3a6",
-  "reader_last_change": "29e87992aea47198805506af3eab90c9d360a3a6",
+  "reader_commit": "33ad1f36ec18a75dad1c190b8518b8c8efb74372",
+  "reader_last_change": "65d662068a76e908ec29b5c27d0736881ceb5b4e",
   "schema_version": 1
 }
