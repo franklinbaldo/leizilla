@@ -1,0 +1,178 @@
+{
+ "corrections": [
+  {
+   "date": "2026-11-18",
+   "evidence": "Parágrafo único. O repasse",
+   "kind": "par",
+   "line": 21,
+   "norm": "leizilla-raw-ro-casacivil-lei-00999",
+   "op": "set_device",
+   "reason": "Line 17: 'Fica acrescentado o parágrafo único ao artigo 5º da Lei nº 891 ... com a seguinte redação:'; the paragraph after it is quoted text of another law (the quote closes on line 22 with ”.); the mark document has it as own.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "1d9b9a51620fd0ceda5b18131da274e53c55c99154b2e35c964e265048b529b3",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "8 2º - Os ocupantes",
+   "kind": "par",
+   "line": 27,
+   "norm": "leizilla-raw-ro-casacivil-lc-00219",
+   "op": "set_device",
+   "reason": "Lines 19-21: 'O parágrafo único do art. 13 ... passa a ser § 1º, acrescentando-se os §§ 2º, 3º e 4º, com a seguinte redação:'; the paragraphs that follow are the added text of the amended law (quoted); the mark document has them as own.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "fa2ad9482bcdbc91c36b2973724c37858629f1ab9a6b4db225bc3063140771f5",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "8 3º - Os ocupantes",
+   "kind": "par",
+   "line": 33,
+   "norm": "leizilla-raw-ro-casacivil-lc-00219",
+   "op": "set_device",
+   "reason": "Lines 19-21: 'O parágrafo único do art. 13 ... passa a ser § 1º, acrescentando-se os §§ 2º, 3º e 4º, com a seguinte redação:'; the paragraphs that follow are the added text of the amended law (quoted); the mark document has them as own.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "fa2ad9482bcdbc91c36b2973724c37858629f1ab9a6b4db225bc3063140771f5",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "$4-VETADO",
+   "kind": "par",
+   "line": 39,
+   "norm": "leizilla-raw-ro-casacivil-lc-00219",
+   "op": "set_device",
+   "reason": "Lines 19-21: 'O parágrafo único do art. 13 ... passa a ser § 1º, acrescentando-se os §§ 2º, 3º e 4º, com a seguinte redação:'; the paragraphs that follow are the added text of the amended law (quoted); the mark document has them as own.",
+   "set": {
+    "quoted": true
+   },
+   "text_sha256": "fa2ad9482bcdbc91c36b2973724c37858629f1ab9a6b4db225bc3063140771f5",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "Art. Io. Ficam reajustados",
+   "kind": "art",
+   "line": 30,
+   "n": "1",
+   "norm": "leizilla-raw-ro-casacivil-lei-01669",
+   "op": "add_device",
+   "quoted": true,
+   "reason": "Line 27 'passa a vigorar com a seguinte redação:' then the quoted article (quote closes line 32); the converter dropped the model's alteracao block (conflict) and with it the quoted article, which the mark document therefore lacks.",
+   "text_sha256": "5b0cd9d3508abd9438959d467ca678f1962b0d22f1211685a3cb4b50db964112",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "b) substâncias",
+   "kind": "ali",
+   "line": 49,
+   "n": "b",
+   "norm": "leizilla-raw-ro-casacivil-lei-00693",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "Alínea b) of the same inciso as a) (line 40), before 'II - componentes:' (line 54); the model omitted it.",
+   "text_sha256": "d5918c84be23e21d165e5b773d171930c806d2b72164e95a677f4d01c2c824d0",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "a)",
+   "kind": "ali",
+   "line": 266,
+   "n": "a",
+   "norm": "leizilla-raw-ro-casacivil-lei-00499",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "Alíneas a) to g) listing municipalities in the annex of article 5; the model marked them but the converter dropped the marks (conflict: 'ali não cabe em lei', the lei ends before the annex).",
+   "text_sha256": "f3b6b1ca4dc70fdb591d73074529d63e9189da02c20c9be396e900a91623d472",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "b)",
+   "kind": "ali",
+   "line": 280,
+   "n": "b",
+   "norm": "leizilla-raw-ro-casacivil-lei-00499",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "Alíneas a) to g) listing municipalities in the annex of article 5; the model marked them but the converter dropped the marks (conflict: 'ali não cabe em lei', the lei ends before the annex).",
+   "text_sha256": "f3b6b1ca4dc70fdb591d73074529d63e9189da02c20c9be396e900a91623d472",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "c)",
+   "kind": "ali",
+   "line": 296,
+   "n": "c",
+   "norm": "leizilla-raw-ro-casacivil-lei-00499",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "Alíneas a) to g) listing municipalities in the annex of article 5; the model marked them but the converter dropped the marks (conflict: 'ali não cabe em lei', the lei ends before the annex).",
+   "text_sha256": "f3b6b1ca4dc70fdb591d73074529d63e9189da02c20c9be396e900a91623d472",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "d)",
+   "kind": "ali",
+   "line": 313,
+   "n": "d",
+   "norm": "leizilla-raw-ro-casacivil-lei-00499",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "Alíneas a) to g) listing municipalities in the annex of article 5; the model marked them but the converter dropped the marks (conflict: 'ali não cabe em lei', the lei ends before the annex).",
+   "text_sha256": "f3b6b1ca4dc70fdb591d73074529d63e9189da02c20c9be396e900a91623d472",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "e)",
+   "kind": "ali",
+   "line": 329,
+   "n": "e",
+   "norm": "leizilla-raw-ro-casacivil-lei-00499",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "Alíneas a) to g) listing municipalities in the annex of article 5; the model marked them but the converter dropped the marks (conflict: 'ali não cabe em lei', the lei ends before the annex).",
+   "text_sha256": "f3b6b1ca4dc70fdb591d73074529d63e9189da02c20c9be396e900a91623d472",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "f)",
+   "kind": "ali",
+   "line": 345,
+   "n": "f",
+   "norm": "leizilla-raw-ro-casacivil-lei-00499",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "Alíneas a) to g) listing municipalities in the annex of article 5; the model marked them but the converter dropped the marks (conflict: 'ali não cabe em lei', the lei ends before the annex).",
+   "text_sha256": "f3b6b1ca4dc70fdb591d73074529d63e9189da02c20c9be396e900a91623d472",
+   "verified_by": "leitura do texto"
+  },
+  {
+   "date": "2026-11-18",
+   "evidence": "g)",
+   "kind": "ali",
+   "line": 362,
+   "n": "g",
+   "norm": "leizilla-raw-ro-casacivil-lei-00499",
+   "op": "add_device",
+   "quoted": false,
+   "reason": "Alíneas a) to g) listing municipalities in the annex of article 5; the model marked them but the converter dropped the marks (conflict: 'ali não cabe em lei', the lei ends before the annex).",
+   "text_sha256": "f3b6b1ca4dc70fdb591d73074529d63e9189da02c20c9be396e900a91623d472",
+   "verified_by": "leitura do texto"
+  }
+ ],
+ "schema_version": 1
+}
