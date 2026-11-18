@@ -36,6 +36,7 @@ from leizilla.publisher import (
     preserved_identity_token,
 )
 from leizilla.ratelimit import make_rate_limiter
+from leizilla.rendicao import RENDICAO_ORIGINAL, rendicao_da_url
 from leizilla.storage import DuckDBStorage
 
 logger = logging.getLogger(__name__)
@@ -254,6 +255,17 @@ def _resolve_tipo_ingestion(
 
 
 _CANONICAL_GUESS = re.compile(r"[A-Za-z]+\d+\.pdf")
+
+
+def _rendicao_gravada(url: str) -> str:
+    """Valor da coluna ``rendicao`` do ``index.csv`` para a captura de ``url``.
+
+    Só rendições não originais são gravadas; ``""`` é o original (e também "sem
+    rendição declarada"), igual às linhas já publicadas — assim recapturar os
+    mesmos bytes continua no-op na chave de idempotência do índice.
+    """
+    rendicao = rendicao_da_url(url)
+    return "" if rendicao == RENDICAO_ORIGINAL else rendicao
 
 
 def _schemeless(url: str) -> str:
@@ -1064,6 +1076,10 @@ def harvest_pending_resources(
                 # chave de versão de proveniência (ADR-0004): o instante da captura
                 # Wayback de onde os bytes vieram — None quando vieram da fonte.
                 "wayback_timestamp": wb_ts,
+                # Rendição (ADR-0010: metadado do ``index.csv``, nunca caminho):
+                # ``compilada``/``revogado``/… pelo nome do arquivo oficial. Vazio
+                # para o original, como nas capturas anteriores a esta coluna.
+                "rendicao": _rendicao_gravada(url),
             }
             if item_id and item_key:
                 batcher.register_item(item_id, item_key)
