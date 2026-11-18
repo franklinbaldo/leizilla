@@ -107,6 +107,11 @@ _ALINEA_LEFT = re.compile(r"(?m)^[ \t]*[a-z][)\]][ \t]*\Z")
 _ELISION_LINE = re.compile(r"(?m)^[ \t]*[.…]{2,}[ \t]*$")
 _CAPS_HEADING = re.compile(r"[ \t]*[A-ZÀ-Ý][A-ZÀ-Ý ,:.\-/]{7,}[ \t]*(?:\n|\Z)")
 _TITLE_WORD_LEFT = re.compile(r"(?:^|\s)[A-ZÀ-Ý][a-zà-ý]{3,}[ \t]+\Z")
+# A table row, not an inciso: a budget schedule ("II - TRIMESTRE CR$ 11.000.000,00",
+# "IV - TRIMESTRE 641.100.000,00"). Either the period label in capitals, or a currency
+# amount on the line of a numeral that opens no chain (see `_inciso_candidates`).
+_PERIOD_ROW = re.compile(r"[ \t]*(?:(?:TRI|QUADRI|SE|BI)MESTRE)\b")
+_CURRENCY_ROW = re.compile(r"[^\n]*(?:\b[Cc][Rr]|\bR)\$[ \t]*\d|[^\n]*\d\.\d{3},\d{2}")
 _INC_BARE = re.compile(
     r"(?m)^[ \t]*(?P<tok>[IVXL]{1,6})(?:[ \t]{2}|[ \t]"
     r"(?!(?:e|ou|a|o|as|os|de|do|da|dos|das|deste|desta|destes|destas|ao|aos|à|às)\b))"
@@ -180,6 +185,9 @@ _REF_LEFT_PAR = re.compile(
 )
 _REF_RIGHT_PAR = re.compile(
     r"\s*(?:(?:do|da|dos|das|deste|desta|destes|destas)\b|,|e\s+(?:§|\d))"
+    # "§ 1º e incisos da Lei", "§ 4º ao artigo 4º", "“§ 3º" ao art. 1º": a citation. Case
+    # matters: a paragraph that opens "§ 1º Ao servidor ..." is prose after the marker.
+    r"|\s*[\"”]?\s*(?:aos?\b|e\s+inci)"
 )
 # A comma straight after the paragraph number and a capital: the sentence starts there.
 _COMMA_SEPARATOR = re.compile(r"\s{0,2},[ \t]+[A-ZÀ-Ý]")
@@ -583,6 +591,19 @@ def _inciso_candidates(text: str) -> list[_Cand]:
             continue  # "I-A", "V-se": only a line start makes a glued dash a marker
         if not line_start and token in ("C", "L"):
             continue  # "C -" / "L -" inside a sentence is an enumeration letter
+        if line_start and dash and _PERIOD_ROW.match(text, m.end()):
+            continue  # "IV - TRIMESTRE 641.100.000,00": a row of a budget schedule
+        if (
+            line_start
+            and dash
+            and 1 not in readings
+            and _CURRENCY_ROW.match(text, m.end())
+            and (
+                not out
+                or ARTICLE_CANDIDATE.search(text, out[-1].start, m.start()) is not None
+            )
+        ):
+            continue  # "II - ... CR$ 11.000.000,00" with no "I" before it: a table row
         if not line_start and _TITLE_WORD_LEFT.search(
             text[max(0, m.start() - 24) : m.start()]
         ):
@@ -716,6 +737,35 @@ def _alinea_candidates(text: str) -> list[_Cand]:
     return out
 
 
+def _is_heading_row(text: str, pos: int) -> bool:
+    """The rest of the line after an item marker is a heading in capitals.
+
+    Budget annexes number their rows ("1. PODER LEGISLATIVO 3.570.000", "3 - OUTRAS
+    DESPESAS CORRENTES"); an item of a norm's own text is prose. At least 6 letters, 90%
+    of them capitals.
+    """
+    end = text.find("\n", pos)
+    letters = [c for c in text[pos : len(text) if end < 0 else end] if c.isalpha()]
+    return len(letters) >= 6 and sum(c.isupper() for c in letters) >= 0.9 * len(letters)
+
+
+_INCISO_LINE = re.compile(r"(?m)^[ \t]*[IVXLC]{1,6}[ \t]*[-–—]")
+
+
+def _under_inciso(text: str, pos: int) -> bool:
+    """An inciso marker line sits between the last article marker and ``pos``.
+
+    A budget law that breaks its own article down ("Art. 3º ... I - RECEITA ... 1.
+    RECEITAS CORRENTES") has real items under real incisos; the table rows of an annex
+    have none.
+    """
+    last_article = None
+    for last_article in ARTICLE_CANDIDATE.finditer(text, 0, pos):
+        pass
+    start = last_article.end() if last_article else 0
+    return _INCISO_LINE.search(text, start, pos) is not None
+
+
 def _item_candidates(text: str) -> list[_Cand]:
     out: list[_Cand] = []
     for m in _ITEM_ONE.finditer(text):
@@ -724,6 +774,8 @@ def _item_candidates(text: str) -> list[_Cand]:
         if _ITEM_TWO.search(text, m.end(), m.end() + 400):
             out.append(_Cand(m.start("num"), m.end(), (1,), strong=False, digit=True))
     for m in _ITEM.finditer(text):
+        if _is_heading_row(text, m.end()) and not _under_inciso(text, m.start()):
+            continue  # "1. RECEITA PRIMÁRIA", "2 - JUROS E ENCARGOS DA DÍVIDA": a table row
         start = m.start("num")
         out.append(
             _Cand(

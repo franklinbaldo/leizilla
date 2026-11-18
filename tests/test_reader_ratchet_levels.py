@@ -72,7 +72,10 @@ def test_perfect_reader_agrees_at_every_level_with_devices() -> None:
     board = rl.run_board(_ref(), reader=_reader(PERFECT))
     assert board.agree("art") == ["n1"]
     assert board.agree("inc") == ["n1"]
-    assert board.groups["ali"] == {}  # the reference lacks the level: no unit
+    # the reference lacks the level and so does the reader: an empty-empty unit
+    assert board.groups["ali"] == {"n1": "agree"}
+    assert board.empty["ali"] == {"n1"}
+    assert board.empty["inc"] == set()
 
 
 def test_missing_and_extra_devices_break_the_level() -> None:
@@ -81,6 +84,44 @@ def test_missing_and_extra_devices_break_the_level() -> None:
     assert missing.groups["par"]["n1"] == "agree"
     extra = rl.run_board(_ref(), reader=_reader(PERFECT + [_dev("ali", "a", 4)]))
     assert extra.groups["ali"]["n1"] == "reader_extra"
+
+
+def test_removing_false_devices_gains_a_unit_by_emptying_the_level() -> None:
+    """The tournament blind spot (criterion since 2026-11-18): the reference has no
+    ``ali`` and the reader reads a false one; dropping it must turn the unit from
+    ``reader_extra`` into ``agree`` (both empty)."""
+    false_ali = _dev("ali", "a", 4)
+    before = rl.run_board(_ref(), reader=_reader(PERFECT + [false_ali]))
+    after = rl.run_board(_ref(), reader=_reader(PERFECT))
+    assert before.groups["ali"]["n1"] == "reader_extra"
+    assert after.groups["ali"]["n1"] == "agree"
+    verdict = rl.evaluate({"agree": {lv: before.agree(lv) for lv in rl.LEVELS}}, after)
+    assert ("ali", "n1") in verdict.entered and not verdict.failed
+    # and the reverse (a reader that starts reading false devices) fails the gate
+    regress = rl.evaluate({"agree": {lv: after.agree(lv) for lv in rl.LEVELS}}, before)
+    assert ("ali", "n1", "reader_extra") in regress.lost
+
+
+def test_a_reader_that_reads_nothing_is_not_rewarded_for_empty_levels() -> None:
+    blind = rl.run_board(_ref(), reader=_reader([]))
+    assert blind.groups["art"]["n1"] == "reader_misses"
+    assert blind.groups["ali"]["n1"] == "reader_blind"
+    assert blind.agree("ali") == []
+
+
+def test_no_unit_at_all_where_the_reference_has_no_articles() -> None:
+    ref = _ref()
+    ref.norms["n1"]["devices"] = []
+    board = rl.run_board(ref, reader=_reader([]))
+    assert all(not g for g in board.groups.values())
+
+
+def test_table_reports_both_unit_definitions() -> None:
+    board = rl.run_board(_ref(), reader=_reader(PERFECT))
+    t = rl.table(board)
+    assert (t["ali"]["units"], t["ali"]["units_agree"]) == (1, 1)
+    assert (t["ali"]["units_nonempty"], t["ali"]["units_agree_nonempty"]) == (0, 0)
+    assert (t["inc"]["units_nonempty"], t["inc"]["units_agree_nonempty"]) == (1, 1)
 
 
 def test_flagged_norms_are_outside_the_gate() -> None:
