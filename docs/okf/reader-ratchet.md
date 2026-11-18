@@ -191,7 +191,8 @@ uv run scripts/reader_ratchet_levels.py check
   `teacher-label-errata.json`): `{"schema_version": 1, "corrections": [...]}`; cada uma tem
   `norm` (`texto_id`), `text_sha256`, `op` (`add_device`: `kind`, `n`, `sufixo`, `quoted`;
   `remove_device`; `set_device`: `set` com `n`/`sufixo`/`quoted`; as duas últimas acham o
-  dispositivo por `kind` + `line` (+ `n` se houver mais de um)), `line` (1-based),
+  dispositivo por `kind` + `line` (+ `n` se houver mais de um); `clear_suspect`: `flags`, sem
+  `kind`, fecha as suspeitas do conversor da norma, ver "Suspeitas fechadas"), `line` (1-based),
   `evidence` (trecho literal da linha; no `add_device` é o marcador e dá o offset),
   `reason`, `verified_by`, `date`. Vale só com o sha256 e a evidência batendo; senão é
   stale e o `check` falha. Só depois de ler o texto e ver que a referência errou; nunca
@@ -353,6 +354,126 @@ número que pedisse reconstruir a referência: as 41 errata (13 + 5 + 23) são p
 citado/próprio ou sufixo de parágrafo). As 23 das rodadas 6 a 12: 21 `add_device` (omissões do
 modelo: 15 de dispositivos citados, entre eles 5 artigos de bloco com elisão `..`, e 6 de lista própria) e 2 `set_device` (sufixo `A` que é a primeira palavra da frase; `II` que é III pela cadeia). As suspeitas do conversor (`suspect_*`, 38 normas) continuam
 fora do gate.
+
+### Suspeitas fechadas (`clear_suspect`)
+
+Uma norma com suspeita do conversor (`suspect_sequence`, `suspect_alteracao`, `suspect_number`:
+os artigos próprios deixam de crescer, ou um número próprio salta) fica fora do gate. A errata
+`clear_suspect` (`flags`: as que ela fecha; `line` + `evidence`: a linha da quebra; `reason`:
+o que a resolve) a traz de volta, **depois** das errata de `remove_device`/`set_device` que
+corrigem a cadeia: só se fecha uma suspeita quando a cadeia própria da referência, já
+corrigida, é a do leitor por regras e foi lida no texto. É stale (falha o `check`, não é
+forçável) se a norma não traz a flag que ela nomeia. `open_flags(rec, applied)` diz as flags
+que sobram; `review_to_errata.py` e `select_residue_review.py` usam o mesmo critério
+(`review_to_errata.py --include-flagged` classifica também as normas ainda suspeitas).
+
+## Revisão do resíduo com o Sonnet (2026-11-18)
+
+Rodada única de `teacher_batch --mode review` com `claude-sonnet-5-5` (effort medium, camada
+`-latest` de 3616 textos, leitor no commit d73f5dc) sobre `residue-review-2026-11`: 79 normas
+(as 38 com suspeita, 9 nomeadas, amostras semeadas das classes do resíduo) + 16 canários;
+coleta 44288579553, manifesto 44288243796, custo medido **US$ 0,80** (estimativa 2,03). O modelo
+vê a leitura do **leitor** como etiquetas e só devolve ajustes; `review_to_errata.py` compara
+cada ponto leitor x referência com o que ele fez. Números e leitura a olho:
+
+- **Validador.** 123 ajustes válidos e 48 descartados. Dos 48, **45 são o modelo repetindo a
+  etiqueta ou escrevendo lixo** ("placeholder", "x", "sem erro", "etiqueta já correta": 29 ``set_number`` /
+  ``set_node_number`` para o número que a etiqueta já tem, 3 `set_quoted` com o valor que já tem,
+  o resto sem etiqueta na linha); 3 (6%) são ajuste de verdade com a operação errada
+  (`set_number`/`set_node_number` em linha sem etiqueta do nível, `add_node` em linha que já tem
+  a etiqueta). O validador está certo; não houve correção a fazer (converter a operação
+  recuperaria 3 de 171).
+- **Canários**: 15 de 16 pegos; o perdido é um `flip_quoted` (decreto-10221, artigo 8 posto como
+  próprio): o modelo respondeu `ok` e um ajuste-lixo. As 2 normas `unverified` (lei-00022, lc-01107)
+  são as `ok` da mesma requisição.
+- **Custo.** Entrada 641 804 tokens a preço cheio + 431 085 lidos do cache (o prompt de 4,5 mil
+  tokens x 88 requisições), saída 25 220 tokens (mediana 155 por requisição; **pensamento: 1 786
+  tokens em 3 de 88 requisições, 7% da saída**). A estimativa supunha 187 mil tokens de saída (o
+  piso de 2 070 por requisição) e todo o prompt a preço cheio: saída US$ 0,13 (estimado 0,94),
+  entrada US$ 0,64 + cache 0,02 (estimado 1,10). Em `medium` o Sonnet quase não pensa.
+
+**O que o Sonnet decidiu, por classe (319 pontos leitor x referência nas 41 normas fora do
+gate; "a olho" = lido por mim contra o texto):**
+
+| desfecho do modelo | pontos | certo a olho |
+|---|---|---|
+| ajustou até a referência (`confirms_reference`: defeito do leitor) | 42 | 42 de 42 lidos (lc-01211 12/12, lei-04989 6/6, lei-00131 5/5, lei-05972 6/6, ...) |
+| não ajustou onde o leitor tem a mais (`reader_extra`) | 65 | ~2/3: o leitor está certo e a referência omitiu (lc-01251, lei-04989, lei-00476, lei-00756, lei-01591); errado em tabelas/ruído (`T =`, `[=`, `1.` de título), citação no meio de frase |
+| não ajustou onde o leitor perde um dispositivo (`reader_misses`) | 113 | **0 de 16** na amostra: a referência está certa (romano sozinho na linha, `g)`, `h)`, artigos de cópia repetida) |
+| não ajustou onde o `status` difere | 59 | **a referência está certa** (6 normas: bloco citado inteiro lido como próprio) |
+| terceira opinião (nem leitor nem referência) | 15 | 10 certos, 4 errados, 1 em aberto (lei-01296) |
+
+Leitura: o revisor só enxerga o que a etiqueta mostra; **omissão em subnível e a cascata de
+`status` de um bloco citado ele não vê** (não há `[?inc]`, e quando corrige o artigo hospedeiro não
+leva os filhos). Silêncio dele vale como "o leitor está certo" só onde o leitor **tem** o
+dispositivo; onde falta, o silêncio não prova nada.
+
+**Casos nomeados.** `lc-01174`: `Art. 49-A` é 49-A (linha 129, "Art. 49-A. Compõem o Sistema
+Estadual dos Juizados Especiais", seguido de 49-B...; leitor e referência certos; o `4A` do
+professor do modo label estava errado; Sonnet `ok`). `lei-01296`: o texto salta do 2 para
+"Art. 6º Esta Lei entra em vigor" (depois de um "4" solto de rodapé); Sonnet lê 3 (erro de OCR),
+leitor e referência leem 6; ficou **em aberto**, a leitura impressa é o 6. `lei-04989`: é um
+acórdão de ADI (PJe) que transcreve leis; os artigos próprios são só os 4 do fim (linhas 2177
+a 2229); todo o resto é citado: Sonnet certo em 9 de 9 ajustes (3 deles contra leitor **e**
+referência), mais 15 dispositivos citados que a referência omitiu e o leitor lê certo.
+`lei-00262`/`lei-00432`/`lei-00452`, `lc-01211`: lei que reescreve um regulamento inteiro entre
+aspas. `lc-01211`: Sonnet certo 12 de 12; `lei-00432` e `lei-00262`: Sonnet ficou do lado do
+leitor e errou (o bloco vai das aspas de abertura até `".`; os próprios são os do fim);
+`lei-00452`: nem leitor nem referência estão certos (o regulamento inteiro, artigos 1 a 33, é
+citado; a referência só o fez nos 3 primeiros). `lei-00131`: o arquivo reúne 4 atos; Sonnet
+acrescentou os 5 artigos do primeiro (certo) e não viu os dos outros dois. `decreto-01004`: o mesmo decreto
+impresso duas vezes; leitor lê uma. **Tabelas lidas como incisos**: `II - TRIMESTRE CR$
+11.000.000,00` (decreto-01027) e `Assessor IV - CDS-04` não são dispositivos (Sonnet: "linha de
+tabela"); a pista estrutural é o valor em moeda na mesma linha e não haver `I` antes, mas remover
+o inciso não faz nenhuma unidade entrar (o nível some da norma), então não passa o torneio.
+**Romano sozinho na linha**: a referência está certa (16 de 16), o Sonnet não adicionou nenhum;
+uma regra só pela cadeia perde 8 unidades (títulos `CAPÍTULO`/`TÍTULO` + romano). **Listas de
+itens** (`1.` sozinho, títulos de orçamento, teses de ementa): ambíguas, a referência é incoerente
+entre as listas; deixadas.
+
+**Aplicado.** (a) 90 errata novas (133 no total): 36 `add_device` (omissões do conversor lidas
+pelo leitor e aceitas pelo Sonnet, lidas a olho; 15 só em lei-04989), 37 `set_device` (números
+de OCR, citado/próprio em decisões que transcrevem a lei, o bloco citado inteiro de lei-00262),
+6 `remove_device` (marcador contado duas vezes: `Art.` e o número em linhas separadas, ou citação no
+meio de frase), 11 `clear_suspect`. (b) Suspeitas: **38 -> 27**; as 11 fechadas são 11 normas em
+que a cadeia própria da referência tinha um defeito que o texto mostra (marcador contado duas vezes:
+lc-00090, decreto-lei-00054, lei-00225, lei-00471, lei-00551; º lido como dígito: lei-00022,
+lei-00468, lei-00089, lei-00217, lc-01347; artigo 1 citado posto como próprio: lei-00694) e em que o
+leitor por regras já lia a cadeia certa; **29 unidades entram na linha de base** (art +11, par +9,
+inc +5, ali +4). As 27 restantes continuam fora: cópias repetidas (lei-06271, lei-06284,
+lei-01293, lei-05970, lei-06150), blocos citados sem fecho, tabelas. (c) Regras (rodadas 18 a
+20; as mensagens de commit dizem 17 e 18 nas duas primeiras, mas a 17 é a do artigo implícito):
+bloco citado longo fecha na marca seguida de ponto e com o número do artigo da cadeia (lei-00432:
++3 unidades no treino, 27 de 27 dispositivos certos); marca de fechamento perdida no fim da linha
+anterior (decreto-lei-00072: +1, 14 de 15); numeral e traço depois de marcador de alínea não é
+inciso (lei-05972: +2, 5 de 5). Teste +0 nas três. Rejeitadas: romano sozinho na linha (perde 8
+unidades), `is_reference` dentro de bloco citado (efeito 0), remover o inciso de tabela com valor
+em moeda (0 unidades).
+
+**Placar por nível, antes -> depois** (unidades que concordam / unidades; teste entre parênteses):
+art 3010/3115 -> 3021/3126 (604 -> 606), par 1571/1676 -> 1581/1685 (306 -> 307), inc 786/967
+-> 794/973 (158 -> 159), ali 244/312 -> 250/317 (52 -> 53), item 13/58 -> 13/58. Gate de artigo:
+agree_closed 1936 -> 1937.
+
+**Vale a revisão em escala?** Medido: US$ 0,0101 por norma (US$ 0,80 / 79 normas reais e 16
+canários; as mais difíceis, 40% partidas em várias requisições). Inferido: as 357 normas do gate
+com alguma unidade fora de `agree` custariam ~US$ 4 a 8 (com canários), então o dinheiro não é o
+limite; **a conferência a olho é**: de cada 100 pontos, o Sonnet decidiu certo ~30 (42 ajustes
+certos + 10 terceiras opiniões certas + ~43 silêncios certos em 319), e dois terços do que ele
+deixa passar (omissões e cascata de `status`) só se vê lendo. O que esta rodada rendeu foi 35
+unidades (29 de errata/suspeitas, 6 de regras) em 79 normas; uma passada em todas renderia
+algumas dezenas a mais, quase todas de errata `add_device` de dispositivo citado e de suspeitas
+com cadeia corrigível, não de regras novas. Só vale com `effort` mais alto (em `medium` o modelo
+não pensa) e com `[?inc]`/`[?ali]` nas linhas sem etiqueta, que o revisor hoje não recebe.
+Terceira opinião (o ajuste não é nem do leitor nem da referência): 15 de 319 pontos (4,7%) nas 41
+normas fora do gate; 10 certos a olho, 4 errados (decreto-lei-00072 x2, lc-01271, lei-00452), 1
+em aberto.
+
+**O que continua aberto**: arquivos com vários atos ou cópias do mesmo ato (lei-00131,
+decreto-01004, lc-01164, lei-06284: reiniciar a cadeia na fórmula de promulgação é o candidato
+natural); bloco citado sem aspas de fechamento ou com marcas soltas (lei-00262, lei-00452);
+decisões judiciais que transcrevem leis (lei-04989, lei-04984, lei-01635: o tipo de documento é
+a pista); romano/alínea soltos em coluna; lei-01296 (2 -> 6); 27 normas suspeitas.
 
 ## Conjunto de avaliação (held-out)
 

@@ -152,6 +152,15 @@ referência diferem decidem de que lado está o erro (`scripts/review_to_errata.
   `proposed-mark-reference-errata.json` (não aplicado) e `summary.json`. Uma opinião do
   modelo é indício: cada entrada proposta se lê contra o texto antes de entrar no errata.
 
+Resultado (coleta 44288579553, commit d73f5dc): 79 normas e 16 canários, 88 requisições, US$ 0,80
+medidos (estimativa 2,03: em `medium` o Sonnet pensou em 3 de 88 requisições, 25 mil tokens de
+saída contra 187 mil estimados, e 431 mil tokens de entrada vieram do cache); 123 ajustes válidos,
+48 descartados (45 são o modelo repetindo a etiqueta, 3 operação errada); canários 15 de 16
+(`flip_quoted` perdido), 2 normas `unverified`. O que decidiu, o que virou errata e regra e o que
+fica aberto: [reader-ratchet.md](reader-ratchet.md), "Revisão do resíduo com o Sonnet". Em
+resumo: o revisor acerta o que ajusta e o que deixa passar onde o leitor **tem** um dispositivo,
+e não vê omissões em subnível nem a cascata de `status` de um bloco citado.
+
 ## Reenvio de requisições truncadas
 
 `submit --mode review --retry-truncated PATH` (no workflow: `manifest_run_id` do
