@@ -103,6 +103,7 @@ _INC_WILD = re.compile(
 _INC_BARE_CAP = re.compile(
     r"(?m)^[ \t]*(?P<tok>[IVXL]{1,6})[ \t](?=[A-ZÀ-Ý][a-zà-ý]{2})"
 )
+_ALINEA_LEFT = re.compile(r"(?m)^[ \t]*[a-z][)\]][ \t]*\Z")
 _ELISION_LINE = re.compile(r"(?m)^[ \t]*[.…]{2,}[ \t]*$")
 _CAPS_HEADING = re.compile(r"[ \t]*[A-ZÀ-Ý][A-ZÀ-Ý ,:.\-/]{7,}[ \t]*(?:\n|\Z)")
 _TITLE_WORD_LEFT = re.compile(r"(?:^|\s)[A-ZÀ-Ý][a-zà-ý]{3,}[ \t]+\Z")
@@ -556,6 +557,8 @@ def _inciso_candidates(text: str) -> list[_Cand]:
         pure = _PURE_ROMAN.match(token) is not None and bool(readings)
         dash = _STRONG_SEP.match(m.group("sep")) is not None
         line_start = _at_line_start(text, m.start())
+        if line_start and _ALINEA_LEFT.search(text[max(0, m.start() - 8) : m.start()]):
+            continue  # "c) 11 - Dia ...": the alínea's own text, a date or a number
         if dash and line_start and token in ("I", "II"):
             # The OCR drops the last stroke of "II" and "III": a line-opening "I —" or
             # "II —" that repeats the marker just before it (no article in between) may

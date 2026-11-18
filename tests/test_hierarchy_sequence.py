@@ -2389,3 +2389,26 @@ def test_quoted_block_closes_at_a_mark_a_few_words_before_the_resuming_article()
     assert _paths(report) == ["art-1", "art-2", "art-3"]
     assert _paths(report, "quoted")[:2] == ["art-1", "art-2"]
     assert report["closes"]
+
+
+# --- "c) 11 - Dia ...": the number after an alínea marker is its own text ---------
+def test_number_and_dash_after_an_alinea_marker_is_not_an_inciso() -> None:
+    text = (
+        "Art. 3º Ficam incluídas as seguintes datas no Calendário:\n"
+        "I - fevereiro:\n"
+        "a) 01 - Dia da Ratificação pela Convenção;\n"
+        "b) 06 - Dia Internacional de Tolerância Zero;\n"
+        "c) 11 - Dia Internacional de Mulheres e Meninas na Ciência; e\n"
+        "d) 24 - Dia da Conquista do Voto Feminino no Brasil.\n"
+        "II - março:\n"
+        "a) 08 - Dia Internacional das Mulheres.\n"
+        "Art. 4º Esta Lei entra em vigor."
+    )
+    report = read_hierarchy(text)
+    paths = _paths(report)
+    assert "art-3-inc-1-ali-d" in paths
+    assert "art-3-inc-2-ali-a" in paths
+    assert [p for p in paths if p.count("-inc-") and "-ali-" not in p] == [
+        "art-3-inc-1",
+        "art-3-inc-2",
+    ]

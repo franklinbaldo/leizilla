@@ -1191,12 +1191,12 @@
    "n": "40",
    "norm": "leizilla-raw-ro-casacivil-lei-00022",
    "op": "set_device",
-   "reason": "\"Artigo 49 - Esta Lei será regulamentada\" is Artigo 4º (º read as 9); the mark document numbered it 40; the rule reader reads 4 (chain 3, 4, 5).",
+   "reason": "\"Artigo 49 - Esta Lei será regulamentada\" is Artigo 4º (º read as 9); the mark document numbered it 40; the rule reader reads 4 (chain 3, 4, 5); the Sonnet verdict for this norm is unverified (same request as a missed canary), so it is not evidence here.",
    "set": {
     "n": "4"
    },
    "text_sha256": "232d6acff202a8b558708a72748e160219a7c24f7d98747024cb5816fc5317fa",
-   "verified_by": "sonnet-review+eye"
+   "verified_by": "leitura do texto"
   },
   {
    "date": "2026-11-18",
@@ -1211,7 +1211,7 @@
     "n": "5"
    },
    "text_sha256": "232d6acff202a8b558708a72748e160219a7c24f7d98747024cb5816fc5317fa",
-   "verified_by": "sonnet-review+eye"
+   "verified_by": "leitura do texto"
   },
   {
    "date": "2026-11-18",
@@ -1222,9 +1222,9 @@
    "line": 220,
    "norm": "leizilla-raw-ro-casacivil-lei-00022",
    "op": "clear_suspect",
-   "reason": "Suspect settled (Sonnet review residue-review-2026-11 + rule reader + reading): the jump 3, 40, 41 was the OCR ordinal read as a digit; with 4 and 5 the own chain is 1-5, equal to the rule reader's (Sonnet ok).",
+   "reason": "Suspect settled (Sonnet review residue-review-2026-11 + rule reader + reading): the jump 3, 40, 41 was the OCR ordinal read as a digit; with 4 and 5 the own chain is 1-5, equal to the rule reader's.",
    "text_sha256": "232d6acff202a8b558708a72748e160219a7c24f7d98747024cb5816fc5317fa",
-   "verified_by": "sonnet-review+eye"
+   "verified_by": "leitura do texto"
   },
   {
    "date": "2026-11-18",
