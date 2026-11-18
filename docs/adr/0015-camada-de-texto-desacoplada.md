@@ -141,3 +141,64 @@ leitor novo (lei 1698: anexo orçamentário faz a cauda parecer ter um artigo n�
 incerta (lei 529). Nas 15 normas amostradas (semente 3) das que só a hierarquia fecha, 14 estão
 certas e 1 é incerta (lei 1691, "Art. 3º" impresso duas vezes). Custo: mediana 1,1 ms por texto
 (p95 9 ms, máx. 373 ms) contra 0,28 ms do leitor antigo; 6,8 s para os 2086 textos em cache.
+
+## Adendo 2026-11-18 — qual rendição a camada de texto mostra
+
+Contexto. A colheita passou a priorizar as rendições compiladas ("LC68 - COMPILADA.pdf",
+`rendicao.py`, ADR-0010/0011). Uma norma emendada passa a ter dois arquivos no IA (o original
+e o compilado), mas `textos` tem uma linha por `(tipo, numero)` e a regra era "a captura
+mais recente com texto vence": arbitrária, ditada pela ordem da fila. Decisão do dono: **o
+texto de leitura é o da compilada quando existe, o original é o fallback, e as duas rendições
+continuam alcançáveis.**
+
+Regra (`textlayer.order_for_reading`, determinística):
+
+1. Rendição preferida entre as capturas **com `_djvu.txt`**: `compilada` > `original` >
+   `retificado` > `outra` > `revogado`. A compilada é o texto vigente; o original é o ato
+   como publicado; `retificado` e `outra` ("ADI", "REPUB", "SEM EFEITO") são variantes cujo
+   estatuto o nome não revela, então só valem sem original; `revogado` é o carimbo de norma
+   revogada e fica por último, mas ainda é o melhor texto *dessa* norma quando nada melhor
+   existe (o ato revogado continua sendo lei histórica legível).
+2. Empate: captura mais recente (`captured_at`); depois menor `sha256`.
+3. A rendição de uma captura é `index.csv.rendicao` quando preenchida, senão
+   `rendicao_da_url(source)`, senão `original`. (Os ~120 arquivos compilados colhidos antes
+   da coluna ficam com `rendicao` vazia no índice: é o nome em `source` que os classifica,
+   sem escrever no IA.)
+
+Forma (a menor que o schema permite): **uma linha por norma** (`texto_id` inalterado) com duas
+colunas: `rendicao` (agora sempre preenchida, a do arquivo exibido) e `outras_rendicoes`
+(JSON dos outros arquivos: rendição, sha256, data, `pdf_url`, `texto_url`). Descartada a
+alternativa "uma linha por (identidade, rendição) com flag `principal`": quebraria a unicidade
+de `texto_id` de que o portal, o `reocr`, `completeness.legivel`, o catálogo e a skill
+`legislacao-ro` dependem. Com uma só rendição a linha é igual à de antes, mais
+`outras_rendicoes = "[]"` e `rendicao = "original"` onde era vazio.
+
+Consumidores conferidos (sem mudança de código): portal (`SELECT *`; `TextoRow` ganha a coluna
+opcional), `reocr` (as filas leem a linha exibida: re-OCR e aceitação por `sha256_fonte`),
+`completeness.legivel` (chaveia por identidade e sha de origem; o sha da compilada é uma
+captura da norma), catálogo (`catalogo.py` não lê `textos`), skill (lê por `texto_id`), gates de
+`textos` (o contrato de colunas passa a incluir `outras_rendicoes`). Ratchets: o portão por
+nível casa textos por **sha256** contra a revisão fixada e o portão de artigo usa textos em
+cache; nenhum lê `textos` publicado depois, então não mudam.
+
+Sobreposição de re-OCR: `apply_reocr_overlay` e `_own_row` já exigem
+`hit.sha256_fonte == row.sha256_fonte`; com duas rendições isso garante que o re-OCR do
+original nunca vai para o texto compilado, nem o contrário (teste). Se o `_djvu.txt` da
+rendição preferida some durante um derive em refação, a linha anterior é mantida em vez de
+trocar de rendição e voltar depois.
+
+Portal: a página de texto mostra o selo "texto compilado" ou "texto original", e, para a
+compilada, "versão compilada publicada pela Casa Civil, capturada em …" com o aviso de que não
+é consolidação do Leizilla; links para o PDF (e para o texto, quando o IA já derivou) das
+outras rendições.
+
+Limite conhecido: quando o índice agrupa normas `9` e `9A` na mesma identidade `(tipo, numero)`,
+a preferência por rendição vale entre todos os arquivos da identidade (como já valia a "mais
+recente"). Tipos sem `_djvu.txt` da compilada ainda (derive pendente) mostram o original e
+listam a compilada em `outras_rendicoes` com `texto_url` nulo.
+
+Medida do leitor sobre textos compilados (2026-11-18, camada `…t061620z` + `pdftotext` nos PDFs
+sem texto no IA ainda): ver o nó `reader-compiled-texts` do DAG. Em resumo, o nível dos artigos
+fecha em metade dos compilados lidos pelo IA (15 de 30), contra 96,6% dos demais; a causa
+dominante é o mesmo número de artigo impresso duas vezes (redação antiga e redação dada).
+

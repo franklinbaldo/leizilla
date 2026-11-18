@@ -111,6 +111,59 @@ describe('TextoPage com texto_url nulo', () => {
   });
 });
 
+describe('TextoPage com mais de uma rendição (ADR-0015, adendo 2026-11-18)', () => {
+  const OUTRA = JSON.stringify([
+    {
+      rendicao: 'original',
+      sha256: 'b'.repeat(64),
+      capturado_em: '2026-06-01T00:00:00Z',
+      pdf_url: 'https://archive.org/download/x/orig.pdf',
+      texto_url: 'https://archive.org/download/x/orig_djvu.txt',
+    },
+  ]);
+
+  it('mostra o texto compilado como versão publicada pela Casa Civil, com a data, e liga ao original', async () => {
+    vi.mocked(db.getTexto).mockResolvedValue(
+      makeRow({ rendicao: 'compilada', ocr_motor: 'tesseract', outras_rendicoes: OUTRA }),
+    );
+    await render({ textoId: ID, embedded: true });
+
+    const aviso = (target.querySelector('.aviso')?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(target.querySelector('.selo-rendicao')?.textContent).toBe('texto compilado');
+    expect(aviso).toContain('versão compilada publicada pela Casa Civil');
+    expect(aviso).toContain('capturada em');
+    expect(aviso).toContain('Não é uma consolidação feita ou conferida pelo Leizilla');
+    const outras = target.querySelector('[data-testid="outras-rendicoes"]');
+    expect(outras?.textContent).toContain('PDF do texto original');
+    expect(outras?.querySelector('a[href$="orig.pdf"]')).not.toBeNull();
+    expect(outras?.querySelector('a[href$="orig_djvu.txt"]')).not.toBeNull();
+  });
+
+  it('norma só com o original: rótulo "texto original" e nenhum link extra', async () => {
+    vi.mocked(db.getTexto).mockResolvedValue(makeRow({ rendicao: 'original', ocr_motor: 'tesseract' }));
+    await render({ textoId: ID, embedded: true });
+
+    expect(target.querySelector('.selo-rendicao')?.textContent).toBe('texto original');
+    expect(target.textContent).not.toContain('versão compilada');
+    expect(target.querySelector('[data-testid="outras-rendicoes"]')).toBeNull();
+  });
+
+  it('linha de textos.parquet antigo (sem rendicao nem outras_rendicoes) segue como original', async () => {
+    vi.mocked(db.getTexto).mockResolvedValue(makeRow({ rendicao: null, ocr_motor: 'tesseract' }));
+    await render({ textoId: ID, embedded: true });
+
+    expect(target.querySelector('.selo-rendicao')?.textContent).toBe('texto original');
+  });
+
+  it('JSON malformado em outras_rendicoes não quebra a página', async () => {
+    vi.mocked(db.getTexto).mockResolvedValue(makeRow({ outras_rendicoes: '{nope' }));
+    await render({ textoId: ID, embedded: true });
+
+    expect(target.querySelector('[data-testid="outras-rendicoes"]')).toBeNull();
+    expect(target.querySelector('.texto-ocr')).not.toBeNull();
+  });
+});
+
 describe('TextoPage sem linha na camada de texto', () => {
   it('embutida, diz que o texto ainda não foi publicado', async () => {
     vi.mocked(db.getTexto).mockResolvedValue(null);

@@ -638,6 +638,8 @@ export interface TextoRow {
   tipo: string;
   numero: number;
   rendicao: string | null;
+  /** JSON dos outros arquivos da norma; ausente em `textos.parquet` anteriores a 2026-11-18. */
+  outras_rendicoes?: string | null;
   qualidade: string;
   sha256_fonte: string;
   capturado_em: string | null;

@@ -504,7 +504,8 @@ Contrato em código: `leizilla.textlayer.TEXTOS_SCHEMA`.
 | `texto_id` | VARCHAR | `leizilla-raw-{ente}-{fonte}-{tipo}-{numero:05d}` (§5.1) — único |
 | `ente`, `fonte`, `tipo` | VARCHAR | identidade raw (ADR-0011); `tipo` é o da fonte (`lei`, `lc`, `decreto`, …) |
 | `numero` | INTEGER | número da norma na fonte |
-| `rendicao` | VARCHAR | rendição da captura no `index.csv` (`original`, `compilada`, `atual` ou vazio) |
+| `rendicao` | VARCHAR | rendição do arquivo de origem do `texto`: `index.csv.rendicao` quando preenchida, senão a derivada do nome em `index.csv.source` (`rendicao_da_url`), senão `original`. Valores: `compilada`, `original`, `retificado`, `outra`, `revogado`. Releases anteriores a 2026-11-18 traziam vazio para originais |
+| `outras_rendicoes` | VARCHAR | JSON `[{"rendicao", "sha256", "capturado_em", "pdf_url", "texto_url"}]` com os **outros** arquivos da norma (bytes distintos do de `sha256_fonte`) cujo PDF está no item, em ordem de leitura; `texto_url` é NULL enquanto o IA não derivou aquele arquivo. `[]` quando a norma tem uma só rendição; NULL em releases anteriores à coluna. Não há texto das outras rendições na tabela |
 | `qualidade` | VARCHAR | sempre `texto-nao-estruturado` |
 | `sha256_fonte` | VARCHAR | SHA-256 do arquivo de origem (PDF), do `index.csv` — identifica a captura |
 | `capturado_em` | VARCHAR | ISO-8601 da captura do arquivo de origem |
@@ -538,7 +539,7 @@ Regras:
   artigo não lido, sem bloco citado aberto, sem encerramento ambíguo). **Não garante** o
   texto: não certifica a redação dos artigos, o OCR das palavras, nem a ausência de artigos
   perdidos que o leitor não consiga ver.
-- Havendo várias capturas da mesma norma, entra a mais recente que já tem `_djvu.txt`.
+- Havendo várias capturas da mesma norma, entra a de **rendição preferida** entre as que já têm `_djvu.txt`: `compilada` > `original` > `retificado` > `outra` > `revogado`; empate: a mais recente, depois o menor `sha256` (`textlayer.order_for_reading`; ADR-0015, adendo 2026-11-18). Uma linha anterior cuja rendição preferida perdeu o `_djvu.txt` só por um derive em refação não troca de rendição (mesma regra do texto mantido). O texto compilado é o publicado pela fonte (Casa Civil), **não** uma consolidação do Leizilla.
 - Exceção (ADR-0019, fila `sem-texto`): uma norma preservada que o IA ainda não derivou entra com o texto do re-OCR próprio aceito (`texto_url` e `sha1_texto_ia` NULL, `ocr_motor` do re-OCR). Quando o IA passa a ter o `_djvu.txt`, vale o do IA, salvo se o leitor fecha os artigos só no texto próprio.
 - Consumidores não podem supor `texto_url` nem `sha1_texto_ia` preenchidos.
 - Não há ano nem data do ato: a identidade raw não os carrega.

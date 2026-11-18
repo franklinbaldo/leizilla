@@ -275,16 +275,13 @@ def test_rendition_reaches_the_index_csv_and_original_bytes_stay_apart() -> None
     assert "rendicao" in INDEX_COLUMNS
 
 
-def test_text_layer_today_prefers_the_most_recent_capture_whatever_its_rendition() -> (
-    None
-):
-    """Caracteriza (não muda) a seleção da camada de texto.
+def test_capture_listing_is_newest_first_whatever_the_rendition() -> None:
+    """``captures_by_identity`` continua ordenando por data (não por rendição).
 
-    ``captures_by_identity`` ordena por ``captured_at`` decrescente e a camada usa a
-    primeira captura com ``_djvu.txt``: uma compilada capturada depois do original
-    passa à frente dele. Com a coluna ``rendicao`` agora gravada pela colheita, a
-    escolha entre as duas deixa de ser cega — ver a recomendação em
-    ``docs/okf/project-dag.md`` (folha das rendições não originais).
+    A escolha da rendição de leitura saiu daqui: ``textlayer.order_for_reading``
+    (compilada > original > …, ADR-0015 adendo 2026-11-18; testes em
+    ``tests/test_textos_rendicao.py``) reordena as capturas antes de escolher o texto.
+    Esta lista é só a entrada dessa escolha: mais recente primeiro.
     """
     from leizilla.textlayer import captures_by_identity
 
