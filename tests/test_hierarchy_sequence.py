@@ -2580,3 +2580,68 @@ def test_the_marked_document_of_a_compiled_act_keeps_every_printing() -> None:
     current = [r["path"] for r in rows if r["estado"] != "superado"]
     assert current == ["art-1", "art-1-par-1", "art-1-par-2", "art-2", "art-3"]
     assert xml.count('<ref rel="redacao">') == 4
+
+
+def test_a_caput_left_as_it_was_still_has_versions_when_its_incisos_carry_the_note() -> (
+    None
+):
+    text = (
+        "Art. 1º Um.\n"
+        "Art. 2º São cargos, além dos ordenadores:\n"
+        "Art. 2º São cargos:\n"
+        "I - alfa;\n"
+        "II - beta; (Redação dada pela Lei n. 8, de 1/1/2010)\n"
+        "Art. 3º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    report = read_hierarchy(text)
+    assert report["levels"]["artigo"]["closes"]
+    assert [n["number"] for n in report["nodes"] if n["status"] == "superseded"] == [2]
+
+
+def test_a_doubled_marker_does_not_hide_the_first_printing() -> None:
+    text = (
+        "Art. 1º Um.\n"
+        "Art. Art. 2° Dois.\n"
+        "Art. 2° Dois, de outro modo. (Redação dada pela Lei n. 8, de 1/1/2010)\n"
+        "Art. 3º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    report = read_hierarchy(text)
+    assert report["levels"]["artigo"]["closes"]
+    assert len([n for n in report["nodes"] if n["status"] == "superseded"]) == 1
+
+
+def test_an_inserted_article_with_a_capital_a_grave_opens_its_caput() -> None:
+    text = (
+        "Art. 1º. Um.\n"
+        "Art. 1-A À Superintendência compete:\n"
+        "Art. 2º. Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    nodes = [n for n in read_hierarchy(text)["nodes"] if n["kind"] == "artigo"]
+    assert [(n["number"], n["suffix"]) for n in nodes] == [
+        (1, None),
+        (1, "A"),
+        (2, None),
+    ]
+
+
+def test_an_act_appended_after_the_signature_of_a_compiled_act_is_not_unread() -> None:
+    body = (
+        "LEI N. 10, DE 1 DE JANEIRO DE 2000.\n"
+        "Alterações:\n"
+        "Alterada pela Lei n. 20, de 2/2/2005.\n"
+        "Dispõe sobre o fundo.\n"
+        "Faço saber que a Assembleia decreta e eu sanciono a seguinte Lei:\n"
+        "Art. 1º Fica criado o fundo.\n"
+        "Art. 2º Esta Lei entra em vigor na data de sua publicação.\n"
+        "Palácio do Governo, em 1 de janeiro de 2000.\n"
+        "FULANO\nGovernador\n"
+    )
+    appended = (
+        "LEI N. 20, DE 2 DE FEVEREIRO DE 2005.\n"
+        "Faço saber que a Assembleia decreta e eu sanciono a seguinte Lei:\n"
+        "Art. 1º Altera a Lei n. 10.\n"
+        "Art. 2º Esta Lei entra em vigor na data de sua publicação.\n"
+    )
+    assert read_hierarchy(body + appended)["levels"]["artigo"]["closes"]
+    plain = body.replace("Alterações:\n", "") + appended  # not a compiled act
+    assert not read_hierarchy(plain)["levels"]["artigo"]["closes"]

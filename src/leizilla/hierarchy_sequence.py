@@ -2069,6 +2069,36 @@ def _quote_under_amending_host(text: str, articles: list[ArticleRead]) -> None:
                 art["status"] = "quoted"
 
 
+_COMPILED_HEADER = re.compile(r"(?m)^[ \t]*Altera[cç][oõ]es:[ \t]*$", re.IGNORECASE)
+_APPENDED_ACT = re.compile(
+    r"Faço\s+saber\s+que|\bDECRETA\s*:|\bDECRETAM?\s*:\s*\n", re.IGNORECASE
+)
+
+
+def _appended_acts(text: str, articles: list[ArticleRead], body_end: int) -> None:
+    """Article markers of an act appended after the norm's own body.
+
+    A compiled act may carry, after the signature, the full text of the amending acts:
+    a new enacting formula ("Faço saber que ...") and "Art. 1°" again. Those articles
+    are another act's, not unread articles of this one.
+    """
+    if not _COMPILED_HEADER.search(text, 0, 2500):
+        return
+    start = next(
+        (m.start() for m in _APPENDED_ACT.finditer(text, body_end)),
+        None,
+    )
+    if start is None:
+        return
+    for art in articles:
+        if (
+            art["status"] == "unexplained"
+            and art["start"] > start
+            and _opens_line(text, art["start"])
+        ):
+            art["status"] = "quoted"
+
+
 def _cited_in_annex(text: str, articles: list[ArticleRead], body_end: int) -> None:
     """A marker inside a line of an annex heading or table, after the body's end.
 
@@ -2126,9 +2156,19 @@ def _quote_before_duplicate(
     return out
 
 
-def _version_articles(
-    text: str, articles: list[ArticleRead], builder: "_Builder"
-) -> None:
+_DOUBLED_ART = re.compile(r"[ \t]*(?:Art|Artigo)\.?[ \t]*\Z", re.IGNORECASE)
+
+
+def _opens_marker(text: str, pos: int) -> bool:
+    """True when ``pos`` opens its line, or follows a lone "Art." that did (a doubled
+    marker: "Art. Art. 1°")."""
+    before = text[text.rfind("\n", 0, pos) + 1 : pos]
+    if not before.strip():
+        return True
+    return _DOUBLED_ART.fullmatch(before) is not None
+
+
+def _version_articles(text: str, articles: list[ArticleRead]) -> None:
     """Older printed versions of an article in a compiled act.
 
     The compiled act prints the superseded wording of an article and then the new one,
@@ -2150,7 +2190,7 @@ def _version_articles(
     i = 0
     while i < len(keyed):
         a, n, suffix = keyed[i]
-        if a["status"] != "own" or n is None or not _opens_line(text, a["start"]):
+        if a["status"] != "own" or n is None or not _opens_marker(text, a["start"]):
             i += 1
             continue
         j = i + 1
@@ -2159,7 +2199,7 @@ def _version_articles(
             and keyed[j][0]["status"] == "unexplained"
             and keyed[j][1] == n
             and keyed[j][2] == suffix
-            and _opens_line(text, keyed[j][0]["start"])
+            and _opens_marker(text, keyed[j][0]["start"])
         ):
             j += 1
         if j - i >= 2:
@@ -2170,9 +2210,9 @@ def _version_articles(
                     if k + 1 < len(keyed)
                     else find_body_end(text, start)
                 )
-                if _VERSION_CUE.search(
-                    text, start, builder.own_text_end(0, start, limit)
-                ):
+                # The note is on the article or, when the compiler left the caput as it
+                # was, on the amended incisos and paragraphs below it.
+                if _VERSION_CUE.search(text, start, limit):
                     for m in range(i, j - 1):
                         keyed[m][0]["status"] = "superseded"
                         keyed[m][0]["number"] = n
@@ -2611,10 +2651,11 @@ def read_hierarchy(text: str) -> HierarchyReport:
             }
         )
 
-    _version_articles(text, all_articles, builder)
+    _version_articles(text, all_articles)
     _quote_under_amending_host(text, all_articles)
     _quote_caput_citations(text, all_articles)
     _cited_in_annex(text, all_articles, body_end)
+    _appended_acts(text, all_articles, body_end)
     _before_enacting(all_articles)
     spans = _quote_before_duplicate(text, all_articles, spans)
     masked = sorted(
