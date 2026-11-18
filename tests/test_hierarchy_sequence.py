@@ -2335,3 +2335,31 @@ def test_implicit_single_article_marked_document_and_anchors() -> None:
     assert closes and last == 1
     start = text.index("Conceder")
     assert anchors == [{"n": 1, "sufixo": None, "ini": start, "fim": start + 8}]
+
+
+# --- a quoted block closed by a mark next to the full stop, before the host resumes ---
+def test_quoted_block_closes_at_a_mark_followed_by_a_full_stop() -> None:
+    # "1º" printed as "10", a block opened by a straight apostrophe, closed by '".':
+    # the host's chain resumes with the Art. 2º after it (Lei 432/1992 style). The
+    # block swallows more articles than a "short run", so only the host's number
+    # (read by the chain, not the printed "10") and the resuming marker place its end.
+    quoted = "".join(
+        f"Art. {n}º - Dispõe sobre o assunto número {n} do Instituto.\n"
+        for n in range(3, 10)
+    )
+    text = (
+        "Art. 10 - A Lei nº 132 passa a vigorar conforme segue:\n"
+        "'Art. 1º - Fica criado o Instituto de Pesos e Medidas.\n"
+        + quoted
+        + 'Art. 10 - O Poder Executivo regulamentará a presente Lei".\n'
+        "Art. 2º - Ficam revogados os artigos 7º e 8º da Lei nº 132.\n"
+        "Art. 3º - Esta Lei entra em vigor na data de sua publicação.\n"
+        "Art. 4º - Revogam-se as disposições em contrário."
+    )
+    report = read_hierarchy(text)
+    assert _paths(report) == ["art-1", "art-2", "art-3", "art-4"]
+    assert _paths(report, "quoted") == [
+        "art-1",
+        *[f"art-{n}" for n in range(3, 11)],
+    ]
+    assert report["closes"]

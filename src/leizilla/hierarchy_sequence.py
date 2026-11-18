@@ -798,14 +798,19 @@ def _resume_after_quote(
     """
     for m in ARTICLE_CANDIDATE.finditer(text, limit, body_end):
         before = text[: m.start()].rstrip()
-        if not before or not _QUOTE_CHAR.match(before[-1]):
+        # The closing mark may be followed by the sentence's full stop (``."`` and
+        # ``".`` both occur in the OCR text).
+        mark = len(before) - 1
+        if before.endswith(".") and mark > 0 and _QUOTE_CHAR.match(before[mark - 1]):
+            mark -= 1
+        if mark < 0 or not _QUOTE_CHAR.match(before[mark]):
             continue
-        if not _is_closing(text, len(before) - 1):
+        if not _is_closing(text, mark):
             continue
         if _article_reading(text, m.start()) != host_number + 1:
             return None
         rest = len(list(ARTICLE_CANDIDATE.finditer(text, m.end(), body_end)))
-        return len(before) if rest <= 2 else None
+        return mark + 1 if rest <= 2 else None
     return None
 
 
@@ -859,7 +864,10 @@ def _extended_close(
 
 
 def find_quoted_blocks(
-    text: str, own_starts: Sequence[int], body_end: int
+    text: str,
+    own_starts: Sequence[int],
+    body_end: int,
+    own_numbers: Sequence[int | None] | None = None,
 ) -> list[tuple[int, int, str, bool]]:
     """Locate text quoted from another norm: ``(start, end, opened_by, closed)``.
 
@@ -933,7 +941,8 @@ def find_quoted_blocks(
                 limit,
                 body_end,
                 own_starts[idx:],
-                _article_reading(text, host_start),
+                (own_numbers[idx - 1] if own_numbers else None)
+                or _article_reading(text, host_start),
             )
             if ext is not None:
                 end, closed = ext, True
@@ -2348,7 +2357,8 @@ def read_hierarchy(text: str) -> HierarchyReport:
         body_end = implicit[1]
     else:
         body_end = find_body_end(text, bounds[-1]) if bounds else len(text)
-    spans = find_quoted_blocks(text, bounds, body_end)
+    numbers = [a["number"] for a in first["articles"] if a["status"] == "own"]
+    spans = find_quoted_blocks(text, bounds, body_end, numbers)
     masked = [(s, e) for s, e, _, _ in spans]
     masked += [h for h in heads if not any(s <= h[0] < e for s, e in masked)]
     masked.sort()
